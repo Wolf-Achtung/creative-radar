@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import Asset, Channel, Post, ReviewStatus, Title
 from app.schemas.dto import AssetReviewUpdate
+from app.services.visual_analysis import analyze_asset_visual
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
@@ -14,6 +15,8 @@ def _asset_card(asset: Asset, post: Post | None, channel: Channel | None, title:
         "post_id": asset.post_id,
         "title_id": asset.title_id,
         "title_name": title.title_original if title else None,
+        "title_local": title.title_local if title else None,
+        "franchise": title.franchise if title else None,
         "is_discovery": title is None,
         "asset_type": asset.asset_type,
         "language": asset.language,
@@ -29,6 +32,18 @@ def _asset_card(asset: Asset, post: Post | None, channel: Channel | None, title:
         "include_in_report": asset.include_in_report,
         "is_highlight": asset.is_highlight,
         "created_at": asset.created_at,
+        "visual_analysis_status": asset.visual_analysis_status,
+        "visual_source_url": asset.visual_source_url,
+        "visual_notes": asset.visual_notes,
+        "placement_title_text": asset.placement_title_text,
+        "placement_position": asset.placement_position,
+        "placement_strength": asset.placement_strength,
+        "has_title_placement": asset.has_title_placement,
+        "has_kinetic": asset.has_kinetic,
+        "kinetic_type": asset.kinetic_type,
+        "kinetic_text": asset.kinetic_text,
+        "de_us_match_key": asset.de_us_match_key,
+        "visual_confidence_score": asset.visual_confidence_score,
         "post_url": post.post_url if post else None,
         "caption": post.caption if post else None,
         "published_at": post.published_at if post else None,
@@ -45,19 +60,20 @@ def _asset_card(asset: Asset, post: Post | None, channel: Channel | None, title:
     }
 
 
+def _card_for(session: Session, asset: Asset) -> dict:
+    post = session.get(Post, asset.post_id)
+    channel = session.get(Channel, post.channel_id) if post else None
+    title = session.get(Title, asset.title_id) if asset.title_id else None
+    return _asset_card(asset, post, channel, title)
+
+
 @router.get("")
 def list_assets(review_status: ReviewStatus | None = None, session: Session = Depends(get_session)):
     statement = select(Asset).order_by(Asset.created_at.desc())
     if review_status is not None:
         statement = statement.where(Asset.review_status == review_status)
     assets = session.exec(statement).all()
-    cards = []
-    for asset in assets:
-        post = session.get(Post, asset.post_id)
-        channel = session.get(Channel, post.channel_id) if post else None
-        title = session.get(Title, asset.title_id) if asset.title_id else None
-        cards.append(_asset_card(asset, post, channel, title))
-    return cards
+    return [_card_for(session, asset) for asset in assets]
 
 
 @router.get("/{asset_id}")
@@ -65,10 +81,7 @@ def get_asset(asset_id: UUID, session: Session = Depends(get_session)):
     asset = session.get(Asset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    post = session.get(Post, asset.post_id)
-    channel = session.get(Channel, post.channel_id) if post else None
-    title = session.get(Title, asset.title_id) if asset.title_id else None
-    return _asset_card(asset, post, channel, title)
+    return _card_for(session, asset)
 
 
 @router.patch("/{asset_id}/review")
@@ -83,7 +96,23 @@ def update_asset_review(asset_id: UUID, payload: AssetReviewUpdate, session: Ses
     session.add(asset)
     session.commit()
     session.refresh(asset)
-    post = session.get(Post, asset.post_id)
-    channel = session.get(Channel, post.channel_id) if post else None
-    title = session.get(Title, asset.title_id) if asset.title_id else None
-    return _asset_card(asset, post, channel, title)
+    return _card_for(session, asset)
+
+
+@router.post("/{asset_id}/analyze-visual")
+def analyze_visual(asset_id: UUID, session: Session = Depends(get_session)):
+    asset = session.get(Asset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    asset = analyze_asset_visual(session, asset)
+    return _card_for(session, asset)
+
+
+@router.post("/analyze-visual-batch")
+def analyze_visual_batch(limit: int = 10, session: Session = Depends(get_session)):
+    statement = select(Asset).where(Asset.visual_analysis_status.in_(["pending", "error"])).order_by(Asset.created_at.desc()).limit(max(1, min(limit, 50)))
+    assets = session.exec(statement).all()
+    updated = []
+    for asset in assets:
+        updated.append(_card_for(session, analyze_asset_visual(session, asset)))
+    return {"updated": len(updated), "assets": updated}
