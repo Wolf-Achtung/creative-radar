@@ -68,6 +68,13 @@ class AnalyzeInstagramLinkRequest(BaseModel):
     asset_type_hint: AssetType = AssetType.UNKNOWN
 
 
+class ApifyMonitorRequest(BaseModel):
+    channel_ids: list[UUID] = []
+    max_channels: int = 5
+    results_limit_per_channel: int = 5
+    only_whitelist_matches: bool = True
+
+
 class AssetReviewUpdate(BaseModel):
     review_status: ReviewStatus
     include_in_report: bool = False
