@@ -5,6 +5,13 @@ class Settings(BaseSettings):
     app_env: str = "production"
     app_name: str = "creative-radar"
     database_url: str = "sqlite:///./creative_radar.db"
+
+    pghost: str | None = None
+    pgport: str | None = None
+    pguser: str | None = None
+    pgpassword: str | None = None
+    pgdatabase: str | None = None
+
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
     perplexity_api_key: str | None = None
