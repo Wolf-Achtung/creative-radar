@@ -32,13 +32,14 @@ function clip(text, max = 340) {
   return text.length > max ? `${text.slice(0, max).trim()} …` : text;
 }
 
-function AssetCard({ asset, busy, onReview }) {
+function AssetCard({ asset, busy, onReview, onAnalyzeVisual }) {
   const preview = asset.thumbnail_url || asset.screenshot_url;
   const channel = asset.channel_name || 'Unbekannter Channel';
   const market = asset.channel_market || 'UNKNOWN';
-  const title = asset.title_name || 'Discovery · kein Whitelist-Match';
+  const title = asset.title_name || asset.placement_title_text || 'Discovery · kein Whitelist-Match';
   const isDiscovery = asset.is_discovery || !asset.title_name;
   const date = formatDate(asset.published_at || asset.detected_at || asset.created_at);
+  const visualStatus = asset.visual_analysis_status || 'pending';
 
   return (
     <article className="asset-card">
@@ -49,22 +50,38 @@ function AssetCard({ asset, busy, onReview }) {
           <span className="pill">{asset.asset_type || 'Unknown'}</span>
           <span className={`pill status-${asset.review_status}`}>{asset.review_status}</span>
           {isDiscovery && <span className="pill discovery">Discovery</span>}
+          <span className={`pill visual-${visualStatus}`}>Visual: {visualStatus}</span>
+          {asset.has_title_placement && <span className="pill placement">Titel-Placement</span>}
+          {asset.has_kinetic && <span className="pill kinetic">Kinetic</span>}
         </div>
         <div className="asset-meta">
           {channel} · {market} · {asset.media_type || 'Instagram'} · {date}
-          {asset.confidence_score !== null && asset.confidence_score !== undefined ? ` · Confidence ${Math.round(asset.confidence_score * 100)}%` : ''}
+          {asset.confidence_score !== null && asset.confidence_score !== undefined ? ` · Text ${Math.round(asset.confidence_score * 100)}%` : ''}
+          {asset.visual_confidence_score !== null && asset.visual_confidence_score !== undefined ? ` · Visual ${Math.round(asset.visual_confidence_score * 100)}%` : ''}
         </div>
         <p className="asset-summary">{clip(asset.ai_summary_de || 'Keine KI-Zusammenfassung vorhanden.', 420)}</p>
         {asset.ai_trend_notes && <p className="asset-trend">{clip(asset.ai_trend_notes, 300)}</p>}
+        {(asset.placement_title_text || asset.placement_position || asset.placement_strength || asset.kinetic_type) && (
+          <div className="visual-facts">
+            {asset.placement_title_text && <span>Placement: {asset.placement_title_text}</span>}
+            {asset.placement_position && <span>Position: {asset.placement_position}</span>}
+            {asset.placement_strength && <span>Stärke: {asset.placement_strength}</span>}
+            {asset.kinetic_type && <span>Kinetic: {asset.kinetic_type}</span>}
+          </div>
+        )}
         <div className="asset-links">
           {asset.post_url && <a href={asset.post_url} target="_blank" rel="noreferrer">Original öffnen</a>}
           {asset.caption && <details><summary>Caption / Details</summary><p>{asset.caption}</p>{asset.ai_summary_en && <p>{asset.ai_summary_en}</p>}</details>}
+          {(asset.ocr_text || asset.visual_notes || asset.kinetic_text) && (
+            <details><summary>Visual/OCR</summary>{asset.ocr_text && <p><strong>OCR:</strong> {asset.ocr_text}</p>}{asset.visual_notes && <p><strong>Visual:</strong> {asset.visual_notes}</p>}{asset.kinetic_text && <p><strong>Kinetic-Text:</strong> {asset.kinetic_text}</p>}</details>
+          )}
         </div>
       </div>
       <div className="asset-actions">
         <button onClick={() => onReview(asset, 'approved')} disabled={busy}>Approve</button>
         <button onClick={() => onReview(asset, 'highlight')} disabled={busy}>Highlight</button>
         <button onClick={() => onReview(asset, 'needs_review')} disabled={busy}>Später prüfen</button>
+        <button onClick={() => onAnalyzeVisual(asset)} disabled={busy}>Visual prüfen</button>
         <button onClick={() => onReview(asset, 'rejected')} disabled={busy}>Reject</button>
       </div>
     </article>
@@ -87,20 +104,22 @@ function InsightsPanel({ insights }) {
   const topAssets = insights.top_assets_total || [];
   const channels = insights.channel_rankings || [];
   const deUs = insights.de_us_comparison || [];
+  const placements = insights.placement_comparison || [];
   const recommendations = insights.recommendations || [];
 
   return (
     <div className="insights-grid">
       <div className="metric-card"><strong>{insights.total_assets || 0}</strong><span>Assets dokumentiert</span></div>
-      <div className="metric-card"><strong>{insights.discovery_assets || 0}</strong><span>Discovery-Treffer</span></div>
-      <div className="metric-card"><strong>{insights.missing_previews || 0}</strong><span>ohne Preview/Screenshot</span></div>
-      <div className="metric-card"><strong>{Object.keys(insights.type_breakdown || {}).length}</strong><span>Asset-Typen erkannt</span></div>
+      <div className="metric-card"><strong>{insights.title_placements || 0}</strong><span>Titel-Placements</span></div>
+      <div className="metric-card"><strong>{insights.kinetic_assets || 0}</strong><span>Kinetics erkannt</span></div>
+      <div className="metric-card"><strong>{insights.visual_analyzed || 0}</strong><span>Visual/OCR geprüft</span></div>
 
       <div className="insight-wide">
         <h3>Briefing-Abgleich</h3>
         <div className="briefing-checks">
           <span className={insights.missing_previews === 0 ? 'check good' : 'check warn'}>Screenshots/Previews: {insights.missing_previews === 0 ? 'ok' : `${insights.missing_previews} fehlen`}</span>
-          <span className={(deUs.length > 0) ? 'check good' : 'check warn'}>DE/US-Vergleich: {deUs.length > 0 ? 'möglich' : 'Whitelist-Zuordnung fehlt'}</span>
+          <span className={(placements.length > 0) ? 'check good' : 'check warn'}>DE/US Placement: {placements.length > 0 ? 'vorbereitet' : 'Zuordnung fehlt'}</span>
+          <span className={(insights.kinetic_assets > 0) ? 'check good' : 'check warn'}>Kinetics: {insights.kinetic_assets || 0} erkannt</span>
           <span className={(topAssets.length > 0) ? 'check good' : 'check warn'}>Ranking: {topAssets.length > 0 ? 'vorläufig verfügbar' : 'noch leer'}</span>
           <span className="check warn">Weekly Report: manuell erzeugbar, Automatik Donnerstag folgt</span>
         </div>
@@ -114,13 +133,21 @@ function InsightsPanel({ insights }) {
         { key: 'score', label: 'Score' },
       ]} />
 
+      <MiniTable title="Visual Placement-Vergleich" rows={placements.slice(0, 6)} columns={[
+        { key: 'match_key', label: 'Titel-Key' },
+        { key: 'de_count', label: 'DE' },
+        { key: 'us_count', label: 'US' },
+        { key: 'int_count', label: 'INT' },
+        { key: 'gap', label: 'Gap' },
+      ]} emptyText="Noch kein Placement-Vergleich möglich. Erst Visual/OCR prüfen und Titel zuordnen." />
+
       <MiniTable title="Channel-Ranking" rows={channels.slice(0, 6)} columns={[
         { key: 'channel', label: 'Channel' },
         { key: 'count', label: 'Assets' },
         { key: 'top_assets', label: 'Top-Treffer', render: row => row.top_assets?.[0]?.title || '—' },
       ]} />
 
-      <MiniTable title="DE/US Placement-Vergleich" rows={deUs.slice(0, 6)} columns={[
+      <MiniTable title="DE/US Whitelist-Vergleich" rows={deUs.slice(0, 6)} columns={[
         { key: 'title', label: 'Titel/Franchise' },
         { key: 'de_count', label: 'DE' },
         { key: 'us_count', label: 'US' },
@@ -167,7 +194,7 @@ function App() {
       if (filters.discovery === 'discovery' && !isDiscovery) return false;
       if (filters.discovery === 'whitelist' && isDiscovery) return false;
       if (!query) return true;
-      return [asset.title_name, asset.channel_name, asset.asset_type, asset.ai_summary_de, asset.ai_trend_notes, asset.caption]
+      return [asset.title_name, asset.placement_title_text, asset.channel_name, asset.asset_type, asset.ai_summary_de, asset.ai_trend_notes, asset.caption, asset.ocr_text, asset.kinetic_text]
         .filter(Boolean).join(' ').toLowerCase().includes(query);
     });
   }, [assets, filters]);
@@ -212,6 +239,22 @@ function App() {
       });
       await load();
       setMessage(`Apify-Monitoring abgeschlossen: ${result.channels_checked} Channels geprüft, ${result.raw_items} Roh-Treffer, ${result.created_assets} neue Assets, ${result.skipped_no_whitelist_match} ohne Whitelist-Treffer übersprungen.`);
+    });
+  }
+
+  async function analyzeVisualBatch() {
+    await run(async () => {
+      const result = await endpoints.analyzeVisualBatch(10);
+      await load();
+      setMessage(`Visual/OCR-Analyse abgeschlossen: ${result.updated} Assets aktualisiert.`);
+    });
+  }
+
+  async function analyzeAssetVisual(asset) {
+    await run(async () => {
+      await endpoints.analyzeAssetVisual(asset.id);
+      await load();
+      setMessage('Visual/OCR-Analyse für Asset aktualisiert.');
     });
   }
 
@@ -266,7 +309,7 @@ function App() {
         <Section title="Report-Zentrale"><p>{approved.length} Assets sind reportfähig.</p><button onClick={generateReport} disabled={busy || approved.length === 0}>Report-Entwurf erzeugen</button>{approved.length === 0 && <p className="muted">Erst mindestens ein Asset approven oder highlighten.</p>}<p className="muted small">Zielzustand: automatischer Donnerstag-Report nach Review-Freigabe.</p></Section>
       </div>
 
-      <Section title="Creative Radar Auswertung" kicker="Briefing-Zentrale"><InsightsPanel insights={insights} /></Section>
+      <Section title="Creative Radar Auswertung" kicker="Briefing-Zentrale"><InsightsPanel insights={insights} /><div className="section-actions"><button onClick={analyzeVisualBatch} disabled={busy || assets.length === 0}>Visual/OCR für 10 Assets prüfen</button></div></Section>
 
       <Section title="Kanalliste importieren" kicker="Einmaliger Setup-Schritt"><form className="form-grid" onSubmit={importChannelFile}><label className="wide">Excel-Datei mit FILMVERLEIH / INSTAGRAM<input type="file" accept=".xlsx,.xlsm" onChange={(event) => setChannelFile(event.target.files?.[0] || null)} /></label><div className="wide"><button type="submit" disabled={busy || !channelFile}>Excel-Kanalliste importieren</button></div></form><p className="muted small">Die Excel-Datei muss nur erneut importiert werden, wenn sich die Kanalliste geändert hat.</p></Section>
 
@@ -277,9 +320,9 @@ function App() {
       <Section title="Manueller Treffer-Import" kicker="Fallback für Sonderfälle"><form className="form-grid" onSubmit={importPost}><label>Channel<select value={form.channel_id} onChange={e => setForm({ ...form, channel_id: e.target.value })} required><option value="">Bitte wählen</option>{sortedChannels.map(channel => <option key={channel.id} value={channel.id}>{channel.market} · {channel.name}</option>)}</select></label><label>Titel / Franchise<select value={form.title_id} onChange={e => setForm({ ...form, title_id: e.target.value })}><option value="">Automatisch über Caption matchen</option>{sortedTitles.map(title => <option key={title.id} value={title.id}>{title.title_original}</option>)}</select></label><label className="wide">Instagram-Post-Link<input value={form.post_url} onChange={e => setForm({ ...form, post_url: e.target.value })} placeholder="https://www.instagram.com/p/..." required /></label><label>Asset-Typ<select value={form.asset_type} onChange={e => setForm({ ...form, asset_type: e.target.value })}>{ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select></label><label>Media Type<input value={form.media_type} onChange={e => setForm({ ...form, media_type: e.target.value })} placeholder="reel / post / story" /></label><label className="wide">Screenshot-URL optional<input value={form.screenshot_url} onChange={e => setForm({ ...form, screenshot_url: e.target.value })} placeholder="Interner Screenshot-Link oder leer lassen" /></label><label className="wide">Caption<textarea value={form.caption} onChange={e => setForm({ ...form, caption: e.target.value })} placeholder="Caption oder kurzer Text aus dem Post" rows="4" /></label><label className="wide">Sichtbarer Text / OCR optional<textarea value={form.ocr_text} onChange={e => setForm({ ...form, ocr_text: e.target.value })} placeholder="Sichtbarer Titel, Claim, CTA etc." rows="3" /></label><div className="wide"><button type="submit" disabled={busy || !form.channel_id || !form.post_url}>Treffer importieren</button></div></form></Section>
 
       <Section title="Asset Review" kicker={`${visibleAssets.length} von ${assets.length} sichtbar`} className="review-section">
-        <div className="filterbar"><select value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>{STATUS_OPTIONS.map(status => <option key={status} value={status}>{status === 'all' ? 'Alle Status' : status}</option>)}</select><select value={filters.market} onChange={e => setFilters({ ...filters, market: e.target.value })}><option value="all">Alle Märkte</option><option value="DE">DE</option><option value="US">US</option><option value="INT">INT</option><option value="UNKNOWN">UNKNOWN</option></select><select value={filters.assetType} onChange={e => setFilters({ ...filters, assetType: e.target.value })}><option value="all">Alle Asset-Typen</option>{ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select><select value={filters.discovery} onChange={e => setFilters({ ...filters, discovery: e.target.value })}><option value="all">Whitelist + Discovery</option><option value="discovery">Nur Discovery</option><option value="whitelist">Nur Whitelist</option></select><input value={filters.query} onChange={e => setFilters({ ...filters, query: e.target.value })} placeholder="Suche nach Titel, Channel, Pattern …" /></div>
+        <div className="filterbar"><select value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>{STATUS_OPTIONS.map(status => <option key={status} value={status}>{status === 'all' ? 'Alle Status' : status}</option>)}</select><select value={filters.market} onChange={e => setFilters({ ...filters, market: e.target.value })}><option value="all">Alle Märkte</option><option value="DE">DE</option><option value="US">US</option><option value="INT">INT</option><option value="UNKNOWN">UNKNOWN</option></select><select value={filters.assetType} onChange={e => setFilters({ ...filters, assetType: e.target.value })}><option value="all">Alle Asset-Typen</option>{ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select><select value={filters.discovery} onChange={e => setFilters({ ...filters, discovery: e.target.value })}><option value="all">Whitelist + Discovery</option><option value="discovery">Nur Discovery</option><option value="whitelist">Nur Whitelist</option></select><input value={filters.query} onChange={e => setFilters({ ...filters, query: e.target.value })} placeholder="Suche nach Titel, Channel, Pattern, OCR …" /></div>
         {assets.length === 0 && <p>Noch keine Assets. Erst Kanalliste importieren und Kanäle automatisch prüfen.</p>}
-        {visibleAssets.map(asset => <AssetCard key={asset.id} asset={asset} busy={busy} onReview={reviewAsset} />)}
+        {visibleAssets.map(asset => <AssetCard key={asset.id} asset={asset} busy={busy} onReview={reviewAsset} onAnalyzeVisual={analyzeAssetVisual} />)}
       </Section>
 
       <Section title="Weekly Report">{report && <div><p>Status: {report.status}</p><p>{report.executive_summary_de}</p><details><summary>HTML anzeigen</summary><iframe title="report" srcDoc={report.html_content || ''} /></details></div>}</Section>
