@@ -1,5 +1,20 @@
 const DEFAULT_API_BASE = 'https://creative-radar-production.up.railway.app';
-const API_BASE = (import.meta.env.VITE_API_BASE || DEFAULT_API_BASE).replace(/\/$/, '');
+
+function resolveApiBase() {
+  const configured = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '').trim();
+  if (!configured) return DEFAULT_API_BASE;
+  try {
+    const url = new URL(configured.startsWith('http') ? configured : `https://${configured}`);
+    if (typeof window !== 'undefined' && url.host === window.location.host) {
+      return DEFAULT_API_BASE;
+    }
+    return `${url.protocol}//${url.host}`;
+  } catch (_) {
+    return DEFAULT_API_BASE;
+  }
+}
+
+const API_BASE = resolveApiBase();
 
 export async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -15,7 +30,7 @@ export async function api(path, options = {}) {
   }
 
   if (!contentType.includes('application/json')) {
-    throw new Error(`API returned HTML/text instead of JSON. Please check VITE_API_BASE / Railway URL. Preview: ${body.slice(0, 120)}`);
+    throw new Error(`API returned HTML/text instead of JSON. Genutzte API: ${API_BASE}. Preview: ${body.slice(0, 120)}`);
   }
 
   return body ? JSON.parse(body) : null;
