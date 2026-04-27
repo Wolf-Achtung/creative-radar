@@ -49,6 +49,7 @@ export async function upload(path, formData) {
 
 export const endpoints = {
   health: () => api('/api/health'),
+  dbHealth: () => api('/api/health/db'),
   channels: () => api('/api/channels'),
   seedChannels: () => api('/api/channels/seed-mvp', { method: 'POST' }),
   importChannelsExcel: (file) => {
@@ -62,6 +63,7 @@ export const endpoints = {
   manualImport: (payload) => api('/api/posts/manual-import', { method: 'POST', body: JSON.stringify(payload) }),
   analyzeInstagramLink: (payload) => api('/api/posts/analyze-instagram-link', { method: 'POST', body: JSON.stringify(payload) }),
   runApifyMonitor: (payload) => api('/api/monitor/apify-instagram', { method: 'POST', body: JSON.stringify(payload) }),
+  insightsOverview: () => api('/api/insights/overview'),
   assets: () => api('/api/assets'),
   reviewAsset: (id, payload) => api(`/api/assets/${id}/review`, { method: 'PATCH', body: JSON.stringify(payload) }),
   reports: () => api('/api/reports'),
