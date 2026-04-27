@@ -46,9 +46,41 @@ def _asset_type(value: Any) -> AssetType:
         return value
     if not value:
         return AssetType.UNKNOWN
-    clean = str(value).strip().lower()
+    clean = str(value).strip().lower().replace('_', ' ')
+    aliases = {
+        'trailer drop': AssetType.TRAILER_DROP,
+        'trailer announcement': AssetType.TRAILER_DROP,
+        'trailer ankündigung': AssetType.TRAILER_DROP,
+        'trailer': AssetType.TRAILER,
+        'teaser': AssetType.TEASER,
+        'poster': AssetType.POSTER,
+        'key art': AssetType.KEY_ART,
+        'poster / key art': AssetType.KEY_ART,
+        'character card': AssetType.CHARACTER_CARD,
+        'cast post': AssetType.CAST_POST,
+        'character / cast post': AssetType.CAST_POST,
+        'quote / review': AssetType.REVIEW_QUOTE,
+        'review quote': AssetType.REVIEW_QUOTE,
+        'cta post': AssetType.CTA_POST,
+        'ticket cta': AssetType.TICKET_CTA,
+        'release reminder': AssetType.RELEASE_REMINDER,
+        'behind the scenes': AssetType.BEHIND_THE_SCENES,
+        'event / festival': AssetType.EVENT_FESTIVAL,
+        'event': AssetType.EVENT_FESTIVAL,
+        'festival': AssetType.EVENT_FESTIVAL,
+        'series episode push': AssetType.SERIES_EPISODE_PUSH,
+        'episode push': AssetType.SERIES_EPISODE_PUSH,
+        'franchise / brand post': AssetType.FRANCHISE_BRAND_POST,
+        'brand post': AssetType.FRANCHISE_BRAND_POST,
+        'kinetic': AssetType.KINETIC,
+        'story': AssetType.STORY,
+        'discovery': AssetType.DISCOVERY,
+        'unknown': AssetType.UNKNOWN,
+    }
+    if clean in aliases:
+        return aliases[clean]
     for item in AssetType:
-        if clean in {item.value.lower(), item.name.lower()}:
+        if clean in {item.value.lower(), item.name.lower().replace('_', ' ')}:
             return item
     return AssetType.UNKNOWN
 
@@ -87,22 +119,29 @@ def analyze_creative_text(
         }
 
     client = OpenAI(api_key=settings.openai_api_key)
+    asset_types = ', '.join(item.value for item in AssetType)
     prompt = f"""
 Analysiere diesen Social-Media-Creative-Treffer aus Film-, Serien- oder Game-Marketing.
 
 Post-Link: {post_url}
 Kanal: {channel_name}
 Markt: {market}
-Titel/Franchise: {title_name or 'nicht vorausgewählt'}
+Titel/Franchise: {title_name or 'kein Whitelist-Match / Discovery'}
 Asset-Typ-Hinweis: {asset_type_hint.value}
 Caption/Seitentext: {caption or 'nicht verfügbar'}
 Sichtbarer Text/OCR: {ocr_text or 'nicht verfügbar'}
 
-Liefere eine sachliche, kurze Analyse für ein internes Kreativteam.
-Keine Klickzahlen, keine Erfolgsbehauptungen, keine harten Bewertungen.
+Klassifiziere asset_type möglichst konkret mit genau einem dieser Werte:
+{asset_types}
 
-Antworte nur als JSON mit exakt diesen Feldern. Alle Textfelder müssen Strings sein, keine Arrays:
-asset_type, language, ai_summary_de, ai_summary_en, ai_trend_notes, confidence_score
+Liefere:
+- ai_summary_de: maximal 3 Sätze, direkt entscheidungsfähig für Creative Review.
+- ai_summary_en: maximal 2 Sätze.
+- ai_trend_notes: maximal 2 Sätze, beobachtbares Pattern, keine Erfolgsbehauptung.
+- confidence_score zwischen 0 und 1.
+
+Keine Klickzahlen, keine Erfolgsbehauptungen, keine harten Bewertungen.
+Antworte nur als JSON. Alle Textfelder müssen Strings sein, keine Arrays.
 """
     response = client.chat.completions.create(
         model=settings.openai_model,
