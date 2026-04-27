@@ -6,7 +6,9 @@ class Settings(BaseSettings):
     app_name: str = "creative-radar"
     database_url: str = "sqlite:///./creative_radar.db"
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5.1"
+    openai_model: str = "gpt-4o-mini"
+    perplexity_api_key: str | None = None
+    perplexity_model: str = "sonar-pro"
     frontend_url: str = "*"
     cors_origins: str = "*"
     backend_url: str = ""
