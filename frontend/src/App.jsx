@@ -24,6 +24,7 @@ function App() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [channelFile, setChannelFile] = useState(null);
   const [quickForm, setQuickForm] = useState({ post_url: '', channel_id: '', title_id: '', caption_hint: '', asset_type_hint: 'Unknown' });
   const [form, setForm] = useState({
     channel_id: '',
@@ -70,7 +71,19 @@ function App() {
       await endpoints.seedChannels();
       await endpoints.seedTitles();
       await load();
-      setMessage('MVP-Daten wurden angelegt. Jetzt reicht ein Instagram-Link für die erste Analyse.');
+      setMessage('Basisdaten wurden angelegt. Für die vollständige Kanalliste bitte die Excel-Datei importieren.');
+    });
+  }
+
+  async function importChannelFile(event) {
+    event.preventDefault();
+    if (!channelFile) return;
+    await run('channel import', async () => {
+      const result = await endpoints.importChannelsExcel(channelFile);
+      await endpoints.seedTitles();
+      await load();
+      setChannelFile(null);
+      setMessage(`Kanalliste importiert: ${result.created} neu, ${result.updated} aktualisiert, ${result.skipped} übersprungen.`);
     });
   }
 
@@ -139,10 +152,10 @@ function App() {
         <div>
           <p className="eyebrow">Creative Radar · Online MVP</p>
           <h1>Creative Radar v1</h1>
-          <p>Ein Link genügt: Instagram-Post analysieren, Asset prüfen, Report erzeugen.</p>
+          <p>Kanalliste importieren, Instagram-Posts analysieren, Assets prüfen, Report erzeugen.</p>
         </div>
         <div className="hero-actions">
-          <button onClick={seed} disabled={busy}>MVP-Daten anlegen</button>
+          <button onClick={seed} disabled={busy}>Basisdaten anlegen</button>
           <button onClick={() => run('load', load)} disabled={busy}>Aktualisieren</button>
         </div>
       </header>
@@ -163,13 +176,26 @@ function App() {
 
         <Section title="Empfohlener Ablauf">
           <ol>
-            <li>MVP-Daten einmalig anlegen.</li>
+            <li>Excel-Kanalliste einmalig importieren.</li>
             <li>Instagram-Link in die Schnellanalyse einfügen.</li>
             <li>Asset als Approve, Highlight oder Reject markieren.</li>
             <li>Report-Entwurf aus Highlights/Freigaben erzeugen.</li>
           </ol>
         </Section>
       </div>
+
+      <Section title="Kanalliste importieren" kicker="Einmaliger Setup-Schritt">
+        <form className="form-grid" onSubmit={importChannelFile}>
+          <label className="wide">
+            Excel-Datei mit FILMVERLEIH / INSTAGRAM
+            <input type="file" accept=".xlsx,.xlsm" onChange={(event) => setChannelFile(event.target.files?.[0] || null)} />
+          </label>
+          <div className="wide">
+            <button type="submit" disabled={busy || !channelFile}>Excel-Kanalliste importieren</button>
+          </div>
+        </form>
+        <p className="muted small">Nutze hier die von dir gelieferte Datei „Filmverleih Instagram.xlsx“. Die URLs werden daraus automatisch als Channels angelegt oder aktualisiert. Du musst die Links nicht einzeln eingeben.</p>
+      </Section>
 
       <Section title="Instagram-Link analysieren" kicker="Schnellster Weg">
         <form className="form-grid" onSubmit={analyzeLink}>
@@ -257,7 +283,7 @@ function App() {
       </Section>
 
       <Section title="Asset Review">
-        {assets.length === 0 && <p>Noch keine Assets. Erst MVP-Daten anlegen und einen Instagram-Link analysieren.</p>}
+        {assets.length === 0 && <p>Noch keine Assets. Erst Kanalliste importieren und einen Instagram-Link analysieren.</p>}
         {assets.map(asset => (
           <article key={asset.id} className="asset">
             {asset.screenshot_url && <img src={asset.screenshot_url} alt="Asset Screenshot" />}
