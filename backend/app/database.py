@@ -71,7 +71,7 @@ def database_diagnostics() -> dict:
     }
 
 
-VISUAL_COLUMNS = {
+ASSET_COLUMNS = {
     "visual_analysis_status": "VARCHAR DEFAULT 'pending'",
     "visual_source_url": "VARCHAR",
     "visual_notes": "VARCHAR",
@@ -86,22 +86,30 @@ VISUAL_COLUMNS = {
     "visual_confidence_score": "FLOAT",
 }
 
+POST_COLUMNS = {
+    "external_id": "VARCHAR",
+    "visible_shares": "INTEGER",
+    "visible_bookmarks": "INTEGER",
+    "duration_seconds": "INTEGER",
+}
 
-def _ensure_asset_columns() -> None:
+
+def _ensure_columns(table_name: str, columns: dict[str, str]) -> None:
     inspector = inspect(engine)
     table_names = inspector.get_table_names()
-    if "asset" not in table_names:
+    if table_name not in table_names:
         return
-    existing = {column["name"] for column in inspector.get_columns("asset")}
+    existing = {column["name"] for column in inspector.get_columns(table_name)}
     with engine.begin() as connection:
-        for name, ddl in VISUAL_COLUMNS.items():
+        for name, ddl in columns.items():
             if name not in existing:
-                connection.execute(text(f"ALTER TABLE asset ADD COLUMN {name} {ddl}"))
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
 
 
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
-    _ensure_asset_columns()
+    _ensure_columns("asset", ASSET_COLUMNS)
+    _ensure_columns("post", POST_COLUMNS)
 
 
 def get_session():
