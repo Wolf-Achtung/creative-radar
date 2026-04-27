@@ -71,11 +71,76 @@ function AssetCard({ asset, busy, onReview }) {
   );
 }
 
+function MiniTable({ title, rows, columns, emptyText = 'Noch keine Daten.' }) {
+  return (
+    <div className="mini-table-wrap">
+      <h3>{title}</h3>
+      {(!rows || rows.length === 0) ? <p className="muted">{emptyText}</p> : (
+        <table className="mini-table"><thead><tr>{columns.map(col => <th key={col.key}>{col.label}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={`${title}-${index}`}>{columns.map(col => <td key={col.key}>{col.render ? col.render(row, index) : row[col.key]}</td>)}</tr>)}</tbody></table>
+      )}
+    </div>
+  );
+}
+
+function InsightsPanel({ insights }) {
+  if (!insights) return <p className="muted">Noch keine Auswertung geladen.</p>;
+  const topAssets = insights.top_assets_total || [];
+  const channels = insights.channel_rankings || [];
+  const deUs = insights.de_us_comparison || [];
+  const recommendations = insights.recommendations || [];
+
+  return (
+    <div className="insights-grid">
+      <div className="metric-card"><strong>{insights.total_assets || 0}</strong><span>Assets dokumentiert</span></div>
+      <div className="metric-card"><strong>{insights.discovery_assets || 0}</strong><span>Discovery-Treffer</span></div>
+      <div className="metric-card"><strong>{insights.missing_previews || 0}</strong><span>ohne Preview/Screenshot</span></div>
+      <div className="metric-card"><strong>{Object.keys(insights.type_breakdown || {}).length}</strong><span>Asset-Typen erkannt</span></div>
+
+      <div className="insight-wide">
+        <h3>Briefing-Abgleich</h3>
+        <div className="briefing-checks">
+          <span className={insights.missing_previews === 0 ? 'check good' : 'check warn'}>Screenshots/Previews: {insights.missing_previews === 0 ? 'ok' : `${insights.missing_previews} fehlen`}</span>
+          <span className={(deUs.length > 0) ? 'check good' : 'check warn'}>DE/US-Vergleich: {deUs.length > 0 ? 'möglich' : 'Whitelist-Zuordnung fehlt'}</span>
+          <span className={(topAssets.length > 0) ? 'check good' : 'check warn'}>Ranking: {topAssets.length > 0 ? 'vorläufig verfügbar' : 'noch leer'}</span>
+          <span className="check warn">Weekly Report: manuell erzeugbar, Automatik Donnerstag folgt</span>
+        </div>
+      </div>
+
+      <MiniTable title="Top Assets gesamt" rows={topAssets.slice(0, 5)} columns={[
+        { key: 'rank', label: '#', render: (_row, i) => i + 1 },
+        { key: 'title', label: 'Titel' },
+        { key: 'channel', label: 'Channel' },
+        { key: 'asset_type', label: 'Typ' },
+        { key: 'score', label: 'Score' },
+      ]} />
+
+      <MiniTable title="Channel-Ranking" rows={channels.slice(0, 6)} columns={[
+        { key: 'channel', label: 'Channel' },
+        { key: 'count', label: 'Assets' },
+        { key: 'top_assets', label: 'Top-Treffer', render: row => row.top_assets?.[0]?.title || '—' },
+      ]} />
+
+      <MiniTable title="DE/US Placement-Vergleich" rows={deUs.slice(0, 6)} columns={[
+        { key: 'title', label: 'Titel/Franchise' },
+        { key: 'de_count', label: 'DE' },
+        { key: 'us_count', label: 'US' },
+        { key: 'gap', label: 'Gap' },
+      ]} emptyText="Noch kein Vergleich möglich: aktuelle Treffer sind überwiegend Discovery ohne Whitelist-Titel." />
+
+      <div className="mini-table-wrap">
+        <h3>Nächste sinnvolle Ergänzungen</h3>
+        {recommendations.length === 0 ? <p className="muted">Keine akuten Datenlücken erkannt.</p> : <ul className="recommendations">{recommendations.map((item, i) => <li key={i}>{item}</li>)}</ul>}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [health, setHealth] = useState(null);
   const [channels, setChannels] = useState([]);
   const [titles, setTitles] = useState([]);
   const [assets, setAssets] = useState([]);
+  const [insights, setInsights] = useState(null);
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -113,8 +178,8 @@ function App() {
   }
 
   async function load() {
-    const [h, c, t, a] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), endpoints.assets()]);
-    setHealth(h); setChannels(c); setTitles(t); setAssets(a);
+    const [h, c, t, a, overview] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), endpoints.assets(), endpoints.insightsOverview()]);
+    setHealth(h); setChannels(c); setTitles(t); setAssets(a); setInsights(overview);
     try { setReport(await endpoints.latestReport()); } catch (_) { setReport(null); }
   }
 
@@ -198,8 +263,10 @@ function App() {
 
       <div className="grid">
         <Section title="Systemstatus"><p>Status: <strong>{health?.status || 'nicht verbunden'}</strong></p><p>Channels: {channels.length}</p><p>Whitelist-Titel: {titles.length}</p><p>Assets: {assets.length}</p><p>Discovery: {discoveryCount}</p><p>Freigegeben: {approved.length}</p><p>Highlights: {highlights.length}</p></Section>
-        <Section title="Report-Zentrale"><p>{approved.length} Assets sind reportfähig.</p><button onClick={generateReport} disabled={busy || approved.length === 0}>Report-Entwurf erzeugen</button>{approved.length === 0 && <p className="muted">Erst mindestens ein Asset approven oder highlighten.</p>}</Section>
+        <Section title="Report-Zentrale"><p>{approved.length} Assets sind reportfähig.</p><button onClick={generateReport} disabled={busy || approved.length === 0}>Report-Entwurf erzeugen</button>{approved.length === 0 && <p className="muted">Erst mindestens ein Asset approven oder highlighten.</p>}<p className="muted small">Zielzustand: automatischer Donnerstag-Report nach Review-Freigabe.</p></Section>
       </div>
+
+      <Section title="Creative Radar Auswertung" kicker="Briefing-Zentrale"><InsightsPanel insights={insights} /></Section>
 
       <Section title="Kanalliste importieren" kicker="Einmaliger Setup-Schritt"><form className="form-grid" onSubmit={importChannelFile}><label className="wide">Excel-Datei mit FILMVERLEIH / INSTAGRAM<input type="file" accept=".xlsx,.xlsm" onChange={(event) => setChannelFile(event.target.files?.[0] || null)} /></label><div className="wide"><button type="submit" disabled={busy || !channelFile}>Excel-Kanalliste importieren</button></div></form><p className="muted small">Die Excel-Datei muss nur erneut importiert werden, wenn sich die Kanalliste geändert hat.</p></Section>
 
