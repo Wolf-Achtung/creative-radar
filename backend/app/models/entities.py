@@ -25,13 +25,23 @@ class Priority(str, Enum):
 
 class AssetType(str, Enum):
     TRAILER = "Trailer"
+    TRAILER_DROP = "Trailer Drop"
     TEASER = "Teaser"
     POSTER = "Poster"
+    KEY_ART = "Poster / Key Art"
     STORY = "Story"
     KINETIC = "Kinetic"
     CHARACTER_CARD = "Character Card"
-    REVIEW_QUOTE = "Review Quote"
+    CAST_POST = "Character / Cast Post"
+    REVIEW_QUOTE = "Quote / Review"
     CTA_POST = "CTA Post"
+    TICKET_CTA = "Ticket CTA"
+    RELEASE_REMINDER = "Release Reminder"
+    BEHIND_THE_SCENES = "Behind the Scenes"
+    EVENT_FESTIVAL = "Event / Festival"
+    SERIES_EPISODE_PUSH = "Series Episode Push"
+    FRANCHISE_BRAND_POST = "Franchise / Brand Post"
+    DISCOVERY = "Discovery"
     UNKNOWN = "Unknown"
 
 
