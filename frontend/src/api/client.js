@@ -16,12 +16,7 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 
-export async function api(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
-  });
-
+async function parseJsonResponse(response) {
   const contentType = response.headers.get('content-type') || '';
   const body = await response.text();
 
@@ -36,10 +31,31 @@ export async function api(path, options = {}) {
   return body ? JSON.parse(body) : null;
 }
 
+export async function api(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    ...options,
+  });
+  return parseJsonResponse(response);
+}
+
+export async function upload(path, formData) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    body: formData,
+  });
+  return parseJsonResponse(response);
+}
+
 export const endpoints = {
   health: () => api('/api/health'),
   channels: () => api('/api/channels'),
   seedChannels: () => api('/api/channels/seed-mvp', { method: 'POST' }),
+  importChannelsExcel: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return upload('/api/channels/import-excel', formData);
+  },
   titles: () => api('/api/titles'),
   seedTitles: () => api('/api/titles/seed-mvp', { method: 'POST' }),
   posts: () => api('/api/posts'),
