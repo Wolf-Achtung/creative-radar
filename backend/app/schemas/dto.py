@@ -15,6 +15,7 @@ class ChannelCreate(BaseModel):
     active: bool = True
     mvp: bool = False
     notes: Optional[str] = None
+    platform: str = "instagram"
 
 
 class ChannelUpdate(BaseModel):
@@ -27,6 +28,7 @@ class ChannelUpdate(BaseModel):
     active: Optional[bool] = None
     mvp: Optional[bool] = None
     notes: Optional[str] = None
+    platform: Optional[str] = None
 
 
 class TitleCreate(BaseModel):
@@ -73,6 +75,14 @@ class ApifyMonitorRequest(BaseModel):
     max_channels: int = 5
     results_limit_per_channel: int = 5
     only_whitelist_matches: bool = True
+
+
+class TikTokMonitorRequest(BaseModel):
+    channel_ids: list[UUID] = []
+    usernames: list[str] = []
+    max_channels: int = 5
+    results_limit_per_channel: int = 5
+    only_whitelist_matches: bool = False
 
 
 class AssetReviewUpdate(BaseModel):
