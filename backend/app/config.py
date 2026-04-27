@@ -4,7 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_env: str = "production"
     app_name: str = "creative-radar"
-    database_url: str = "sqlite:///./creative_radar.db"
+    database_url: str = ""
+    allow_sqlite_fallback: bool = False
 
     pghost: str | None = None
     pgport: str | None = None
