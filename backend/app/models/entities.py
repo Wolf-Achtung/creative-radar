@@ -145,6 +145,21 @@ class Asset(SQLModel, table=True):
     curator_note: Optional[str] = None
     include_in_report: bool = False
     is_highlight: bool = False
+
+    # Visual & Placement Pack fields
+    visual_analysis_status: str = "pending"  # pending, analyzed, text_only, no_visual, error
+    visual_source_url: Optional[str] = None
+    visual_notes: Optional[str] = None
+    placement_title_text: Optional[str] = None
+    placement_position: Optional[str] = None
+    placement_strength: Optional[str] = None
+    has_title_placement: bool = False
+    has_kinetic: bool = False
+    kinetic_type: Optional[str] = None
+    kinetic_text: Optional[str] = None
+    de_us_match_key: Optional[str] = None
+    visual_confidence_score: Optional[float] = None
+
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
