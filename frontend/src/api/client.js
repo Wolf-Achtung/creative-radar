@@ -66,6 +66,8 @@ export const endpoints = {
   insightsOverview: () => api('/api/insights/overview'),
   assets: () => api('/api/assets'),
   reviewAsset: (id, payload) => api(`/api/assets/${id}/review`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  analyzeAssetVisual: (id) => api(`/api/assets/${id}/analyze-visual`, { method: 'POST' }),
+  analyzeVisualBatch: (limit = 10) => api(`/api/assets/analyze-visual-batch?limit=${limit}`, { method: 'POST' }),
   reports: () => api('/api/reports'),
   latestReport: () => api('/api/reports/latest'),
   generateReport: (payload) => api('/api/reports/generate-weekly', { method: 'POST', body: JSON.stringify(payload) }),
