@@ -50,8 +50,42 @@ async def run_public_channel_monitor(channel_urls: list[str], results_limit: int
         return items if isinstance(items, list) else []
 
 
+def _first_string(*values: Any) -> str | None:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _image_from_item(item: dict[str, Any]) -> str | None:
+    direct = _first_string(
+        item.get("displayUrl"),
+        item.get("display_url"),
+        item.get("imageUrl"),
+        item.get("image_url"),
+        item.get("thumbnailUrl"),
+        item.get("thumbnail_url"),
+        item.get("previewUrl"),
+        item.get("preview_url"),
+    )
+    if direct:
+        return direct
+
+    for key in ("images", "imageUrls", "displayUrls", "childPosts", "latestPosts", "media"):
+        value = item.get(key)
+        if isinstance(value, list):
+            for entry in value:
+                if isinstance(entry, str) and entry.strip():
+                    return entry.strip()
+                if isinstance(entry, dict):
+                    candidate = _image_from_item(entry)
+                    if candidate:
+                        return candidate
+    return None
+
+
 def normalize_public_item(item: dict[str, Any]) -> dict[str, Any]:
-    url = item.get("url") or item.get("postUrl") or ""
+    url = item.get("url") or item.get("postUrl") or item.get("post_url") or ""
     short_code = item.get("shortCode") or item.get("shortcode")
     if not url and short_code:
         url = f"https://www.instagram.com/p/{short_code}/"
@@ -64,12 +98,15 @@ def normalize_public_item(item: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             published_at = None
 
+    caption = item.get("caption") or item.get("text") or item.get("description") or ""
+    owner = item.get("ownerUsername") or item.get("username") or item.get("owner", {}).get("username")
+
     return {
         "post_url": str(url).rstrip("/"),
-        "caption": item.get("caption") or item.get("text") or item.get("description") or "",
-        "image_url": item.get("displayUrl") or item.get("imageUrl") or item.get("thumbnailUrl"),
+        "caption": caption,
+        "image_url": _image_from_item(item),
         "published_at": published_at,
-        "owner_username": item.get("ownerUsername") or item.get("username"),
+        "owner_username": owner,
         "visible_likes": item.get("likesCount") or item.get("likes"),
         "visible_comments": item.get("commentsCount") or item.get("comments"),
         "visible_views": item.get("videoViewCount") or item.get("videoPlayCount") or item.get("views"),
