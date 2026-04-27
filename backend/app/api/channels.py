@@ -1,9 +1,10 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import Channel, Market
 from app.schemas.dto import ChannelCreate, ChannelUpdate
+from app.services.channel_importer import import_channels_from_excel
 from app.services.seeds import seed_channels
 
 router = APIRouter(prefix="/api/channels", tags=["channels"])
@@ -57,3 +58,12 @@ def delete_channel(channel_id: UUID, session: Session = Depends(get_session)):
 def seed_mvp_channels(session: Session = Depends(get_session)):
     created = seed_channels(session)
     return {"created": created}
+
+
+@router.post("/import-excel")
+async def import_excel(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    if not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="Bitte eine Excel-Datei .xlsx hochladen.")
+    data = await file.read()
+    result = import_channels_from_excel(session, data)
+    return result
