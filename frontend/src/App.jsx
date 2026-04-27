@@ -5,8 +5,14 @@ import './styles.css';
 
 const ASSET_TYPES = ['Trailer', 'Teaser', 'Poster', 'Story', 'Kinetic', 'Character Card', 'Review Quote', 'CTA Post', 'Unknown'];
 
-function Section({ title, children }) {
-  return <section className="card"><h2>{title}</h2>{children}</section>;
+function Section({ title, kicker, children }) {
+  return (
+    <section className="card">
+      {kicker && <p className="section-kicker">{kicker}</p>}
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
 }
 
 function App() {
@@ -17,6 +23,8 @@ function App() {
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [quickForm, setQuickForm] = useState({ post_url: '', channel_id: '', title_id: '', caption_hint: '', asset_type_hint: 'Unknown' });
   const [form, setForm] = useState({
     channel_id: '',
     title_id: '',
@@ -30,36 +38,62 @@ function App() {
 
   const sortedChannels = useMemo(() => [...channels].sort((a, b) => `${a.market}-${a.name}`.localeCompare(`${b.market}-${b.name}`)), [channels]);
   const sortedTitles = useMemo(() => [...titles].sort((a, b) => a.title_original.localeCompare(b.title_original)), [titles]);
+  const highlights = assets.filter((asset) => asset.is_highlight || asset.review_status === 'highlight');
+  const approved = assets.filter((asset) => asset.include_in_report || asset.review_status === 'approved' || asset.review_status === 'highlight');
 
-  async function load() {
+  async function run(label, fn) {
+    setBusy(true);
     setError('');
+    setMessage('');
     try {
-      const [h, c, t, a] = await Promise.all([
-        endpoints.health(), endpoints.channels(), endpoints.titles(), endpoints.assets()
-      ]);
-      setHealth(h); setChannels(c); setTitles(t); setAssets(a);
-      try { setReport(await endpoints.latestReport()); } catch (_) { setReport(null); }
+      await fn();
     } catch (err) {
-      setError(err.message);
+      setError(err.message || String(err));
+    } finally {
+      setBusy(false);
     }
   }
 
-  useEffect(() => { load(); }, []);
+  async function load() {
+    setError('');
+    const [h, c, t, a] = await Promise.all([
+      endpoints.health(), endpoints.channels(), endpoints.titles(), endpoints.assets()
+    ]);
+    setHealth(h); setChannels(c); setTitles(t); setAssets(a);
+    try { setReport(await endpoints.latestReport()); } catch (_) { setReport(null); }
+  }
+
+  useEffect(() => { run('load', load); }, []);
 
   async function seed() {
-    setError(''); setMessage('');
-    try {
+    await run('seed', async () => {
       await endpoints.seedChannels();
       await endpoints.seedTitles();
       await load();
-      setMessage('MVP-Daten wurden angelegt oder waren bereits vorhanden.');
-    } catch (err) { setError(err.message); }
+      setMessage('MVP-Daten wurden angelegt. Jetzt reicht ein Instagram-Link für die erste Analyse.');
+    });
+  }
+
+  async function analyzeLink(event) {
+    event.preventDefault();
+    await run('analyze', async () => {
+      const payload = {
+        post_url: quickForm.post_url,
+        channel_id: quickForm.channel_id || null,
+        title_id: quickForm.title_id || null,
+        caption_hint: quickForm.caption_hint || null,
+        asset_type_hint: quickForm.asset_type_hint || 'Unknown',
+      };
+      const result = await endpoints.analyzeInstagramLink(payload);
+      await load();
+      setQuickForm({ post_url: '', channel_id: '', title_id: '', caption_hint: '', asset_type_hint: 'Unknown' });
+      setMessage(result.already_exists ? 'Dieser Link war bereits vorhanden. Asset unten prüfen.' : 'Instagram-Link analysiert. Asset unten prüfen, freigeben oder highlighten.');
+    });
   }
 
   async function importPost(event) {
     event.preventDefault();
-    setError(''); setMessage('');
-    try {
+    await run('manual import', async () => {
       const payload = {
         ...form,
         title_id: form.title_id || null,
@@ -72,12 +106,11 @@ function App() {
       setForm({ ...form, post_url: '', caption: '', screenshot_url: '', ocr_text: '', asset_type: 'Unknown' });
       await load();
       setMessage('Treffer importiert. Unten im Asset Review prüfen und freigeben.');
-    } catch (err) { setError(err.message); }
+    });
   }
 
   async function reviewAsset(asset, status) {
-    setError(''); setMessage('');
-    try {
+    await run('review', async () => {
       await endpoints.reviewAsset(asset.id, {
         review_status: status,
         include_in_report: status === 'approved' || status === 'highlight',
@@ -86,37 +119,37 @@ function App() {
       });
       await load();
       setMessage(`Asset wurde als ${status} gespeichert.`);
-    } catch (err) { setError(err.message); }
+    });
   }
 
   async function generateReport() {
-    setError(''); setMessage('');
-    try {
+    await run('report', async () => {
       const today = new Date();
       const end = today.toISOString().slice(0, 10);
       const startDate = new Date(today.getTime() - 7 * 86400000).toISOString().slice(0, 10);
       const created = await endpoints.generateReport({ week_start: startDate, week_end: end, include_only_reviewed: true });
       setReport(created);
-      setMessage('Report-Entwurf wurde erzeugt.');
-    } catch (err) { setError(err.message); }
+      setMessage('Report-Entwurf wurde aus freigegebenen Assets erzeugt.');
+    });
   }
 
   return (
     <main>
       <header className="hero">
         <div>
-          <p className="eyebrow">Online-first Monorepo · Railway + Netlify</p>
+          <p className="eyebrow">Creative Radar · Online MVP</p>
           <h1>Creative Radar v1</h1>
-          <p>Interner MVP für kuratiertes Creative Monitoring.</p>
+          <p>Ein Link genügt: Instagram-Post analysieren, Asset prüfen, Report erzeugen.</p>
         </div>
         <div className="hero-actions">
-          <button onClick={seed}>MVP-Daten anlegen</button>
-          <button onClick={load}>Aktualisieren</button>
+          <button onClick={seed} disabled={busy}>MVP-Daten anlegen</button>
+          <button onClick={() => run('load', load)} disabled={busy}>Aktualisieren</button>
         </div>
       </header>
 
       {error && <div className="error">{error}</div>}
       {message && <div className="success">{message}</div>}
+      {busy && <div className="info">Arbeite gerade …</div>}
 
       <div className="grid">
         <Section title="Systemstatus">
@@ -124,19 +157,58 @@ function App() {
           <p>Channels: {channels.length}</p>
           <p>Whitelist-Titel: {titles.length}</p>
           <p>Assets: {assets.length}</p>
+          <p>Freigegeben: {approved.length}</p>
+          <p>Highlights: {highlights.length}</p>
         </Section>
 
-        <Section title="Workflow v1">
+        <Section title="Empfohlener Ablauf">
           <ol>
-            <li>MVP-Daten anlegen</li>
-            <li>Post-Link manuell importieren</li>
-            <li>Asset prüfen: Approve / Highlight / Reject</li>
-            <li>Report-Entwurf erzeugen</li>
+            <li>MVP-Daten einmalig anlegen.</li>
+            <li>Instagram-Link in die Schnellanalyse einfügen.</li>
+            <li>Asset als Approve, Highlight oder Reject markieren.</li>
+            <li>Report-Entwurf aus Highlights/Freigaben erzeugen.</li>
           </ol>
         </Section>
       </div>
 
-      <Section title="Manueller Treffer-Import">
+      <Section title="Instagram-Link analysieren" kicker="Schnellster Weg">
+        <form className="form-grid" onSubmit={analyzeLink}>
+          <label className="wide">
+            Instagram-Post- oder Reel-Link
+            <input value={quickForm.post_url} onChange={e => setQuickForm({ ...quickForm, post_url: e.target.value })} placeholder="https://www.instagram.com/p/... oder /reel/..." required />
+          </label>
+          <label>
+            Channel optional
+            <select value={quickForm.channel_id} onChange={e => setQuickForm({ ...quickForm, channel_id: e.target.value })}>
+              <option value="">Automatisch / Auto Import</option>
+              {sortedChannels.map(channel => <option key={channel.id} value={channel.id}>{channel.market} · {channel.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Titel / Franchise optional
+            <select value={quickForm.title_id} onChange={e => setQuickForm({ ...quickForm, title_id: e.target.value })}>
+              <option value="">Automatisch über Text matchen</option>
+              {sortedTitles.map(title => <option key={title.id} value={title.id}>{title.title_original}</option>)}
+            </select>
+          </label>
+          <label>
+            Vermuteter Asset-Typ optional
+            <select value={quickForm.asset_type_hint} onChange={e => setQuickForm({ ...quickForm, asset_type_hint: e.target.value })}>
+              {ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+            </select>
+          </label>
+          <label>
+            Hinweistext optional
+            <input value={quickForm.caption_hint} onChange={e => setQuickForm({ ...quickForm, caption_hint: e.target.value })} placeholder="z. B. Titel, Claim oder kurze Notiz" />
+          </label>
+          <div className="wide">
+            <button type="submit" disabled={busy || !quickForm.post_url}>Instagram-Link analysieren</button>
+          </div>
+        </form>
+        <p className="muted small">Hinweis: Instagram liefert öffentliche Vorschauen nicht immer zuverlässig. Wenn kein Vorschaubild erkannt wird, wird der Link trotzdem angelegt und von OpenAI anhand der verfügbaren Texte zusammengefasst.</p>
+      </Section>
+
+      <Section title="Manueller Treffer-Import" kicker="Fallback für Sonderfälle">
         <form className="form-grid" onSubmit={importPost}>
           <label>
             Channel
@@ -179,13 +251,13 @@ function App() {
             <textarea value={form.ocr_text} onChange={e => setForm({ ...form, ocr_text: e.target.value })} placeholder="Sichtbarer Titel, Claim, CTA etc." rows="3" />
           </label>
           <div className="wide">
-            <button type="submit" disabled={!form.channel_id || !form.post_url}>Treffer importieren</button>
+            <button type="submit" disabled={busy || !form.channel_id || !form.post_url}>Treffer importieren</button>
           </div>
         </form>
       </Section>
 
       <Section title="Asset Review">
-        {assets.length === 0 && <p>Noch keine Assets. Erst MVP-Daten anlegen und einen Post importieren.</p>}
+        {assets.length === 0 && <p>Noch keine Assets. Erst MVP-Daten anlegen und einen Instagram-Link analysieren.</p>}
         {assets.map(asset => (
           <article key={asset.id} className="asset">
             {asset.screenshot_url && <img src={asset.screenshot_url} alt="Asset Screenshot" />}
@@ -196,16 +268,17 @@ function App() {
               {asset.ocr_text && <p><strong>OCR:</strong> {asset.ocr_text}</p>}
             </div>
             <div className="actions">
-              <button onClick={() => reviewAsset(asset, 'approved')}>Approve</button>
-              <button onClick={() => reviewAsset(asset, 'highlight')}>Highlight</button>
-              <button onClick={() => reviewAsset(asset, 'rejected')}>Reject</button>
+              <button onClick={() => reviewAsset(asset, 'approved')} disabled={busy}>Approve</button>
+              <button onClick={() => reviewAsset(asset, 'highlight')} disabled={busy}>Highlight</button>
+              <button onClick={() => reviewAsset(asset, 'rejected')} disabled={busy}>Reject</button>
             </div>
           </article>
         ))}
       </Section>
 
       <Section title="Weekly Report">
-        <button onClick={generateReport}>Report-Entwurf erzeugen</button>
+        <button onClick={generateReport} disabled={busy || approved.length === 0}>Report-Entwurf erzeugen</button>
+        {approved.length === 0 && <p className="muted">Erst mindestens ein Asset approven oder highlighten.</p>}
         {report && (
           <div>
             <p>Status: {report.status}</p>
