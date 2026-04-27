@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from app.models.entities import AssetType, Market, Priority, ReviewStatus, ReportStatus
 
 
@@ -58,6 +58,14 @@ class ManualPostImport(BaseModel):
     asset_type: AssetType = AssetType.UNKNOWN
     screenshot_url: Optional[str] = None
     ocr_text: Optional[str] = None
+
+
+class AnalyzeInstagramLinkRequest(BaseModel):
+    post_url: str
+    channel_id: Optional[UUID] = None
+    title_id: Optional[UUID] = None
+    caption_hint: Optional[str] = None
+    asset_type_hint: AssetType = AssetType.UNKNOWN
 
 
 class AssetReviewUpdate(BaseModel):
