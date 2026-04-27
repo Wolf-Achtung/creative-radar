@@ -1,19 +1,24 @@
-const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
-
-if (!API_BASE) {
-  console.warn('VITE_API_BASE fehlt. In Netlify unter Site configuration > Environment variables setzen.');
-}
+const DEFAULT_API_BASE = 'https://creative-radar-production.up.railway.app';
+const API_BASE = (import.meta.env.VITE_API_BASE || DEFAULT_API_BASE).replace(/\/$/, '');
 
 export async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
   });
+
+  const contentType = response.headers.get('content-type') || '';
+  const body = await response.text();
+
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `API error ${response.status}`);
+    throw new Error(body || `API error ${response.status}`);
   }
-  return response.json();
+
+  if (!contentType.includes('application/json')) {
+    throw new Error(`API returned HTML/text instead of JSON. Please check VITE_API_BASE / Railway URL. Preview: ${body.slice(0, 120)}`);
+  }
+
+  return body ? JSON.parse(body) : null;
 }
 
 export const endpoints = {
