@@ -21,14 +21,48 @@ def _safe_json(text: str) -> dict[str, Any]:
         return {}
 
 
-def _asset_type(value: str | None) -> AssetType:
+def _as_text(value: Any, fallback: str = '') -> str:
+    if value is None:
+        return fallback
+    if isinstance(value, str):
+        return value.strip() or fallback
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if item is None:
+                continue
+            if isinstance(item, (dict, list)):
+                parts.append(json.dumps(item, ensure_ascii=False))
+            else:
+                parts.append(str(item))
+        return '\n'.join(parts).strip() or fallback
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value).strip() or fallback
+
+
+def _asset_type(value: Any) -> AssetType:
+    if isinstance(value, AssetType):
+        return value
     if not value:
         return AssetType.UNKNOWN
-    clean = value.strip().lower()
+    clean = str(value).strip().lower()
     for item in AssetType:
-        if clean == item.value.lower():
+        if clean in {item.value.lower(), item.name.lower()}:
             return item
     return AssetType.UNKNOWN
+
+
+def _confidence(value: Any) -> float:
+    try:
+        number = float(value)
+    except Exception:
+        return 0.5
+    if number < 0:
+        return 0.0
+    if number > 1:
+        return 1.0
+    return number
 
 
 def analyze_creative_text(
@@ -67,13 +101,13 @@ Sichtbarer Text/OCR: {ocr_text or 'nicht verfügbar'}
 Liefere eine sachliche, kurze Analyse für ein internes Kreativteam.
 Keine Klickzahlen, keine Erfolgsbehauptungen, keine harten Bewertungen.
 
-Antworte nur als JSON mit exakt diesen Feldern:
+Antworte nur als JSON mit exakt diesen Feldern. Alle Textfelder müssen Strings sein, keine Arrays:
 asset_type, language, ai_summary_de, ai_summary_en, ai_trend_notes, confidence_score
 """
     response = client.chat.completions.create(
         model=settings.openai_model,
         messages=[
-            {'role': 'system', 'content': 'Du bist ein präziser Creative-Analyst für Film-, Serien- und Game-Marketing.'},
+            {'role': 'system', 'content': 'Du bist ein präziser Creative-Analyst für Film-, Serien- und Game-Marketing. Du gibst valides JSON zurück. Textfelder sind immer Strings.'},
             {'role': 'user', 'content': prompt},
         ],
         temperature=0.2,
@@ -82,10 +116,10 @@ asset_type, language, ai_summary_de, ai_summary_en, ai_trend_notes, confidence_s
     data = _safe_json(raw)
     return {
         'asset_type': _asset_type(data.get('asset_type')),
-        'language': data.get('language') or 'Unknown',
-        'ai_summary_de': data.get('ai_summary_de') or 'Keine belastbare Zusammenfassung erzeugt.',
-        'ai_summary_en': data.get('ai_summary_en') or '',
-        'ai_trend_notes': data.get('ai_trend_notes') or '',
-        'confidence_score': float(data.get('confidence_score') or 0.5),
+        'language': _as_text(data.get('language'), 'Unknown')[:64],
+        'ai_summary_de': _as_text(data.get('ai_summary_de'), 'Keine belastbare Zusammenfassung erzeugt.'),
+        'ai_summary_en': _as_text(data.get('ai_summary_en'), ''),
+        'ai_trend_notes': _as_text(data.get('ai_trend_notes'), ''),
+        'confidence_score': _confidence(data.get('confidence_score')),
         'review_status': ReviewStatus.NEW,
     }
