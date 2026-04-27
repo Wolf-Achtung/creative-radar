@@ -1,5 +1,6 @@
 from urllib.parse import quote_plus
 
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import ArgumentError
 from sqlmodel import SQLModel, Session, create_engine
 
@@ -70,8 +71,37 @@ def database_diagnostics() -> dict:
     }
 
 
+VISUAL_COLUMNS = {
+    "visual_analysis_status": "VARCHAR DEFAULT 'pending'",
+    "visual_source_url": "VARCHAR",
+    "visual_notes": "VARCHAR",
+    "placement_title_text": "VARCHAR",
+    "placement_position": "VARCHAR",
+    "placement_strength": "VARCHAR",
+    "has_title_placement": "BOOLEAN DEFAULT FALSE",
+    "has_kinetic": "BOOLEAN DEFAULT FALSE",
+    "kinetic_type": "VARCHAR",
+    "kinetic_text": "VARCHAR",
+    "de_us_match_key": "VARCHAR",
+    "visual_confidence_score": "FLOAT",
+}
+
+
+def _ensure_asset_columns() -> None:
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    if "asset" not in table_names:
+        return
+    existing = {column["name"] for column in inspector.get_columns("asset")}
+    with engine.begin() as connection:
+        for name, ddl in VISUAL_COLUMNS.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE asset ADD COLUMN {name} {ddl}"))
+
+
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
+    _ensure_asset_columns()
 
 
 def get_session():
