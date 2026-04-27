@@ -10,6 +10,17 @@ def _looks_like_unresolved_reference(value: str) -> bool:
     return "${{" in value or "}}" in value
 
 
+def _is_valid_database_url(value: str) -> bool:
+    clean = (value or "").strip().strip('"').strip("'")
+    if not clean or _looks_like_unresolved_reference(clean):
+        return False
+    return clean.startswith(("sqlite://", "postgresql://", "postgresql+psycopg2://", "postgresql+psycopg://"))
+
+
+def _clean_url(value: str) -> str:
+    return (value or "").strip().strip('"').strip("'")
+
+
 def _pg_url_from_parts() -> str | None:
     if not (settings.pghost and settings.pguser and settings.pgpassword and settings.pgdatabase):
         return None
@@ -22,17 +33,16 @@ def _pg_url_from_parts() -> str | None:
 
 
 def resolve_database_url() -> str:
-    raw = (settings.database_url or "").strip()
-    if raw and not _looks_like_unresolved_reference(raw):
-        if raw.startswith(("sqlite://", "postgresql://", "postgresql+psycopg2://", "postgresql+psycopg://")):
-            return raw
+    for candidate in (settings.database_url, settings.database_private_url, settings.database_public_url):
+        if _is_valid_database_url(candidate):
+            return _clean_url(candidate)
     pg_url = _pg_url_from_parts()
     if pg_url:
         return pg_url
     if settings.allow_sqlite_fallback:
         return "sqlite:///./creative_radar.db"
     raise RuntimeError(
-        "Keine gültige Datenbank-Konfiguration gefunden. Bitte DATABASE_URL oder PGHOST/PGUSER/PGPASSWORD/PGDATABASE in Railway setzen."
+        "Keine gültige Datenbank-Konfiguration gefunden. Bitte DATABASE_URL, DATABASE_PRIVATE_URL, DATABASE_PUBLIC_URL oder PGHOST/PGUSER/PGPASSWORD/PGDATABASE in Railway setzen."
     )
 
 
@@ -45,7 +55,7 @@ except ArgumentError as exc:
         DATABASE_URL = "sqlite:///./creative_radar.db"
         engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
     else:
-        raise RuntimeError(f"Ungültige DATABASE_URL: {settings.database_url!r}") from exc
+        raise RuntimeError("Ungültige Datenbank-URL-Konfiguration in Railway.") from exc
 
 
 def database_diagnostics() -> dict:
@@ -54,6 +64,8 @@ def database_diagnostics() -> dict:
         "database_url_prefix": DATABASE_URL.split(":", 1)[0] if DATABASE_URL else "missing",
         "sqlite_fallback_allowed": settings.allow_sqlite_fallback,
         "has_database_url": bool(settings.database_url),
+        "has_database_private_url": bool(settings.database_private_url),
+        "has_database_public_url": bool(settings.database_public_url),
         "has_pg_parts": bool(settings.pghost and settings.pguser and settings.pgpassword and settings.pgdatabase),
     }
 
