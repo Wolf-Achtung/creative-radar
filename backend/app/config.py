@@ -5,6 +5,8 @@ class Settings(BaseSettings):
     app_env: str = "production"
     app_name: str = "creative-radar"
     database_url: str = ""
+    database_private_url: str = ""
+    database_public_url: str = ""
     allow_sqlite_fallback: bool = False
 
     pghost: str | None = None
