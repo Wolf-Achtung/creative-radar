@@ -29,16 +29,33 @@ def resolve_database_url() -> str:
     pg_url = _pg_url_from_parts()
     if pg_url:
         return pg_url
-    return "sqlite:///./creative_radar.db"
+    if settings.allow_sqlite_fallback:
+        return "sqlite:///./creative_radar.db"
+    raise RuntimeError(
+        "Keine gültige Datenbank-Konfiguration gefunden. Bitte DATABASE_URL oder PGHOST/PGUSER/PGPASSWORD/PGDATABASE in Railway setzen."
+    )
 
 
 DATABASE_URL = resolve_database_url()
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 try:
     engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args, pool_pre_ping=True)
-except ArgumentError:
-    DATABASE_URL = "sqlite:///./creative_radar.db"
-    engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+except ArgumentError as exc:
+    if settings.allow_sqlite_fallback:
+        DATABASE_URL = "sqlite:///./creative_radar.db"
+        engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+    else:
+        raise RuntimeError(f"Ungültige DATABASE_URL: {settings.database_url!r}") from exc
+
+
+def database_diagnostics() -> dict:
+    return {
+        "database_kind": "sqlite" if DATABASE_URL.startswith("sqlite") else "postgres",
+        "database_url_prefix": DATABASE_URL.split(":", 1)[0] if DATABASE_URL else "missing",
+        "sqlite_fallback_allowed": settings.allow_sqlite_fallback,
+        "has_database_url": bool(settings.database_url),
+        "has_pg_parts": bool(settings.pghost and settings.pguser and settings.pgpassword and settings.pgdatabase),
+    }
 
 
 def create_db_and_tables() -> None:
