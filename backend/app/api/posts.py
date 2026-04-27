@@ -2,7 +2,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.database import get_session
-from app.models.entities import Asset, Channel, Post, Title
+from app.models.entities import Asset, Channel, Post, Title, Market, Priority
 from app.schemas.dto import ManualPostImport, AnalyzeInstagramLinkRequest
 from app.services.ai_asset_analyzer import create_placeholder_ai_summary
 from app.services.creative_ai import analyze_creative_text
@@ -25,13 +25,39 @@ def get_post(post_id: UUID, session: Session = Depends(get_session)):
     return post
 
 
-def _find_channel_for_url(session: Session, post_url: str, channel_id: UUID | None) -> Channel | None:
+def _get_or_create_auto_channel(session: Session) -> Channel:
+    channel = session.exec(select(Channel).where(Channel.handle == "auto_import_instagram")).first()
+    if channel:
+        return channel
+    channel = Channel(
+        name="Auto Import · Instagram",
+        platform="instagram",
+        url="https://www.instagram.com/",
+        handle="auto_import_instagram",
+        market=Market.UNKNOWN,
+        channel_type="Auto Import",
+        priority=Priority.C,
+        active=True,
+        mvp=True,
+        notes="Automatisch angelegt für Link-Analysen ohne vorausgewählten Kanal.",
+    )
+    session.add(channel)
+    session.commit()
+    session.refresh(channel)
+    return channel
+
+
+def _find_channel_for_url(session: Session, post_url: str, channel_id: UUID | None) -> Channel:
     if channel_id:
-        return session.get(Channel, channel_id)
+        selected = session.get(Channel, channel_id)
+        if selected:
+            return selected
     handle = infer_instagram_handle(post_url)
     if handle:
-        return session.exec(select(Channel).where(Channel.handle == handle)).first()
-    return None
+        matched = session.exec(select(Channel).where(Channel.handle == handle)).first()
+        if matched:
+            return matched
+    return _get_or_create_auto_channel(session)
 
 
 def _match_title(session: Session, title_id: UUID | None, caption: str | None) -> Title | None:
@@ -89,8 +115,6 @@ async def analyze_instagram_link(payload: AnalyzeInstagramLinkRequest, session: 
     preview = await fetch_public_preview(payload.post_url)
     caption = payload.caption_hint or preview.get("caption") or preview.get("title") or ""
     channel = _find_channel_for_url(session, payload.post_url, payload.channel_id)
-    if not channel:
-        raise HTTPException(status_code=422, detail="Kanal konnte nicht automatisch erkannt werden. Bitte Channel im Formular auswählen.")
     title = _match_title(session, payload.title_id, caption)
 
     post = Post(
