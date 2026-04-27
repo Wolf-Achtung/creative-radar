@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     perplexity_model: str = "sonar-pro"
     apify_api_token: str | None = None
     apify_instagram_actor_id: str = "apify~instagram-scraper"
+    apify_tiktok_actor_id: str = "clockworks~tiktok-scraper"
     apify_results_limit_per_channel: int = 5
     apify_wait_seconds: int = 60
     frontend_url: str = "*"
