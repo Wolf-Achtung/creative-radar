@@ -111,6 +111,7 @@ class Post(SQLModel, table=True):
     channel_id: UUID = Field(foreign_key="channel.id")
     platform: str = "instagram"
     post_url: str = Field(unique=True, index=True)
+    external_id: Optional[str] = None
     published_at: Optional[datetime] = None
     detected_at: datetime = Field(default_factory=utc_now)
     caption: Optional[str] = None
@@ -118,6 +119,9 @@ class Post(SQLModel, table=True):
     visible_likes: Optional[int] = None
     visible_comments: Optional[int] = None
     visible_views: Optional[int] = None
+    visible_shares: Optional[int] = None
+    visible_bookmarks: Optional[int] = None
+    duration_seconds: Optional[int] = None
     media_type: Optional[str] = None
     status: str = "new"
     created_at: datetime = Field(default_factory=utc_now)
