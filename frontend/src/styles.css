@@ -13,6 +13,7 @@ a:hover { text-decoration: underline; }
 .card { background: white; padding: 20px; border-radius: 18px; box-shadow: 0 8px 30px rgba(22, 32, 51, 0.08); margin-bottom: 16px; }
 .card h2 { margin: 0 0 14px; font-size: 25px; }
 .section-kicker { margin: 0 0 6px; color: #667085; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; font-weight: 900; }
+.section-actions { margin-top: 14px; padding-top: 12px; border-top: 1px solid #edf1f7; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .form-grid label { display: flex; flex-direction: column; gap: 7px; font-weight: 800; }
 .form-grid .wide { grid-column: 1 / -1; }
@@ -47,6 +48,8 @@ textarea { resize: vertical; }
 .asset-meta { color: #667085; font-size: 14px; font-weight: 700; }
 .asset-summary { font-size: 15px; line-height: 1.35; max-width: 860px; }
 .asset-trend { color: #56627a; line-height: 1.35; max-width: 860px; }
+.visual-facts { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0; }
+.visual-facts span { background: #f1f5f9; color: #334155; border-radius: 999px; padding: 5px 8px; font-size: 13px; font-weight: 800; }
 .asset-links { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .asset-links details { color: #56627a; }
 .asset-links summary { cursor: pointer; font-weight: 800; }
@@ -54,6 +57,12 @@ textarea { resize: vertical; }
 .asset-actions button { margin: 0; }
 .pill, .badge { background: #eef2fb; border-radius: 999px; padding: 4px 9px; font-size: 13px; font-weight: 900; }
 .discovery { background: #fff4d6; color: #8a5a00; }
+.placement { background: #e0f2fe; color: #075985; }
+.kinetic { background: #f3e8ff; color: #6b21a8; }
+.visual-analyzed { background: #e9f8ef; color: #166534; }
+.visual-text_only { background: #edf4ff; color: #164e8b; }
+.visual-pending { background: #f1f5f9; color: #475569; }
+.visual-error { background: #ffe8e8; color: #8a1f1f; }
 .status-approved, .status-highlight { background: #e9f8ef; color: #166534; }
 .status-rejected { background: #ffe8e8; color: #8a1f1f; }
 .status-needs_review { background: #edf4ff; color: #164e8b; }
