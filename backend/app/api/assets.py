@@ -2,10 +2,47 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.database import get_session
-from app.models.entities import Asset, ReviewStatus
+from app.models.entities import Asset, Channel, Post, ReviewStatus, Title
 from app.schemas.dto import AssetReviewUpdate
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
+
+
+def _asset_card(asset: Asset, post: Post | None, channel: Channel | None, title: Title | None) -> dict:
+    return {
+        "id": asset.id,
+        "post_id": asset.post_id,
+        "title_id": asset.title_id,
+        "title_name": title.title_original if title else None,
+        "is_discovery": title is None,
+        "asset_type": asset.asset_type,
+        "language": asset.language,
+        "screenshot_url": asset.screenshot_url,
+        "thumbnail_url": asset.thumbnail_url,
+        "ocr_text": asset.ocr_text,
+        "ai_summary_de": asset.ai_summary_de,
+        "ai_summary_en": asset.ai_summary_en,
+        "ai_trend_notes": asset.ai_trend_notes,
+        "confidence_score": asset.confidence_score,
+        "review_status": asset.review_status,
+        "curator_note": asset.curator_note,
+        "include_in_report": asset.include_in_report,
+        "is_highlight": asset.is_highlight,
+        "created_at": asset.created_at,
+        "post_url": post.post_url if post else None,
+        "caption": post.caption if post else None,
+        "published_at": post.published_at if post else None,
+        "detected_at": post.detected_at if post else None,
+        "visible_likes": post.visible_likes if post else None,
+        "visible_comments": post.visible_comments if post else None,
+        "visible_views": post.visible_views if post else None,
+        "media_type": post.media_type if post else None,
+        "channel_name": channel.name if channel else None,
+        "channel_handle": channel.handle if channel else None,
+        "channel_market": channel.market if channel else None,
+        "channel_type": channel.channel_type if channel else None,
+        "channel_priority": channel.priority if channel else None,
+    }
 
 
 @router.get("")
@@ -13,7 +50,14 @@ def list_assets(review_status: ReviewStatus | None = None, session: Session = De
     statement = select(Asset).order_by(Asset.created_at.desc())
     if review_status is not None:
         statement = statement.where(Asset.review_status == review_status)
-    return session.exec(statement).all()
+    assets = session.exec(statement).all()
+    cards = []
+    for asset in assets:
+        post = session.get(Post, asset.post_id)
+        channel = session.get(Channel, post.channel_id) if post else None
+        title = session.get(Title, asset.title_id) if asset.title_id else None
+        cards.append(_asset_card(asset, post, channel, title))
+    return cards
 
 
 @router.get("/{asset_id}")
@@ -21,7 +65,10 @@ def get_asset(asset_id: UUID, session: Session = Depends(get_session)):
     asset = session.get(Asset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    return asset
+    post = session.get(Post, asset.post_id)
+    channel = session.get(Channel, post.channel_id) if post else None
+    title = session.get(Title, asset.title_id) if asset.title_id else None
+    return _asset_card(asset, post, channel, title)
 
 
 @router.patch("/{asset_id}/review")
@@ -36,4 +83,7 @@ def update_asset_review(asset_id: UUID, payload: AssetReviewUpdate, session: Ses
     session.add(asset)
     session.commit()
     session.refresh(asset)
-    return asset
+    post = session.get(Post, asset.post_id)
+    channel = session.get(Channel, post.channel_id) if post else None
+    title = session.get(Title, asset.title_id) if asset.title_id else None
+    return _asset_card(asset, post, channel, title)
