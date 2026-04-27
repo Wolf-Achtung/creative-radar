@@ -32,10 +32,22 @@ function clip(text, max = 340) {
   return text.length > max ? `${text.slice(0, max).trim()} …` : text;
 }
 
+function formatNumber(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  try { return new Intl.NumberFormat('de-DE').format(Number(value)); } catch (_) { return String(value); }
+}
+
+function normalizeHandle(value) {
+  const clean = (value || '').trim().replace(/^@/, '').replace(/\/$/, '');
+  if (clean.includes('tiktok.com/@')) return clean.split('tiktok.com/@')[1].split('/')[0];
+  return clean;
+}
+
 function AssetCard({ asset, busy, onReview, onAnalyzeVisual }) {
   const preview = asset.thumbnail_url || asset.screenshot_url;
   const channel = asset.channel_name || 'Unbekannter Channel';
   const market = asset.channel_market || 'UNKNOWN';
+  const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
   const title = asset.title_name || asset.placement_title_text || 'Discovery · kein Whitelist-Match';
   const isDiscovery = asset.is_discovery || !asset.title_name;
   const date = formatDate(asset.published_at || asset.detected_at || asset.created_at);
@@ -47,6 +59,7 @@ function AssetCard({ asset, busy, onReview, onAnalyzeVisual }) {
       <div className="asset-content">
         <div className="asset-topline">
           <span className="asset-title">{title}</span>
+          <span className={`pill platform-${platform}`}>{platform}</span>
           <span className="pill">{asset.asset_type || 'Unknown'}</span>
           <span className={`pill status-${asset.review_status}`}>{asset.review_status}</span>
           {isDiscovery && <span className="pill discovery">Discovery</span>}
@@ -55,10 +68,20 @@ function AssetCard({ asset, busy, onReview, onAnalyzeVisual }) {
           {asset.has_kinetic && <span className="pill kinetic">Kinetic</span>}
         </div>
         <div className="asset-meta">
-          {channel} · {market} · {asset.media_type || 'Instagram'} · {date}
+          {channel} · {market} · {platform} · {date}
           {asset.confidence_score !== null && asset.confidence_score !== undefined ? ` · Text ${Math.round(asset.confidence_score * 100)}%` : ''}
           {asset.visual_confidence_score !== null && asset.visual_confidence_score !== undefined ? ` · Visual ${Math.round(asset.visual_confidence_score * 100)}%` : ''}
         </div>
+        {(asset.visible_views || asset.visible_likes || asset.visible_comments || asset.visible_shares || asset.visible_bookmarks) && (
+          <div className="metric-row">
+            <span>Views {formatNumber(asset.visible_views)}</span>
+            <span>Likes {formatNumber(asset.visible_likes)}</span>
+            <span>Shares {formatNumber(asset.visible_shares)}</span>
+            <span>Comments {formatNumber(asset.visible_comments)}</span>
+            <span>Saves {formatNumber(asset.visible_bookmarks)}</span>
+            {asset.duration_seconds ? <span>{asset.duration_seconds}s</span> : null}
+          </div>
+        )}
         <p className="asset-summary">{clip(asset.ai_summary_de || 'Keine KI-Zusammenfassung vorhanden.', 420)}</p>
         {asset.ai_trend_notes && <p className="asset-trend">{clip(asset.ai_trend_notes, 300)}</p>}
         {(asset.placement_title_text || asset.placement_position || asset.placement_strength || asset.kinetic_type) && (
@@ -130,7 +153,7 @@ function InsightsPanel({ insights }) {
         { key: 'title', label: 'Titel' },
         { key: 'channel', label: 'Channel' },
         { key: 'asset_type', label: 'Typ' },
-        { key: 'score', label: 'Score' },
+        { key: 'score', label: 'Score', render: row => formatNumber(row.score) },
       ]} />
 
       <MiniTable title="Visual Placement-Vergleich" rows={placements.slice(0, 6)} columns={[
@@ -174,11 +197,12 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [channelFile, setChannelFile] = useState(null);
   const [monitorForm, setMonitorForm] = useState({ max_channels: 5, results_limit_per_channel: 5, only_whitelist_matches: true });
-  const [filters, setFilters] = useState({ status: 'all', market: 'all', assetType: 'all', discovery: 'all', query: '' });
+  const [tiktokForm, setTiktokForm] = useState({ username: 'warnerbros', max_channels: 1, results_limit_per_channel: 5, only_whitelist_matches: false });
+  const [filters, setFilters] = useState({ status: 'all', platform: 'all', market: 'all', assetType: 'all', discovery: 'all', query: '' });
   const [quickForm, setQuickForm] = useState({ post_url: '', channel_id: '', title_id: '', caption_hint: '', asset_type_hint: 'Unknown' });
   const [form, setForm] = useState({ channel_id: '', title_id: '', post_url: '', caption: '', media_type: 'reel', asset_type: 'Unknown', screenshot_url: '', ocr_text: '' });
 
-  const sortedChannels = useMemo(() => [...channels].sort((a, b) => `${a.market}-${a.name}`.localeCompare(`${b.market}-${b.name}`)), [channels]);
+  const sortedChannels = useMemo(() => [...channels].sort((a, b) => `${a.platform}-${a.market}-${a.name}`.localeCompare(`${b.platform}-${b.market}-${b.name}`)), [channels]);
   const sortedTitles = useMemo(() => [...titles].sort((a, b) => a.title_original.localeCompare(b.title_original)), [titles]);
   const highlights = assets.filter((asset) => asset.is_highlight || asset.review_status === 'highlight');
   const approved = assets.filter((asset) => asset.include_in_report || asset.review_status === 'approved' || asset.review_status === 'highlight');
@@ -187,7 +211,9 @@ function App() {
   const visibleAssets = useMemo(() => {
     const query = filters.query.trim().toLowerCase();
     return assets.filter((asset) => {
+      const platform = asset.platform || asset.channel_platform || asset.media_type;
       if (filters.status !== 'all' && asset.review_status !== filters.status) return false;
+      if (filters.platform !== 'all' && platform !== filters.platform) return false;
       if (filters.market !== 'all' && asset.channel_market !== filters.market) return false;
       if (filters.assetType !== 'all' && asset.asset_type !== filters.assetType) return false;
       const isDiscovery = asset.is_discovery || !asset.title_name;
@@ -238,7 +264,35 @@ function App() {
         only_whitelist_matches: Boolean(monitorForm.only_whitelist_matches),
       });
       await load();
-      setMessage(`Apify-Monitoring abgeschlossen: ${result.channels_checked} Channels geprüft, ${result.raw_items} Roh-Treffer, ${result.created_assets} neue Assets, ${result.skipped_no_whitelist_match} ohne Whitelist-Treffer übersprungen.`);
+      setMessage(`Instagram-Monitoring abgeschlossen: ${result.channels_checked} Channels geprüft, ${result.raw_items} Roh-Treffer, ${result.created_assets} neue Assets.`);
+    });
+  }
+
+  async function runTikTokMonitor() {
+    await run(async () => {
+      const username = normalizeHandle(tiktokForm.username);
+      if (username) {
+        await endpoints.createChannel({
+          name: `TikTok @${username}`,
+          platform: 'tiktok',
+          url: `https://www.tiktok.com/@${username}`,
+          handle: username,
+          market: 'US',
+          channel_type: 'Studio/Verleih',
+          priority: 'A',
+          active: true,
+          mvp: true,
+          notes: 'Automatisch aus TikTok-Testlauf angelegt.',
+        }).catch(() => null);
+      }
+      const result = await endpoints.runTikTokMonitor({
+        usernames: username ? [username] : [],
+        max_channels: Number(tiktokForm.max_channels) || 1,
+        results_limit_per_channel: Number(tiktokForm.results_limit_per_channel) || 5,
+        only_whitelist_matches: Boolean(tiktokForm.only_whitelist_matches),
+      });
+      await load();
+      setMessage(`TikTok-Monitoring abgeschlossen: ${result.channels_checked} Profil(e), ${result.raw_items} Roh-Treffer, ${result.created_assets} neue Assets, ${result.skipped_existing} bereits vorhanden.`);
     });
   }
 
@@ -311,16 +365,18 @@ function App() {
 
       <Section title="Creative Radar Auswertung" kicker="Briefing-Zentrale"><InsightsPanel insights={insights} /><div className="section-actions"><button onClick={analyzeVisualBatch} disabled={busy || assets.length === 0}>Visual/OCR für 10 Assets prüfen</button></div></Section>
 
-      <Section title="Kanalliste importieren" kicker="Einmaliger Setup-Schritt"><form className="form-grid" onSubmit={importChannelFile}><label className="wide">Excel-Datei mit FILMVERLEIH / INSTAGRAM<input type="file" accept=".xlsx,.xlsm" onChange={(event) => setChannelFile(event.target.files?.[0] || null)} /></label><div className="wide"><button type="submit" disabled={busy || !channelFile}>Excel-Kanalliste importieren</button></div></form><p className="muted small">Die Excel-Datei muss nur erneut importiert werden, wenn sich die Kanalliste geändert hat.</p></Section>
+      <Section title="TikTok-Kanäle automatisch prüfen" kicker="TikTok Connector Pack v1"><div className="form-grid"><label>TikTok Username oder Profil-URL<input value={tiktokForm.username} onChange={e => setTiktokForm({ ...tiktokForm, username: e.target.value })} placeholder="warnerbros oder https://www.tiktok.com/@warnerbros" /></label><label>Videos pro Profil<input type="number" min="1" max="20" value={tiktokForm.results_limit_per_channel} onChange={e => setTiktokForm({ ...tiktokForm, results_limit_per_channel: e.target.value })} /></label><label className="wide checkbox-row"><input type="checkbox" checked={tiktokForm.only_whitelist_matches} onChange={e => setTiktokForm({ ...tiktokForm, only_whitelist_matches: e.target.checked })} /> Nur Treffer zur Whitelist übernehmen</label><div className="wide"><button onClick={runTikTokMonitor} disabled={busy || !tiktokForm.username}>TikTok-Profil prüfen</button></div></div><p className="muted small">Für Discovery und Trendbeobachtung den Whitelist-Haken zunächst deaktiviert lassen. Der Connector übernimmt Plays, Likes, Shares, Comments und Saves.</p></Section>
 
-      <Section title="Kanäle automatisch prüfen" kicker="Apify Public Monitor"><div className="form-grid"><label>Max. Channels pro Lauf<input type="number" min="1" max="25" value={monitorForm.max_channels} onChange={e => setMonitorForm({ ...monitorForm, max_channels: e.target.value })} /></label><label>Posts/Reels pro Channel<input type="number" min="1" max="20" value={monitorForm.results_limit_per_channel} onChange={e => setMonitorForm({ ...monitorForm, results_limit_per_channel: e.target.value })} /></label><label className="wide checkbox-row"><input type="checkbox" checked={monitorForm.only_whitelist_matches} onChange={e => setMonitorForm({ ...monitorForm, only_whitelist_matches: e.target.checked })} /> Nur Treffer zur Whitelist übernehmen</label><div className="wide"><button onClick={runApifyMonitor} disabled={busy || channels.length === 0}>Kanäle automatisch prüfen</button></div></div><p className="muted small">Discovery-Test: Haken rausnehmen. Routine-Report: Haken aktivieren.</p></Section>
+      <Section title="Kanalliste importieren" kicker="Einmaliger Setup-Schritt"><form className="form-grid" onSubmit={importChannelFile}><label className="wide">Excel-Datei mit FILMVERLEIH / INSTAGRAM<input type="file" accept=".xlsx,.xlsm" onChange={(event) => setChannelFile(event.target.files?.[0] || null)} /></label><div className="wide"><button type="submit" disabled={busy || !channelFile}>Excel-Kanalliste importieren</button></div></form><p className="muted small">Die Excel-Datei muss nur erneut importiert werden, wenn sich die Kanalliste geändert hat. TikTok-Profile können aktuell einzeln getestet werden.</p></Section>
 
-      <Section title="Instagram-Link analysieren" kicker="Einzel-Link-Fallback"><form className="form-grid" onSubmit={analyzeLink}><label className="wide">Instagram-Post- oder Reel-Link<input value={quickForm.post_url} onChange={e => setQuickForm({ ...quickForm, post_url: e.target.value })} placeholder="https://www.instagram.com/p/... oder /reel/..." required /></label><label>Channel optional<select value={quickForm.channel_id} onChange={e => setQuickForm({ ...quickForm, channel_id: e.target.value })}><option value="">Automatisch / Auto Import</option>{sortedChannels.map(channel => <option key={channel.id} value={channel.id}>{channel.market} · {channel.name}</option>)}</select></label><label>Titel / Franchise optional<select value={quickForm.title_id} onChange={e => setQuickForm({ ...quickForm, title_id: e.target.value })}><option value="">Automatisch über Text matchen</option>{sortedTitles.map(title => <option key={title.id} value={title.id}>{title.title_original}</option>)}</select></label><label>Vermuteter Asset-Typ optional<select value={quickForm.asset_type_hint} onChange={e => setQuickForm({ ...quickForm, asset_type_hint: e.target.value })}>{ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select></label><label>Hinweistext optional<input value={quickForm.caption_hint} onChange={e => setQuickForm({ ...quickForm, caption_hint: e.target.value })} placeholder="z. B. Titel, Claim oder kurze Notiz" /></label><div className="wide"><button type="submit" disabled={busy || !quickForm.post_url}>Instagram-Link analysieren</button></div></form></Section>
+      <Section title="Instagram-Kanäle automatisch prüfen" kicker="Apify Public Monitor"><div className="form-grid"><label>Max. Channels pro Lauf<input type="number" min="1" max="25" value={monitorForm.max_channels} onChange={e => setMonitorForm({ ...monitorForm, max_channels: e.target.value })} /></label><label>Posts/Reels pro Channel<input type="number" min="1" max="20" value={monitorForm.results_limit_per_channel} onChange={e => setMonitorForm({ ...monitorForm, results_limit_per_channel: e.target.value })} /></label><label className="wide checkbox-row"><input type="checkbox" checked={monitorForm.only_whitelist_matches} onChange={e => setMonitorForm({ ...monitorForm, only_whitelist_matches: e.target.checked })} /> Nur Treffer zur Whitelist übernehmen</label><div className="wide"><button onClick={runApifyMonitor} disabled={busy || channels.length === 0}>Instagram-Kanäle prüfen</button></div></div><p className="muted small">Discovery-Test: Haken rausnehmen. Routine-Report: Haken aktivieren.</p></Section>
 
-      <Section title="Manueller Treffer-Import" kicker="Fallback für Sonderfälle"><form className="form-grid" onSubmit={importPost}><label>Channel<select value={form.channel_id} onChange={e => setForm({ ...form, channel_id: e.target.value })} required><option value="">Bitte wählen</option>{sortedChannels.map(channel => <option key={channel.id} value={channel.id}>{channel.market} · {channel.name}</option>)}</select></label><label>Titel / Franchise<select value={form.title_id} onChange={e => setForm({ ...form, title_id: e.target.value })}><option value="">Automatisch über Caption matchen</option>{sortedTitles.map(title => <option key={title.id} value={title.id}>{title.title_original}</option>)}</select></label><label className="wide">Instagram-Post-Link<input value={form.post_url} onChange={e => setForm({ ...form, post_url: e.target.value })} placeholder="https://www.instagram.com/p/..." required /></label><label>Asset-Typ<select value={form.asset_type} onChange={e => setForm({ ...form, asset_type: e.target.value })}>{ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select></label><label>Media Type<input value={form.media_type} onChange={e => setForm({ ...form, media_type: e.target.value })} placeholder="reel / post / story" /></label><label className="wide">Screenshot-URL optional<input value={form.screenshot_url} onChange={e => setForm({ ...form, screenshot_url: e.target.value })} placeholder="Interner Screenshot-Link oder leer lassen" /></label><label className="wide">Caption<textarea value={form.caption} onChange={e => setForm({ ...form, caption: e.target.value })} placeholder="Caption oder kurzer Text aus dem Post" rows="4" /></label><label className="wide">Sichtbarer Text / OCR optional<textarea value={form.ocr_text} onChange={e => setForm({ ...form, ocr_text: e.target.value })} placeholder="Sichtbarer Titel, Claim, CTA etc." rows="3" /></label><div className="wide"><button type="submit" disabled={busy || !form.channel_id || !form.post_url}>Treffer importieren</button></div></form></Section>
+      <Section title="Instagram-Link analysieren" kicker="Einzel-Link-Fallback"><form className="form-grid" onSubmit={analyzeLink}><label className="wide">Instagram-Post- oder Reel-Link<input value={quickForm.post_url} onChange={e => setQuickForm({ ...quickForm, post_url: e.target.value })} placeholder="https://www.instagram.com/p/... oder /reel/..." required /></label><label>Channel optional<select value={quickForm.channel_id} onChange={e => setQuickForm({ ...quickForm, channel_id: e.target.value })}><option value="">Automatisch / Auto Import</option>{sortedChannels.map(channel => <option key={channel.id} value={channel.id}>{channel.platform} · {channel.market} · {channel.name}</option>)}</select></label><label>Titel / Franchise optional<select value={quickForm.title_id} onChange={e => setQuickForm({ ...quickForm, title_id: e.target.value })}><option value="">Automatisch über Text matchen</option>{sortedTitles.map(title => <option key={title.id} value={title.id}>{title.title_original}</option>)}</select></label><label>Vermuteter Asset-Typ optional<select value={quickForm.asset_type_hint} onChange={e => setQuickForm({ ...quickForm, asset_type_hint: e.target.value })}>{ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select></label><label>Hinweistext optional<input value={quickForm.caption_hint} onChange={e => setQuickForm({ ...quickForm, caption_hint: e.target.value })} placeholder="z. B. Titel, Claim oder kurze Notiz" /></label><div className="wide"><button type="submit" disabled={busy || !quickForm.post_url}>Instagram-Link analysieren</button></div></form></Section>
+
+      <Section title="Manueller Treffer-Import" kicker="Fallback für Sonderfälle"><form className="form-grid" onSubmit={importPost}><label>Channel<select value={form.channel_id} onChange={e => setForm({ ...form, channel_id: e.target.value })} required><option value="">Bitte wählen</option>{sortedChannels.map(channel => <option key={channel.id} value={channel.id}>{channel.platform} · {channel.market} · {channel.name}</option>)}</select></label><label>Titel / Franchise<select value={form.title_id} onChange={e => setForm({ ...form, title_id: e.target.value })}><option value="">Automatisch über Caption matchen</option>{sortedTitles.map(title => <option key={title.id} value={title.id}>{title.title_original}</option>)}</select></label><label className="wide">Post-Link<input value={form.post_url} onChange={e => setForm({ ...form, post_url: e.target.value })} placeholder="https://www.instagram.com/p/... oder TikTok-Link" required /></label><label>Asset-Typ<select value={form.asset_type} onChange={e => setForm({ ...form, asset_type: e.target.value })}>{ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select></label><label>Media Type<input value={form.media_type} onChange={e => setForm({ ...form, media_type: e.target.value })} placeholder="reel / post / story / tiktok" /></label><label className="wide">Screenshot-URL optional<input value={form.screenshot_url} onChange={e => setForm({ ...form, screenshot_url: e.target.value })} placeholder="Interner Screenshot-Link oder leer lassen" /></label><label className="wide">Caption<textarea value={form.caption} onChange={e => setForm({ ...form, caption: e.target.value })} placeholder="Caption oder kurzer Text aus dem Post" rows="4" /></label><label className="wide">Sichtbarer Text / OCR optional<textarea value={form.ocr_text} onChange={e => setForm({ ...form, ocr_text: e.target.value })} placeholder="Sichtbarer Titel, Claim, CTA etc." rows="3" /></label><div className="wide"><button type="submit" disabled={busy || !form.channel_id || !form.post_url}>Treffer importieren</button></div></form></Section>
 
       <Section title="Asset Review" kicker={`${visibleAssets.length} von ${assets.length} sichtbar`} className="review-section">
-        <div className="filterbar"><select value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>{STATUS_OPTIONS.map(status => <option key={status} value={status}>{status === 'all' ? 'Alle Status' : status}</option>)}</select><select value={filters.market} onChange={e => setFilters({ ...filters, market: e.target.value })}><option value="all">Alle Märkte</option><option value="DE">DE</option><option value="US">US</option><option value="INT">INT</option><option value="UNKNOWN">UNKNOWN</option></select><select value={filters.assetType} onChange={e => setFilters({ ...filters, assetType: e.target.value })}><option value="all">Alle Asset-Typen</option>{ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select><select value={filters.discovery} onChange={e => setFilters({ ...filters, discovery: e.target.value })}><option value="all">Whitelist + Discovery</option><option value="discovery">Nur Discovery</option><option value="whitelist">Nur Whitelist</option></select><input value={filters.query} onChange={e => setFilters({ ...filters, query: e.target.value })} placeholder="Suche nach Titel, Channel, Pattern, OCR …" /></div>
+        <div className="filterbar"><select value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>{STATUS_OPTIONS.map(status => <option key={status} value={status}>{status === 'all' ? 'Alle Status' : status}</option>)}</select><select value={filters.platform} onChange={e => setFilters({ ...filters, platform: e.target.value })}><option value="all">Alle Plattformen</option><option value="instagram">Instagram</option><option value="tiktok">TikTok</option></select><select value={filters.market} onChange={e => setFilters({ ...filters, market: e.target.value })}><option value="all">Alle Märkte</option><option value="DE">DE</option><option value="US">US</option><option value="INT">INT</option><option value="UNKNOWN">UNKNOWN</option></select><select value={filters.assetType} onChange={e => setFilters({ ...filters, assetType: e.target.value })}><option value="all">Alle Asset-Typen</option>{ASSET_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select><select value={filters.discovery} onChange={e => setFilters({ ...filters, discovery: e.target.value })}><option value="all">Whitelist + Discovery</option><option value="discovery">Nur Discovery</option><option value="whitelist">Nur Whitelist</option></select><input value={filters.query} onChange={e => setFilters({ ...filters, query: e.target.value })} placeholder="Suche nach Titel, Channel, Pattern, OCR …" /></div>
         {assets.length === 0 && <p>Noch keine Assets. Erst Kanalliste importieren und Kanäle automatisch prüfen.</p>}
         {visibleAssets.map(asset => <AssetCard key={asset.id} asset={asset} busy={busy} onReview={reviewAsset} onAnalyzeVisual={analyzeAssetVisual} />)}
       </Section>
