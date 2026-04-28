@@ -161,10 +161,33 @@ input, select, textarea { border: 1px solid #ddd4c6; border-radius: 10px; paddin
 .title-hint.open { background: #fff3df; border: 1px solid #f3c991; }
 .title-hint.assigned { background: #eaf3e4; border: 1px solid #c8dfbd; }
 .title-select { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.title-instruction { margin: 0 0 6px; color: #5e564a; font-size: 13px; }
 .missing-hint { margin: 0 0 8px; color: #904514; font-size: 13px; }
 .asset-summary { margin: 8px 0; }
 .asset-actions { display: flex; flex-direction: column; gap: 7px; }
 .asset-links summary { cursor: pointer; }
+.ghost { opacity: .75; margin-bottom: 8px; }
+
+.card-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.card-step {
+  background: #fffaf1;
+  border: 1px solid #e6ded1;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #675f53;
+}
+.card-step.done {
+  background: #e6f2df;
+  border-color: #c5dfb9;
+  color: #245b2f;
+}
 
 .compare-list { display: grid; gap: 10px; }
 .compare-card { background: #f4eee3; border-radius: 12px; padding: 14px; }
