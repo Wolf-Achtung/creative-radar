@@ -17,7 +17,7 @@ const ACTION_HELP = [
 function getAssetDisplayTitle(asset, titles) {
   const hint = inferTitleHint(asset, titles);
   if (asset.title_name || asset.title_id) {
-    return hint.label;
+    return `Automatisch erkannt: ${hint.label}`;
   }
   if (hint.label && hint.label !== 'Filmtitel noch offen' && hint.label !== 'Filmtitel offen') {
     return `Vorschlag: ${hint.label}`;
@@ -259,7 +259,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
     const target = [hint.label, asset.placement_title_text, asset.caption, asset.ocr_text].filter(Boolean).join(' ').toLowerCase();
     return target && pool && (target.includes((title.title_original || '').toLowerCase()) || pool.includes(hint.label.toLowerCase()));
   }).slice(0, 5);
-  const titleHintLabel = recentlyCreatedTitleName ? 'Bestätigter Filmtitel' : 'Vermuteter Filmtitel';
+  const titleHintLabel = recentlyCreatedTitleName ? 'Bestätigter Filmtitel' : (hasTitle ? 'Automatisch erkannt' : 'Vermuteter Filmtitel');
   const titleHintSource = recentlyCreatedTitleName ? 'neu angelegt und zugeordnet' : hint.source;
   const titleHintValue = recentlyCreatedTitleName || hint.label;
 
@@ -281,7 +281,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
           <strong>{titleHintValue}</strong>
           <small>{titleHintSource}</small>
         </div>
-        <p className="title-instruction">Wenn der Vorschlag stimmt, bitte unten im Dropdown bestätigen.</p>
+        {!hasTitle && <p className="title-instruction">Wenn der Vorschlag stimmt, bitte unten im Dropdown bestätigen.</p>}
         <p className="title-instruction">Falls der Titel fehlt, über den Button unten als Titelkandidat melden.</p>
         <label className="title-select">
           Filmtitel-Zuordnung

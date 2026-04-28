@@ -3,12 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import Asset, Channel, Post, Title, Market, Priority
-from app.services.title_candidates import create_candidate_from_asset
+from app.services.title_candidates import create_candidate_from_asset, resolve_open_candidates_for_asset
 from app.schemas.dto import ManualPostImport, AnalyzeInstagramLinkRequest
 from app.services.ai_asset_analyzer import create_placeholder_ai_summary
 from app.services.creative_ai import analyze_creative_text
 from app.services.link_preview import fetch_public_preview, infer_instagram_handle
-from app.services.whitelist_matcher import find_best_title_match
+from app.services.whitelist_matcher import find_best_title_match, is_safe_auto_match
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
 
@@ -61,12 +61,24 @@ def _find_channel_for_url(session: Session, post_url: str, channel_id: UUID | No
     return _get_or_create_auto_channel(session)
 
 
-def _match_title(session: Session, title_id: UUID | None, caption: str | None) -> tuple[Title | None, float]:
+def _build_match_fields(*, caption: str | None = None, ocr_text: str | None = None, ai_summary_de: str | None = None, ai_summary_en: str | None = None, visual_notes: str | None = None, suggested_title: str | None = None, detected_keywords: list[str] | None = None) -> dict[str, str | list[str] | None]:
+    return {
+        "caption": caption,
+        "ocr_text": ocr_text,
+        "ai_summary_de": ai_summary_de,
+        "ai_summary_en": ai_summary_en,
+        "visual_notes": visual_notes,
+        "suggested_title": suggested_title,
+        "detected_keywords": detected_keywords or [],
+    }
+
+
+def _match_title(session: Session, title_id: UUID | None, fields: dict[str, str | list[str] | None]) -> tuple[Title | None, float]:
     if title_id:
         title = session.get(Title, title_id)
         return title, 1.0 if title else 0.0
-    match = find_best_title_match(session, caption or "")
-    if match.title and match.source == "exact":
+    match = find_best_title_match(session, fields.get("caption") or "", fields=fields)
+    if is_safe_auto_match(match):
         return match.title, match.confidence
     return None, match.confidence
 
@@ -80,7 +92,8 @@ def manual_import(payload: ManualPostImport, session: Session = Depends(get_sess
     if existing:
         raise HTTPException(status_code=409, detail="Post already exists")
 
-    title, confidence = _match_title(session, payload.title_id, payload.caption)
+    match_fields = _build_match_fields(caption=payload.caption, ocr_text=payload.ocr_text)
+    title, confidence = _match_title(session, payload.title_id, match_fields)
 
     post = Post(
         channel_id=payload.channel_id,
@@ -103,10 +116,29 @@ def manual_import(payload: ManualPostImport, session: Session = Depends(get_sess
     ai = create_placeholder_ai_summary(asset, post, channel, title)
     for key, value in ai.items():
         setattr(asset, key, value)
+
+    if not title:
+        post_match_fields = _build_match_fields(
+            caption=payload.caption,
+            ocr_text=payload.ocr_text,
+            ai_summary_de=asset.ai_summary_de,
+            ai_summary_en=asset.ai_summary_en,
+            visual_notes=asset.visual_notes,
+            suggested_title=asset.placement_title_text,
+            detected_keywords=asset.detected_keywords,
+        )
+        matched_title, matched_confidence = _match_title(session, None, post_match_fields)
+        if matched_title:
+            title = matched_title
+            confidence = matched_confidence
+            asset.title_id = matched_title.id
+
     session.add(asset)
     session.commit()
     session.refresh(asset)
-    if not title and confidence < 0.95:
+    if title:
+        resolve_open_candidates_for_asset(session, asset.id)
+    elif confidence < 0.95:
         create_candidate_from_asset(session, asset.id)
     return {"post": post, "asset": asset}
 
@@ -121,7 +153,8 @@ async def analyze_instagram_link(payload: AnalyzeInstagramLinkRequest, session: 
     preview = await fetch_public_preview(payload.post_url)
     caption = payload.caption_hint or preview.get("caption") or preview.get("title") or ""
     channel = _find_channel_for_url(session, payload.post_url, payload.channel_id)
-    title, confidence = _match_title(session, payload.title_id, caption)
+    match_fields = _build_match_fields(caption=caption)
+    title, confidence = _match_title(session, payload.title_id, match_fields)
 
     post = Post(
         channel_id=channel.id,
@@ -155,9 +188,28 @@ async def analyze_instagram_link(payload: AnalyzeInstagramLinkRequest, session: 
     for key, value in ai.items():
         if hasattr(asset, key):
             setattr(asset, key, value)
+
+    if not title:
+        post_match_fields = _build_match_fields(
+            caption=caption,
+            ocr_text=asset.ocr_text,
+            ai_summary_de=asset.ai_summary_de,
+            ai_summary_en=asset.ai_summary_en,
+            visual_notes=asset.visual_notes,
+            suggested_title=asset.placement_title_text,
+            detected_keywords=asset.detected_keywords,
+        )
+        matched_title, matched_confidence = _match_title(session, None, post_match_fields)
+        if matched_title:
+            title = matched_title
+            confidence = matched_confidence
+            asset.title_id = matched_title.id
+
     session.add(asset)
     session.commit()
     session.refresh(asset)
-    if not title and confidence < 0.95:
+    if title:
+        resolve_open_candidates_for_asset(session, asset.id)
+    elif confidence < 0.95:
         create_candidate_from_asset(session, asset.id)
     return {"post": post, "asset": asset, "preview": preview, "already_exists": False}
