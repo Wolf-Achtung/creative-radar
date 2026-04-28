@@ -9,7 +9,7 @@ from app.services.whitelist_matcher import find_best_title_match
 def _candidate_source_from_text(asset: Asset) -> CandidateSource:
     if asset.ocr_text:
         return CandidateSource.OCR
-    if asset.caption and "#" in asset.caption:
+    if asset.detected_keywords:
         return CandidateSource.HASHTAG
     if asset.ai_summary_de or asset.ai_summary_en:
         return CandidateSource.OPENAI
@@ -44,3 +44,15 @@ def create_candidate_from_asset(session: Session, asset_id, force: bool = False)
     session.commit()
     session.refresh(candidate)
     return candidate
+
+
+def resolve_open_candidates_for_asset(session: Session, asset_id) -> int:
+    candidates = session.exec(
+        select(TitleCandidate).where(TitleCandidate.asset_id == asset_id, TitleCandidate.status == CandidateStatus.OPEN)
+    ).all()
+    for candidate in candidates:
+        candidate.status = CandidateStatus.RESOLVED
+        session.add(candidate)
+    if candidates:
+        session.commit()
+    return len(candidates)

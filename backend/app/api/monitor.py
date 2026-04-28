@@ -14,8 +14,8 @@ from app.services.apify_connector import (
     run_tiktok_profile_monitor,
 )
 from app.services.creative_ai import analyze_creative_text
-from app.services.whitelist_matcher import find_best_title_match
-from app.services.title_candidates import create_candidate_from_asset
+from app.services.whitelist_matcher import find_best_title_match, is_safe_auto_match
+from app.services.title_candidates import create_candidate_from_asset, resolve_open_candidates_for_asset
 
 router = APIRouter(prefix="/api/monitor", tags=["monitor"])
 
@@ -56,8 +56,14 @@ def _create_asset_from_item(
         return None, "existing"
 
     caption = item.get("caption") or ""
-    match = find_best_title_match(session, caption)
-    title = match.title if match.title and match.source == "exact" else None
+    match_fields = {
+        "caption": caption,
+        "ocr_text": item.get("ocr_text"),
+        "detected_keywords": item.get("detected_keywords") or [],
+        "suggested_title": item.get("suggested_title"),
+    }
+    match = find_best_title_match(session, caption, fields=match_fields)
+    title = match.title if is_safe_auto_match(match) else None
     if only_whitelist_matches and not title:
         return None, "no_match"
 
@@ -100,10 +106,29 @@ def _create_asset_from_item(
     for key, value in ai.items():
         if hasattr(asset, key):
             setattr(asset, key, value)
+
+    if not title:
+        enriched_fields = {
+            "caption": caption,
+            "ocr_text": asset.ocr_text,
+            "detected_keywords": asset.detected_keywords,
+            "ai_summary_de": asset.ai_summary_de,
+            "ai_summary_en": asset.ai_summary_en,
+            "suggested_title": asset.placement_title_text,
+            "visual_notes": asset.visual_notes,
+        }
+        enriched_match = find_best_title_match(session, caption, fields=enriched_fields)
+        if is_safe_auto_match(enriched_match):
+            title = enriched_match.title
+            match = enriched_match
+            asset.title_id = enriched_match.title.id if enriched_match.title else None
+
     session.add(asset)
     session.commit()
     session.refresh(asset)
-    if not title and match.confidence < 0.95:
+    if title:
+        resolve_open_candidates_for_asset(session, asset.id)
+    elif match.confidence < 0.95:
         create_candidate_from_asset(session, asset.id)
     return asset, "created"
 
