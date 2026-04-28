@@ -63,6 +63,7 @@ export const endpoints = {
   seedTitles: () => api('/api/titles/seed-mvp', { method: 'POST' }),
 
   syncTmdbTitles: (payload) => api('/api/titles/sync/tmdb', { method: 'POST', body: JSON.stringify(payload) }),
+  rematchAssets: () => api('/api/titles/rematch-assets', { method: 'POST' }),
   titleSyncRuns: () => api('/api/titles/sync/runs'),
   titleWhitelistStats: () => api('/api/titles/stats/whitelist'),
   titleCandidates: () => api('/api/titles/candidates'),

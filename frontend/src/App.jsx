@@ -251,6 +251,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
     rejected: 'Nicht relevant',
   }[asset.review_status] || asset.review_status;
   const canUseSuggestion = hint.label && !['Filmtitel noch offen', 'Filmtitel offen'].includes(hint.label);
+  const normalizedHint = (hint.label || '').trim().toLowerCase();
   const recommendedTitles = titles.filter((title) => {
     const pool = [title.title_original, title.title_local, title.franchise, ...(title.aliases || []), ...(title.keywords || [])]
       .filter(Boolean)
@@ -259,6 +260,13 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
     const target = [hint.label, asset.placement_title_text, asset.caption, asset.ocr_text].filter(Boolean).join(' ').toLowerCase();
     return target && pool && (target.includes((title.title_original || '').toLowerCase()) || pool.includes(hint.label.toLowerCase()));
   }).slice(0, 5);
+  const whitelistMatchesHint = canUseSuggestion && titles.some((title) => (
+    [title.title_original, title.title_local, ...(title.aliases || [])]
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase())
+      .includes(normalizedHint)
+  ));
+  const showAssignmentSelect = hasTitle || whitelistMatchesHint || recommendedTitles.length > 0;
   const titleHintLabel = recentlyCreatedTitleName ? 'Bestätigter Filmtitel' : (hasTitle ? 'Automatisch erkannt' : 'Vermuteter Filmtitel');
   const titleHintSource = recentlyCreatedTitleName ? 'neu angelegt und zugeordnet' : hint.source;
   const titleHintValue = recentlyCreatedTitleName || hint.label;
@@ -281,16 +289,18 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
           <strong>{titleHintValue}</strong>
           <small>{titleHintSource}</small>
         </div>
-        {!hasTitle && <p className="title-instruction">Wenn der Vorschlag stimmt, bitte unten im Dropdown bestätigen.</p>}
-        <p className="title-instruction">Falls der Titel fehlt, über den Button unten als Titelkandidat melden.</p>
-        <label className="title-select">
-          Filmtitel-Zuordnung
-          <select value={asset.title_id || ''} onChange={(e) => onAssignTitle(asset, e.target.value)} disabled={busy}>
-            <option value="">Bitte Filmtitel auswählen</option>
-            {recommendedTitles.length > 0 && <optgroup label="Empfohlene Matches">{recommendedTitles.map((title) => <option key={`rec-${title.id}`} value={title.id}>{title.title_original}</option>)}</optgroup>}
-            <optgroup label="Whitelist (alle aktiv)">{titles.map((title) => <option key={title.id} value={title.id}>{title.title_original} {title.source ? `(${title.source})` : ''}</option>)}</optgroup>
-          </select>
-        </label>
+        {!hasTitle && showAssignmentSelect && <p className="title-instruction">Whitelist-Treffer gefunden. Titel kann per Zuordnung oder Rematch übernommen werden.</p>}
+        {!hasTitle && !showAssignmentSelect && <p className="title-instruction">Titel nicht in Whitelist gefunden. Bitte als Kandidat melden.</p>}
+        {showAssignmentSelect && (
+          <label className="title-select">
+            Filmtitel-Zuordnung
+            <select value={asset.title_id || ''} onChange={(e) => onAssignTitle(asset, e.target.value)} disabled={busy}>
+              <option value="">Bitte Filmtitel auswählen</option>
+              {recommendedTitles.length > 0 && <optgroup label="Empfohlene Matches">{recommendedTitles.map((title) => <option key={`rec-${title.id}`} value={title.id}>{title.title_original}</option>)}</optgroup>}
+              <optgroup label="Whitelist (alle aktiv)">{titles.map((title) => <option key={title.id} value={title.id}>{title.title_original} {title.source ? `(${title.source})` : ''}</option>)}</optgroup>
+            </select>
+          </label>
+        )}
         <button className="secondary ghost" type="button" onClick={() => onReportMissingTitle(asset, hint)} disabled={busy}>
           Titel fehlt in Whitelist melden
         </button>
@@ -301,7 +311,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
             </span>
           ))}
         </div>
-        {!hasTitle && <p className="missing-hint">Nächster Schritt: Filmtitel auswählen. Erst dann werden DE/US-Vergleich und Report-Auswertung wirklich belastbar.</p>}
+        {!hasTitle && showAssignmentSelect && <p className="missing-hint">Nächster Schritt: Filmtitel auswählen (oder Rematch ausführen). Erst dann werden DE/US-Vergleich und Report-Auswertung belastbar.</p>}
         <p className="asset-summary">{clip(asset.ai_summary_de || 'Noch keine KI-Zusammenfassung vorhanden.', 300)}</p>
         <div className="asset-links">
           {asset.post_url && <a href={asset.post_url} target="_blank" rel="noreferrer">Original öffnen</a>}
@@ -483,6 +493,7 @@ function SourcesPanel({
   whitelistStats,
   titleCandidates,
   onSyncTitleSources,
+  onRematchAssets,
 }) {
   return (
     <>
@@ -519,7 +530,10 @@ function SourcesPanel({
           <span className="pill">Neue Titel diese Woche: {whitelistStats?.new_titles_this_week ?? '—'}</span>
           <span className="pill">Offene Titelkandidaten: {whitelistStats?.open_title_candidates ?? titleCandidates.length}</span>
         </div>
-        <div className="section-actions"><button className="primary" onClick={onSyncTitleSources} disabled={busy}>Titelquellen aktualisieren</button></div>
+        <div className="section-actions">
+          <button className="primary" onClick={onSyncTitleSources} disabled={busy}>Titelquellen aktualisieren</button>
+          <button className="secondary" onClick={onRematchAssets} disabled={busy}>Bestehende Treffer neu zuordnen</button>
+        </div>
       </Section>
       <details className="card">
         <summary>Kanalliste importieren</summary>
@@ -698,8 +712,17 @@ function App() {
   async function syncTitleSources() {
     await run(async () => {
       const result = await endpoints.syncTmdbTitles({ markets: ['DE', 'US'], lookback_weeks: 8, lookahead_weeks: 24 });
+      const rematch = await endpoints.rematchAssets();
       await load();
-      setMessage(`Titelquellen aktualisiert: ${result.upserted_count} upserted, ${result.deduped_count} dedupliziert.`);
+      setMessage(`Titelquellen aktualisiert: ${result.upserted_count} upserted, ${result.deduped_count} dedupliziert. Rematch: ${rematch.auto_matched} auto, ${rematch.candidates_created} Kandidaten.`);
+    });
+  }
+
+  async function rematchAssets() {
+    await run(async () => {
+      const result = await endpoints.rematchAssets();
+      await load();
+      setMessage(`Rematch abgeschlossen: ${result.checked} geprüft, ${result.auto_matched} auto-zugeordnet, ${result.candidates_created} Kandidaten, ${result.still_unmatched} offen.`);
     });
   }
 
@@ -792,6 +815,7 @@ function App() {
           whitelistStats={whitelistStats}
           titleCandidates={titleCandidates}
           onSyncTitleSources={syncTitleSources}
+          onRematchAssets={rematchAssets}
         />
       )}
 

@@ -14,6 +14,7 @@ from app.schemas.dto import (
 )
 from app.services.seeds import seed_titles
 from app.services.title_candidates import create_candidate_from_asset
+from app.services.title_rematch import rematch_unassigned_assets
 from app.services.title_sync import sync_titles_from_tmdb
 
 router = APIRouter(prefix="/api/titles", tags=["titles"])
@@ -148,3 +149,9 @@ def whitelist_stats(session: Session = Depends(get_session)):
         "new_titles_this_week": new_titles_this_week,
         "open_title_candidates": open_candidates,
     }
+
+
+@router.post("/rematch-assets")
+def rematch_assets(session: Session = Depends(get_session)):
+    summary = rematch_unassigned_assets(session)
+    return summary.to_dict()
