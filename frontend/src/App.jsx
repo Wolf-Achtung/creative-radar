@@ -7,12 +7,23 @@ const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', '
 const NAV_ITEMS = ['Heute', 'Treffer prüfen', 'Vergleich', 'Weekly Report', 'Quellen'];
 
 const ACTION_HELP = [
-  ['Freigeben', 'Der Treffer ist relevant und kommt in den Report-Anhang.'],
-  ['Als Highlight markieren', 'Besonders stark oder strategisch wichtig; erscheint prominent im Weekly Report.'],
+  ['Für Report freigeben', 'Der Treffer ist relevant und kommt in den Report-Anhang.'],
+  ['Als Top-Fund markieren', 'Besonders stark oder strategisch wichtig; erscheint prominent im Weekly Report.'],
   ['Später prüfen', 'Noch unsicher; bleibt in der Prüfliste und wird nicht in den Report übernommen.'],
-  ['Nicht relevant', 'Für diese Beobachtung nicht brauchbar; wird ausgeblendet und nicht berichtet.'],
-  ['Visual prüfen', 'Bild/Text automatisch auswerten: Titel-/Claim-Platzierung, Kinetic, OCR.'],
+  ['Aussortieren', 'Für diese Beobachtung nicht brauchbar; wird ausgeblendet und nicht berichtet.'],
+  ['Bild/Text analysieren', 'Bild/Text automatisch auswerten: Titel-/Claim-Platzierung, Kinetic, OCR.'],
 ];
+
+function getAssetDisplayTitle(asset, titles) {
+  const hint = inferTitleHint(asset, titles);
+  if (asset.title_name || asset.title_id) {
+    return hint.label;
+  }
+  if (hint.label && hint.label !== 'Filmtitel noch offen' && hint.label !== 'Filmtitel offen') {
+    return `Vorschlag: ${hint.label}`;
+  }
+  return 'Filmtitel bitte zuordnen';
+}
 
 function Section({ title, kicker, children, className = '' }) {
   return (
@@ -170,16 +181,30 @@ function ImportantFinds({ assets, titles }) {
 }
 
 function ReportStatus({ approved, highlights, openReview, missingTitles }) {
-  const ready = approved > 0 && highlights > 0;
+  const minApproved = 3;
+  const maxMissingTitles = 4;
+  const ready = approved >= minApproved && highlights >= 1 && missingTitles <= maxMissingTitles;
+  const missingApproved = Math.max(0, minApproved - approved);
+  const missingHighlights = Math.max(0, 1 - highlights);
+  const missingTitleAssignments = Math.max(0, missingTitles - maxMissingTitles);
+  const gaps = [];
+  if (missingApproved > 0) gaps.push(`${missingApproved} weitere freigegebene Treffer`);
+  if (missingHighlights > 0) gaps.push(`${missingHighlights} Highlight`);
+  if (missingTitleAssignments > 0) gaps.push(`Filmtitel-Zuordnung bei ${missingTitleAssignments} Treffern`);
   return (
     <Section title="Report-Status" kicker="Was noch fehlt">
       <div className="status-pills">
-        <span className={`pill ${ready ? 'good' : 'warn'}`}>{ready ? 'Bereit für Management-Report' : 'Noch nicht vollständig'}</span>
+        <span className={`pill ${ready ? 'good' : 'warn'}`}>{ready ? 'Report bereit' : 'Report noch nicht belastbar'}</span>
         <span className="pill">{approved} freigegeben</span>
         <span className="pill">{highlights} Highlights</span>
         <span className="pill">{openReview} noch zu prüfen</span>
         <span className="pill">{missingTitles} mit offener Filmtitel-Zuordnung</span>
       </div>
+      <p className="muted small">
+        {ready
+          ? 'Alle Mindestkriterien erfüllt: Der Weekly Report ist belastbar.'
+          : `Für einen guten Weekly Report fehlen noch: – ${gaps.join(' – ')}`}
+      </p>
     </Section>
   );
 }
@@ -208,6 +233,12 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
   const preview = asset.thumbnail_url || asset.screenshot_url;
   const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
   const hasTitle = Boolean(asset.title_name || asset.placement_title_text || asset.title_id);
+  const visualChecked = Boolean(asset.ocr_text || asset.visual_notes || asset.kinetic_text);
+  const workflowSteps = [
+    { done: hasTitle, doneLabel: 'Filmtitel bestätigt', openLabel: '1 Filmtitel bestätigen' },
+    { done: visualChecked, doneLabel: 'Visual geprüft', openLabel: '2 Visual prüfen' },
+    { done: false, doneLabel: 'Entscheidung getroffen', openLabel: '3 Entscheidung treffen' },
+  ];
   const hint = inferTitleHint(asset, titles);
   const displayStatus = {
     new: 'Noch zu prüfen',
@@ -222,7 +253,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
       <div className="asset-preview"><ImagePreview src={preview} /></div>
       <div className="asset-content">
         <div className="asset-topline">
-          <span className="asset-title">{hasTitle ? hint.label : 'Neuer Treffer – Filmtitel noch offen'}</span>
+          <span className="asset-title">{getAssetDisplayTitle(asset, titles)}</span>
           <span className="pill">{platform}</span>
           <span className="pill">{displayStatus}</span>
           {asset.has_title_placement && <span className="pill">Titel-/Claim-Platzierung</span>}
@@ -235,6 +266,8 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
           <strong>{hint.label}</strong>
           <small>{hint.source}</small>
         </div>
+        <p className="title-instruction">Wenn der Vorschlag stimmt, bitte unten im Dropdown bestätigen.</p>
+        <p className="title-instruction">Falls der Titel fehlt, zunächst „Später prüfen“ wählen. Der Titel muss später in der Titelliste ergänzt werden.</p>
         <label className="title-select">
           Filmtitel-Zuordnung
           <select value={asset.title_id || ''} onChange={(e) => onAssignTitle(asset, e.target.value)} disabled={busy}>
@@ -242,6 +275,14 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
             {titles.map((title) => <option key={title.id} value={title.id}>{title.title_original}</option>)}
           </select>
         </label>
+        <button className="secondary ghost" type="button" disabled title="Kommt in einem nächsten Sprint.">+ Filmtitel anlegen</button>
+        <div className="card-steps" aria-label="Review-Reihenfolge">
+          {workflowSteps.map((step) => (
+            <span key={step.openLabel} className={`card-step ${step.done ? 'done' : ''}`}>
+              {step.done ? `✓ ${step.doneLabel}` : step.openLabel}
+            </span>
+          ))}
+        </div>
         {!hasTitle && <p className="missing-hint">Nächster Schritt: Filmtitel auswählen. Erst dann werden DE/US-Vergleich und Report-Auswertung wirklich belastbar.</p>}
         <p className="asset-summary">{clip(asset.ai_summary_de || 'Noch keine KI-Zusammenfassung vorhanden.', 300)}</p>
         <div className="asset-links">
@@ -255,11 +296,11 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
         </div>
       </div>
       <div className="asset-actions">
-        <button onClick={() => onReview(asset, 'approved')} disabled={busy} title="Relevant; in den Report-Anhang übernehmen.">Freigeben</button>
-        <button onClick={() => onReview(asset, 'highlight')} disabled={busy} title="Besonders wichtiger Treffer; prominent im Weekly Report zeigen.">Als Highlight markieren</button>
+        <button onClick={() => onReview(asset, 'approved')} disabled={busy} title="Relevant; in den Report-Anhang übernehmen.">Für Report freigeben</button>
+        <button onClick={() => onReview(asset, 'highlight')} disabled={busy} title="Besonders wichtiger Treffer; prominent im Weekly Report zeigen.">Als Top-Fund markieren</button>
         <button onClick={() => onReview(asset, 'needs_review')} disabled={busy} title="Noch unsicher; bleibt in der Prüfliste.">Später prüfen</button>
-        <button onClick={() => onReview(asset, 'rejected')} disabled={busy} title="Nicht relevant; nicht in den Report übernehmen.">Nicht relevant</button>
-        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy} title="Bild/Text auswerten: Titel, Claim, Kinetic, OCR.">Visual prüfen</button>
+        <button onClick={() => onReview(asset, 'rejected')} disabled={busy} title="Nicht relevant; nicht in den Report übernehmen.">Aussortieren</button>
+        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy} title="Bild/Text auswerten: Titel, Claim, Kinetic, OCR.">Bild/Text analysieren</button>
       </div>
     </article>
   );
