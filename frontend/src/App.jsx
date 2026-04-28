@@ -6,6 +6,14 @@ import './styles.css';
 const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
 const NAV_ITEMS = ['Heute', 'Treffer prüfen', 'Vergleich', 'Weekly Report', 'Quellen'];
 
+const ACTION_HELP = [
+  ['Freigeben', 'Der Treffer ist relevant und kommt in den Report-Anhang.'],
+  ['Als Highlight markieren', 'Besonders stark oder strategisch wichtig; erscheint prominent im Weekly Report.'],
+  ['Später prüfen', 'Noch unsicher; bleibt in der Prüfliste und wird nicht in den Report übernommen.'],
+  ['Nicht relevant', 'Für diese Beobachtung nicht brauchbar; wird ausgeblendet und nicht berichtet.'],
+  ['Visual prüfen', 'Bild/Text automatisch auswerten: Titel-/Claim-Platzierung, Kinetic, OCR.'],
+];
+
 function Section({ title, kicker, children, className = '' }) {
   return (
     <section className={`card ${className}`}>
@@ -37,6 +45,51 @@ function normalizeHandle(value) {
   return clean;
 }
 
+function textPool(asset) {
+  return [
+    asset.title_name,
+    asset.title_local,
+    asset.franchise,
+    asset.placement_title_text,
+    asset.caption,
+    asset.ai_summary_de,
+    asset.ai_summary_en,
+    asset.ai_trend_notes,
+    asset.ocr_text,
+    asset.kinetic_text,
+  ].filter(Boolean).join(' ');
+}
+
+function titleFromHashtag(tag) {
+  const stripped = tag.replace(/^#/, '').replace(/movie|film|official|trailer|themovie$/gi, '');
+  const words = stripped
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+  return words.length >= 3 ? words : '';
+}
+
+function inferTitleHint(asset, titles) {
+  if (asset.title_name || asset.placement_title_text) {
+    return { label: asset.title_name || asset.placement_title_text, source: 'zugeordnet/erkannt' };
+  }
+  const pool = textPool(asset);
+  const poolLower = pool.toLowerCase();
+  const matchedTitle = titles.find((title) => {
+    const candidates = [title.title_original, title.title_local, title.franchise, ...(title.keywords || [])].filter(Boolean);
+    return candidates.some((candidate) => poolLower.includes(String(candidate).toLowerCase()));
+  });
+  if (matchedTitle) return { label: matchedTitle.title_original, source: 'Vorschlag aus Text/Caption' };
+
+  const hashtags = [...pool.matchAll(/#([A-Za-z][A-Za-z0-9_]{3,})/g)].map((m) => titleFromHashtag(m[0])).filter(Boolean);
+  const useful = hashtags.find((tag) => !/fyp|viral|cinema|only in theaters|trailer/i.test(tag));
+  if (useful) return { label: useful, source: 'Vorschlag aus Hashtag' };
+
+  const quoted = pool.match(/[„“"]([^„“"]{3,44})[„“"]/);
+  if (quoted?.[1]) return { label: quoted[1], source: 'Vorschlag aus Text' };
+  return { label: 'Filmtitel noch offen', source: 'Bitte zuordnen' };
+}
+
 function ImagePreview({ src }) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) return <div className="preview-placeholder">Kein Preview</div>;
@@ -51,7 +104,7 @@ function MetricStrip({ asset }) {
     ['Comments', asset.visible_comments],
   ];
   return (
-    <div className="metric-strip">
+    <div className="metric-strip" aria-label="Öffentlich sichtbare Kennzahlen">
       {metrics.map(([label, value]) => (
         <span key={label}><b>{formatNumber(value)}</b><small>{label}</small></span>
       ))}
@@ -67,6 +120,12 @@ function TodoCard({ openReview, missingTitles, reportCandidates, approved, highl
 
   return (
     <Section title="Heute zu tun" kicker="Geführter Workflow" className="todo-card">
+      <div className="workflow-steps">
+        <div><b>1</b><span>Neue Treffer ansehen</span></div>
+        <div><b>2</b><span>Filmtitel zuordnen</span></div>
+        <div><b>3</b><span>Freigeben oder Highlight markieren</span></div>
+        <div><b>4</b><span>Weekly Report erzeugen</span></div>
+      </div>
       <div className="todo-grid">
         <div className="todo-item"><strong>{openReview}</strong><span>neue Treffer warten auf Prüfung</span></div>
         <div className="todo-item"><strong>{missingTitles}</strong><span>Treffer brauchen Filmtitel-Zuordnung</span></div>
@@ -81,7 +140,7 @@ function TodoCard({ openReview, missingTitles, reportCandidates, approved, highl
   );
 }
 
-function ImportantFinds({ assets }) {
+function ImportantFinds({ assets, titles }) {
   const weekly = [...assets]
     .filter((asset) => asset.review_status === 'highlight' || asset.is_highlight || asset.review_status === 'approved')
     .sort((a, b) => new Date(b.published_at || b.created_at || 0) - new Date(a.published_at || a.created_at || 0))
@@ -91,16 +150,19 @@ function ImportantFinds({ assets }) {
     <Section title="Wichtige Funde dieser Woche" kicker="Kuratiert">
       {weekly.length === 0 ? <p className="muted">Noch keine kuratierten Funde vorhanden.</p> : (
         <div className="find-grid">
-          {weekly.map((asset) => (
-            <article key={asset.id} className="find-card">
-              <ImagePreview src={asset.thumbnail_url || asset.screenshot_url} />
-              <div>
-                <p className="find-title">{asset.title_name || asset.placement_title_text || 'Neuer Treffer – Filmtitel noch offen'}</p>
-                <p className="muted small">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.created_at)}</p>
-                <p className="small">{clip(asset.ai_summary_de || asset.caption || 'Noch keine Zusammenfassung verfügbar.', 120)}</p>
-              </div>
-            </article>
-          ))}
+          {weekly.map((asset) => {
+            const hint = inferTitleHint(asset, titles);
+            return (
+              <article key={asset.id} className="find-card">
+                <ImagePreview src={asset.thumbnail_url || asset.screenshot_url} />
+                <div>
+                  <p className="find-title">{hint.label}</p>
+                  <p className="muted small">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.created_at)}</p>
+                  <p className="small">{clip(asset.ai_summary_de || asset.caption || 'Noch keine Zusammenfassung verfügbar.', 120)}</p>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </Section>
@@ -122,10 +184,31 @@ function ReportStatus({ approved, highlights, openReview, missingTitles }) {
   );
 }
 
+function ReviewGuide() {
+  return (
+    <div className="review-guide">
+      <div>
+        <h3>So entsteht der Weekly Report</h3>
+        <ol>
+          <li><strong>Filmtitel prüfen:</strong> Ist der Treffer einem Film oder einer Franchise zuordenbar?</li>
+          <li><strong>Relevanz entscheiden:</strong> Ist es ein brauchbares Creative-Muster?</li>
+          <li><strong>Highlight setzen:</strong> Nur besonders auffällige oder strategisch wichtige Treffer markieren.</li>
+          <li><strong>Visual prüfen:</strong> Bei Titel/Claim/Kinetic-Verdacht die Bild-/Text-Prüfung starten.</li>
+        </ol>
+      </div>
+      <div className="action-help">
+        <h3>Was bedeuten die Aktionen?</h3>
+        {ACTION_HELP.map(([label, text]) => <p key={label}><strong>{label}:</strong> {text}</p>)}
+      </div>
+    </div>
+  );
+}
+
 function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle }) {
   const preview = asset.thumbnail_url || asset.screenshot_url;
   const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
-  const hasTitle = Boolean(asset.title_name || asset.placement_title_text);
+  const hasTitle = Boolean(asset.title_name || asset.placement_title_text || asset.title_id);
+  const hint = inferTitleHint(asset, titles);
   const displayStatus = {
     new: 'Noch zu prüfen',
     needs_review: 'Noch zu prüfen',
@@ -139,7 +222,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
       <div className="asset-preview"><ImagePreview src={preview} /></div>
       <div className="asset-content">
         <div className="asset-topline">
-          <span className="asset-title">{asset.title_name || asset.placement_title_text || 'Neuer Treffer – Filmtitel noch offen'}</span>
+          <span className="asset-title">{hasTitle ? hint.label : 'Neuer Treffer – Filmtitel noch offen'}</span>
           <span className="pill">{platform}</span>
           <span className="pill">{displayStatus}</span>
           {asset.has_title_placement && <span className="pill">Titel-/Claim-Platzierung</span>}
@@ -147,14 +230,19 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
         </div>
         <p className="asset-meta">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.detected_at || asset.created_at)}</p>
         <MetricStrip asset={asset} />
+        <div className={`title-hint ${hasTitle ? 'assigned' : 'open'}`}>
+          <span>Vermuteter Filmtitel</span>
+          <strong>{hint.label}</strong>
+          <small>{hint.source}</small>
+        </div>
         <label className="title-select">
           Filmtitel-Zuordnung
           <select value={asset.title_id || ''} onChange={(e) => onAssignTitle(asset, e.target.value)} disabled={busy}>
-            <option value="">Noch nicht zugeordnet</option>
+            <option value="">Bitte Filmtitel auswählen</option>
             {titles.map((title) => <option key={title.id} value={title.id}>{title.title_original}</option>)}
           </select>
         </label>
-        {!hasTitle && <p className="missing-hint">Hinweis: Dieser Treffer braucht noch eine Filmtitel-Zuordnung.</p>}
+        {!hasTitle && <p className="missing-hint">Nächster Schritt: Filmtitel auswählen. Erst dann werden DE/US-Vergleich und Report-Auswertung wirklich belastbar.</p>}
         <p className="asset-summary">{clip(asset.ai_summary_de || 'Noch keine KI-Zusammenfassung vorhanden.', 300)}</p>
         <div className="asset-links">
           {asset.post_url && <a href={asset.post_url} target="_blank" rel="noreferrer">Original öffnen</a>}
@@ -167,17 +255,17 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
         </div>
       </div>
       <div className="asset-actions">
-        <button onClick={() => onReview(asset, 'approved')} disabled={busy}>Freigeben</button>
-        <button onClick={() => onReview(asset, 'highlight')} disabled={busy}>Als Highlight markieren</button>
-        <button onClick={() => onReview(asset, 'needs_review')} disabled={busy}>Später prüfen</button>
-        <button onClick={() => onReview(asset, 'rejected')} disabled={busy}>Nicht relevant</button>
-        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy}>Visual prüfen</button>
+        <button onClick={() => onReview(asset, 'approved')} disabled={busy} title="Relevant; in den Report-Anhang übernehmen.">Freigeben</button>
+        <button onClick={() => onReview(asset, 'highlight')} disabled={busy} title="Besonders wichtiger Treffer; prominent im Weekly Report zeigen.">Als Highlight markieren</button>
+        <button onClick={() => onReview(asset, 'needs_review')} disabled={busy} title="Noch unsicher; bleibt in der Prüfliste.">Später prüfen</button>
+        <button onClick={() => onReview(asset, 'rejected')} disabled={busy} title="Nicht relevant; nicht in den Report übernehmen.">Nicht relevant</button>
+        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy} title="Bild/Text auswerten: Titel, Claim, Kinetic, OCR.">Visual prüfen</button>
       </div>
     </article>
   );
 }
 
-function HomePanel({ assets, openReview, missingTitles, reportCandidates, approved, highlights, setActiveTab }) {
+function HomePanel({ assets, titles, openReview, missingTitles, reportCandidates, approved, highlights, setActiveTab }) {
   return (
     <>
       <TodoCard
@@ -189,7 +277,7 @@ function HomePanel({ assets, openReview, missingTitles, reportCandidates, approv
         onGoReview={() => setActiveTab('Treffer prüfen')}
         onGoReport={() => setActiveTab('Weekly Report')}
       />
-      <ImportantFinds assets={assets} />
+      <ImportantFinds assets={assets} titles={titles} />
       <ReportStatus approved={approved.length} highlights={highlights.length} openReview={openReview} missingTitles={missingTitles} />
     </>
   );
@@ -198,6 +286,7 @@ function HomePanel({ assets, openReview, missingTitles, reportCandidates, approv
 function ReviewPanel({ assets, titles, visibleAssets, filters, setFilters, busy, onReview, onAnalyzeVisual, onAssignTitle }) {
   return (
     <Section title="Treffer prüfen" kicker={`${visibleAssets.length} von ${assets.length} Treffern sichtbar`}>
+      <ReviewGuide />
       <div className="filterbar">
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status === 'all' ? 'Alle Status' : status}</option>)}
@@ -315,6 +404,7 @@ function SourcesPanel({
   return (
     <>
       <Section title="Quellen prüfen" kicker="Kanäle und Monitoring">
+        <p className="muted small source-intro">Aktuell läuft der Test bewusst klein mit Warner Bros. Weitere Kanäle erst ergänzen, wenn Review, Filmtitel-Zuordnung und Weekly Report sauber funktionieren.</p>
         <div className="source-grid">
           <div className="source-card">
             <h3>TikTok</h3>
@@ -326,7 +416,7 @@ function SourcesPanel({
             </label>
             <button onClick={onTikTok} disabled={busy || !tiktokForm.username}>TikTok prüfen</button>
           </div>
-          <div className="source-card">
+          <div className="source-card muted-source">
             <h3>Instagram</h3>
             <label>Max. Kanäle
               <input type="number" min="1" max="25" value={monitorForm.max_channels} onChange={(e) => setMonitorForm({ ...monitorForm, max_channels: e.target.value })} />
@@ -466,6 +556,7 @@ function App() {
         review_status: status,
         include_in_report: status === 'approved' || status === 'highlight',
         is_highlight: status === 'highlight',
+        title_id: asset.title_id || null,
         curator_note: asset.curator_note || '',
       });
       await load();
@@ -525,6 +616,7 @@ function App() {
       {activeTab === 'Heute' && (
         <HomePanel
           assets={assets}
+          titles={sortedTitles}
           openReview={openReview}
           missingTitles={missingTitles}
           reportCandidates={reportCandidates}
