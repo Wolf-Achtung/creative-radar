@@ -101,10 +101,14 @@ function inferTitleHint(asset, titles) {
   return { label: 'Filmtitel noch offen', source: 'Bitte zuordnen' };
 }
 
-function ImagePreview({ src }) {
-  const [failed, setFailed] = useState(false);
-  if (!src || failed) return <div className="preview-placeholder">Kein Preview</div>;
-  return <img src={src} alt="Creative Preview" onError={() => setFailed(true)} />;
+function ImagePreview({ sources = [] }) {
+  const validSources = sources.filter(Boolean);
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => { setIndex(0); }, [validSources.join('|')]);
+
+  if (!validSources[index]) return <div className="preview-placeholder">Kein Preview verfügbar</div>;
+  return <img src={validSources[index]} alt="Creative Preview" onError={() => setIndex((current) => current + 1)} />;
 }
 
 function MetricStrip({ asset }) {
@@ -165,7 +169,7 @@ function ImportantFinds({ assets, titles }) {
             const hint = inferTitleHint(asset, titles);
             return (
               <article key={asset.id} className="find-card">
-                <ImagePreview src={asset.thumbnail_url || asset.screenshot_url} />
+                <ImagePreview sources={[asset.thumbnail_url, asset.screenshot_url]} />
                 <div>
                   <p className="find-title">{hint.label}</p>
                   <p className="muted small">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.created_at)}</p>
@@ -229,8 +233,7 @@ function ReviewGuide() {
   );
 }
 
-function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle }) {
-  const preview = asset.thumbnail_url || asset.screenshot_url;
+function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onCreateTitle }) {
   const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
   const hasTitle = Boolean(asset.title_name || asset.placement_title_text || asset.title_id);
   const visualChecked = Boolean(asset.ocr_text || asset.visual_notes || asset.kinetic_text);
@@ -247,10 +250,24 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
     highlight: 'Als Highlight markiert',
     rejected: 'Nicht relevant',
   }[asset.review_status] || asset.review_status;
+  const canUseSuggestion = hint.label && !['Filmtitel noch offen', 'Filmtitel offen'].includes(hint.label);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newTitleForm, setNewTitleForm] = useState({
+    title_original: canUseSuggestion ? hint.label : '',
+    title_local: '',
+    franchise: '',
+  });
+
+  useEffect(() => {
+    setNewTitleForm((current) => ({
+      ...current,
+      title_original: current.title_original || (canUseSuggestion ? hint.label : ''),
+    }));
+  }, [hint.label, canUseSuggestion]);
 
   return (
     <article className="asset-card">
-      <div className="asset-preview"><ImagePreview src={preview} /></div>
+      <div className="asset-preview"><ImagePreview sources={[asset.thumbnail_url, asset.screenshot_url]} /></div>
       <div className="asset-content">
         <div className="asset-topline">
           <span className="asset-title">{getAssetDisplayTitle(asset, titles)}</span>
@@ -275,7 +292,60 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
             {titles.map((title) => <option key={title.id} value={title.id}>{title.title_original}</option>)}
           </select>
         </label>
-        <button className="secondary ghost" type="button" disabled title="Kommt in einem nächsten Sprint.">+ Filmtitel anlegen</button>
+        <button
+          className="secondary ghost"
+          type="button"
+          onClick={() => setShowCreateForm((value) => !value)}
+          disabled={busy}
+          title="Legt einen neuen Titel an und ordnet ihn direkt dem Treffer zu."
+        >
+          + Filmtitel aus Vorschlag anlegen
+        </button>
+        {showCreateForm && (
+          <form
+            className="inline-title-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!newTitleForm.title_original.trim()) return;
+              onCreateTitle(asset, {
+                title_original: newTitleForm.title_original.trim(),
+                title_local: newTitleForm.title_local.trim() || null,
+                franchise: newTitleForm.franchise.trim() || null,
+              });
+              setShowCreateForm(false);
+            }}
+          >
+            <label>
+              Originaltitel
+              <input
+                value={newTitleForm.title_original}
+                onChange={(e) => setNewTitleForm({ ...newTitleForm, title_original: e.target.value })}
+                placeholder="z. B. Miss Congeniality"
+                required
+              />
+            </label>
+            <label>
+              Lokaler Titel (optional)
+              <input
+                value={newTitleForm.title_local}
+                onChange={(e) => setNewTitleForm({ ...newTitleForm, title_local: e.target.value })}
+                placeholder="z. B. Miss Undercover"
+              />
+            </label>
+            <label>
+              Franchise (optional)
+              <input
+                value={newTitleForm.franchise}
+                onChange={(e) => setNewTitleForm({ ...newTitleForm, franchise: e.target.value })}
+                placeholder="z. B. Miss Congeniality"
+              />
+            </label>
+            <div className="inline-title-actions">
+              <button type="submit" className="primary" disabled={busy || !newTitleForm.title_original.trim()}>Speichern & zuordnen</button>
+              <button type="button" className="secondary" onClick={() => setShowCreateForm(false)} disabled={busy}>Abbrechen</button>
+            </div>
+          </form>
+        )}
         <div className="card-steps" aria-label="Review-Reihenfolge">
           {workflowSteps.map((step) => (
             <span key={step.openLabel} className={`card-step ${step.done ? 'done' : ''}`}>
@@ -324,7 +394,7 @@ function HomePanel({ assets, titles, openReview, missingTitles, reportCandidates
   );
 }
 
-function ReviewPanel({ assets, titles, visibleAssets, filters, setFilters, busy, onReview, onAnalyzeVisual, onAssignTitle }) {
+function ReviewPanel({ assets, titles, visibleAssets, filters, setFilters, busy, onReview, onAnalyzeVisual, onAssignTitle, onCreateTitle }) {
   return (
     <Section title="Treffer prüfen" kicker={`${visibleAssets.length} von ${assets.length} Treffern sichtbar`}>
       <ReviewGuide />
@@ -356,6 +426,7 @@ function ReviewPanel({ assets, titles, visibleAssets, filters, setFilters, busy,
           onReview={onReview}
           onAnalyzeVisual={onAnalyzeVisual}
           onAssignTitle={onAssignTitle}
+          onCreateTitle={onCreateTitle}
         />
       ))}
     </Section>
@@ -363,6 +434,7 @@ function ReviewPanel({ assets, titles, visibleAssets, filters, setFilters, busy,
 }
 
 function ComparisonPanel({ assets }) {
+  const unassignedCount = assets.filter((asset) => !(asset.title_name || asset.placement_title_text || asset.title_id)).length;
   const grouped = useMemo(() => {
     const map = new Map();
     assets.forEach((asset) => {
@@ -376,6 +448,11 @@ function ComparisonPanel({ assets }) {
 
   return (
     <Section title="DE/US Vergleich" kicker="Muster auf einen Blick">
+      {unassignedCount > 0 && (
+        <p className="compare-warning">
+          Achtung: {unassignedCount} Treffer ohne Filmtitel-Zuordnung werden als „Ohne Filmtitel-Zuordnung“ geführt und können den Vergleich verzerren.
+        </p>
+      )}
       {grouped.length === 0 ? <p className="muted">Noch keine Vergleichsdaten vorhanden.</p> : (
         <div className="compare-list">
           {grouped.map((group) => (
@@ -402,7 +479,7 @@ function ComparisonPanel({ assets }) {
   );
 }
 
-function ReportsPanel({ report, approved, highlights, openReview, busy, onGenerateReport }) {
+function ReportsPanel({ report, approved, highlights, openReview, missingTitles, busy, onGenerateReport }) {
   return (
     <Section title="Weekly Report" kicker="Ergebnisraum">
       <div className="report-head">
@@ -416,7 +493,8 @@ function ReportsPanel({ report, approved, highlights, openReview, busy, onGenera
         <span className="pill">DE/US Vergleich</span>
         <span className="pill">Appendix</span>
       </div>
-      <p className="muted small">Freigegeben: {approved.length} · Highlights: {highlights.length} · Noch zu prüfen: {openReview}</p>
+      <p className="muted small">Freigegeben: {approved.length} · Highlights: {highlights.length} · Noch zu prüfen: {openReview} · Ohne Filmtitel-Zuordnung: {missingTitles}</p>
+      {missingTitles > 0 && <p className="report-warning">Für einen belastbaren Report zuerst offene Filmtitel-Zuordnungen schließen.</p>}
       <div className="section-actions">
         <button className="primary" onClick={onGenerateReport} disabled={busy || approved.length === 0}>Report aktualisieren</button>
       </div>
@@ -619,6 +697,21 @@ function App() {
     });
   }
 
+  async function createTitleFromSuggestion(asset, payload) {
+    await run(async () => {
+      const createdTitle = await endpoints.createTitle(payload);
+      await endpoints.reviewAsset(asset.id, {
+        review_status: asset.review_status,
+        include_in_report: asset.include_in_report,
+        is_highlight: asset.is_highlight,
+        title_id: createdTitle.id,
+        curator_note: asset.curator_note || '',
+      });
+      await load();
+      setMessage(`Filmtitel „${createdTitle.title_original}“ wurde angelegt und direkt zugeordnet.`);
+    });
+  }
+
   async function generateReport() {
     await run(async () => {
       const today = new Date();
@@ -677,6 +770,7 @@ function App() {
           onReview={reviewAsset}
           onAnalyzeVisual={analyzeAssetVisual}
           onAssignTitle={assignTitle}
+          onCreateTitle={createTitleFromSuggestion}
         />
       )}
       {activeTab === 'Vergleich' && <ComparisonPanel assets={assets} />}
@@ -686,6 +780,7 @@ function App() {
           approved={approved}
           highlights={highlights}
           openReview={openReview}
+          missingTitles={missingTitles}
           busy={busy}
           onGenerateReport={generateReport}
         />
