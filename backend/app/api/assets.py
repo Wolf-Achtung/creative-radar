@@ -94,6 +94,12 @@ def update_asset_review(asset_id: UUID, payload: AssetReviewUpdate, session: Ses
     asset = session.get(Asset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
+    if payload.title_id is not None:
+        title = session.get(Title, payload.title_id)
+        if not title:
+            raise HTTPException(status_code=404, detail="Title not found")
+        asset.title_id = payload.title_id
+        asset.de_us_match_key = title.franchise or title.title_original
     asset.review_status = payload.review_status
     asset.include_in_report = payload.include_in_report
     asset.is_highlight = payload.is_highlight or payload.review_status == ReviewStatus.HIGHLIGHT
