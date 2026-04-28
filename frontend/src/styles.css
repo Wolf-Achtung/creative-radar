@@ -181,6 +181,17 @@ input, select, textarea { border: 1px solid #ddd4c6; border-radius: 10px; paddin
 }
 .inline-title-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .asset-summary { margin: 8px 0; }
+.analysis-box {
+  background: #fffaf1;
+  border: 1px solid #e2d9ca;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.analysis-head { margin: 0 0 3px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #736b5f; font-weight: 800; }
+.analysis-status { margin: 0 0 6px; font-weight: 700; }
+.analysis-main { margin: 0 0 6px; }
+.analysis-meta { margin: 0; font-size: 12px; color: #685f53; }
 .asset-actions { display: flex; flex-direction: column; gap: 7px; }
 .asset-links summary { cursor: pointer; }
 .ghost { opacity: .75; margin-bottom: 8px; }
