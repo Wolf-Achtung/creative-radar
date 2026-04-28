@@ -59,6 +59,7 @@ export const endpoints = {
     return upload('/api/channels/import-excel', formData);
   },
   titles: () => api('/api/titles'),
+  createTitle: (payload) => api('/api/titles', { method: 'POST', body: JSON.stringify(payload) }),
   seedTitles: () => api('/api/titles/seed-mvp', { method: 'POST' }),
   posts: () => api('/api/posts'),
   manualImport: (payload) => api('/api/posts/manual-import', { method: 'POST', body: JSON.stringify(payload) }),
