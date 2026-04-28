@@ -89,6 +89,7 @@ class AssetReviewUpdate(BaseModel):
     review_status: ReviewStatus
     include_in_report: bool = False
     is_highlight: bool = False
+    title_id: Optional[UUID] = None
     curator_note: Optional[str] = None
 
 
