@@ -163,6 +163,23 @@ input, select, textarea { border: 1px solid #ddd4c6; border-radius: 10px; paddin
 .title-select { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
 .title-instruction { margin: 0 0 6px; color: #5e564a; font-size: 13px; }
 .missing-hint { margin: 0 0 8px; color: #904514; font-size: 13px; }
+.inline-title-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  margin: 0 0 10px;
+  border-radius: 12px;
+  border: 1px solid #e6ded1;
+  background: #fffaf1;
+}
+.inline-title-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.inline-title-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .asset-summary { margin: 8px 0; }
 .asset-actions { display: flex; flex-direction: column; gap: 7px; }
 .asset-links summary { cursor: pointer; }
@@ -194,6 +211,16 @@ input, select, textarea { border: 1px solid #ddd4c6; border-radius: 10px; paddin
 .compare-card h3 { margin: 0 0 8px; }
 .compare-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .compare-label { font-size: 12px; text-transform: uppercase; color: #766e62; font-weight: 700; margin: 0; }
+.compare-warning,
+.report-warning {
+  border-radius: 12px;
+  border: 1px solid #f2c489;
+  background: #fff1dd;
+  color: #8a4717;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 0 0 10px;
+}
 
 .source-intro { margin-top: -4px; margin-bottom: 14px; }
 .source-grid, .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
