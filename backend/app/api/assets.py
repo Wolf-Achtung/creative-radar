@@ -116,14 +116,30 @@ def analyze_visual(asset_id: UUID, session: Session = Depends(get_session)):
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
     asset = analyze_asset_visual(session, asset)
-    return _card_for(session, asset)
+    return {"status": "done", "asset": _card_for(session, asset), "analysis": {
+        "ocr_text": asset.ocr_text,
+        "visual_summary_de": asset.visual_notes,
+        "title_placement": {"has_title_placement": asset.has_title_placement, "text": asset.placement_title_text, "position": asset.placement_position, "strength": asset.placement_strength},
+        "kinetics": {"has_kinetic": asset.has_kinetic, "type": asset.kinetic_type, "text": asset.kinetic_text},
+        "confidence": asset.visual_confidence_score,
+    }}
 
 
 @router.post("/analyze-visual-batch")
-def analyze_visual_batch(limit: int = 10, session: Session = Depends(get_session)):
-    statement = select(Asset).where(Asset.visual_analysis_status.in_(["pending", "error"])).order_by(Asset.created_at.desc()).limit(max(1, min(limit, 50)))
+def analyze_visual_batch(limit: int = 10, only_pending: bool = True, session: Session = Depends(get_session)):
+    statuses = ["pending"] if only_pending else ["pending", "error", "no_source"]
+    statement = select(Asset).where(Asset.visual_analysis_status.in_(statuses)).order_by(Asset.created_at.desc()).limit(max(1, min(limit, 50)))
     assets = session.exec(statement).all()
-    updated = []
+    checked = len(assets)
+    analyzed = 0
+    no_source = 0
+    failed = 0
     for asset in assets:
-        updated.append(_card_for(session, analyze_asset_visual(session, asset)))
-    return {"updated": len(updated), "assets": updated}
+        updated = analyze_asset_visual(session, asset)
+        if updated.visual_analysis_status == "analyzed":
+            analyzed += 1
+        elif updated.visual_analysis_status == "no_source":
+            no_source += 1
+        elif updated.visual_analysis_status == "error":
+            failed += 1
+    return {"checked": checked, "analyzed": analyzed, "no_source": no_source, "failed": failed}

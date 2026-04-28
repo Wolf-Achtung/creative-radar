@@ -127,7 +127,7 @@ function MetricStrip({ asset }) {
   );
 }
 
-function TodoCard({ openReview, missingTitles, reportCandidates, approved, highlights, onGoReview, onGoReport }) {
+function TodoCard({ assets, openReview, missingTitles, reportCandidates, approved, highlights, onGoReview, onGoReport, onBatchAnalyze }) {
   const reportGap = [];
   if (approved === 0) reportGap.push('mindestens 1 freigegebener Treffer');
   if (highlights === 0) reportGap.push('mindestens 1 Highlight');
@@ -137,8 +137,8 @@ function TodoCard({ openReview, missingTitles, reportCandidates, approved, highl
     <Section title="Heute zu tun" kicker="Geführter Workflow" className="todo-card">
       <div className="workflow-steps">
         <div><b>1</b><span>Neue Treffer ansehen</span></div>
-        <div><b>2</b><span>Filmtitel zuordnen</span></div>
-        <div><b>3</b><span>Freigeben oder Highlight markieren</span></div>
+        <div><b>2</b><span>KI-Bildanalyse starten</span></div>
+        <div><b>3</b><span>Relevanz / Top-Fund entscheiden</span></div>
         <div><b>4</b><span>Weekly Report erzeugen</span></div>
       </div>
       <div className="todo-grid">
@@ -147,8 +147,8 @@ function TodoCard({ openReview, missingTitles, reportCandidates, approved, highl
         <div className="todo-item"><strong>{reportCandidates}</strong><span>Treffer sind für den Report geeignet</span></div>
       </div>
       <div className="todo-actions">
-        <button className="primary" onClick={onGoReview}>Jetzt Treffer prüfen</button>
-        <button className="secondary" onClick={onGoReport}>Weekly Report öffnen</button>
+        <button className="primary" onClick={onBatchAnalyze}>Alle neuen Assets visuell prüfen</button>
+        <button className="secondary" onClick={onGoReview}>Jetzt Treffer prüfen</button>
       </div>
       <p className="muted small">{reportGap.length ? `Für einen belastbaren Report fehlen noch: ${reportGap.join(', ')}.` : 'Report kann jetzt sinnvoll erstellt oder aktualisiert werden.'}</p>
     </Section>
@@ -328,16 +328,17 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
         <button onClick={() => onReview(asset, 'highlight')} disabled={busy} title="Besonders wichtiger Treffer; prominent im Weekly Report zeigen.">Als Top-Fund markieren</button>
         <button onClick={() => onReview(asset, 'needs_review')} disabled={busy} title="Noch unsicher; bleibt in der Prüfliste.">Später prüfen</button>
         <button onClick={() => onReview(asset, 'rejected')} disabled={busy} title="Nicht relevant; nicht in den Report übernehmen.">Aussortieren</button>
-        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy} title="Bild/Text auswerten: Titel, Claim, Kinetic, OCR.">Bild/Text analysieren</button>
+        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy} title="Bild/Text auswerten: Titel, Claim, Kinetic, OCR.">{asset.visual_analysis_status === "analyzed" ? "Bildanalyse aktualisieren" : asset.visual_analysis_status === "error" ? "Bildanalyse erneut versuchen" : asset.visual_analysis_status === "no_source" ? "Kein Bild verfügbar – Textanalyse möglich" : "KI-Bildanalyse starten"}</button>
       </div>
     </article>
   );
 }
 
-function HomePanel({ assets, titles, openReview, missingTitles, reportCandidates, approved, highlights, setActiveTab }) {
+function HomePanel({ assets, titles, openReview, missingTitles, reportCandidates, approved, highlights, setActiveTab, onBatchAnalyze }) {
   return (
     <>
       <TodoCard
+        assets={assets}
         openReview={openReview}
         missingTitles={missingTitles}
         reportCandidates={reportCandidates}
@@ -345,6 +346,7 @@ function HomePanel({ assets, titles, openReview, missingTitles, reportCandidates
         highlights={highlights.length}
         onGoReview={() => setActiveTab('Treffer prüfen')}
         onGoReport={() => setActiveTab('Weekly Report')}
+        onBatchAnalyze={() => onBatchAnalyze()}
       />
       <ImportantFinds assets={assets} titles={titles} />
       <ReportStatus approved={approved.length} highlights={highlights.length} openReview={openReview} missingTitles={missingTitles} />
@@ -664,6 +666,14 @@ function App() {
       await endpoints.analyzeAssetVisual(asset.id);
       await load();
       setMessage('Bild-/Text-Prüfung aktualisiert.');
+    });
+  }
+
+  async function runVisualBatch() {
+    await run(async () => {
+      const result = await endpoints.analyzeVisualBatch(10);
+      await load();
+      setMessage(`Batchanalyse: ${result.analyzed} analysiert, ${result.no_source} ohne Bild, ${result.failed} Fehler.`);
     });
   }
 

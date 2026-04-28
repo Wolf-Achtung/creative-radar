@@ -86,7 +86,7 @@ def _heuristic_analysis(asset: Asset, post: Post | None, title: Title | None) ->
     if has_kinetic and asset_type == AssetType.UNKNOWN:
         asset_type = AssetType.KINETIC
     return {
-        "visual_analysis_status": "text_only",
+        "visual_analysis_status": "no_source",
         "ocr_text": asset.ocr_text or caption[:1000],
         "visual_notes": "Heuristische Analyse aus Caption/OCR, da kein belastbares Preview-Bild verfügbar ist.",
         "placement_title_text": title.title_original if title else None,
@@ -115,8 +115,12 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
             asset.title_id = possible_title.id
             title = possible_title
 
-    if not image_url or not settings.openai_api_key:
+    if not image_url:
         data = _heuristic_analysis(asset, post, title)
+    elif not settings.openai_api_key:
+        data = _heuristic_analysis(asset, post, title)
+        data["visual_analysis_status"] = "error"
+        data["visual_notes"] = "OpenAI API-Key fehlt. Nur Textanalyse durchgeführt."
     else:
         client = OpenAI(api_key=settings.openai_api_key)
         prompt = f"""
@@ -138,11 +142,14 @@ Aufgaben:
 7. Asset-Typ möglichst konkret klassifizieren.
 
 Antworte nur als JSON mit Strings/Booleans/Zahlen:
-ocr_text, visual_notes, placement_title_text, placement_position, placement_strength,
+ocr_text, visual_summary_de, title_placement, kinetics, creative_mechanic, cta_detected,
+brand_or_studio_visibility, format_observation, uncertainties,
+placement_title_text, placement_position, placement_strength,
 has_title_placement, has_kinetic, kinetic_type, kinetic_text, asset_type,
-de_us_match_key, visual_confidence_score
+de_us_match_key, visual_confidence_score, confidence
 """
-        response = client.chat.completions.create(
+        try:
+            response = client.chat.completions.create(
             model=settings.openai_model,
             messages=[
                 {"role": "system", "content": "Du bist ein präziser Visual-Analyst für Entertainment-Marketing. Gib ausschließlich valides JSON zurück."},
@@ -153,23 +160,30 @@ de_us_match_key, visual_confidence_score
             ],
             temperature=0.1,
         )
-        raw = response.choices[0].message.content or "{}"
-        data = _safe_json(raw)
-        data["visual_analysis_status"] = "analyzed"
+            raw = response.choices[0].message.content or "{}"
+            data = _safe_json(raw)
+            data["visual_analysis_status"] = "analyzed"
+        except Exception as exc:
+            data = _heuristic_analysis(asset, post, title)
+            data["visual_analysis_status"] = "error"
+            data["visual_notes"] = f"Bildanalyse fehlgeschlagen ({type(exc).__name__}). Textanalyse als Fallback gespeichert."
+    
+    title_placement = data.get("title_placement") if isinstance(data.get("title_placement"), dict) else {}
+    kinetics = data.get("kinetics") if isinstance(data.get("kinetics"), dict) else {}
 
     asset.visual_analysis_status = _as_text(data.get("visual_analysis_status"), "analyzed")
     asset.visual_source_url = image_url
     asset.ocr_text = _as_text(data.get("ocr_text"), asset.ocr_text or "") or None
-    asset.visual_notes = _as_text(data.get("visual_notes"), "") or None
-    asset.placement_title_text = _as_text(data.get("placement_title_text"), title.title_original if title else "") or None
-    asset.placement_position = _as_text(data.get("placement_position"), "unknown")
-    asset.placement_strength = _as_text(data.get("placement_strength"), "unknown")
-    asset.has_title_placement = _as_bool(data.get("has_title_placement"))
-    asset.has_kinetic = _as_bool(data.get("has_kinetic"))
-    asset.kinetic_type = _as_text(data.get("kinetic_type"), "") or None
-    asset.kinetic_text = _as_text(data.get("kinetic_text"), "") or None
+    asset.visual_notes = _as_text(data.get("visual_summary_de"), _as_text(data.get("visual_notes"), "")) or None
+    asset.placement_title_text = _as_text(title_placement.get("text"), _as_text(data.get("placement_title_text"), title.title_original if title else "")) or None
+    asset.placement_position = _as_text(title_placement.get("position"), _as_text(data.get("placement_position"), "unknown"))
+    asset.placement_strength = _as_text(title_placement.get("strength"), _as_text(data.get("placement_strength"), "unknown"))
+    asset.has_title_placement = _as_bool(title_placement.get("has_title_placement", data.get("has_title_placement")))
+    asset.has_kinetic = _as_bool(kinetics.get("has_kinetic", data.get("has_kinetic")))
+    asset.kinetic_type = _as_text(kinetics.get("type"), _as_text(data.get("kinetic_type"), "")) or None
+    asset.kinetic_text = _as_text(kinetics.get("text"), _as_text(data.get("kinetic_text"), "")) or None
     asset.de_us_match_key = _as_text(data.get("de_us_match_key"), "") or _slug(asset.placement_title_text) or None
-    asset.visual_confidence_score = _as_float(data.get("visual_confidence_score"))
+    asset.visual_confidence_score = _as_float(data.get("confidence", data.get("visual_confidence_score")))
 
     asset_type = _as_text(data.get("asset_type"), "")
     if asset_type:
