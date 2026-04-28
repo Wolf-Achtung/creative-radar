@@ -93,6 +93,28 @@ POST_COLUMNS = {
     "duration_seconds": "INTEGER",
 }
 
+ASSETTYPE_ENUM_VALUES = [
+    "TRAILER",
+    "TRAILER_DROP",
+    "TEASER",
+    "POSTER",
+    "KEY_ART",
+    "STORY",
+    "KINETIC",
+    "CHARACTER_CARD",
+    "CAST_POST",
+    "REVIEW_QUOTE",
+    "CTA_POST",
+    "TICKET_CTA",
+    "RELEASE_REMINDER",
+    "BEHIND_THE_SCENES",
+    "EVENT_FESTIVAL",
+    "SERIES_EPISODE_PUSH",
+    "FRANCHISE_BRAND_POST",
+    "DISCOVERY",
+    "UNKNOWN",
+]
+
 
 def _ensure_columns(table_name: str, columns: dict[str, str]) -> None:
     inspector = inspect(engine)
@@ -106,8 +128,38 @@ def _ensure_columns(table_name: str, columns: dict[str, str]) -> None:
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
 
 
+def _ensure_pg_enum_values(enum_name: str, values: list[str]) -> None:
+    if DATABASE_URL.startswith("sqlite"):
+        return
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        enum_exists = connection.execute(
+            text("SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = :enum_name)"),
+            {"enum_name": enum_name},
+        ).scalar()
+        if not enum_exists:
+            return
+        existing = set(
+            connection.execute(
+                text(
+                    """
+                    SELECT enumlabel
+                    FROM pg_enum
+                    JOIN pg_type ON pg_enum.enumtypid = pg_type.oid
+                    WHERE pg_type.typname = :enum_name
+                    """
+                ),
+                {"enum_name": enum_name},
+            ).scalars().all()
+        )
+        for value in values:
+            if value not in existing:
+                safe_value = value.replace("'", "''")
+                connection.execute(text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{safe_value}'"))
+
+
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
+    _ensure_pg_enum_values("assettype", ASSETTYPE_ENUM_VALUES)
     _ensure_columns("asset", ASSET_COLUMNS)
     _ensure_columns("post", POST_COLUMNS)
 
