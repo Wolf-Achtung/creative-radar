@@ -14,7 +14,8 @@ from app.services.apify_connector import (
     run_tiktok_profile_monitor,
 )
 from app.services.creative_ai import analyze_creative_text
-from app.services.whitelist_matcher import find_title_matches
+from app.services.whitelist_matcher import find_best_title_match
+from app.services.title_candidates import create_candidate_from_asset
 
 router = APIRouter(prefix="/api/monitor", tags=["monitor"])
 
@@ -55,8 +56,8 @@ def _create_asset_from_item(
         return None, "existing"
 
     caption = item.get("caption") or ""
-    matches = find_title_matches(session, caption)
-    title = matches[0] if matches else None
+    match = find_best_title_match(session, caption)
+    title = match.title if match.title and match.source == "exact" else None
     if only_whitelist_matches and not title:
         return None, "no_match"
 
@@ -102,6 +103,8 @@ def _create_asset_from_item(
     session.add(asset)
     session.commit()
     session.refresh(asset)
+    if not title and match.confidence < 0.95:
+        create_candidate_from_asset(session, asset.id)
     return asset, "created"
 
 

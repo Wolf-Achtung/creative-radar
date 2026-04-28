@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     perplexity_api_key: str | None = None
     perplexity_model: str = "sonar-pro"
+    tmdb_api_key: str | None = None
     apify_api_token: str | None = None
     apify_instagram_actor_id: str = "apify~instagram-scraper"
     apify_tiktok_actor_id: str = "clockworks~tiktok-scraper"

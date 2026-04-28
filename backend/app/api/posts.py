@@ -3,11 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import Asset, Channel, Post, Title, Market, Priority
+from app.services.title_candidates import create_candidate_from_asset
 from app.schemas.dto import ManualPostImport, AnalyzeInstagramLinkRequest
 from app.services.ai_asset_analyzer import create_placeholder_ai_summary
 from app.services.creative_ai import analyze_creative_text
 from app.services.link_preview import fetch_public_preview, infer_instagram_handle
-from app.services.whitelist_matcher import find_title_matches
+from app.services.whitelist_matcher import find_best_title_match
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
 
@@ -60,11 +61,14 @@ def _find_channel_for_url(session: Session, post_url: str, channel_id: UUID | No
     return _get_or_create_auto_channel(session)
 
 
-def _match_title(session: Session, title_id: UUID | None, caption: str | None) -> Title | None:
+def _match_title(session: Session, title_id: UUID | None, caption: str | None) -> tuple[Title | None, float]:
     if title_id:
-        return session.get(Title, title_id)
-    matches = find_title_matches(session, caption or "")
-    return matches[0] if matches else None
+        title = session.get(Title, title_id)
+        return title, 1.0 if title else 0.0
+    match = find_best_title_match(session, caption or "")
+    if match.title and match.source == "exact":
+        return match.title, match.confidence
+    return None, match.confidence
 
 
 @router.post("/manual-import")
@@ -76,7 +80,7 @@ def manual_import(payload: ManualPostImport, session: Session = Depends(get_sess
     if existing:
         raise HTTPException(status_code=409, detail="Post already exists")
 
-    title = _match_title(session, payload.title_id, payload.caption)
+    title, confidence = _match_title(session, payload.title_id, payload.caption)
 
     post = Post(
         channel_id=payload.channel_id,
@@ -102,6 +106,8 @@ def manual_import(payload: ManualPostImport, session: Session = Depends(get_sess
     session.add(asset)
     session.commit()
     session.refresh(asset)
+    if not title and confidence < 0.95:
+        create_candidate_from_asset(session, asset.id)
     return {"post": post, "asset": asset}
 
 
@@ -115,7 +121,7 @@ async def analyze_instagram_link(payload: AnalyzeInstagramLinkRequest, session: 
     preview = await fetch_public_preview(payload.post_url)
     caption = payload.caption_hint or preview.get("caption") or preview.get("title") or ""
     channel = _find_channel_for_url(session, payload.post_url, payload.channel_id)
-    title = _match_title(session, payload.title_id, caption)
+    title, confidence = _match_title(session, payload.title_id, caption)
 
     post = Post(
         channel_id=channel.id,
@@ -152,4 +158,6 @@ async def analyze_instagram_link(payload: AnalyzeInstagramLinkRequest, session: 
     session.add(asset)
     session.commit()
     session.refresh(asset)
+    if not title and confidence < 0.95:
+        create_candidate_from_asset(session, asset.id)
     return {"post": post, "asset": asset, "preview": preview, "already_exists": False}

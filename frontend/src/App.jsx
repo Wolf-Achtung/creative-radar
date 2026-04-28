@@ -233,7 +233,7 @@ function ReviewGuide() {
   );
 }
 
-function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onCreateTitle, recentlyCreatedTitleName }) {
+function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onReportMissingTitle, recentlyCreatedTitleName }) {
   const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
   const hasTitle = Boolean(asset.title_name || asset.placement_title_text || asset.title_id);
   const visualChecked = Boolean(asset.ocr_text || asset.visual_notes || asset.kinetic_text);
@@ -251,20 +251,14 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
     rejected: 'Nicht relevant',
   }[asset.review_status] || asset.review_status;
   const canUseSuggestion = hint.label && !['Filmtitel noch offen', 'Filmtitel offen'].includes(hint.label);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newTitleForm, setNewTitleForm] = useState({
-    title_original: canUseSuggestion ? hint.label : '',
-    title_local: '',
-    franchise: '',
-  });
-
-  useEffect(() => {
-    setNewTitleForm((current) => ({
-      ...current,
-      title_original: current.title_original || (canUseSuggestion ? hint.label : ''),
-    }));
-  }, [hint.label, canUseSuggestion]);
-
+  const recommendedTitles = titles.filter((title) => {
+    const pool = [title.title_original, title.title_local, title.franchise, ...(title.aliases || []), ...(title.keywords || [])]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    const target = [hint.label, asset.placement_title_text, asset.caption, asset.ocr_text].filter(Boolean).join(' ').toLowerCase();
+    return target && pool && (target.includes((title.title_original || '').toLowerCase()) || pool.includes(hint.label.toLowerCase()));
+  }).slice(0, 5);
   const titleHintLabel = recentlyCreatedTitleName ? 'Bestätigter Filmtitel' : 'Vermuteter Filmtitel';
   const titleHintSource = recentlyCreatedTitleName ? 'neu angelegt und zugeordnet' : hint.source;
   const titleHintValue = recentlyCreatedTitleName || hint.label;
@@ -288,68 +282,18 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
           <small>{titleHintSource}</small>
         </div>
         <p className="title-instruction">Wenn der Vorschlag stimmt, bitte unten im Dropdown bestätigen.</p>
-        <p className="title-instruction">Falls der Titel fehlt, zunächst „Später prüfen“ wählen. Der Titel muss später in der Titelliste ergänzt werden.</p>
+        <p className="title-instruction">Falls der Titel fehlt, über den Button unten als Titelkandidat melden.</p>
         <label className="title-select">
           Filmtitel-Zuordnung
           <select value={asset.title_id || ''} onChange={(e) => onAssignTitle(asset, e.target.value)} disabled={busy}>
             <option value="">Bitte Filmtitel auswählen</option>
-            {titles.map((title) => <option key={title.id} value={title.id}>{title.title_original}</option>)}
+            {recommendedTitles.length > 0 && <optgroup label="Empfohlene Matches">{recommendedTitles.map((title) => <option key={`rec-${title.id}`} value={title.id}>{title.title_original}</option>)}</optgroup>}
+            <optgroup label="Whitelist (alle aktiv)">{titles.map((title) => <option key={title.id} value={title.id}>{title.title_original} {title.source ? `(${title.source})` : ''}</option>)}</optgroup>
           </select>
         </label>
-        <button
-          className="secondary ghost"
-          type="button"
-          onClick={() => setShowCreateForm((value) => !value)}
-          disabled={busy}
-          title="Legt einen neuen Titel an und ordnet ihn direkt dem Treffer zu."
-        >
-          + Filmtitel aus Vorschlag anlegen
+        <button className="secondary ghost" type="button" onClick={() => onReportMissingTitle(asset, hint)} disabled={busy}>
+          Titel fehlt in Whitelist melden
         </button>
-        {showCreateForm && (
-          <form
-            className="inline-title-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!newTitleForm.title_original.trim()) return;
-              onCreateTitle(asset, {
-                title_original: newTitleForm.title_original.trim(),
-                title_local: newTitleForm.title_local.trim() || null,
-                franchise: newTitleForm.franchise.trim() || null,
-              });
-              setShowCreateForm(false);
-            }}
-          >
-            <label>
-              Originaltitel
-              <input
-                value={newTitleForm.title_original}
-                onChange={(e) => setNewTitleForm({ ...newTitleForm, title_original: e.target.value })}
-                placeholder="z. B. Miss Congeniality"
-                required
-              />
-            </label>
-            <label>
-              Lokaler Titel (optional)
-              <input
-                value={newTitleForm.title_local}
-                onChange={(e) => setNewTitleForm({ ...newTitleForm, title_local: e.target.value })}
-                placeholder="z. B. Miss Undercover"
-              />
-            </label>
-            <label>
-              Franchise (optional)
-              <input
-                value={newTitleForm.franchise}
-                onChange={(e) => setNewTitleForm({ ...newTitleForm, franchise: e.target.value })}
-                placeholder="z. B. Miss Congeniality"
-              />
-            </label>
-            <div className="inline-title-actions">
-              <button type="submit" className="primary" disabled={busy || !newTitleForm.title_original.trim()}>Speichern & zuordnen</button>
-              <button type="button" className="secondary" onClick={() => setShowCreateForm(false)} disabled={busy}>Abbrechen</button>
-            </div>
-          </form>
-        )}
         <div className="card-steps" aria-label="Review-Reihenfolge">
           {workflowSteps.map((step) => (
             <span key={step.openLabel} className={`card-step ${step.done ? 'done' : ''}`}>
@@ -408,7 +352,7 @@ function ReviewPanel({
   onReview,
   onAnalyzeVisual,
   onAssignTitle,
-  onCreateTitle,
+  onReportMissingTitle,
   recentlyCreatedByAssetId,
 }) {
   return (
@@ -442,7 +386,7 @@ function ReviewPanel({
           onReview={onReview}
           onAnalyzeVisual={onAnalyzeVisual}
           onAssignTitle={onAssignTitle}
-          onCreateTitle={onCreateTitle}
+          onReportMissingTitle={onReportMissingTitle}
           recentlyCreatedTitleName={recentlyCreatedByAssetId[asset.id] || ''}
         />
       ))}
@@ -536,6 +480,9 @@ function SourcesPanel({
   tiktokForm,
   setTiktokForm,
   onTikTok,
+  whitelistStats,
+  titleCandidates,
+  onSyncTitleSources,
 }) {
   return (
     <>
@@ -563,6 +510,16 @@ function SourcesPanel({
             <button onClick={onInstagram} disabled={busy}>Instagram prüfen</button>
           </div>
         </div>
+      </Section>
+
+      <Section title="Titel-Whitelist" kicker="Automatische Titelquellen">
+        <div className="status-pills">
+          <span className="pill">Aktive Titel: {whitelistStats?.active_titles ?? '—'}</span>
+          <span className="pill">Letzter Sync: {whitelistStats?.last_sync ? formatDate(whitelistStats.last_sync) : '—'}</span>
+          <span className="pill">Neue Titel diese Woche: {whitelistStats?.new_titles_this_week ?? '—'}</span>
+          <span className="pill">Offene Titelkandidaten: {whitelistStats?.open_title_candidates ?? titleCandidates.length}</span>
+        </div>
+        <div className="section-actions"><button className="primary" onClick={onSyncTitleSources} disabled={busy}>Titelquellen aktualisieren</button></div>
       </Section>
       <details className="card">
         <summary>Kanalliste importieren</summary>
@@ -592,8 +549,17 @@ function App() {
   const [tiktokForm, setTiktokForm] = useState({ username: 'warnerbros', max_channels: 1, results_limit_per_channel: 5, only_whitelist_matches: false });
   const [filters, setFilters] = useState({ status: 'all', platform: 'all', market: 'all', query: '' });
   const [recentlyCreatedByAssetId, setRecentlyCreatedByAssetId] = useState({});
+  const [titleCandidates, setTitleCandidates] = useState([]);
+  const [whitelistStats, setWhitelistStats] = useState(null);
 
-  const sortedTitles = useMemo(() => [...titles].sort((a, b) => a.title_original.localeCompare(b.title_original)), [titles]);
+  const sortedTitles = useMemo(() => {
+    const map = new Map();
+    [...titles].forEach((title) => {
+      const key = (title.title_original || "").trim().toLowerCase();
+      if (!map.has(key) || (!map.get(key).tmdb_id && title.tmdb_id)) map.set(key, title);
+    });
+    return [...map.values()].sort((a, b) => a.title_original.localeCompare(b.title_original));
+  }, [titles]);
   const approved = assets.filter((asset) => asset.include_in_report || asset.review_status === 'approved' || asset.review_status === 'highlight');
   const highlights = assets.filter((asset) => asset.is_highlight || asset.review_status === 'highlight');
   const openReview = assets.filter((asset) => asset.review_status === 'new' || asset.review_status === 'needs_review').length;
@@ -619,8 +585,8 @@ function App() {
   }
 
   async function load() {
-    const [h, c, t, a] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), endpoints.assets()]);
-    setHealth(h); setChannels(c); setTitles(t); setAssets(a);
+    const [h, c, t, a, stats, candidates] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), endpoints.assets(), endpoints.titleWhitelistStats().catch(() => null), endpoints.titleCandidates().catch(() => [])]);
+    setHealth(h); setChannels(c); setTitles(t); setAssets(a); setWhitelistStats(stats); setTitleCandidates(candidates);
     try { setReport(await endpoints.latestReport()); } catch (_) { setReport(null); }
   }
 
@@ -721,21 +687,19 @@ function App() {
     });
   }
 
-  async function createTitleFromSuggestion(asset, payload) {
+  async function reportMissingTitle(asset, hint) {
     await run(async () => {
-      const createdTitle = await endpoints.createTitle(payload);
-      if (!createdTitle?.id) throw new Error('Neuer Filmtitel wurde erstellt, aber ohne ID zurückgegeben.');
-      const reviewedAsset = await endpoints.reviewAsset(asset.id, {
-        review_status: asset.review_status,
-        include_in_report: asset.include_in_report,
-        is_highlight: asset.is_highlight,
-        title_id: createdTitle.id,
-        curator_note: asset.curator_note || '',
-      });
-      setAssets((current) => current.map((item) => (item.id === reviewedAsset.id ? reviewedAsset : item)));
-      setRecentlyCreatedByAssetId((current) => ({ ...current, [asset.id]: createdTitle.title_original }));
+      await endpoints.createTitleCandidateFromAsset(asset.id, { suggested_title: hint?.label || null });
       await load();
-      setMessage(`Filmtitel „${createdTitle.title_original}“ wurde angelegt und diesem Treffer zugeordnet.`);
+      setMessage('Titelkandidat wurde zur Prüfung vorgemerkt.');
+    });
+  }
+
+  async function syncTitleSources() {
+    await run(async () => {
+      const result = await endpoints.syncTmdbTitles({ markets: ['DE', 'US'], lookback_weeks: 8, lookahead_weeks: 24 });
+      await load();
+      setMessage(`Titelquellen aktualisiert: ${result.upserted_count} upserted, ${result.deduped_count} dedupliziert.`);
     });
   }
 
@@ -797,7 +761,7 @@ function App() {
           onReview={reviewAsset}
           onAnalyzeVisual={analyzeAssetVisual}
           onAssignTitle={assignTitle}
-          onCreateTitle={createTitleFromSuggestion}
+          onReportMissingTitle={reportMissingTitle}
           recentlyCreatedByAssetId={recentlyCreatedByAssetId}
         />
       )}
@@ -825,6 +789,9 @@ function App() {
           tiktokForm={tiktokForm}
           setTiktokForm={setTiktokForm}
           onTikTok={runTikTokMonitor}
+          whitelistStats={whitelistStats}
+          titleCandidates={titleCandidates}
+          onSyncTitleSources={syncTitleSources}
         />
       )}
 

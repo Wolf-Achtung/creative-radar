@@ -93,6 +93,12 @@ POST_COLUMNS = {
     "duration_seconds": "INTEGER",
 }
 
+
+TITLE_COLUMNS = {
+    "tmdb_id": "INTEGER",
+    "source": "VARCHAR DEFAULT 'Manual'",
+    "aliases": "JSON",
+}
 ASSETTYPE_ENUM_VALUES = [
     "TRAILER",
     "TRAILER_DROP",
@@ -162,6 +168,7 @@ def create_db_and_tables() -> None:
     _ensure_pg_enum_values("assettype", ASSETTYPE_ENUM_VALUES)
     _ensure_columns("asset", ASSET_COLUMNS)
     _ensure_columns("post", POST_COLUMNS)
+    _ensure_columns("title", TITLE_COLUMNS)
 
 
 def get_session():
