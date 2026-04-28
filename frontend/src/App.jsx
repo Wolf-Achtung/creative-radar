@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { endpoints } from './api/client';
 import './styles.css';
 
-const STATUS_OPTIONS = ['all', 'new', 'approved', 'highlight', 'rejected', 'needs_review'];
-const TABS = ['Radar', 'Review', 'Reports', 'Quellen'];
+const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
+const NAV_ITEMS = ['Heute', 'Treffer prüfen', 'Vergleich', 'Weekly Report', 'Quellen'];
 
 function Section({ title, kicker, children, className = '' }) {
   return (
@@ -18,20 +18,12 @@ function Section({ title, kicker, children, className = '' }) {
 
 function formatNumber(value) {
   if (value === null || value === undefined || value === '') return '—';
-  try {
-    return new Intl.NumberFormat('de-DE').format(Number(value));
-  } catch (_) {
-    return String(value);
-  }
+  try { return new Intl.NumberFormat('de-DE').format(Number(value)); } catch (_) { return String(value); }
 }
 
 function formatDate(value) {
   if (!value) return 'Datum offen';
-  try {
-    return new Date(value).toLocaleDateString('de-DE');
-  } catch (_) {
-    return 'Datum offen';
-  }
+  try { return new Date(value).toLocaleDateString('de-DE'); } catch (_) { return 'Datum offen'; }
 }
 
 function clip(text, max = 260) {
@@ -47,17 +39,8 @@ function normalizeHandle(value) {
 
 function ImagePreview({ src }) {
   const [failed, setFailed] = useState(false);
-  if (!src || failed) return <div className="preview-placeholder compact">Kein Preview</div>;
-  return <img src={src} alt="Asset Preview" onError={() => setFailed(true)} />;
-}
-
-function Metric({ label, value, tone = '' }) {
-  return (
-    <div className={`radar-metric ${tone}`}>
-      <strong>{formatNumber(value)}</strong>
-      <span>{label}</span>
-    </div>
-  );
+  if (!src || failed) return <div className="preview-placeholder">Kein Preview</div>;
+  return <img src={src} alt="Creative Preview" onError={() => setFailed(true)} />;
 }
 
 function MetricStrip({ asset }) {
@@ -66,188 +49,161 @@ function MetricStrip({ asset }) {
     ['Likes', asset.visible_likes],
     ['Shares', asset.visible_shares],
     ['Comments', asset.visible_comments],
-    ['Saves', asset.visible_bookmarks],
   ];
   return (
     <div className="metric-strip">
       {metrics.map(([label, value]) => (
-        <span key={label}>
-          <b>{formatNumber(value)}</b>
-          <small>{label}</small>
-        </span>
+        <span key={label}><b>{formatNumber(value)}</b><small>{label}</small></span>
       ))}
-      {asset.duration_seconds ? (
-        <span>
-          <b>{asset.duration_seconds}s</b>
-          <small>Dauer</small>
-        </span>
-      ) : null}
     </div>
   );
 }
 
-function MiniTable({ title, rows, columns, emptyText = 'Noch keine Daten.' }) {
+function TodoCard({ openReview, missingTitles, reportCandidates, approved, highlights, onGoReview, onGoReport }) {
+  const reportGap = [];
+  if (approved === 0) reportGap.push('mindestens 1 freigegebener Treffer');
+  if (highlights === 0) reportGap.push('mindestens 1 Highlight');
+  if (missingTitles > 0) reportGap.push('Filmtitel-Zuordnung bei offenen Treffern');
+
   return (
-    <div className="mini-table-wrap compact-table">
-      <h3>{title}</h3>
-      {(!rows || rows.length === 0) ? (
-        <p className="muted">{emptyText}</p>
-      ) : (
-        <table className="mini-table">
-          <thead>
-            <tr>{columns.map((col) => <th key={col.key}>{col.label}</th>)}</tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${title}-${index}`}>
-                {columns.map((col) => (
-                  <td key={col.key}>{col.render ? col.render(row, index) : row[col.key]}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <Section title="Heute zu tun" kicker="Geführter Workflow" className="todo-card">
+      <div className="todo-grid">
+        <div className="todo-item"><strong>{openReview}</strong><span>neue Treffer warten auf Prüfung</span></div>
+        <div className="todo-item"><strong>{missingTitles}</strong><span>Treffer brauchen Filmtitel-Zuordnung</span></div>
+        <div className="todo-item"><strong>{reportCandidates}</strong><span>Treffer sind für den Report geeignet</span></div>
+      </div>
+      <div className="todo-actions">
+        <button className="primary" onClick={onGoReview}>Jetzt Treffer prüfen</button>
+        <button className="secondary" onClick={onGoReport}>Weekly Report öffnen</button>
+      </div>
+      <p className="muted small">{reportGap.length ? `Für einen belastbaren Report fehlen noch: ${reportGap.join(', ')}.` : 'Report kann jetzt sinnvoll erstellt oder aktualisiert werden.'}</p>
+    </Section>
+  );
+}
+
+function ImportantFinds({ assets }) {
+  const weekly = [...assets]
+    .filter((asset) => asset.review_status === 'highlight' || asset.is_highlight || asset.review_status === 'approved')
+    .sort((a, b) => new Date(b.published_at || b.created_at || 0) - new Date(a.published_at || a.created_at || 0))
+    .slice(0, 6);
+
+  return (
+    <Section title="Wichtige Funde dieser Woche" kicker="Kuratiert">
+      {weekly.length === 0 ? <p className="muted">Noch keine kuratierten Funde vorhanden.</p> : (
+        <div className="find-grid">
+          {weekly.map((asset) => (
+            <article key={asset.id} className="find-card">
+              <ImagePreview src={asset.thumbnail_url || asset.screenshot_url} />
+              <div>
+                <p className="find-title">{asset.title_name || asset.placement_title_text || 'Neuer Treffer – Filmtitel noch offen'}</p>
+                <p className="muted small">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.created_at)}</p>
+                <p className="small">{clip(asset.ai_summary_de || asset.caption || 'Noch keine Zusammenfassung verfügbar.', 120)}</p>
+              </div>
+            </article>
+          ))}
+        </div>
       )}
-    </div>
+    </Section>
   );
 }
 
-function ReportReadiness({ approved, highlights, openReview, missingPreviews, missingVisual }) {
-  const ready = approved > 0;
+function ReportStatus({ approved, highlights, openReview, missingTitles }) {
+  const ready = approved > 0 && highlights > 0;
   return (
-    <div className="readiness-card">
-      <div>
-        <strong>{ready ? 'Report bereit' : 'Report noch nicht bereit'}</strong>
-        <span>{approved} reportfähige Assets · {highlights} Highlights · {openReview} offen</span>
+    <Section title="Report-Status" kicker="Was noch fehlt">
+      <div className="status-pills">
+        <span className={`pill ${ready ? 'good' : 'warn'}`}>{ready ? 'Bereit für Management-Report' : 'Noch nicht vollständig'}</span>
+        <span className="pill">{approved} freigegeben</span>
+        <span className="pill">{highlights} Highlights</span>
+        <span className="pill">{openReview} noch zu prüfen</span>
+        <span className="pill">{missingTitles} mit offener Filmtitel-Zuordnung</span>
       </div>
-      <div className="quality-pills">
-        <span className={missingPreviews ? 'check warn' : 'check good'}>
-          {missingPreviews ? `${missingPreviews} ohne Preview` : 'Previews ok'}
-        </span>
-        <span className={missingVisual ? 'check warn' : 'check good'}>
-          {missingVisual ? `${missingVisual} ohne Visual/OCR` : 'Visual/OCR ok'}
-        </span>
-      </div>
-    </div>
+    </Section>
   );
 }
 
-function AssetCard({ asset, busy, onReview, onAnalyzeVisual }) {
+function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle }) {
   const preview = asset.thumbnail_url || asset.screenshot_url;
   const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
   const hasTitle = Boolean(asset.title_name || asset.placement_title_text);
-  const title = hasTitle ? (asset.title_name || asset.placement_title_text) : 'Neuer Fund – Titel noch offen';
-  const subtitle = `${asset.channel_name || 'Unbekannter Channel'} · ${asset.channel_market || 'UNKNOWN'} · ${platform} · ${formatDate(asset.published_at || asset.detected_at || asset.created_at)}`;
+  const displayStatus = {
+    new: 'Noch zu prüfen',
+    needs_review: 'Noch zu prüfen',
+    approved: 'Freigegeben',
+    highlight: 'Als Highlight markiert',
+    rejected: 'Nicht relevant',
+  }[asset.review_status] || asset.review_status;
 
   return (
-    <article className="asset-card simplified">
+    <article className="asset-card">
       <div className="asset-preview"><ImagePreview src={preview} /></div>
       <div className="asset-content">
         <div className="asset-topline">
-          <span className="asset-title">{title}</span>
-          <span className={`pill platform-${platform}`}>{platform}</span>
-          <span className="pill">{asset.asset_type || 'Unknown'}</span>
-          <span className={`pill status-${asset.review_status}`}>{asset.review_status}</span>
-          {!hasTitle && <span className="pill discovery">Discovery</span>}
-          {asset.has_title_placement && <span className="pill placement">Titel-Placement</span>}
-          {asset.has_kinetic && <span className="pill kinetic">Kinetic</span>}
+          <span className="asset-title">{asset.title_name || asset.placement_title_text || 'Neuer Treffer – Filmtitel noch offen'}</span>
+          <span className="pill">{platform}</span>
+          <span className="pill">{displayStatus}</span>
+          {asset.has_title_placement && <span className="pill">Titel-/Claim-Platzierung</span>}
+          {asset.has_kinetic && <span className="pill">Bewegter Text</span>}
         </div>
-        <div className="asset-meta">{subtitle}</div>
+        <p className="asset-meta">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.detected_at || asset.created_at)}</p>
         <MetricStrip asset={asset} />
+        <label className="title-select">
+          Filmtitel-Zuordnung
+          <select value={asset.title_id || ''} onChange={(e) => onAssignTitle(asset, e.target.value)} disabled={busy}>
+            <option value="">Noch nicht zugeordnet</option>
+            {titles.map((title) => <option key={title.id} value={title.id}>{title.title_original}</option>)}
+          </select>
+        </label>
+        {!hasTitle && <p className="missing-hint">Hinweis: Dieser Treffer braucht noch eine Filmtitel-Zuordnung.</p>}
         <p className="asset-summary">{clip(asset.ai_summary_de || 'Noch keine KI-Zusammenfassung vorhanden.', 300)}</p>
         <div className="asset-links">
           {asset.post_url && <a href={asset.post_url} target="_blank" rel="noreferrer">Original öffnen</a>}
           <details>
-            <summary>Details</summary>
+            <summary>Mehr Details</summary>
             {asset.caption && <p><strong>Caption:</strong> {asset.caption}</p>}
-            {asset.ai_trend_notes && <p><strong>Pattern:</strong> {asset.ai_trend_notes}</p>}
-            {asset.ai_summary_en && <p><strong>EN:</strong> {asset.ai_summary_en}</p>}
-            {(asset.ocr_text || asset.visual_notes || asset.kinetic_text) && (
-              <p><strong>Visual/OCR:</strong> {[asset.ocr_text, asset.visual_notes, asset.kinetic_text].filter(Boolean).join(' · ')}</p>
-            )}
+            {asset.ai_trend_notes && <p><strong>Muster:</strong> {asset.ai_trend_notes}</p>}
+            {(asset.ocr_text || asset.visual_notes || asset.kinetic_text) && <p><strong>Bild-/Text-Prüfung:</strong> {[asset.ocr_text, asset.visual_notes, asset.kinetic_text].filter(Boolean).join(' · ')}</p>}
           </details>
         </div>
       </div>
-      <div className="asset-actions simplified-actions">
-        <button className="primary" onClick={() => onReview(asset, 'highlight')} disabled={busy}>Highlight</button>
+      <div className="asset-actions">
         <button onClick={() => onReview(asset, 'approved')} disabled={busy}>Freigeben</button>
-        <button onClick={() => onReview(asset, 'rejected')} disabled={busy}>Ablehnen</button>
-        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy}>Visual/OCR</button>
+        <button onClick={() => onReview(asset, 'highlight')} disabled={busy}>Als Highlight markieren</button>
+        <button onClick={() => onReview(asset, 'needs_review')} disabled={busy}>Später prüfen</button>
+        <button onClick={() => onReview(asset, 'rejected')} disabled={busy}>Nicht relevant</button>
+        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy}>Visual prüfen</button>
       </div>
     </article>
   );
 }
 
-function RadarPanel({ insights, assets, approved, highlights, openReview, missingPreviews, missingVisual, onAnalyzeVisualBatch, busy }) {
-  const topAssets = insights?.top_assets_total || [];
-  const channels = insights?.channel_rankings || [];
-  const placements = insights?.placement_comparison || [];
-  const tiktokCount = assets.filter((a) => (a.platform || a.channel_platform) === 'tiktok').length;
-  const instagramCount = assets.filter((a) => (a.platform || a.channel_platform) === 'instagram').length;
-
+function HomePanel({ assets, openReview, missingTitles, reportCandidates, approved, highlights, setActiveTab }) {
   return (
     <>
-      <Section title="Radar Heute" kicker="Management-Übersicht" className="hero-panel">
-        <div className="radar-metrics">
-          <Metric label="Assets dokumentiert" value={assets.length} />
-          <Metric label="Review offen" value={openReview} tone={openReview ? 'warn' : 'good'} />
-          <Metric label="Reportfähig" value={approved.length} tone={approved.length ? 'good' : 'warn'} />
-          <Metric label="Highlights" value={highlights.length} />
-          <Metric label="TikTok" value={tiktokCount} />
-          <Metric label="Instagram" value={instagramCount} />
-        </div>
-        <ReportReadiness
-          approved={approved.length}
-          highlights={highlights.length}
-          openReview={openReview}
-          missingPreviews={missingPreviews}
-          missingVisual={missingVisual}
-        />
-        <div className="section-actions">
-          <button onClick={onAnalyzeVisualBatch} disabled={busy || assets.length === 0}>Alle neuen Assets visuell prüfen</button>
-        </div>
-      </Section>
-
-      <div className="grid two-col">
-        <MiniTable title="Top Assets gesamt" rows={topAssets.slice(0, 6)} columns={[
-          { key: 'rank', label: '#', render: (_row, i) => i + 1 },
-          { key: 'title', label: 'Titel' },
-          { key: 'channel', label: 'Channel' },
-          { key: 'score', label: 'Score', render: (row) => formatNumber(row.score) },
-        ]} />
-        <MiniTable title="DE/US Placement-Vergleich" rows={placements.slice(0, 6)} columns={[
-          { key: 'match_key', label: 'Titel-Key' },
-          { key: 'de_count', label: 'DE' },
-          { key: 'us_count', label: 'US' },
-          { key: 'gap', label: 'Gap' },
-        ]} emptyText="Noch kein belastbarer DE/US-Vergleich. Erst Discovery-Funde Titeln zuordnen und Visual/OCR prüfen." />
-        <MiniTable title="Channel-Ranking" rows={channels.slice(0, 8)} columns={[
-          { key: 'channel', label: 'Channel' },
-          { key: 'count', label: 'Assets' },
-          { key: 'top_assets', label: 'Top-Treffer', render: (row) => row.top_assets?.[0]?.title || '—' },
-        ]} />
-        <div className="mini-table-wrap compact-table">
-          <h3>Datenqualität</h3>
-          <ul className="recommendations">
-            <li>{assets.filter((a) => a.is_discovery || !a.title_name).length} Discovery-Funde brauchen Titelzuordnung für DE/US-Vergleich.</li>
-            <li>{missingPreviews} Assets ohne Preview/Screenshot.</li>
-            <li>{missingVisual} Assets ohne Visual/OCR-Prüfung.</li>
-          </ul>
-        </div>
-      </div>
+      <TodoCard
+        openReview={openReview}
+        missingTitles={missingTitles}
+        reportCandidates={reportCandidates}
+        approved={approved.length}
+        highlights={highlights.length}
+        onGoReview={() => setActiveTab('Treffer prüfen')}
+        onGoReport={() => setActiveTab('Weekly Report')}
+      />
+      <ImportantFinds assets={assets} />
+      <ReportStatus approved={approved.length} highlights={highlights.length} openReview={openReview} missingTitles={missingTitles} />
     </>
   );
 }
 
-function ReviewPanel({ assets, visibleAssets, filters, setFilters, busy, onReview, onAnalyzeVisual }) {
+function ReviewPanel({ assets, titles, visibleAssets, filters, setFilters, busy, onReview, onAnalyzeVisual, onAssignTitle }) {
   return (
-    <Section title="Review Queue" kicker={`${visibleAssets.length} von ${assets.length} sichtbar`} className="review-section">
-      <div className="filterbar simplified-filterbar">
+    <Section title="Treffer prüfen" kicker={`${visibleAssets.length} von ${assets.length} Treffern sichtbar`}>
+      <div className="filterbar">
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status === 'all' ? 'Alle Status' : status}</option>)}
         </select>
         <select value={filters.platform} onChange={(e) => setFilters({ ...filters, platform: e.target.value })}>
-          <option value="all">Alle Plattformen</option>
+          <option value="all">Alle Kanäle</option>
           <option value="instagram">Instagram</option>
           <option value="tiktok">TikTok</option>
         </select>
@@ -258,34 +214,88 @@ function ReviewPanel({ assets, visibleAssets, filters, setFilters, busy, onRevie
           <option value="INT">INT</option>
           <option value="UNKNOWN">UNKNOWN</option>
         </select>
-        <input value={filters.query} onChange={(e) => setFilters({ ...filters, query: e.target.value })} placeholder="Suche nach Titel, Channel, Pattern …" />
+        <input value={filters.query} onChange={(e) => setFilters({ ...filters, query: e.target.value })} placeholder="Suche nach Film, Kanal, Claim …" />
       </div>
-      {assets.length === 0 && <p>Noch keine Assets. Erst Kanäle prüfen.</p>}
-      {visibleAssets.map((asset) => <AssetCard key={asset.id} asset={asset} busy={busy} onReview={onReview} onAnalyzeVisual={onAnalyzeVisual} />)}
+      {assets.length === 0 && <p>Noch keine Treffer. Bitte zuerst Kanäle prüfen.</p>}
+      {visibleAssets.map((asset) => (
+        <AssetCard
+          key={asset.id}
+          asset={asset}
+          titles={titles}
+          busy={busy}
+          onReview={onReview}
+          onAnalyzeVisual={onAnalyzeVisual}
+          onAssignTitle={onAssignTitle}
+        />
+      ))}
     </Section>
   );
 }
 
-function ReportsPanel({ report, approved, highlights, openReview, missingPreviews, missingVisual, busy, onGenerateReport }) {
+function ComparisonPanel({ assets }) {
+  const grouped = useMemo(() => {
+    const map = new Map();
+    assets.forEach((asset) => {
+      const key = asset.title_name || asset.placement_title_text || 'Ohne Filmtitel-Zuordnung';
+      if (!map.has(key)) map.set(key, { de: [], us: [] });
+      const lane = (asset.channel_market === 'DE') ? 'de' : 'us';
+      map.get(key)[lane].push(asset);
+    });
+    return [...map.entries()].map(([title, values]) => ({ title, ...values }));
+  }, [assets]);
+
   return (
-    <Section title="Weekly Report" kicker="Donnerstags-Output">
-      <ReportReadiness
-        approved={approved.length}
-        highlights={highlights.length}
-        openReview={openReview}
-        missingPreviews={missingPreviews}
-        missingVisual={missingVisual}
-      />
+    <Section title="DE/US Vergleich" kicker="Muster auf einen Blick">
+      {grouped.length === 0 ? <p className="muted">Noch keine Vergleichsdaten vorhanden.</p> : (
+        <div className="compare-list">
+          {grouped.map((group) => (
+            <article key={group.title} className="compare-card">
+              <h3>{group.title}</h3>
+              <div className="compare-columns">
+                <div>
+                  <p className="compare-label">DE</p>
+                  <p>{group.de.length} Treffer</p>
+                  <p className="small muted">Titel-/Claim-Platzierung: {group.de.filter((a) => a.has_title_placement).length} · Bewegter Text: {group.de.filter((a) => a.has_kinetic).length}</p>
+                </div>
+                <div>
+                  <p className="compare-label">US/INT</p>
+                  <p>{group.us.length} Treffer</p>
+                  <p className="small muted">Titel-/Claim-Platzierung: {group.us.filter((a) => a.has_title_placement).length} · Bewegter Text: {group.us.filter((a) => a.has_kinetic).length}</p>
+                </div>
+              </div>
+              <p className="small">Zusammenfassung: {group.de.length > group.us.length ? 'DE spielt das Motiv aktuell stärker aus.' : group.de.length < group.us.length ? 'US/INT setzt das Motiv aktuell stärker ein.' : 'DE und US/INT sind aktuell ähnlich stark vertreten.'}</p>
+            </article>
+          ))}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function ReportsPanel({ report, approved, highlights, openReview, busy, onGenerateReport }) {
+  return (
+    <Section title="Weekly Report" kicker="Ergebnisraum">
+      <div className="report-head">
+        <p><strong>Zeitraum:</strong> letzte 7 Tage</p>
+        <p><strong>Status:</strong> {report?.status || 'Noch nicht erstellt'}</p>
+      </div>
+      <div className="status-pills">
+        <span className="pill">Management Summary</span>
+        <span className="pill">Trend Snapshot</span>
+        <span className="pill">Highlight Creatives</span>
+        <span className="pill">DE/US Vergleich</span>
+        <span className="pill">Appendix</span>
+      </div>
+      <p className="muted small">Freigegeben: {approved.length} · Highlights: {highlights.length} · Noch zu prüfen: {openReview}</p>
       <div className="section-actions">
-        <button onClick={onGenerateReport} disabled={busy || approved.length === 0}>Weekly Report erzeugen</button>
+        <button className="primary" onClick={onGenerateReport} disabled={busy || approved.length === 0}>Report aktualisieren</button>
       </div>
       {report ? (
-        <div className="report-summary">
-          <p><strong>Status:</strong> {report.status}</p>
-          <p>{report.executive_summary_de}</p>
-          <details><summary>Report-Vorschau öffnen</summary><iframe title="report" srcDoc={report.html_content || ''} /></details>
-        </div>
-      ) : <p className="muted">Noch kein Report erzeugt.</p>}
+        <details>
+          <summary>Report-Vorschau öffnen</summary>
+          <iframe title="report" srcDoc={report.html_content || ''} />
+        </details>
+      ) : <p className="muted">Noch kein Weekly Report erzeugt.</p>}
     </Section>
   );
 }
@@ -301,18 +311,10 @@ function SourcesPanel({
   tiktokForm,
   setTiktokForm,
   onTikTok,
-  quickForm,
-  setQuickForm,
-  onAnalyzeLink,
-  form,
-  setForm,
-  onImportPost,
-  sortedChannels,
-  sortedTitles,
 }) {
   return (
     <>
-      <Section title="Kanäle prüfen" kicker="Datenquellen">
+      <Section title="Quellen prüfen" kicker="Kanäle und Monitoring">
         <div className="source-grid">
           <div className="source-card">
             <h3>TikTok</h3>
@@ -322,74 +324,27 @@ function SourcesPanel({
             <label>Videos pro Profil
               <input type="number" min="1" max="20" value={tiktokForm.results_limit_per_channel} onChange={(e) => setTiktokForm({ ...tiktokForm, results_limit_per_channel: e.target.value })} />
             </label>
-            <label className="checkbox-row">
-              <input type="checkbox" checked={tiktokForm.only_whitelist_matches} onChange={(e) => setTiktokForm({ ...tiktokForm, only_whitelist_matches: e.target.checked })} /> Nur Whitelist-Treffer
-            </label>
             <button onClick={onTikTok} disabled={busy || !tiktokForm.username}>TikTok prüfen</button>
           </div>
           <div className="source-card">
             <h3>Instagram</h3>
-            <label>Max. Channels
+            <label>Max. Kanäle
               <input type="number" min="1" max="25" value={monitorForm.max_channels} onChange={(e) => setMonitorForm({ ...monitorForm, max_channels: e.target.value })} />
             </label>
-            <label>Posts/Reels pro Channel
+            <label>Posts/Reels pro Kanal
               <input type="number" min="1" max="20" value={monitorForm.results_limit_per_channel} onChange={(e) => setMonitorForm({ ...monitorForm, results_limit_per_channel: e.target.value })} />
-            </label>
-            <label className="checkbox-row">
-              <input type="checkbox" checked={monitorForm.only_whitelist_matches} onChange={(e) => setMonitorForm({ ...monitorForm, only_whitelist_matches: e.target.checked })} /> Nur Whitelist-Treffer
             </label>
             <button onClick={onInstagram} disabled={busy}>Instagram prüfen</button>
           </div>
         </div>
       </Section>
-      <details className="card setup-details">
-        <summary>Setup & Sonderfälle</summary>
+      <details className="card">
+        <summary>Kanalliste importieren</summary>
         <form className="form-grid" onSubmit={onImportChannelFile}>
-          <label className="wide">Excel-Kanalliste
+          <label className="wide">Excel-Datei
             <input type="file" accept=".xlsx,.xlsm" onChange={(event) => setChannelFile(event.target.files?.[0] || null)} />
           </label>
-          <div className="wide"><button type="submit" disabled={busy || !channelFile}>Kanalliste importieren</button></div>
-        </form>
-        <hr />
-        <form className="form-grid" onSubmit={onAnalyzeLink}>
-          <label className="wide">Instagram-Link
-            <input value={quickForm.post_url} onChange={(e) => setQuickForm({ ...quickForm, post_url: e.target.value })} placeholder="https://www.instagram.com/p/..." />
-          </label>
-          <label>Channel
-            <select value={quickForm.channel_id} onChange={(e) => setQuickForm({ ...quickForm, channel_id: e.target.value })}>
-              <option value="">Auto</option>
-              {sortedChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform} · {channel.market} · {channel.name}</option>)}
-            </select>
-          </label>
-          <label>Titel
-            <select value={quickForm.title_id} onChange={(e) => setQuickForm({ ...quickForm, title_id: e.target.value })}>
-              <option value="">Auto</option>
-              {sortedTitles.map((title) => <option key={title.id} value={title.id}>{title.title_original}</option>)}
-            </select>
-          </label>
-          <div className="wide"><button type="submit" disabled={busy || !quickForm.post_url}>Einzel-Link analysieren</button></div>
-        </form>
-        <hr />
-        <form className="form-grid" onSubmit={onImportPost}>
-          <label>Channel
-            <select value={form.channel_id} onChange={(e) => setForm({ ...form, channel_id: e.target.value })} required>
-              <option value="">Bitte wählen</option>
-              {sortedChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.platform} · {channel.market} · {channel.name}</option>)}
-            </select>
-          </label>
-          <label>Titel
-            <select value={form.title_id} onChange={(e) => setForm({ ...form, title_id: e.target.value })}>
-              <option value="">Auto</option>
-              {sortedTitles.map((title) => <option key={title.id} value={title.id}>{title.title_original}</option>)}
-            </select>
-          </label>
-          <label className="wide">Post-Link
-            <input value={form.post_url} onChange={(e) => setForm({ ...form, post_url: e.target.value })} />
-          </label>
-          <label className="wide">Caption
-            <textarea value={form.caption} onChange={(e) => setForm({ ...form, caption: e.target.value })} rows="3" />
-          </label>
-          <div className="wide"><button type="submit" disabled={busy || !form.channel_id || !form.post_url}>Manuell importieren</button></div>
+          <div className="wide"><button type="submit" disabled={busy || !channelFile}>Import starten</button></div>
         </form>
       </details>
     </>
@@ -401,26 +356,22 @@ function App() {
   const [channels, setChannels] = useState([]);
   const [titles, setTitles] = useState([]);
   const [assets, setAssets] = useState([]);
-  const [insights, setInsights] = useState(null);
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState('Radar');
+  const [activeTab, setActiveTab] = useState('Heute');
   const [channelFile, setChannelFile] = useState(null);
   const [monitorForm, setMonitorForm] = useState({ max_channels: 5, results_limit_per_channel: 5, only_whitelist_matches: true });
   const [tiktokForm, setTiktokForm] = useState({ username: 'warnerbros', max_channels: 1, results_limit_per_channel: 5, only_whitelist_matches: false });
-  const [filters, setFilters] = useState({ status: 'all', platform: 'all', market: 'all', assetType: 'all', discovery: 'all', query: '' });
-  const [quickForm, setQuickForm] = useState({ post_url: '', channel_id: '', title_id: '', caption_hint: '', asset_type_hint: 'Unknown' });
-  const [form, setForm] = useState({ channel_id: '', title_id: '', post_url: '', caption: '', media_type: 'reel', asset_type: 'Unknown', screenshot_url: '', ocr_text: '' });
+  const [filters, setFilters] = useState({ status: 'all', platform: 'all', market: 'all', query: '' });
 
-  const sortedChannels = useMemo(() => [...channels].sort((a, b) => `${a.platform}-${a.market}-${a.name}`.localeCompare(`${b.platform}-${b.market}-${b.name}`)), [channels]);
   const sortedTitles = useMemo(() => [...titles].sort((a, b) => a.title_original.localeCompare(b.title_original)), [titles]);
   const approved = assets.filter((asset) => asset.include_in_report || asset.review_status === 'approved' || asset.review_status === 'highlight');
   const highlights = assets.filter((asset) => asset.is_highlight || asset.review_status === 'highlight');
   const openReview = assets.filter((asset) => asset.review_status === 'new' || asset.review_status === 'needs_review').length;
-  const missingPreviews = assets.filter((asset) => !(asset.thumbnail_url || asset.screenshot_url)).length;
-  const missingVisual = assets.filter((asset) => !asset.visual_analysis_status || ['pending', 'error'].includes(asset.visual_analysis_status)).length;
+  const missingTitles = assets.filter((asset) => !(asset.title_name || asset.placement_title_text || asset.title_id)).length;
+  const reportCandidates = assets.filter((asset) => asset.review_status === 'approved' || asset.review_status === 'highlight' || asset.include_in_report).length;
 
   const visibleAssets = useMemo(() => {
     const query = filters.query.trim().toLowerCase();
@@ -441,16 +392,12 @@ function App() {
   }
 
   async function load() {
-    const [h, c, t, a, overview] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), endpoints.assets(), endpoints.insightsOverview()]);
-    setHealth(h); setChannels(c); setTitles(t); setAssets(a); setInsights(overview);
+    const [h, c, t, a] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), endpoints.assets()]);
+    setHealth(h); setChannels(c); setTitles(t); setAssets(a);
     try { setReport(await endpoints.latestReport()); } catch (_) { setReport(null); }
   }
 
   useEffect(() => { run(load); }, []);
-
-  async function seed() {
-    await run(async () => { await endpoints.seedChannels(); await endpoints.seedTitles(); await load(); setMessage('Basisdaten wurden angelegt.'); });
-  }
 
   async function importChannelFile(event) {
     event.preventDefault();
@@ -473,7 +420,7 @@ function App() {
         only_whitelist_matches: Boolean(monitorForm.only_whitelist_matches),
       });
       await load();
-      setMessage(`Instagram: ${result.raw_items} Roh-Treffer, ${result.created_assets} neue Assets.`);
+      setMessage(`Instagram: ${result.raw_items} Roh-Treffer, ${result.created_assets} neue Treffer.`);
     });
   }
 
@@ -491,7 +438,7 @@ function App() {
           priority: 'A',
           active: true,
           mvp: true,
-          notes: 'Automatisch aus TikTok-Testlauf angelegt.',
+          notes: 'Automatisch angelegt.',
         }).catch(() => null);
       }
       const result = await endpoints.runTikTokMonitor({
@@ -501,15 +448,7 @@ function App() {
         only_whitelist_matches: Boolean(tiktokForm.only_whitelist_matches),
       });
       await load();
-      setMessage(`TikTok: ${result.raw_items} Roh-Treffer, ${result.created_assets} neue Assets, ${result.skipped_existing} bereits vorhanden.`);
-    });
-  }
-
-  async function analyzeVisualBatch() {
-    await run(async () => {
-      const result = await endpoints.analyzeVisualBatch(10);
-      await load();
-      setMessage(`Visual/OCR: ${result.updated} Assets aktualisiert.`);
+      setMessage(`TikTok: ${result.raw_items} Roh-Treffer, ${result.created_assets} neue Treffer.`);
     });
   }
 
@@ -517,27 +456,7 @@ function App() {
     await run(async () => {
       await endpoints.analyzeAssetVisual(asset.id);
       await load();
-      setMessage('Visual/OCR aktualisiert.');
-    });
-  }
-
-  async function analyzeLink(event) {
-    event.preventDefault();
-    await run(async () => {
-      await endpoints.analyzeInstagramLink({ ...quickForm, channel_id: quickForm.channel_id || null, title_id: quickForm.title_id || null, caption_hint: quickForm.caption_hint || null });
-      await load();
-      setQuickForm({ post_url: '', channel_id: '', title_id: '', caption_hint: '', asset_type_hint: 'Unknown' });
-      setMessage('Einzel-Link analysiert.');
-    });
-  }
-
-  async function importPost(event) {
-    event.preventDefault();
-    await run(async () => {
-      await endpoints.manualImport({ ...form, title_id: form.title_id || null, screenshot_url: form.screenshot_url || null, ocr_text: form.ocr_text || null, caption: form.caption || null, media_type: form.media_type || null });
-      setForm({ ...form, post_url: '', caption: '', screenshot_url: '', ocr_text: '', asset_type: 'Unknown' });
-      await load();
-      setMessage('Treffer importiert.');
+      setMessage('Bild-/Text-Prüfung aktualisiert.');
     });
   }
 
@@ -550,7 +469,21 @@ function App() {
         curator_note: asset.curator_note || '',
       });
       await load();
-      setMessage(`Asset wurde als ${status} gespeichert.`);
+      setMessage('Trefferstatus wurde aktualisiert.');
+    });
+  }
+
+  async function assignTitle(asset, titleId) {
+    await run(async () => {
+      await endpoints.reviewAsset(asset.id, {
+        review_status: asset.review_status,
+        include_in_report: asset.include_in_report,
+        is_highlight: asset.is_highlight,
+        title_id: titleId || null,
+        curator_note: asset.curator_note || '',
+      });
+      await load();
+      setMessage(titleId ? 'Filmtitel wurde zugeordnet.' : 'Filmtitel-Zuordnung wurde entfernt.');
     });
   }
 
@@ -561,64 +494,65 @@ function App() {
       const startDate = new Date(today.getTime() - 7 * 86400000).toISOString().slice(0, 10);
       const created = await endpoints.generateReport({ week_start: startDate, week_end: end, include_only_reviewed: true });
       setReport(created);
-      setMessage('Report-Entwurf wurde erzeugt.');
+      setMessage('Weekly Report wurde aktualisiert.');
     });
   }
 
   return (
     <main>
-      <header className="hero simplified-hero">
+      <header className="hero">
         <div>
-          <p className="eyebrow">Creative Radar · Weekly Creative Monitoring</p>
+          <p className="eyebrow">Creative Intelligence Workspace</p>
           <h1>Creative Radar</h1>
-          <p>Kanäle prüfen, relevante Assets kuratieren, DE/US-Patterns erkennen und Weekly Report erstellen.</p>
+          <p>Ausgewählte Kanäle prüfen, relevante Creatives erkennen, DE/US-Muster vergleichen und einen Weekly Report erstellen.</p>
         </div>
         <div className="hero-actions">
-          <button onClick={() => setActiveTab('Quellen')} disabled={busy}>Kanäle prüfen</button>
-          <button onClick={() => setActiveTab('Review')} disabled={busy}>Assets reviewen</button>
-          <button onClick={generateReport} disabled={busy || approved.length === 0}>Weekly Report</button>
-          <button className="secondary" onClick={() => run(load)} disabled={busy}>Aktualisieren</button>
+          <button className="primary" onClick={() => setActiveTab('Treffer prüfen')} disabled={busy}>Neue Treffer prüfen</button>
+          <button className="secondary" onClick={() => setActiveTab('Weekly Report')} disabled={busy}>Weekly Report öffnen</button>
         </div>
       </header>
+
       {error && <div className="error">{error}</div>}
       {message && <div className="success">{message}</div>}
       {busy && <div className="info">Arbeite gerade …</div>}
+
       <nav className="tabs">
-        {TABS.map((tab) => <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>{tab}</button>)}
+        {NAV_ITEMS.map((tab) => (
+          <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>{tab}</button>
+        ))}
       </nav>
 
-      {activeTab === 'Radar' && (
-        <RadarPanel
-          insights={insights}
+      {activeTab === 'Heute' && (
+        <HomePanel
           assets={assets}
+          openReview={openReview}
+          missingTitles={missingTitles}
+          reportCandidates={reportCandidates}
           approved={approved}
           highlights={highlights}
-          openReview={openReview}
-          missingPreviews={missingPreviews}
-          missingVisual={missingVisual}
-          onAnalyzeVisualBatch={analyzeVisualBatch}
-          busy={busy}
+          setActiveTab={setActiveTab}
         />
       )}
-      {activeTab === 'Review' && (
+      {activeTab === 'Treffer prüfen' && (
         <ReviewPanel
           assets={assets}
+          titles={sortedTitles}
           visibleAssets={visibleAssets}
           filters={filters}
           setFilters={setFilters}
           busy={busy}
           onReview={reviewAsset}
           onAnalyzeVisual={analyzeAssetVisual}
+          onAssignTitle={assignTitle}
         />
       )}
-      {activeTab === 'Reports' && (
+      {activeTab === 'Vergleich' && <ComparisonPanel assets={assets} />}
+      {activeTab === 'Weekly Report' && (
         <ReportsPanel
           report={report}
           approved={approved}
           highlights={highlights}
           openReview={openReview}
-          missingPreviews={missingPreviews}
-          missingVisual={missingVisual}
           busy={busy}
           onGenerateReport={generateReport}
         />
@@ -635,20 +569,12 @@ function App() {
           tiktokForm={tiktokForm}
           setTiktokForm={setTiktokForm}
           onTikTok={runTikTokMonitor}
-          quickForm={quickForm}
-          setQuickForm={setQuickForm}
-          onAnalyzeLink={analyzeLink}
-          form={form}
-          setForm={setForm}
-          onImportPost={importPost}
-          sortedChannels={sortedChannels}
-          sortedTitles={sortedTitles}
         />
       )}
 
       <footer className="footer-status">
-        API: {health?.status || 'offen'} · Channels {channels.length} · Whitelist {titles.length} · Assets {assets.length}
-        <button onClick={seed} disabled={busy}>Basisdaten</button>
+        API: {health?.status || 'offen'} · Kanäle {channels.length} · Titel {titles.length} · Treffer {assets.length}
+        <button className="secondary" onClick={() => run(load)} disabled={busy}>Aktualisieren</button>
       </footer>
     </main>
   );
