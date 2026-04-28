@@ -233,7 +233,7 @@ function ReviewGuide() {
   );
 }
 
-function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onCreateTitle }) {
+function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onCreateTitle, recentlyCreatedTitleName }) {
   const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
   const hasTitle = Boolean(asset.title_name || asset.placement_title_text || asset.title_id);
   const visualChecked = Boolean(asset.ocr_text || asset.visual_notes || asset.kinetic_text);
@@ -265,6 +265,10 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
     }));
   }, [hint.label, canUseSuggestion]);
 
+  const titleHintLabel = recentlyCreatedTitleName ? 'Bestätigter Filmtitel' : 'Vermuteter Filmtitel';
+  const titleHintSource = recentlyCreatedTitleName ? 'neu angelegt und zugeordnet' : hint.source;
+  const titleHintValue = recentlyCreatedTitleName || hint.label;
+
   return (
     <article className="asset-card">
       <div className="asset-preview"><ImagePreview sources={[asset.thumbnail_url, asset.screenshot_url]} /></div>
@@ -279,9 +283,9 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
         <p className="asset-meta">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.detected_at || asset.created_at)}</p>
         <MetricStrip asset={asset} />
         <div className={`title-hint ${hasTitle ? 'assigned' : 'open'}`}>
-          <span>Vermuteter Filmtitel</span>
-          <strong>{hint.label}</strong>
-          <small>{hint.source}</small>
+          <span>{titleHintLabel}</span>
+          <strong>{titleHintValue}</strong>
+          <small>{titleHintSource}</small>
         </div>
         <p className="title-instruction">Wenn der Vorschlag stimmt, bitte unten im Dropdown bestätigen.</p>
         <p className="title-instruction">Falls der Titel fehlt, zunächst „Später prüfen“ wählen. Der Titel muss später in der Titelliste ergänzt werden.</p>
@@ -394,7 +398,19 @@ function HomePanel({ assets, titles, openReview, missingTitles, reportCandidates
   );
 }
 
-function ReviewPanel({ assets, titles, visibleAssets, filters, setFilters, busy, onReview, onAnalyzeVisual, onAssignTitle, onCreateTitle }) {
+function ReviewPanel({
+  assets,
+  titles,
+  visibleAssets,
+  filters,
+  setFilters,
+  busy,
+  onReview,
+  onAnalyzeVisual,
+  onAssignTitle,
+  onCreateTitle,
+  recentlyCreatedByAssetId,
+}) {
   return (
     <Section title="Treffer prüfen" kicker={`${visibleAssets.length} von ${assets.length} Treffern sichtbar`}>
       <ReviewGuide />
@@ -427,6 +443,7 @@ function ReviewPanel({ assets, titles, visibleAssets, filters, setFilters, busy,
           onAnalyzeVisual={onAnalyzeVisual}
           onAssignTitle={onAssignTitle}
           onCreateTitle={onCreateTitle}
+          recentlyCreatedTitleName={recentlyCreatedByAssetId[asset.id] || ''}
         />
       ))}
     </Section>
@@ -574,6 +591,7 @@ function App() {
   const [monitorForm, setMonitorForm] = useState({ max_channels: 5, results_limit_per_channel: 5, only_whitelist_matches: true });
   const [tiktokForm, setTiktokForm] = useState({ username: 'warnerbros', max_channels: 1, results_limit_per_channel: 5, only_whitelist_matches: false });
   const [filters, setFilters] = useState({ status: 'all', platform: 'all', market: 'all', query: '' });
+  const [recentlyCreatedByAssetId, setRecentlyCreatedByAssetId] = useState({});
 
   const sortedTitles = useMemo(() => [...titles].sort((a, b) => a.title_original.localeCompare(b.title_original)), [titles]);
   const approved = assets.filter((asset) => asset.include_in_report || asset.review_status === 'approved' || asset.review_status === 'highlight');
@@ -685,6 +703,12 @@ function App() {
 
   async function assignTitle(asset, titleId) {
     await run(async () => {
+      setRecentlyCreatedByAssetId((current) => {
+        if (!current[asset.id]) return current;
+        const next = { ...current };
+        delete next[asset.id];
+        return next;
+      });
       await endpoints.reviewAsset(asset.id, {
         review_status: asset.review_status,
         include_in_report: asset.include_in_report,
@@ -700,15 +724,18 @@ function App() {
   async function createTitleFromSuggestion(asset, payload) {
     await run(async () => {
       const createdTitle = await endpoints.createTitle(payload);
-      await endpoints.reviewAsset(asset.id, {
+      if (!createdTitle?.id) throw new Error('Neuer Filmtitel wurde erstellt, aber ohne ID zurückgegeben.');
+      const reviewedAsset = await endpoints.reviewAsset(asset.id, {
         review_status: asset.review_status,
         include_in_report: asset.include_in_report,
         is_highlight: asset.is_highlight,
         title_id: createdTitle.id,
         curator_note: asset.curator_note || '',
       });
+      setAssets((current) => current.map((item) => (item.id === reviewedAsset.id ? reviewedAsset : item)));
+      setRecentlyCreatedByAssetId((current) => ({ ...current, [asset.id]: createdTitle.title_original }));
       await load();
-      setMessage(`Filmtitel „${createdTitle.title_original}“ wurde angelegt und direkt zugeordnet.`);
+      setMessage(`Filmtitel „${createdTitle.title_original}“ wurde angelegt und diesem Treffer zugeordnet.`);
     });
   }
 
@@ -771,6 +798,7 @@ function App() {
           onAnalyzeVisual={analyzeAssetVisual}
           onAssignTitle={assignTitle}
           onCreateTitle={createTitleFromSuggestion}
+          recentlyCreatedByAssetId={recentlyCreatedByAssetId}
         />
       )}
       {activeTab === 'Vergleich' && <ComparisonPanel assets={assets} />}
