@@ -101,3 +101,21 @@ class GenerateWeeklyReportRequest(BaseModel):
 
 class ReportStatusUpdate(BaseModel):
     status: ReportStatus
+
+
+class TitleCandidatePatch(BaseModel):
+    status: Optional[str] = None
+    suggested_title: Optional[str] = None
+    suggested_franchise: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+class TitleCandidateCreateFromAsset(BaseModel):
+    source: Optional[str] = None
+    suggested_title: Optional[str] = None
+
+
+class TitleSyncRequest(BaseModel):
+    markets: list[str] = ["DE", "US"]
+    lookback_weeks: int = 8
+    lookahead_weeks: int = 24

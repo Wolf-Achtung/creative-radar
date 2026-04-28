@@ -61,6 +61,13 @@ export const endpoints = {
   titles: () => api('/api/titles'),
   createTitle: (payload) => api('/api/titles', { method: 'POST', body: JSON.stringify(payload) }),
   seedTitles: () => api('/api/titles/seed-mvp', { method: 'POST' }),
+
+  syncTmdbTitles: (payload) => api('/api/titles/sync/tmdb', { method: 'POST', body: JSON.stringify(payload) }),
+  titleSyncRuns: () => api('/api/titles/sync/runs'),
+  titleWhitelistStats: () => api('/api/titles/stats/whitelist'),
+  titleCandidates: () => api('/api/titles/candidates'),
+  createTitleCandidateFromAsset: (assetId, payload = {}) => api(`/api/titles/candidates/from-asset/${assetId}`, { method: 'POST', body: JSON.stringify(payload) }),
+  patchTitleCandidate: (id, payload) => api(`/api/titles/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   posts: () => api('/api/posts'),
   manualImport: (payload) => api('/api/posts/manual-import', { method: 'POST', body: JSON.stringify(payload) }),
   analyzeInstagramLink: (payload) => api('/api/posts/analyze-instagram-link', { method: 'POST', body: JSON.stringify(payload) }),

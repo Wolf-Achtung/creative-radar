@@ -59,6 +59,21 @@ class ReportStatus(str, Enum):
     FINAL = "final"
 
 
+class CandidateStatus(str, Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+    IGNORED = "ignored"
+
+
+class CandidateSource(str, Enum):
+    HASHTAG = "hashtag"
+    TEXT = "text"
+    OCR = "ocr"
+    OPENAI = "openai"
+    PERPLEXITY = "perplexity"
+    MATCHER = "matcher"
+
+
 class Channel(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str
@@ -79,6 +94,7 @@ class Channel(SQLModel, table=True):
 
 class Title(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
+    tmdb_id: Optional[int] = Field(default=None, index=True)
     title_original: str
     title_local: Optional[str] = None
     franchise: Optional[str] = None
@@ -86,6 +102,8 @@ class Title(SQLModel, table=True):
     market_relevance: Market = Market.MIXED
     release_date_de: Optional[date] = None
     release_date_us: Optional[date] = None
+    source: str = "Manual"
+    aliases: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     priority: Priority = Priority.B
     active: bool = True
     notes: Optional[str] = None
@@ -169,6 +187,32 @@ class Asset(SQLModel, table=True):
 
     post: Post = Relationship(back_populates="assets")
     title: Optional[Title] = Relationship(back_populates="assets")
+
+
+class TitleSyncRun(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    source: str = "tmdb"
+    markets: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    date_from: date
+    date_to: date
+    fetched_count: int = 0
+    upserted_count: int = 0
+    deduped_count: int = 0
+    status: str = "success"
+    error_message: Optional[str] = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class TitleCandidate(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    asset_id: UUID = Field(foreign_key="asset.id", index=True)
+    suggested_title: str
+    suggested_franchise: Optional[str] = None
+    source: CandidateSource = CandidateSource.TEXT
+    confidence: float = 0.0
+    status: CandidateStatus = CandidateStatus.OPEN
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class WeeklyReport(SQLModel, table=True):
