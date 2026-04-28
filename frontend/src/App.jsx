@@ -270,6 +270,12 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
   const titleHintLabel = recentlyCreatedTitleName ? 'Bestätigter Filmtitel' : (hasTitle ? 'Automatisch erkannt' : 'Vermuteter Filmtitel');
   const titleHintSource = recentlyCreatedTitleName ? 'neu angelegt und zugeordnet' : hint.source;
   const titleHintValue = recentlyCreatedTitleName || hint.label;
+  const visualStatusLabel = {
+    analyzed: 'Analyse abgeschlossen',
+    pending: 'Noch nicht analysiert',
+    no_source: 'Kein Bild verfügbar',
+    error: 'Analyse fehlgeschlagen',
+  }[asset.visual_analysis_status] || 'Noch nicht analysiert';
 
   return (
     <article className="asset-card">
@@ -312,7 +318,14 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
           ))}
         </div>
         {!hasTitle && showAssignmentSelect && <p className="missing-hint">Nächster Schritt: Filmtitel auswählen (oder Rematch ausführen). Erst dann werden DE/US-Vergleich und Report-Auswertung belastbar.</p>}
-        <p className="asset-summary">{clip(asset.ai_summary_de || 'Noch keine KI-Zusammenfassung vorhanden.', 300)}</p>
+        <div className="analysis-box">
+          <p className="analysis-head">KI-Bildanalyse</p>
+          <p className="analysis-status">{visualStatusLabel}</p>
+          <p className="analysis-main">{clip(asset.visual_notes || asset.ai_summary_de || 'Noch keine Analyse vorhanden. Bitte KI-Bildanalyse starten.', 220)}</p>
+          <p className="analysis-meta">
+            OCR: {asset.ocr_text ? clip(asset.ocr_text, 60) : '—'} · Titel/Claim: {asset.has_title_placement ? (asset.placement_title_text || 'erkannt') : 'nein'} · Kinetic: {asset.has_kinetic ? (asset.kinetic_type || 'ja') : 'nein'}
+          </p>
+        </div>
         <div className="asset-links">
           {asset.post_url && <a href={asset.post_url} target="_blank" rel="noreferrer">Original öffnen</a>}
           <details>
@@ -567,6 +580,7 @@ function App() {
   const [recentlyCreatedByAssetId, setRecentlyCreatedByAssetId] = useState({});
   const [titleCandidates, setTitleCandidates] = useState([]);
   const [whitelistStats, setWhitelistStats] = useState(null);
+  const [batchFeedback, setBatchFeedback] = useState(null);
 
   const sortedTitles = useMemo(() => {
     const map = new Map();
@@ -673,6 +687,7 @@ function App() {
     await run(async () => {
       const result = await endpoints.analyzeVisualBatch(10);
       await load();
+      setBatchFeedback({ checked: result.checked, analyzed: result.analyzed, no_source: result.no_source, failed: result.failed, timestamp: new Date().toISOString() });
       setMessage(`Batchanalyse: ${result.analyzed} analysiert, ${result.no_source} ohne Bild, ${result.failed} Fehler.`);
     });
   }
@@ -764,6 +779,12 @@ function App() {
       {error && <div className="error">{error}</div>}
       {message && <div className="success">{message}</div>}
       {busy && <div className="info">Arbeite gerade …</div>}
+      {batchFeedback && (
+        <div className="info">
+          Batch-Ergebnis: {batchFeedback.analyzed} analysiert, {batchFeedback.no_source} ohne Bild, {batchFeedback.failed} Fehler
+          (geprüft: {batchFeedback.checked}, {formatDate(batchFeedback.timestamp)}).
+        </div>
+      )}
 
       <nav className="tabs">
         {NAV_ITEMS.map((tab) => (
@@ -781,6 +802,7 @@ function App() {
           approved={approved}
           highlights={highlights}
           setActiveTab={setActiveTab}
+          onBatchAnalyze={runVisualBatch}
         />
       )}
       {activeTab === 'Treffer prüfen' && (
