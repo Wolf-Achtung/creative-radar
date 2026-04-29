@@ -18,6 +18,12 @@ EVIDENCE_LABELS = {
     "missing": "Keine Bildquelle",
 }
 
+EVIDENCE_WARNINGS = {
+    "external": "Externe Bildquelle, nicht dauerhaft gesichert",
+    "source_only": "Bildquelle vorhanden, aber nicht intern gesichert",
+    "missing": "Kein gesichertes Bild",
+}
+
 ANALYSIS_DONE_STATES = {"done", "analyzed", "text_fallback"}
 ANALYSIS_FAILURE_STATES = {"error", "fetch_failed", "no_source"}
 
@@ -182,13 +188,13 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
         tags.append("Bild gesichert")
     elif evidence_quality == "external":
         score += 0.05
-        warnings.append("Bildquelle extern, nicht dauerhaft gesichert")
+        warnings.append(EVIDENCE_WARNINGS["external"])
     elif evidence_quality == "source_only":
         score += 0.02
-        warnings.append("Bildquelle vorhanden, aber nicht intern gesichert")
+        warnings.append(EVIDENCE_WARNINGS["source_only"])
     else:
         score -= 0.18
-        warnings.append("Kein gesichertes Bild")
+        warnings.append(EVIDENCE_WARNINGS["missing"])
 
     if asset.ocr_text:
         score += 0.08
@@ -334,12 +340,9 @@ def select_assets_for_report(
         eligible += 1
         title = _asset_title_label(asset)
         evidence_quality = _evidence_quality(asset)
-        if evidence_quality == "missing" and not any("Kein gesichertes Bild" in warning for warning in warnings):
-            warnings.append("Kein gesichertes Bild")
-        elif evidence_quality == "source_only" and not any("nicht intern gesichert" in warning for warning in warnings):
-            warnings.append("Bildquelle vorhanden, aber nicht intern gesichert")
-        elif evidence_quality == "external" and not any("nicht dauerhaft gesichert" in warning for warning in warnings):
-            warnings.append("Externe Bildquelle, nicht dauerhaft gesichert")
+        expected_warning = EVIDENCE_WARNINGS.get(evidence_quality)
+        if expected_warning and expected_warning not in warnings:
+            warnings.append(expected_warning)
         reason = _build_reason(report_type, tags, warnings, signal=_interaction_signal(post), baseline=baseline)
         suitability = _suitability_label(score, report_type, evidence_quality, warnings, has_title=bool(asset.title_id))
         display_url = _displayable_image_url(asset)
