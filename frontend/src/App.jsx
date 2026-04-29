@@ -107,7 +107,7 @@ function ImagePreview({ sources = [] }) {
 
   useEffect(() => { setIndex(0); }, [validSources.join('|')]);
 
-  if (!validSources[index]) return <div className="preview-placeholder"><strong>Kein Bild gesichert</strong><small>Bildquelle konnte nicht gespeichert werden.</small></div>;
+  if (!validSources[index]) return <div className="preview-placeholder"><strong>Kein Bild gesichert</strong><small>Das Creative konnte noch nicht als Screenshot gespeichert werden.</small></div>;
   return <img src={validSources[index]} alt="Creative Vorschau" onError={() => setIndex((current) => current + 1)} />;
 }
 
@@ -517,14 +517,18 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
         ) : (
           <>
             <p className="muted small">Creative Radar empfiehlt {suggestion.selected} Assets für diesen Report.</p>
-            <p className="muted small">Geprüft: {suggestion.checked} · Geeignet: {suggestion.eligible} · Vorgeschlagen: {suggestion.selected} · Ausgeschlossen wegen fehlendem Bild: {suggestion.excluded_no_image || 0} · Ausgeschlossen wegen fehlendem Titel: {suggestion.excluded_no_title || 0}</p>
-            <div className="find-grid">{suggestion.assets.map((asset) => (<article key={asset.asset_id} className="find-card"><ImagePreview sources={[asset.visual_evidence_url]} /><div><p className="find-title">{asset.title || 'Ohne Titel'}</p><p className="muted small">{asset.channel} · {asset.market} · Eignung: {asset.score >= 0.75 ? 'hoch' : asset.score >= 0.5 ? 'mittel' : 'niedrig'}</p><p className="small">{asset.reason}</p><p className="small muted">Qualitätshinweise: {(asset.quality_notes || []).join(' · ') || 'Keine Hinweise'}</p></div></article>))}</div>
+            <p className="muted small">Geprüft: {suggestion.checked} · Geeignet: {suggestion.eligible} · Vorgeschlagen: {suggestion.selected} · Ausgeschlossen wegen fehlendem Bild: {suggestion.excluded?.missing_visual || 0} · Ausgeschlossen wegen fehlendem Titel: {suggestion.excluded?.missing_title || 0}</p>
+            <div className="find-grid">{suggestion.assets.map((asset) => {
+              const warnings = asset.warnings || [];
+              const suitability = warnings.some((w) => /kein gesichertes bild/i.test(w)) ? 'eingeschränkt' : asset.score >= 0.75 ? 'hoch' : asset.score >= 0.5 ? 'mittel' : 'niedrig';
+              return (<article key={asset.asset_id} className="find-card"><ImagePreview sources={[asset.visual_evidence_url]} /><div><p className="find-title">{asset.title || 'Ohne Titel'}</p><p className="muted small">{asset.channel} · {asset.market} · Eignung: {suitability}</p><p className="small">{asset.reason}</p><p className="small muted">Qualitätshinweise: {warnings.join(' · ') || 'Keine Hinweise'}</p></div></article>);
+            })}</div>
           </>
         )}
         <div className="section-actions"><button className="primary" onClick={onGenerateSuggestedReport} disabled={busy || suggestion.assets.length===0}>Report erzeugen</button></div>
         {!hasSuggestedAssets && <p className="small muted">Report kann erst erzeugt werden, wenn ein Vorschlag Assets enthält.</p>}
       </>)}
-      {report ? <details><summary>Aktuellen Report anzeigen</summary><p className="muted small">Report wurde erstellt.</p><div className="section-actions"><a href="/api/reports/latest/download.html">HTML herunterladen</a><a href="/api/reports/latest/download.md">Markdown herunterladen</a></div><iframe title="report" srcDoc={report.html_content || ''} /></details> : <p className="muted">Noch kein Report erzeugt.</p>}
+      {report ? <details><summary>Aktuellen Report anzeigen</summary><p className="muted small">Report wurde erstellt.</p><div className="section-actions"><a className="secondary" href="/api/reports/latest/download.html" download>HTML herunterladen</a><a className="secondary" href="/api/reports/latest/download.md" download>Markdown herunterladen</a></div><iframe title="report" srcDoc={report.html_content || ''} /></details> : <p className="muted">Noch kein Report erzeugt.</p>}
     </Section>
   );
 }
