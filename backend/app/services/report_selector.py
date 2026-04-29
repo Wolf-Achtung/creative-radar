@@ -47,7 +47,8 @@ def _asset_title_key(asset: Asset) -> str:
 
 
 def _has_secure_evidence(asset: Asset) -> bool:
-    return bool(asset.visual_evidence_url and str(asset.visual_evidence_url).startswith("/storage/evidence/"))
+    evidence_url = str(asset.visual_evidence_url or "")
+    return bool(evidence_url and (evidence_url.startswith("/storage/evidence/") or "/storage/evidence/" in evidence_url))
 
 
 def _evidence_quality(asset: Asset) -> str:
@@ -55,9 +56,22 @@ def _evidence_quality(asset: Asset) -> str:
         return "secure"
     if asset.visual_evidence_url:
         return "external"
-    if asset.screenshot_url or asset.thumbnail_url:
+    if asset.screenshot_url or asset.thumbnail_url or asset.visual_source_url:
         return "source_only"
     return "missing"
+
+
+def _suitability_label(score: float, report_type: str, evidence_quality: str, warnings: list[str], has_title: bool) -> str:
+    label = "hoch" if score >= 0.75 else "mittel" if score >= 0.5 else "eingeschränkt"
+    if evidence_quality != "secure" and report_type == "visual_kinetics":
+        label = "eingeschränkt"
+    if evidence_quality != "secure" and any("Kein gesichertes Bild" in warning for warning in warnings):
+        label = "mittel" if label == "hoch" else label
+    if not has_title:
+        label = "mittel" if label == "hoch" else label
+    if not has_title and evidence_quality != "secure":
+        label = "eingeschränkt"
+    return label
 
 
 def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, report_type: str) -> tuple[float, list[str], list[str]]:
@@ -178,7 +192,16 @@ def select_assets_for_report(
         rows = [r for r in rows if str(r[2].market.value).upper() in allow_m]
 
     baseline = median([_interaction_signal(post) for _, post, _ in rows]) if rows else 0
-    excluded = {"missing_title": 0, "missing_visual": 0, "analysis_error": 0, "low_signal": 0}
+    excluded = {
+        "missing_title": 0,
+        "missing_visual": 0,
+        "missing_secure_evidence": 0,
+        "external_visual_only": 0,
+        "source_only_visual": 0,
+        "analysis_error": 0,
+        "low_signal": 0,
+        "missing_market_pair": 0,
+    }
     selected = []
     eligible = 0
 
@@ -193,10 +216,17 @@ def select_assets_for_report(
             excluded["missing_title"] += 1
             if report_type == "de_us_comparison":
                 continue
-        if not (asset.visual_evidence_url or asset.screenshot_url or asset.thumbnail_url):
+        if not (asset.visual_evidence_url or asset.screenshot_url or asset.thumbnail_url or asset.visual_source_url):
             excluded["missing_visual"] += 1
             if report_type == "visual_kinetics":
                 continue
+        evidence_quality = _evidence_quality(asset)
+        if evidence_quality != "secure":
+            excluded["missing_secure_evidence"] += 1
+            if evidence_quality == "external":
+                excluded["external_visual_only"] += 1
+            elif evidence_quality == "source_only":
+                excluded["source_only_visual"] += 1
         if asset.visual_analysis_status in {"error", "fetch_failed", "no_source"}:
             excluded["analysis_error"] += 1
             continue
@@ -207,22 +237,38 @@ def select_assets_for_report(
         score, tags, warnings = _score_asset(asset, post, channel, baseline, report_type)
         title_key = _asset_title_key(asset)
         markets_for_title = title_market_map.get(title_key, set())
-        if report_type == "de_us_comparison" and Market.DE in markets_for_title and (Market.US in markets_for_title or Market.INT in markets_for_title):
-            tags.append("DE/US Paarung erkannt")
+        has_pair = Market.DE in markets_for_title and (Market.US in markets_for_title or Market.INT in markets_for_title)
+        if report_type == "de_us_comparison":
+            if has_pair:
+                tags.append("DE/US Paarung erkannt")
+            else:
+                excluded["missing_market_pair"] += 1
+                excluded["low_signal"] += 1
+                continue
         if score < 0.45:
             excluded["low_signal"] += 1
             continue
         eligible += 1
         title = _asset_title_label(asset)
+        evidence_quality = _evidence_quality(asset)
+        if evidence_quality == "missing" and not any("Kein gesichertes Bild" in warning for warning in warnings):
+            warnings.append("Kein gesichertes Bild")
+        elif evidence_quality == "source_only" and not any("nicht intern gesichert" in warning for warning in warnings):
+            warnings.append("Bildquelle vorhanden, aber nicht intern gesichert")
+        elif evidence_quality == "external" and not any("nicht dauerhaft gesichert" in warning for warning in warnings):
+            warnings.append("Externe Bildquelle, nicht dauerhaft gesichert")
         reason = _build_reason(report_type, tags, warnings, signal=_interaction_signal(post), baseline=baseline)
+        suitability = _suitability_label(score, report_type, evidence_quality, warnings, has_title=bool(asset.title_id))
         selected.append({
             "asset_id": str(asset.id),
             "title": title,
             "channel": channel.name,
             "market": channel.market.value,
             "visual_evidence_url": asset.visual_evidence_url or asset.screenshot_url or asset.thumbnail_url,
-            "evidence_quality": _evidence_quality(asset),
+            "evidence_quality": evidence_quality,
+            "has_secure_evidence": evidence_quality == "secure",
             "score": round(score, 2),
+            "suitability": suitability,
             "reason": reason,
             "tags": tags,
             "recommended_for": [report_type],
