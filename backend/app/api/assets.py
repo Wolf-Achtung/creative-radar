@@ -44,6 +44,12 @@ def _asset_card(asset: Asset, post: Post | None, channel: Channel | None, title:
         "kinetic_text": asset.kinetic_text,
         "de_us_match_key": asset.de_us_match_key,
         "visual_confidence_score": asset.visual_confidence_score,
+        "visual_evidence_url": asset.visual_evidence_url,
+        "visual_crop_title_url": asset.visual_crop_title_url,
+        "visual_crop_cta_url": asset.visual_crop_cta_url,
+        "visual_crop_kinetic_url": asset.visual_crop_kinetic_url,
+        "visual_evidence_status": asset.visual_evidence_status,
+        "visual_evidence_pack": asset.visual_evidence_pack,
         "post_url": post.post_url if post else None,
         "caption": post.caption if post else None,
         "published_at": post.published_at if post else None,
@@ -116,7 +122,7 @@ def analyze_visual(asset_id: UUID, session: Session = Depends(get_session)):
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
     asset = analyze_asset_visual(session, asset)
-    return {"status": "done", "asset": _card_for(session, asset), "analysis": {
+    return {"status": asset.visual_analysis_status, "asset": _card_for(session, asset), "analysis": {
         "ocr_text": asset.ocr_text,
         "visual_summary_de": asset.visual_notes,
         "title_placement": {"has_title_placement": asset.has_title_placement, "text": asset.placement_title_text, "position": asset.placement_position, "strength": asset.placement_strength},
@@ -127,19 +133,19 @@ def analyze_visual(asset_id: UUID, session: Session = Depends(get_session)):
 
 @router.post("/analyze-visual-batch")
 def analyze_visual_batch(limit: int = 10, only_pending: bool = True, session: Session = Depends(get_session)):
-    statuses = ["pending"] if only_pending else ["pending", "error", "no_source"]
+    statuses = ["pending"] if only_pending else ["pending", "error", "no_source", "text_fallback", "fetch_failed"]
     statement = select(Asset).where(Asset.visual_analysis_status.in_(statuses)).order_by(Asset.created_at.desc()).limit(max(1, min(limit, 50)))
     assets = session.exec(statement).all()
     checked = len(assets)
-    analyzed = 0
+    done = 0
     no_source = 0
     failed = 0
     for asset in assets:
         updated = analyze_asset_visual(session, asset)
-        if updated.visual_analysis_status == "analyzed":
-            analyzed += 1
+        if updated.visual_analysis_status == "done":
+            done += 1
         elif updated.visual_analysis_status == "no_source":
             no_source += 1
-        elif updated.visual_analysis_status == "error":
+        elif updated.visual_analysis_status in {"error", "fetch_failed", "text_fallback"}:
             failed += 1
-    return {"checked": checked, "analyzed": analyzed, "no_source": no_source, "failed": failed}
+    return {"checked": checked, "analyzed": done, "no_source": no_source, "failed": failed}

@@ -169,7 +169,7 @@ class Asset(SQLModel, table=True):
     is_highlight: bool = False
 
     # Visual & Placement Pack fields
-    visual_analysis_status: str = "pending"  # pending, analyzed, text_only, no_visual, error
+    visual_analysis_status: str = "pending"  # pending, running, done, text_fallback, no_source, fetch_failed, error
     visual_source_url: Optional[str] = None
     visual_notes: Optional[str] = None
     placement_title_text: Optional[str] = None
@@ -181,6 +181,12 @@ class Asset(SQLModel, table=True):
     kinetic_text: Optional[str] = None
     de_us_match_key: Optional[str] = None
     visual_confidence_score: Optional[float] = None
+    visual_evidence_url: Optional[str] = None
+    visual_crop_title_url: Optional[str] = None
+    visual_crop_cta_url: Optional[str] = None
+    visual_crop_kinetic_url: Optional[str] = None
+    visual_evidence_status: Optional[str] = None
+    visual_evidence_pack: dict = Field(default_factory=dict, sa_column=Column(JSON))
 
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

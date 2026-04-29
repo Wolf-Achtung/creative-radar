@@ -236,7 +236,7 @@ function ReviewGuide() {
 function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onReportMissingTitle, recentlyCreatedTitleName }) {
   const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
   const hasTitle = Boolean(asset.title_name || asset.placement_title_text || asset.title_id);
-  const visualChecked = Boolean(asset.ocr_text || asset.visual_notes || asset.kinetic_text);
+  const visualChecked = asset.visual_analysis_status === "done";
   const workflowSteps = [
     { done: hasTitle, doneLabel: 'Filmtitel bestätigt', openLabel: '1 Filmtitel bestätigen' },
     { done: visualChecked, doneLabel: 'Visual geprüft', openLabel: '2 Visual prüfen' },
@@ -271,11 +271,14 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
   const titleHintSource = recentlyCreatedTitleName ? 'neu angelegt und zugeordnet' : hint.source;
   const titleHintValue = recentlyCreatedTitleName || hint.label;
   const visualStatusLabel = {
-    analyzed: 'Analyse abgeschlossen',
-    pending: 'Noch nicht analysiert',
+    done: 'Analyse abgeschlossen',
+    running: 'KI analysiert Bild/Text',
+    pending: 'Bildanalyse offen',
+    text_fallback: '⚠ Nur Textanalyse',
     no_source: 'Kein Bild verfügbar',
-    error: 'Analyse fehlgeschlagen',
-  }[asset.visual_analysis_status] || 'Noch nicht analysiert';
+    fetch_failed: '⚠ Bildquelle nicht erreichbar',
+    error: '⚠ Bildanalyse fehlgeschlagen',
+  }[asset.visual_analysis_status] || 'Bildanalyse offen';
 
   return (
     <article className="asset-card">
@@ -319,9 +322,10 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
         </div>
         {!hasTitle && showAssignmentSelect && <p className="missing-hint">Nächster Schritt: Filmtitel auswählen (oder Rematch ausführen). Erst dann werden DE/US-Vergleich und Report-Auswertung belastbar.</p>}
         <div className="analysis-box">
-          <p className="analysis-head">KI-Bildanalyse</p>
+          <p className="analysis-head">KI-Bild/Text-Analyse</p>
           <p className="analysis-status">{visualStatusLabel}</p>
           <p className="analysis-main">{clip(asset.visual_notes || asset.ai_summary_de || 'Noch keine Analyse vorhanden. Bitte KI-Bildanalyse starten.', 220)}</p>
+          <p className="analysis-meta">Titel-/Claim-Platzierung: {asset.placement_position || 'nicht prüfbar'} · CTA: {asset.asset_type === 'CTA Post' || asset.asset_type === 'Ticket CTA' ? 'erkennbar' : 'nicht erkannt'} · Eignung: {asset.review_status === 'approved' || asset.review_status === 'highlight' ? 'reportfähig' : 'noch offen'} · Sicherheit: {asset.visual_confidence_score ? `${Math.round(asset.visual_confidence_score*100)}%` : 'nicht prüfbar'}</p>
           <p className="analysis-meta">
             OCR: {asset.ocr_text ? clip(asset.ocr_text, 60) : '—'} · Titel/Claim: {asset.has_title_placement ? (asset.placement_title_text || 'erkannt') : 'nein'} · Kinetic: {asset.has_kinetic ? (asset.kinetic_type || 'ja') : 'nein'}
           </p>
@@ -341,7 +345,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
         <button onClick={() => onReview(asset, 'highlight')} disabled={busy} title="Besonders wichtiger Treffer; prominent im Weekly Report zeigen.">Als Top-Fund markieren</button>
         <button onClick={() => onReview(asset, 'needs_review')} disabled={busy} title="Noch unsicher; bleibt in der Prüfliste.">Später prüfen</button>
         <button onClick={() => onReview(asset, 'rejected')} disabled={busy} title="Nicht relevant; nicht in den Report übernehmen.">Aussortieren</button>
-        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy} title="Bild/Text auswerten: Titel, Claim, Kinetic, OCR.">{asset.visual_analysis_status === "analyzed" ? "Bildanalyse aktualisieren" : asset.visual_analysis_status === "error" ? "Bildanalyse erneut versuchen" : asset.visual_analysis_status === "no_source" ? "Kein Bild verfügbar – Textanalyse möglich" : "KI-Bildanalyse starten"}</button>
+        <button className="secondary" onClick={() => onAnalyzeVisual(asset)} disabled={busy} title="Bild/Text auswerten: Titel, Claim, Kinetic, OCR.">{asset.visual_analysis_status === "done" ? "Bildanalyse aktualisieren" : asset.visual_analysis_status === "text_fallback" ? "Bildquelle prüfen" : asset.visual_analysis_status === "no_source" ? "Kein Bild verfügbar – Textanalyse möglich" : "KI-Bildanalyse starten"}</button>
       </div>
     </article>
   );
