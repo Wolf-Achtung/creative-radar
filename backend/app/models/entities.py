@@ -169,7 +169,11 @@ class Asset(SQLModel, table=True):
     is_highlight: bool = False
 
     # Visual & Placement Pack fields
-    visual_analysis_status: str = "pending"  # pending, running, done, text_fallback, no_source, fetch_failed, error
+    # Beobachtete Werte in der Live-DB: pending, running, analyzed, text_fallback,
+    # no_source, fetch_failed, error. Der historische Wert "done" wird vom Selector
+    # weiterhin akzeptiert (siehe ANALYSIS_DONE_STATES in report_selector.py), kommt
+    # aber in der aktuellen Pipeline nicht mehr vor.
+    visual_analysis_status: str = "pending"
     visual_source_url: Optional[str] = None
     visual_notes: Optional[str] = None
     placement_title_text: Optional[str] = None

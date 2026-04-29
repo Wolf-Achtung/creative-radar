@@ -101,14 +101,33 @@ function inferTitleHint(asset, titles) {
   return { label: 'Filmtitel noch offen', source: 'Bitte zuordnen' };
 }
 
-function ImagePreview({ sources = [] }) {
-  const validSources = sources.filter(Boolean);
-  const [index, setIndex] = useState(0);
+function ImagePreview({ imageUrl, evidenceQuality, sources = [] }) {
+  // Backwards-compat: callers passing `sources={[url]}` (asset/review cards) still work.
+  const resolvedUrl = imageUrl || sources.find(Boolean) || null;
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  useEffect(() => { setIndex(0); }, [validSources.join('|')]);
+  useEffect(() => { setLoadFailed(false); }, [resolvedUrl]);
 
-  if (!validSources[index]) return <div className="preview-placeholder"><strong>Kein Bild gesichert</strong><span>Screenshot fehlt.</span></div>;
-  return <img src={validSources[index]} alt="Creative Vorschau" onError={() => setIndex((current) => current + 1)} />;
+  if (!resolvedUrl) {
+    const subtitle = evidenceQuality === 'missing' ? 'Keine Bildquelle erfasst' : 'Bildquelle nicht verfügbar';
+    return (
+      <div className="preview-placeholder preview-placeholder--no-source">
+        <strong>Kein Bild</strong>
+        <span>{subtitle}</span>
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="preview-placeholder preview-placeholder--load-failed">
+        <strong>Bild lädt nicht</strong>
+        <span>Quelle nicht erreichbar</span>
+      </div>
+    );
+  }
+
+  return <img src={resolvedUrl} alt="Creative Vorschau" onError={() => setLoadFailed(true)} />;
 }
 
 function MetricStrip({ asset }) {
@@ -521,16 +540,23 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
               Geprüft: {suggestion.checked} · Geeignet: {suggestion.eligible} · Vorgeschlagen: {suggestion.selected} · Ohne Bildquelle: {suggestion.excluded?.missing_visual || 0} · Ohne gesichertes Evidence-Bild: {suggestion.excluded?.missing_secure_evidence || 0} · Mit externer/ungesicherter Bildquelle: {(suggestion.excluded?.external_visual_only || 0) + (suggestion.excluded?.source_only_visual || 0)} · Ausgeschlossen wegen fehlendem Titel: {suggestion.excluded?.missing_title || 0}
             </p>
             <div className="find-grid">{suggestion.assets.map((asset) => {
+              const tags = asset.tags || [];
               const warnings = asset.warnings || [];
-              const evidenceLabel = {
-                secure: 'Bild gesichert',
-                external: 'Externe Bildquelle',
-                source_only: 'Bildquelle vorhanden',
-                missing: 'Keine Bildquelle',
-              }[asset.evidence_quality] || 'Evidenz unklar';
-              const evidenceTags = [...(asset.tags || []), evidenceLabel];
-              const warningText = warnings.length > 0 ? warnings.join(' · ') : 'keine kritischen Hinweise';
-              return (<article key={asset.asset_id} className="find-card"><ImagePreview sources={[asset.visual_evidence_url]} /><div><p className="find-title">{asset.title || 'Ohne Titel'}</p><p className="muted small">{asset.channel} · {asset.market} · Eignung: {asset.suitability || 'mittel'}</p><p className="small">{asset.reason}</p><p className="small muted">Belege: {evidenceTags.length > 0 ? evidenceTags.join(' · ') : 'keine starken Belege'}</p><p className="small muted">Hinweise: {warningText}</p></div></article>);
+              const beleg = tags.length > 0 ? tags.join(' · ') : 'keine starken Belege';
+              const hinweis = warnings.length > 0 ? warnings.join(' · ') : 'keine kritischen Hinweise';
+              return (
+                <article key={asset.asset_id} className="find-card">
+                  <ImagePreview imageUrl={asset.display_image_url} evidenceQuality={asset.evidence_quality} />
+                  <div>
+                    <p className="find-title">{asset.title || 'Ohne Titel'}</p>
+                    <p className="muted small">{asset.channel} · {asset.market} · Eignung: {asset.suitability}</p>
+                    <p className="small">{asset.reason}</p>
+                    <p className="small muted">Belege: {beleg}</p>
+                    <p className="small muted">Hinweise: {hinweis}</p>
+                    <p className="small muted">Quelle: {asset.evidence_label || 'unbekannt'}</p>
+                  </div>
+                </article>
+              );
             })}</div>
           </>
         )}

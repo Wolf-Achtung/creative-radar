@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 from pydantic import BaseModel
 from app.models.entities import AssetType, Market, Priority, ReviewStatus, ReportStatus
@@ -133,3 +133,35 @@ class ReportGenerateRequest(BaseModel):
     report_type: str
     asset_ids: list[UUID]
     date_range: str = "7d"
+
+
+class AssetSuggestion(BaseModel):
+    asset_id: str
+    title: Optional[str] = None
+    channel: str
+    market: str
+
+    display_image_url: Optional[str] = None
+    evidence_quality: Literal["secure", "external", "source_only", "missing"]
+    has_secure_evidence: bool
+    evidence_label: str
+    is_evidence_displayable: bool
+
+    score: float
+    suitability: Literal["hoch", "mittel", "eingeschränkt"]
+    reason: str
+    tags: list[str] = []
+    recommended_for: list[str] = []
+    warnings: list[str] = []
+
+    pair_group_key: Optional[str] = None
+    pair_market: Optional[str] = None
+
+
+class ReportSuggestResponse(BaseModel):
+    report_type: str
+    checked: int
+    eligible: int
+    selected: int
+    excluded: dict[str, int]
+    assets: list[AssetSuggestion]

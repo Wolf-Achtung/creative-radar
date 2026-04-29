@@ -29,6 +29,24 @@ def _label(asset: Asset) -> str:
     return ASSET_TYPE_LABELS.get(str(asset.asset_type.value), "Nicht klassifiziert")
 
 
+def _pair_group_key(asset: Asset, title: Title | None) -> str:
+    """Mirror of report_selector._asset_title_key — single source of truth lives there.
+
+    Kept simple here because the renderer must group the same way the selector did,
+    using the same precedence (title_id > title_original > placement_title_text >
+    kinetic_text). If the selector logic changes, update both.
+    """
+    if asset.title_id:
+        return str(asset.title_id)
+    if title and title.title_original:
+        return str(title.title_original)
+    for field in ("placement_title_text", "kinetic_text"):
+        value = getattr(asset, field, None)
+        if value:
+            return str(value)
+    return ""
+
+
 def _row(session: Session, asset: Asset) -> dict[str, Any]:
     post = session.get(Post, asset.post_id)
     channel = session.get(Channel, post.channel_id) if post else None
@@ -45,6 +63,7 @@ def _row(session: Session, asset: Asset) -> dict[str, Any]:
         "evidence": evidence_url,
         "secure": secure,
         "label": _label(asset),
+        "pair_group_key": _pair_group_key(asset, title),
     }
 
 
@@ -80,14 +99,27 @@ def generate_report_html(session: Session, report_type: str, asset_ids: list[UUI
     trend_de = "Wiederkehrend sind Trailer-Drops, Release-Erinnerungen und CTA-Formulierungen; belastbare visuelle Evidenz ist noch nicht in allen Treffern vorhanden."
 
     if report_type == "de_us_comparison":
-        grouped = defaultdict(lambda: {"DE": [], "US": [], "INT": []})
+        # Trust the selector: every row passed in here was already accepted as part of
+        # a DE/US pair (selector's pair_group_key + pair_market). The renderer only
+        # groups by the same key for layout — it does not re-decide what is or isn't a pair.
+        grouped: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
+            lambda: {"DE": [], "US": [], "INT": []}
+        )
         for r in rows:
-            grouped[r["title"]][r["market"] if r["market"] in {"DE", "US", "INT"} else "INT"].append(r)
+            key = r["pair_group_key"] or r["title"]
+            bucket = r["market"] if r["market"] in {"DE", "US", "INT"} else "INT"
+            grouped[key][bucket].append(r)
         pair_blocks = []
-        for title, g in grouped.items():
-            if g["DE"] and (g["US"] or g["INT"]):
-                intl = g["US"] + g["INT"]
-                pair_blocks.append(f"<article class='asset'><h3>{title}</h3><p><strong>DE:</strong> {g['DE'][0]['label']} · {g['DE'][0]['asset'].placement_title_text or 'lokalisierter Claim'}</p><p><strong>US/INT:</strong> {intl[0]['label']} · {intl[0]['asset'].placement_title_text or 'event-/ticketing-näher'}</p></article>")
+        for _, g in grouped.items():
+            if not (g["DE"] and (g["US"] or g["INT"])):
+                continue
+            intl = g["US"] + g["INT"]
+            display_title = g["DE"][0]["title"]
+            pair_blocks.append(
+                f"<article class='asset'><h3>{display_title}</h3>"
+                f"<p><strong>DE:</strong> {g['DE'][0]['label']} · {g['DE'][0]['asset'].placement_title_text or 'lokalisierter Claim'}</p>"
+                f"<p><strong>US/INT:</strong> {intl[0]['label']} · {intl[0]['asset'].placement_title_text or 'event-/ticketing-näher'}</p></article>"
+            )
         body = "".join(pair_blocks) or "<p>Keine belastbaren DE/US-Paare im Zeitraum.</p>"
         title = "Creative Radar – DE/US Vergleich"
         main = f"<section><h2>2. Titel-/Franchise-Vergleiche</h2>{body}</section><section><h2>3. CTA-/Text-/Kinetic-Vergleich</h2><p>Vergleich basiert auf ausgewählten reportfähigen Assets ({len(top)} von {len(rows)}).</p></section>"

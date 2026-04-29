@@ -163,6 +163,9 @@ input, select, textarea { border: 1px solid #ddd4c6; border-radius: 10px; paddin
 }
 .preview-placeholder strong { display: block; font-size: 13px; line-height: 1.15; }
 .preview-placeholder span { display: block; font-size: 11px; line-height: 1.2; opacity: 0.72; }
+.preview-placeholder--no-source { background: rgba(20, 28, 44, 0.04); border-style: dashed; color: #8a8377; }
+.preview-placeholder--load-failed { background: #fbe2cf; border: 1px solid #e8b482; color: #8a4717; }
+.preview-placeholder--load-failed strong { color: #8a4717; }
 .report-evidence img { max-width: 100%; max-height: 420px; object-fit: contain; display: block; }
 .asset-title { font-weight: 800; font-size: 18px; }
 .asset-topline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }

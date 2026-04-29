@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import WeeklyReport, Asset
-from app.schemas.dto import GenerateWeeklyReportRequest, ReportStatusUpdate, ReportSuggestRequest, ReportGenerateRequest
+from app.schemas.dto import (
+    GenerateWeeklyReportRequest,
+    ReportStatusUpdate,
+    ReportSuggestRequest,
+    ReportGenerateRequest,
+    ReportSuggestResponse,
+)
 from app.services.report_generator import generate_weekly_report_html
 from app.services.report_renderer_v2 import generate_report_html
 from app.services.report_selector import select_assets_for_report
@@ -124,7 +130,7 @@ def generate_weekly(payload: GenerateWeeklyReportRequest, session: Session = Dep
     return report
 
 
-@router.post('/suggest')
+@router.post('/suggest', response_model=ReportSuggestResponse)
 def suggest_report(payload: ReportSuggestRequest, session: Session = Depends(get_session)):
     date_from, date_to = _range_to_dates(payload.date_range)
     return select_assets_for_report(
