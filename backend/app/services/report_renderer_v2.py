@@ -66,9 +66,12 @@ def _finding_html(r: dict[str, Any]) -> str:
 
 def generate_report_html(session: Session, report_type: str, asset_ids: list[UUID], date_from: date, date_to: date) -> tuple[str, dict]:
     rows = [_row(session, session.get(Asset, aid)) for aid in asset_ids if session.get(Asset, aid)]
-    strong = [r for r in rows if r["secure"] and (r["asset"].ocr_text or r["asset"].has_kinetic or r["asset"].has_title_placement)]
+    strong = [r for r in rows if r["secure"] and r["title"] != "Nicht klassifiziert" and (r["asset"].ocr_text or r["asset"].has_kinetic or r["asset"].has_title_placement)]
     top = (strong or rows)[:5]
-    data_gaps = [r for r in rows if not r["secure"]]
+    data_gaps = [
+        r for r in rows
+        if not r["secure"] or r["title"] == "Nicht klassifiziert" or not r["evidence"] or (r["asset"].visual_analysis_status in {"no_source", "fetch_failed", "error"})
+    ]
 
     pattern_counter = Counter(r["label"] for r in rows)
     patterns = "".join(f"<li>{k}: {v}</li>" for k, v in pattern_counter.most_common(6)) or "<li>Keine Muster erkannt.</li>"
@@ -87,15 +90,15 @@ def generate_report_html(session: Session, report_type: str, asset_ids: list[UUI
                 pair_blocks.append(f"<article class='asset'><h3>{title}</h3><p><strong>DE:</strong> {g['DE'][0]['label']} · {g['DE'][0]['asset'].placement_title_text or 'lokalisierter Claim'}</p><p><strong>US/INT:</strong> {intl[0]['label']} · {intl[0]['asset'].placement_title_text or 'event-/ticketing-näher'}</p></article>")
         body = "".join(pair_blocks) or "<p>Keine belastbaren DE/US-Paare im Zeitraum.</p>"
         title = "Creative Radar – DE/US Vergleich"
-        main = f"<section><h2>2. Vergleich nach Titel/Franchise</h2>{body}</section>"
+        main = f"<section><h2>2. Titel-/Franchise-Vergleiche</h2>{body}</section><section><h2>3. CTA-/Text-/Kinetic-Vergleich</h2><p>Vergleich basiert auf ausgewählten reportfähigen Assets ({len(top)} von {len(rows)}).</p></section>"
     elif report_type == "visual_kinetics":
         title = "Creative Radar – Bild/Text & Kinetics"
         body = "".join(_finding_html(r) for r in top) or "<p>Keine belastbaren Bild/Text-Signale.</p>"
-        main = f"<section><h2>2. Sichtbarer Text / OCR</h2>{body}</section>"
+        main = f"<section><h2>2. Sichtbarer Text / OCR</h2>{body}</section><section><h2>3. Titel-/Claim-Platzierungen & CTA-Muster</h2><ul>{patterns}</ul></section>"
     else:
         title = "Creative Radar – Wochenüberblick"
         findings = "".join(_finding_html(r) for r in top) or "<p>Keine Top Findings im Zeitraum.</p>"
-        main = f"<section><h2>2. Top Creative Findings</h2>{findings}</section><section><h2>3. Wiederkehrende Muster</h2><ul>{patterns}</ul></section>"
+        main = f"<section><h2>2. Top Creative Findings</h2>{findings}</section><section><h2>3. Wiederkehrende Muster</h2><ul>{patterns}</ul></section><section><h2>4. Auffällige Kanäle / Märkte</h2><p>Report basiert auf {len(rows)} vorgeschlagenen Assets.</p></section>"
 
     gaps = "".join(f"<li>{r['title']} ({r['channel_name']}): {'Bildquelle nicht intern gesichert' if r['evidence'] else 'kein gesichertes Bild'}</li>" for r in data_gaps) or "<li>Keine Datenlücken im ausgewählten Set.</li>"
 

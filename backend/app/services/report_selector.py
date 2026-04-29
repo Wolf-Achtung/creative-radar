@@ -85,13 +85,13 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
         tags.append("Bild gesichert")
     elif evidence_quality == "external":
         score += 0.05
-        warnings.append("Bildquelle nicht intern gesichert")
+        warnings.append("Bildquelle extern, nicht dauerhaft gesichert")
     elif evidence_quality == "source_only":
         score += 0.02
-        warnings.append("kein gesichertes Bild")
+        warnings.append("Bildquelle vorhanden, aber nicht intern gesichert")
     else:
         score -= 0.18
-        warnings.append("kein gesichertes Bild")
+        warnings.append("Kein gesichertes Bild")
 
     if asset.ocr_text:
         score += 0.08

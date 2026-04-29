@@ -49,12 +49,18 @@ def latest_report_download_markdown(session: Session = Depends(get_session)):
     report = session.exec(select(WeeklyReport).order_by(WeeklyReport.generated_at.desc())).first()
     if not report:
         raise HTTPException(status_code=404, detail="No report found")
-    assets = list(session.exec(select(Asset).where(Asset.include_in_report == True)).all())
     report_type = "weekly_overview"
+    selected_asset_ids: list[UUID] = []
     if report.trend_summary_de and report.trend_summary_de.startswith("["):
-        report_type = report.trend_summary_de.split("]", 1)[0].strip("[]")
+        header, _, body = report.trend_summary_de.partition("] ")
+        report_type = header.strip("[]")
+        if body.startswith("asset_ids="):
+            _, _, raw_ids = body.partition("asset_ids=")
+            selected_asset_ids = [UUID(item) for item in raw_ids.split(",") if item]
+    assets = [session.get(Asset, asset_id) for asset_id in selected_asset_ids]
+    assets = [asset for asset in assets if asset]
     lines = [
-        "# Creative Radar Report",
+        f"# {('Creative Radar – Wochenüberblick' if report_type == 'weekly_overview' else 'Creative Radar – DE/US Vergleich' if report_type == 'de_us_comparison' else 'Creative Radar – Bild/Text & Kinetics')}",
         "",
         f"- Report-Typ: {report_type}",
         f"- Zeitraum: {report.week_start} bis {report.week_end}",
@@ -152,7 +158,7 @@ def generate_from_suggestion(payload: ReportGenerateRequest, session: Session = 
         html_content=html,
         executive_summary_de=meta['executive_summary_de'],
         executive_summary_en=meta['executive_summary_en'],
-        trend_summary_de=f"[{meta.get('report_type','weekly_overview')}] {meta['trend_summary_de']}",
+        trend_summary_de=f"[{meta.get('report_type','weekly_overview')}] asset_ids={','.join(str(asset.id) for asset in valid_assets)}",
     )
     session.add(report)
     session.commit()
