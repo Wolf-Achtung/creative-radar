@@ -107,7 +107,7 @@ function ImagePreview({ sources = [] }) {
 
   useEffect(() => { setIndex(0); }, [validSources.join('|')]);
 
-  if (!validSources[index]) return <div className="preview-placeholder"><strong>Kein Bild gesichert</strong><small>Das Creative konnte noch nicht als Screenshot gespeichert werden.</small></div>;
+  if (!validSources[index]) return <div className="preview-placeholder"><strong>Kein Bild gesichert</strong><span>Screenshot fehlt.</span></div>;
   return <img src={validSources[index]} alt="Creative Vorschau" onError={() => setIndex((current) => current + 1)} />;
 }
 
@@ -517,11 +517,20 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
         ) : (
           <>
             <p className="muted small">Creative Radar empfiehlt {suggestion.selected} Assets für diesen Report.</p>
-            <p className="muted small">Geprüft: {suggestion.checked} · Geeignet: {suggestion.eligible} · Vorgeschlagen: {suggestion.selected} · Ausgeschlossen wegen fehlendem Bild: {suggestion.excluded?.missing_visual || 0} · Ausgeschlossen wegen fehlendem Titel: {suggestion.excluded?.missing_title || 0}</p>
+            <p className="muted small">
+              Geprüft: {suggestion.checked} · Geeignet: {suggestion.eligible} · Vorgeschlagen: {suggestion.selected} · Ohne Bildquelle: {suggestion.excluded?.missing_visual || 0} · Ohne gesichertes Evidence-Bild: {suggestion.excluded?.missing_secure_evidence || 0} · Mit externer/ungesicherter Bildquelle: {(suggestion.excluded?.external_visual_only || 0) + (suggestion.excluded?.source_only_visual || 0)} · Ausgeschlossen wegen fehlendem Titel: {suggestion.excluded?.missing_title || 0}
+            </p>
             <div className="find-grid">{suggestion.assets.map((asset) => {
               const warnings = asset.warnings || [];
-              const suitability = warnings.some((w) => /kein gesichertes bild/i.test(w)) ? 'eingeschränkt' : asset.score >= 0.75 ? 'hoch' : asset.score >= 0.5 ? 'mittel' : 'niedrig';
-              return (<article key={asset.asset_id} className="find-card"><ImagePreview sources={[asset.visual_evidence_url]} /><div><p className="find-title">{asset.title || 'Ohne Titel'}</p><p className="muted small">{asset.channel} · {asset.market} · Eignung: {suitability}</p><p className="small">{asset.reason}</p><p className="small muted">Qualitätshinweise: {warnings.join(' · ') || 'Keine Hinweise'}</p></div></article>);
+              const evidenceLabel = {
+                secure: 'Bild gesichert',
+                external: 'Externe Bildquelle',
+                source_only: 'Bildquelle vorhanden',
+                missing: 'Keine Bildquelle',
+              }[asset.evidence_quality] || 'Evidenz unklar';
+              const evidenceTags = [...(asset.tags || []), evidenceLabel];
+              const warningText = warnings.length > 0 ? warnings.join(' · ') : 'keine kritischen Hinweise';
+              return (<article key={asset.asset_id} className="find-card"><ImagePreview sources={[asset.visual_evidence_url]} /><div><p className="find-title">{asset.title || 'Ohne Titel'}</p><p className="muted small">{asset.channel} · {asset.market} · Eignung: {asset.suitability || 'mittel'}</p><p className="small">{asset.reason}</p><p className="small muted">Belege: {evidenceTags.length > 0 ? evidenceTags.join(' · ') : 'keine starken Belege'}</p><p className="small muted">Hinweise: {warningText}</p></div></article>);
             })}</div>
           </>
         )}
