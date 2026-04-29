@@ -20,6 +20,32 @@ def _interaction_signal(post: Post) -> float:
     return float(sum(v or 0 for v in values))
 
 
+def _asset_title_label(asset: Asset) -> str:
+    """Return the safest available user-facing title label without assuming DTO-only fields."""
+    title = getattr(asset, "title", None)
+    if title and getattr(title, "title_original", None):
+        return title.title_original
+    for field in ("placement_title_text", "kinetic_text"):
+        value = getattr(asset, field, None)
+        if value:
+            return str(value)
+    return "Filmtitel offen"
+
+
+def _asset_title_key(asset: Asset) -> str:
+    """Stable grouping key for report selection; works for ORM models without title_name."""
+    if getattr(asset, "title_id", None):
+        return str(asset.title_id)
+    title = getattr(asset, "title", None)
+    if title and getattr(title, "title_original", None):
+        return str(title.title_original)
+    for field in ("placement_title_text", "kinetic_text"):
+        value = getattr(asset, field, None)
+        if value:
+            return str(value)
+    return ""
+
+
 def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, report_type: str) -> tuple[float, list[str], list[str]]:
     score = 0.0
     tags: list[str] = []
@@ -59,7 +85,8 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
     if asset.kinetic_text:
         score += 0.03
 
-    has_cta = asset.asset_type.value in {"CTA Post", "Ticket CTA"} or "cta" in (asset.placement_title_text or "").lower()
+    asset_type_value = getattr(getattr(asset, "asset_type", None), "value", str(getattr(asset, "asset_type", "")))
+    has_cta = asset_type_value in {"CTA Post", "Ticket CTA"} or "cta" in (asset.placement_title_text or "").lower()
     if has_cta:
         score += 0.07
         tags.append("CTA erkannt")
@@ -68,7 +95,7 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
         score += 0.05
     else:
         score -= 0.15
-        warnings.append("kein Screenshot")
+        warnings.append("kein Original-Link")
 
     signal = _interaction_signal(post)
     if signal >= baseline * 1.25 and signal > 0:
@@ -84,8 +111,6 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
             score -= 0.08
 
     return max(0.0, min(1.0, score + 0.5)), tags, warnings
-
-
 
 
 def _build_reason(report_type: str, tags: list[str], warnings: list[str], signal: float, baseline: float) -> str:
@@ -138,7 +163,7 @@ def select_assets_for_report(
 
     title_market_map: dict[str, set[Market]] = {}
     for asset, post, channel in rows:
-        title_key = str(asset.title_id) if asset.title_id else (asset.title_name or asset.placement_title_text or "")
+        title_key = _asset_title_key(asset)
         if title_key:
             title_market_map.setdefault(title_key, set()).add(channel.market)
 
@@ -159,7 +184,7 @@ def select_assets_for_report(
             continue
 
         score, tags, warnings = _score_asset(asset, post, channel, baseline, report_type)
-        title_key = str(asset.title_id) if asset.title_id else (asset.title_name or asset.placement_title_text or "")
+        title_key = _asset_title_key(asset)
         markets_for_title = title_market_map.get(title_key, set())
         if report_type == "de_us_comparison" and Market.DE in markets_for_title and (Market.US in markets_for_title or Market.INT in markets_for_title):
             tags.append("DE/US Paarung erkannt")
@@ -167,7 +192,7 @@ def select_assets_for_report(
             excluded["low_signal"] += 1
             continue
         eligible += 1
-        title = asset.title.title_original if asset.title else "Filmtitel offen"
+        title = _asset_title_label(asset)
         reason = _build_reason(report_type, tags, warnings, signal=_interaction_signal(post), baseline=baseline)
         selected.append({
             "asset_id": str(asset.id),
