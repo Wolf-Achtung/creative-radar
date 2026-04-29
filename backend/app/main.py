@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from app.config import settings
 from app.database import create_db_and_tables
 from app.api import health, channels, titles, posts, assets, reports, monitor, insights
@@ -13,6 +15,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+storage_candidates = [
+    Path("storage"),
+    Path("backend/storage"),
+    Path(__file__).resolve().parents[2] / "storage",
+]
+storage_path = next((candidate for candidate in storage_candidates if candidate.exists()), storage_candidates[0])
+storage_path.mkdir(parents=True, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=str(storage_path)), name="storage")
 
 
 @app.on_event("startup")

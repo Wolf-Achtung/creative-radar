@@ -129,12 +129,13 @@ function MetricStrip({ asset }) {
 
 function TodoCard({ assets, openReview, missingTitles, reportCandidates, approved, highlights, onGoReview, onGoReport, onBatchAnalyze }) {
   const reportGap = [];
-  if (approved === 0) reportGap.push('mindestens 1 freigegebener Treffer');
-  if (highlights === 0) reportGap.push('mindestens 1 Highlight');
-  if (missingTitles > 0) reportGap.push('Filmtitel-Zuordnung bei offenen Treffern');
+  if (approved === 0) reportGap.push('1. Mindestens ein Top-Fund');
+  if (missingTitles > 4) reportGap.push('2. Zu viele Treffer ohne Filmtitel-Zuordnung');
+  if (openReview > 0) reportGap.push(`3. ${openReview} Treffer sind noch nicht entschieden`);
 
   return (
     <Section title="Heute zu tun" kicker="Geführter Workflow" className="todo-card">
+      <p className="muted small"><strong>Empfohlener Testlauf (MVP):</strong> 1) Titelquellen aktualisieren 2) Bestehende Treffer neu zuordnen 3) 5 neue TikTok-Treffer prüfen 4) KI-Bildanalyse starten 5) 1 Top-Fund markieren 6) Weekly Report aktualisieren.</p>
       <div className="workflow-steps">
         <div><b>1</b><span>Neue Treffer ansehen</span></div>
         <div><b>2</b><span>KI-Bildanalyse starten</span></div>
@@ -150,7 +151,7 @@ function TodoCard({ assets, openReview, missingTitles, reportCandidates, approve
         <button className="primary" onClick={onBatchAnalyze}>Alle neuen Assets visuell prüfen</button>
         <button className="secondary" onClick={onGoReview}>Jetzt Treffer prüfen</button>
       </div>
-      <p className="muted small">{reportGap.length ? `Für einen belastbaren Report fehlen noch: ${reportGap.join(', ')}.` : 'Report kann jetzt sinnvoll erstellt oder aktualisiert werden.'}</p>
+      <p className="muted small">{reportGap.length ? `Report noch nicht bereit. Es fehlen noch: ${reportGap.join(' ')}` : 'Report kann jetzt sinnvoll erstellt oder aktualisiert werden.'}</p>
     </Section>
   );
 }
@@ -169,7 +170,7 @@ function ImportantFinds({ assets, titles }) {
             const hint = inferTitleHint(asset, titles);
             return (
               <article key={asset.id} className="find-card">
-                <ImagePreview sources={[asset.thumbnail_url, asset.screenshot_url]} />
+                <ImagePreview sources={[asset.visual_evidence_url, asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url]} />
                 <div>
                   <p className="find-title">{hint.label}</p>
                   <p className="muted small">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.created_at)}</p>
@@ -198,7 +199,7 @@ function ReportStatus({ approved, highlights, openReview, missingTitles }) {
   return (
     <Section title="Report-Status" kicker="Was noch fehlt">
       <div className="status-pills">
-        <span className={`pill ${ready ? 'good' : 'warn'}`}>{ready ? 'Report bereit' : 'Report noch nicht belastbar'}</span>
+        <span className={`pill ${ready ? 'good' : 'warn'}`}>{ready ? 'Report bereit' : 'Report noch nicht bereit'}</span>
         <span className="pill">{approved} freigegeben</span>
         <span className="pill">{highlights} Highlights</span>
         <span className="pill">{openReview} noch zu prüfen</span>
@@ -207,7 +208,7 @@ function ReportStatus({ approved, highlights, openReview, missingTitles }) {
       <p className="muted small">
         {ready
           ? 'Alle Mindestkriterien erfüllt: Der Weekly Report ist belastbar.'
-          : `Für einen guten Weekly Report fehlen noch: – ${gaps.join(' – ')}`}
+          : `Report noch nicht bereit. Es fehlen noch: ${gaps.join(' · ')}`}
       </p>
     </Section>
   );
@@ -282,7 +283,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
 
   return (
     <article className="asset-card">
-      <div className="asset-preview"><ImagePreview sources={[asset.thumbnail_url, asset.screenshot_url]} /></div>
+      <div className="asset-preview"><ImagePreview sources={[asset.visual_evidence_url, asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url]} /></div>
       <div className="asset-content">
         <div className="asset-topline">
           <span className="asset-title">{getAssetDisplayTitle(asset, titles)}</span>
@@ -298,20 +299,20 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
           <strong>{titleHintValue}</strong>
           <small>{titleHintSource}</small>
         </div>
-        {!hasTitle && showAssignmentSelect && <p className="title-instruction">Whitelist-Treffer gefunden. Titel kann per Zuordnung oder Rematch übernommen werden.</p>}
-        {!hasTitle && !showAssignmentSelect && <p className="title-instruction">Titel nicht in Whitelist gefunden. Bitte als Kandidat melden.</p>}
+        {!hasTitle && showAssignmentSelect && <p className="title-instruction">Mögliche Titelzuordnung gefunden. Bitte bestätigen oder neu zuordnen.</p>}
+        {!hasTitle && !showAssignmentSelect && <p className="title-instruction">Film ist nicht in der Titelliste? Bitte zur Prüfung vormerken.</p>}
         {showAssignmentSelect && (
           <label className="title-select">
             Filmtitel-Zuordnung
             <select value={asset.title_id || ''} onChange={(e) => onAssignTitle(asset, e.target.value)} disabled={busy}>
               <option value="">Bitte Filmtitel auswählen</option>
               {recommendedTitles.length > 0 && <optgroup label="Empfohlene Matches">{recommendedTitles.map((title) => <option key={`rec-${title.id}`} value={title.id}>{title.title_original}</option>)}</optgroup>}
-              <optgroup label="Whitelist (alle aktiv)">{titles.map((title) => <option key={title.id} value={title.id}>{title.title_original} {title.source ? `(${title.source})` : ''}</option>)}</optgroup>
+              <optgroup label="Titelliste (alle aktiv)">{titles.map((title) => <option key={title.id} value={title.id}>{title.title_original} {title.source ? `(${title.source})` : ''}</option>)}</optgroup>
             </select>
           </label>
         )}
         <button className="secondary ghost" type="button" onClick={() => onReportMissingTitle(asset, hint)} disabled={busy}>
-          Titel fehlt in Whitelist melden
+          Titel zur Prüfung vormerken
         </button>
         <div className="card-steps" aria-label="Review-Reihenfolge">
           {workflowSteps.map((step) => (
@@ -543,6 +544,7 @@ function SourcesPanel({
       </Section>
 
       <Section title="Titel-Whitelist" kicker="Automatische Titelquellen">
+        <p className="muted small">Automatisch gepflegte Titelliste aus TMDb und geprüften Kandidaten.</p>
         <div className="status-pills">
           <span className="pill">Aktive Titel: {whitelistStats?.active_titles ?? '—'}</span>
           <span className="pill">Letzter Sync: {whitelistStats?.last_sync ? formatDate(whitelistStats.last_sync) : '—'}</span>
@@ -691,8 +693,8 @@ function App() {
     await run(async () => {
       const result = await endpoints.analyzeVisualBatch(10);
       await load();
-      setBatchFeedback({ checked: result.checked, analyzed: result.analyzed, no_source: result.no_source, failed: result.failed, timestamp: new Date().toISOString() });
-      setMessage(`Batchanalyse: ${result.analyzed} analysiert, ${result.no_source} ohne Bild, ${result.failed} Fehler.`);
+      setBatchFeedback({ ...result, timestamp: new Date().toISOString() });
+      setMessage(`Batchanalyse: ${result.analyzed} analysiert, ${result.no_source} ohne Bild, ${result.fetch_failed} Abrufprobleme, ${result.text_fallback} Text-Fallback, ${result.provider_error} KI-Probleme, ${result.failed} Fehler gesamt.`);
     });
   }
 
@@ -785,8 +787,7 @@ function App() {
       {busy && <div className="info">Arbeite gerade …</div>}
       {batchFeedback && (
         <div className="info">
-          Batch-Ergebnis: {batchFeedback.analyzed} analysiert, {batchFeedback.no_source} ohne Bild, {batchFeedback.failed} Fehler
-          (geprüft: {batchFeedback.checked}, {formatDate(batchFeedback.timestamp)}).
+          Batch-Ergebnis: {batchFeedback.analyzed} analysiert, {batchFeedback.no_source} ohne Bild, {batchFeedback.fetch_failed} Bildquelle nicht erreichbar, {batchFeedback.text_fallback} nur Textanalyse, {batchFeedback.provider_error} KI-/Provider-Fehler, {batchFeedback.failed} Fehler gesamt (geprüft: {batchFeedback.checked}, {formatDate(batchFeedback.timestamp)}).
         </div>
       )}
 
