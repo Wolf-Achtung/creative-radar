@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -9,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.models.entities import Asset, AssetType, Channel, Post, Title
+from app.services.screenshot_capture import capture_asset_screenshot
 
 
 def _safe_json(text: str) -> dict[str, Any]:
@@ -86,7 +88,7 @@ def _heuristic_analysis(asset: Asset, post: Post | None, title: Title | None) ->
     if has_kinetic and asset_type == AssetType.UNKNOWN:
         asset_type = AssetType.KINETIC
     return {
-        "visual_analysis_status": "no_source",
+        "visual_analysis_status": "text_fallback",
         "ocr_text": asset.ocr_text or caption[:1000],
         "visual_notes": "Heuristische Analyse aus Caption/OCR, da kein belastbares Preview-Bild verfügbar ist.",
         "placement_title_text": title.title_original if title else None,
@@ -102,11 +104,24 @@ def _heuristic_analysis(asset: Asset, post: Post | None, title: Title | None) ->
     }
 
 
+logger = logging.getLogger(__name__)
+
 def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
     post = session.get(Post, asset.post_id)
     channel = session.get(Channel, post.channel_id) if post else None
     title = session.get(Title, asset.title_id) if asset.title_id else None
-    image_url = asset.thumbnail_url or asset.screenshot_url
+    asset.visual_analysis_status = "running"
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+
+    evidence = capture_asset_screenshot(asset)
+    asset.visual_evidence_status = evidence.status
+    if evidence.evidence_url:
+        asset.visual_evidence_url = evidence.evidence_url
+        asset.visual_source_url = evidence.source_url
+        asset.visual_evidence_pack = {"full_screenshot": evidence.evidence_url, "title_crop": asset.visual_crop_title_url, "cta_crop": asset.visual_crop_cta_url, "kinetic_crop": asset.visual_crop_kinetic_url, "thumbnail": asset.thumbnail_url, "source_url": evidence.source_url, "captured_at": evidence.captured_at}
+    image_url = asset.visual_evidence_url or asset.thumbnail_url or asset.screenshot_url
     caption = (post.caption if post else "") or ""
 
     if not title:
@@ -119,8 +134,8 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
         data = _heuristic_analysis(asset, post, title)
     elif not settings.openai_api_key:
         data = _heuristic_analysis(asset, post, title)
-        data["visual_analysis_status"] = "error"
-        data["visual_notes"] = "OpenAI API-Key fehlt. Nur Textanalyse durchgeführt."
+        data["visual_analysis_status"] = "text_fallback"
+        data["visual_notes"] = "Bild konnte nicht ausgewertet werden. Die Caption wurde ersatzweise analysiert."
     else:
         client = OpenAI(api_key=settings.openai_api_key)
         prompt = f"""
@@ -162,16 +177,22 @@ de_us_match_key, visual_confidence_score, confidence
         )
             raw = response.choices[0].message.content or "{}"
             data = _safe_json(raw)
-            data["visual_analysis_status"] = "analyzed"
+            data["visual_analysis_status"] = "done"
         except Exception as exc:
             data = _heuristic_analysis(asset, post, title)
-            data["visual_analysis_status"] = "error"
-            data["visual_notes"] = f"Bildanalyse fehlgeschlagen ({type(exc).__name__}). Textanalyse als Fallback gespeichert."
+            data["visual_analysis_status"] = "text_fallback"
+            data["visual_notes"] = "Bild konnte nicht ausgewertet werden. Die Caption wurde ersatzweise analysiert."
+            logger.warning("visual-analysis-failed", extra={"asset_id": str(asset.id), "visual_source_url": image_url, "error_class": type(exc).__name__})
     
     title_placement = data.get("title_placement") if isinstance(data.get("title_placement"), dict) else {}
     kinetics = data.get("kinetics") if isinstance(data.get("kinetics"), dict) else {}
 
-    asset.visual_analysis_status = _as_text(data.get("visual_analysis_status"), "analyzed")
+    if evidence.status == "no_source":
+        asset.visual_analysis_status = "no_source"
+    elif evidence.status == "fetch_failed" and data.get("visual_analysis_status") == "done":
+        asset.visual_analysis_status = "fetch_failed"
+    else:
+        asset.visual_analysis_status = _as_text(data.get("visual_analysis_status"), "text_fallback")
     asset.visual_source_url = image_url
     asset.ocr_text = _as_text(data.get("ocr_text"), asset.ocr_text or "") or None
     asset.visual_notes = _as_text(data.get("visual_summary_de"), _as_text(data.get("visual_notes"), "")) or None

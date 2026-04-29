@@ -2,6 +2,16 @@ from datetime import date
 from sqlmodel import Session, select
 from app.models.entities import Asset, Post, Channel, Title, ReviewStatus, WeeklyReport
 
+ASSET_TYPE_LABELS = {
+    "Unknown": "Nicht klassifiziert",
+    "Trailer Drop": "Trailer-/Release-Post",
+    "Release Reminder": "Release Reminder",
+    "Franchise / Brand Post": "Franchise-/Brand-Post",
+    "Event / Festival": "Event-/Festival-Post",
+    "Character / Cast Post": "Cast-/Talent-Post",
+    "Ticket CTA": "Ticket-/CTA-Post",
+}
+
 
 def _asset_block(session: Session, asset: Asset) -> str:
     post = session.get(Post, asset.post_id)
@@ -10,14 +20,20 @@ def _asset_block(session: Session, asset: Asset) -> str:
     title_name = title.title_original if title else "Unklar"
     channel_name = channel.name if channel else "Unklar"
     market = channel.market if channel else "Unklar"
+    type_label = ASSET_TYPE_LABELS.get(str(asset.asset_type.value), str(asset.asset_type.value))
+    evidence_image = asset.visual_evidence_url or asset.screenshot_url
     return f"""
     <article class=\"asset\">
-      <h3>{title_name} – {asset.asset_type}</h3>
+      <h3>{title_name} – {type_label}</h3>
       <p><strong>Kanal:</strong> {channel_name} / {market}</p>
       <p><strong>Link:</strong> <a href=\"{post.post_url if post else '#'}\">Originalpost</a></p>
-      {'<img src="' + asset.screenshot_url + '" alt="Screenshot" />' if asset.screenshot_url else '<p><em>Kein Screenshot hinterlegt.</em></p>'}
+      {'<img src="' + evidence_image + '" alt="Screenshot Evidence" />' if evidence_image else '<p><em>Kein Screenshot verfügbar. Quelle: Caption/Textanalyse.</em></p>'}
+      {'<img src="' + asset.visual_crop_title_url + '" alt="Titel/Claim Crop" />' if asset.visual_crop_title_url else ''}
+      {'<img src="' + asset.visual_crop_cta_url + '" alt="CTA Crop" />' if asset.visual_crop_cta_url else ''}
+      {'<img src="' + asset.visual_crop_kinetic_url + '" alt="Kinetic Crop" />' if asset.visual_crop_kinetic_url else ''}
       <p><strong>KI-Zusammenfassung:</strong> {asset.ai_summary_de or 'Noch keine Zusammenfassung.'}</p>
       <p><strong>Trend-Hinweis:</strong> {asset.ai_trend_notes or 'Noch kein Trend-Hinweis.'}</p>
+      <p><strong>Bild/Text-Analyse:</strong> OCR: {asset.ocr_text or 'nicht erkannt'} · Titel/Claim: {asset.placement_title_text or 'nicht erkannt'} · Kinetic: {asset.kinetic_type or 'nicht erkannt'} · CTA: {'erkannt' if asset.asset_type.value in {'CTA Post', 'Ticket CTA'} else 'nicht erkannt'}</p>
       <p><strong>Kuratorennotiz:</strong> {asset.curator_note or '—'}</p>
     </article>
     """

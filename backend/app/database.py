@@ -84,6 +84,12 @@ ASSET_COLUMNS = {
     "kinetic_text": "VARCHAR",
     "de_us_match_key": "VARCHAR",
     "visual_confidence_score": "FLOAT",
+    "visual_evidence_url": "VARCHAR",
+    "visual_crop_title_url": "VARCHAR",
+    "visual_crop_cta_url": "VARCHAR",
+    "visual_crop_kinetic_url": "VARCHAR",
+    "visual_evidence_status": "VARCHAR",
+    "visual_evidence_pack": "JSON",
 }
 
 POST_COLUMNS = {
