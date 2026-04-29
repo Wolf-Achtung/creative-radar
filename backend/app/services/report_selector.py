@@ -131,16 +131,30 @@ def _displayable_image_url(asset: Asset) -> str | None:
 
 
 def _suitability_label(score: float, report_type: str, evidence_quality: str, warnings: list[str], has_title: bool) -> str:
-    label = "hoch" if score >= 0.75 else "mittel" if score >= 0.5 else "eingeschränkt"
-    if evidence_quality != "secure" and report_type == "visual_kinetics":
-        label = "eingeschränkt"
-    if evidence_quality != "secure" and any("Kein gesichertes Bild" in warning for warning in warnings):
-        label = "mittel" if label == "hoch" else label
-    if not has_title:
-        label = "mittel" if label == "hoch" else label
+    base = "hoch" if score >= 0.75 else "mittel" if score >= 0.5 else "eingeschränkt"
+
+    # Cap 1: visual_kinetics ohne secure-Evidence kann nie „hoch" sein.
+    if evidence_quality != "secure" and report_type == "visual_kinetics" and base == "hoch":
+        base = "eingeschränkt"
+
+    # Cap 2: Generell — ohne secure-Evidence darf kein Report-Typ „hoch" zeigen.
+    # Solange SECURE_STORAGE_ENABLED=False, ist „hoch" gar nicht erreichbar.
+    if evidence_quality != "secure" and base == "hoch":
+        base = "mittel"
+
+    # Cap 3: Komplett fehlende Bildquelle → maximal „eingeschränkt".
+    if evidence_quality == "missing":
+        base = "eingeschränkt"
+
+    # Cap 4: Kein Titel UND keine secure-Evidence → eingeschränkt.
     if not has_title and evidence_quality != "secure":
-        label = "eingeschränkt"
-    return label
+        base = "eingeschränkt"
+
+    # Cap 5: Kein Titel allein cappt mindestens auf „mittel".
+    if not has_title and base == "hoch":
+        base = "mittel"
+
+    return base
 
 
 def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, report_type: str) -> tuple[float, list[str], list[str]]:
