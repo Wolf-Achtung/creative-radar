@@ -10,6 +10,17 @@ from app.models.entities import Asset, Channel, Market, Post
 
 REPORT_TYPES = {"weekly_overview", "de_us_comparison", "visual_kinetics"}
 
+ANALYSIS_DONE_STATES = {"done", "analyzed", "text_fallback"}
+ANALYSIS_FAILURE_STATES = {"error", "fetch_failed", "no_source"}
+
+
+def _is_analysis_done(asset: Asset) -> bool:
+    return str(getattr(asset, "visual_analysis_status", "") or "") in ANALYSIS_DONE_STATES
+
+
+def _is_analysis_failed(asset: Asset) -> bool:
+    return str(getattr(asset, "visual_analysis_status", "") or "") in ANALYSIS_FAILURE_STATES
+
 
 def _to_datetime_bounds(date_from: date, date_to: date) -> tuple[datetime, datetime]:
     return datetime.combine(date_from, time.min), datetime.combine(date_to, time.max)
@@ -86,10 +97,10 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
         score -= 0.22
         warnings.append("Titel nicht eindeutig")
 
-    if asset.visual_analysis_status == "done":
+    if _is_analysis_done(asset):
         score += 0.1
         tags.append("Bildanalyse geprüft")
-    elif asset.visual_analysis_status in {"error", "fetch_failed", "no_source"}:
+    elif _is_analysis_failed(asset):
         score -= 0.2
         warnings.append("keine Bildanalyse")
 
@@ -227,7 +238,7 @@ def select_assets_for_report(
                 excluded["external_visual_only"] += 1
             elif evidence_quality == "source_only":
                 excluded["source_only_visual"] += 1
-        if asset.visual_analysis_status in {"error", "fetch_failed", "no_source"}:
+        if _is_analysis_failed(asset):
             excluded["analysis_error"] += 1
             continue
         if report_type == "visual_kinetics" and not (_has_secure_evidence(asset) or asset.ocr_text or asset.has_title_placement or asset.has_kinetic or asset.kinetic_text):
