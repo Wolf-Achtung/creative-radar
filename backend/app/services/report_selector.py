@@ -346,7 +346,7 @@ def select_assets_for_report(
         reason = _build_reason(report_type, tags, warnings, signal=_interaction_signal(post), baseline=baseline)
         suitability = _suitability_label(score, report_type, evidence_quality, warnings, has_title=bool(asset.title_id))
         display_url = _displayable_image_url(asset)
-        selected.append({
+        item: dict[str, Any] = {
             "asset_id": str(asset.id),
             "title": title,
             "channel": channel.name,
@@ -362,7 +362,11 @@ def select_assets_for_report(
             "tags": tags,
             "recommended_for": [report_type],
             "warnings": warnings,
-        })
+        }
+        if report_type == "de_us_comparison":
+            item["pair_group_key"] = title_key
+            item["pair_market"] = channel.market.value
+        selected.append(item)
 
     selected.sort(key=lambda a: a["score"], reverse=True)
     top = selected[:limit]
