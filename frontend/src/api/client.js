@@ -82,4 +82,6 @@ export const endpoints = {
   reports: () => api('/api/reports'),
   latestReport: () => api('/api/reports/latest'),
   generateReport: (payload) => api('/api/reports/generate-weekly', { method: 'POST', body: JSON.stringify(payload) }),
+  suggestReport: (payload) => api('/api/reports/suggest', { method: 'POST', body: JSON.stringify(payload) }),
+  generateSuggestedReport: (payload) => api('/api/reports/generate', { method: 'POST', body: JSON.stringify(payload) }),
 };
