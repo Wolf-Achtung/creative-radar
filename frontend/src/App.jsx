@@ -4,7 +4,7 @@ import { endpoints } from './api/client';
 import './styles.css';
 
 const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
-const NAV_ITEMS = ['Heute', 'Treffer prüfen', 'Vergleich', 'Weekly Report', 'Quellen'];
+const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'Quellen'];
 
 const ACTION_HELP = [
   ['Für Report freigeben', 'Der Treffer ist relevant und kommt in den Report-Anhang.'],
@@ -107,8 +107,8 @@ function ImagePreview({ sources = [] }) {
 
   useEffect(() => { setIndex(0); }, [validSources.join('|')]);
 
-  if (!validSources[index]) return <div className="preview-placeholder">Kein Preview verfügbar</div>;
-  return <img src={validSources[index]} alt="Creative Preview" onError={() => setIndex((current) => current + 1)} />;
+  if (!validSources[index]) return <div className="preview-placeholder"><strong>Kein Bild gesichert</strong><small>Bildquelle konnte nicht gespeichert werden.</small></div>;
+  return <img src={validSources[index]} alt="Creative Vorschau" onError={() => setIndex((current) => current + 1)} />;
 }
 
 function MetricStrip({ asset }) {
@@ -163,7 +163,7 @@ function ImportantFinds({ assets, titles }) {
     .slice(0, 6);
 
   return (
-    <Section title="Wichtige Funde dieser Woche" kicker="Kuratiert">
+    <Section title="Empfohlene Funde für den nächsten Report" kicker="Automatisch vorgeschlagen">
       {weekly.length === 0 ? <p className="muted">Noch keine kuratierten Funde vorhanden.</p> : (
         <div className="find-grid">
           {weekly.map((asset) => {
@@ -363,7 +363,7 @@ function HomePanel({ assets, titles, openReview, missingTitles, reportCandidates
         approved={approved.length}
         highlights={highlights.length}
         onGoReview={() => setActiveTab('Treffer prüfen')}
-        onGoReport={() => setActiveTab('Weekly Report')}
+        onGoReport={() => setActiveTab('Report erstellen')}
         onBatchAnalyze={() => onBatchAnalyze()}
       />
       <ImportantFinds assets={assets} titles={titles} />
@@ -386,7 +386,7 @@ function ReviewPanel({
   recentlyCreatedByAssetId,
 }) {
   return (
-    <Section title="Treffer prüfen" kicker={`${visibleAssets.length} von ${assets.length} Treffern sichtbar`}>
+    <Section title="Treffer prüfen" kicker={`${visibleAssets.length} von ${assets.length} Treffern sichtbar`}><p className="muted small">Hier korrigieren Sie einzelne Treffer. Reports können auch automatisch aus Vorschlägen erstellt werden.</p>
       <ReviewGuide />
       <div className="filterbar">
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
@@ -485,6 +485,7 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
       ))}</div>
       <div className="form-grid">
         <label>Zeitraum<select value={form.date_range} onChange={(e) => setForm({ ...form, date_range: e.target.value })}><option value="7d">letzte 7 Tage</option><option value="14d">14 Tage</option><option value="30d">30 Tage</option></select></label>
+        <label>Kanäle<select value={form.channel || "all"} onChange={(e) => setForm({ ...form, channel: e.target.value })}><option value="all">alle</option><option value="tiktok">TikTok</option><option value="instagram">Instagram</option></select></label>
         <label>Märkte<select value={form.market} onChange={(e) => setForm({ ...form, market: e.target.value })}><option value="all">alle</option><option value="DE">DE</option><option value="US">US</option><option value="INT">INT</option></select></label>
         <label>Max. Assets<select value={form.limit} onChange={(e) => setForm({ ...form, limit: Number(e.target.value) })}><option value={5}>5</option><option value={10}>10</option><option value={20}>20</option></select></label>
       </div>
@@ -579,7 +580,7 @@ function App() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState('Heute');
+  const [activeTab, setActiveTab] = useState('Report erstellen');
   const [channelFile, setChannelFile] = useState(null);
   const [monitorForm, setMonitorForm] = useState({ max_channels: 5, results_limit_per_channel: 5, only_whitelist_matches: true });
   const [tiktokForm, setTiktokForm] = useState({ username: 'warnerbros', max_channels: 1, results_limit_per_channel: 5, only_whitelist_matches: false });
@@ -589,7 +590,7 @@ function App() {
   const [whitelistStats, setWhitelistStats] = useState(null);
   const [batchFeedback, setBatchFeedback] = useState(null);
   const [reportSuggestion, setReportSuggestion] = useState(null);
-  const [reportForm, setReportForm] = useState({ report_type: 'weekly_overview', date_range: '7d', market: 'all', limit: 10 });
+  const [reportForm, setReportForm] = useState({ report_type: 'weekly_overview', date_range: '7d', market: 'all', channel: 'all', limit: 10 });
 
   const sortedTitles = useMemo(() => {
     const map = new Map();
@@ -765,7 +766,7 @@ function App() {
       const payload = {
         report_type: reportForm.report_type,
         date_range: reportForm.date_range,
-        channels: [],
+        channels: reportForm.channel === "all" ? [] : [reportForm.channel],
         markets: reportForm.market === 'all' ? [] : [reportForm.market],
         limit: reportForm.limit,
       };
@@ -794,11 +795,11 @@ function App() {
         <div>
           <p className="eyebrow">Creative Intelligence Workspace</p>
           <h1>Creative Radar</h1>
-          <p>Ausgewählte Kanäle prüfen, relevante Creatives erkennen, DE/US-Muster vergleichen und einen Weekly Report erstellen.</p>
+          <p>Report-Typ wählen, Vorschlag prüfen und Report erzeugen – ohne jeden Treffer manuell freizugeben.</p>
         </div>
         <div className="hero-actions">
-          <button className="primary" onClick={() => setActiveTab('Treffer prüfen')} disabled={busy}>Neue Treffer prüfen</button>
-          <button className="secondary" onClick={() => setActiveTab('Weekly Report')} disabled={busy}>Weekly Report öffnen</button>
+          <button className="primary" onClick={() => setActiveTab('Report erstellen')} disabled={busy}>Report erstellen</button>
+          <button className="secondary" onClick={() => setActiveTab('Treffer prüfen')} disabled={busy}>Treffer prüfen</button>
         </div>
       </header>
 
@@ -817,17 +818,15 @@ function App() {
         ))}
       </nav>
 
-      {activeTab === 'Heute' && (
-        <HomePanel
-          assets={assets}
-          titles={sortedTitles}
-          openReview={openReview}
-          missingTitles={missingTitles}
-          reportCandidates={reportCandidates}
-          approved={approved}
-          highlights={highlights}
-          setActiveTab={setActiveTab}
-          onBatchAnalyze={runVisualBatch}
+      {activeTab === 'Report erstellen' && (
+        <ReportsPanel
+          report={report}
+          busy={busy}
+          suggestion={reportSuggestion}
+          form={reportForm}
+          setForm={setReportForm}
+          onSuggest={generateReportSuggestion}
+          onGenerateSuggestedReport={generateReportFromSuggestion}
         />
       )}
       {activeTab === 'Treffer prüfen' && (
@@ -843,22 +842,6 @@ function App() {
           onAssignTitle={assignTitle}
           onReportMissingTitle={reportMissingTitle}
           recentlyCreatedByAssetId={recentlyCreatedByAssetId}
-        />
-      )}
-      {activeTab === 'Vergleich' && <ComparisonPanel assets={assets} />}
-      {activeTab === 'Weekly Report' && (
-        <ReportsPanel
-          report={report}
-          approved={approved}
-          highlights={highlights}
-          openReview={openReview}
-          missingTitles={missingTitles}
-          busy={busy}
-          suggestion={reportSuggestion}
-          form={reportForm}
-          setForm={setReportForm}
-          onSuggest={generateReportSuggestion}
-          onGenerateSuggestedReport={generateReportFromSuggestion}
         />
       )}
       {activeTab === 'Quellen' && (
