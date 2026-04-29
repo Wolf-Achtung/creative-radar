@@ -470,19 +470,33 @@ function ComparisonPanel({ assets }) {
   );
 }
 
-function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGenerateSuggestedReport }) {
+function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGenerateSuggestedReport, onRelaxFiltersAndSuggest }) {
   const reportTypes = [
-    { key: 'weekly_overview', label: 'Wochenüberblick', desc: 'Die wichtigsten Creative-Funde der letzten 7 Tage für Geschäftsführung und Marketing.' },
-    { key: 'de_us_comparison', label: 'DE/US Vergleich', desc: 'Vergleicht Titel-, Claim-, CTA- und Kinetic-Platzierungen zwischen deutschen und internationalen Creatives.' },
-    { key: 'visual_kinetics', label: 'Bild/Text & Kinetics', desc: 'Dokumentiert sichtbaren Text, Claims, Overlays, CTAs und Screenshots.' },
+    { key: 'weekly_overview', label: 'Wochenüberblick', desc: 'Die wichtigsten Creative-Funde der letzten Tage. Für Geschäftsführung, Marketing und schnelle Wochenupdates.' },
+    { key: 'de_us_comparison', label: 'DE/US Vergleich', desc: 'Vergleicht deutsche und internationale Creatives: Titel, Claims, CTAs, Kinetics und visuelle Platzierung.' },
+    { key: 'visual_kinetics', label: 'Bild/Text & Kinetics', desc: 'Dokumentiert sichtbaren Text, Claims, Overlays, CTAs, Kinetics und Screenshots.' },
   ];
+  const selectedType = reportTypes.find((t) => t.key === form.report_type);
+  const hasSuggestedAssets = Boolean(suggestion?.assets?.length);
+  const step = !suggestion ? 2 : !hasSuggestedAssets ? 3 : !report ? 4 : 5;
   return (
     <Section title="Welchen Report möchtest du erstellen?" kicker="Report-Zentrale">
-      <div className="find-grid">{reportTypes.map((t) => (
-        <article key={t.key} className={`find-card ${form.report_type === t.key ? 'active-choice' : ''}`} onClick={() => setForm({ ...form, report_type: t.key })}>
-          <div><p className="find-title">{t.label}</p><p className="small muted">{t.desc}</p></div>
-        </article>
+      <div className="step-bar">{['1 Report-Typ wählen', '2 Vorschlag erstellen', '3 Vorschlag prüfen', '4 Report erzeugen', '5 Download'].map((label, index) => (
+        <span key={label} className={`step-pill ${step === index + 1 ? 'active' : ''}`}>{label}</span>
       ))}</div>
+      <div className="find-grid report-types">{reportTypes.map((t) => {
+        const active = form.report_type === t.key;
+        return (
+          <button key={t.key} type="button" className={`find-card report-type-card ${active ? 'active-choice' : ''}`} onClick={() => setForm({ ...form, report_type: t.key })} role="radio" aria-checked={active}>
+            <div>
+              {active && <p className="selected-marker">✓ Ausgewählt</p>}
+              <p className="find-title">{t.label}</p>
+              <p className="small muted">{t.desc}</p>
+            </div>
+          </button>
+        );
+      })}</div>
+      <p className="selected-report">Gewählter Report: <strong>{selectedType?.label}</strong></p>
       <div className="form-grid">
         <label>Zeitraum<select value={form.date_range} onChange={(e) => setForm({ ...form, date_range: e.target.value })}><option value="7d">letzte 7 Tage</option><option value="14d">14 Tage</option><option value="30d">30 Tage</option></select></label>
         <label>Kanäle<select value={form.channel || "all"} onChange={(e) => setForm({ ...form, channel: e.target.value })}><option value="all">alle</option><option value="tiktok">TikTok</option><option value="instagram">Instagram</option></select></label>
@@ -492,11 +506,25 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
       <div className="section-actions"><button className="primary" onClick={onSuggest} disabled={busy}>Report-Vorschlag erstellen</button></div>
       {suggestion && (<>
         <h3>Report-Vorschlag</h3>
-        <p className="muted small">Gefunden: {suggestion.checked} Assets · Geeignet: {suggestion.eligible} · Vorgeschlagen: {suggestion.selected}</p>
-        <div className="find-grid">{suggestion.assets.map((asset) => (<article key={asset.asset_id} className="find-card"><ImagePreview sources={[asset.visual_evidence_url]} /><div><p className="find-title">{asset.title}</p><p className="muted small">{asset.channel} · {asset.market} · Score {asset.score}</p><p className="small">{asset.reason}</p></div></article>))}</div>
+        {!hasSuggestedAssets ? (
+          <div className="report-empty">
+            <p><strong>Keine passenden Treffer gefunden.</strong></p>
+            <p className="small muted">Kein technischer Fehler. Es gibt nur keine Treffer, die zu den aktuellen Filtern passen.</p>
+            <p className="small muted">Die aktuellen Filter sind sehr eng:</p>
+            <ul className="small muted"><li>Zeitraum: {form.date_range === '7d' ? 'letzte 7 Tage' : form.date_range === '14d' ? '14 Tage' : '30 Tage'}</li><li>Kanal: {form.channel}</li><li>Markt: {form.market}</li></ul>
+            <div className="section-actions"><button type="button" className="primary" onClick={onRelaxFiltersAndSuggest} disabled={busy}>Mit lockeren Filtern erneut suchen</button><button type="button" className="secondary" onClick={() => setForm({ ...form, date_range: '30d', channel: 'all', market: 'all', limit: 10 })} disabled={busy}>Filter zurücksetzen</button></div>
+          </div>
+        ) : (
+          <>
+            <p className="muted small">Creative Radar empfiehlt {suggestion.selected} Assets für diesen Report.</p>
+            <p className="muted small">Geprüft: {suggestion.checked} · Geeignet: {suggestion.eligible} · Vorgeschlagen: {suggestion.selected} · Ausgeschlossen wegen fehlendem Bild: {suggestion.excluded_no_image || 0} · Ausgeschlossen wegen fehlendem Titel: {suggestion.excluded_no_title || 0}</p>
+            <div className="find-grid">{suggestion.assets.map((asset) => (<article key={asset.asset_id} className="find-card"><ImagePreview sources={[asset.visual_evidence_url]} /><div><p className="find-title">{asset.title || 'Ohne Titel'}</p><p className="muted small">{asset.channel} · {asset.market} · Eignung: {asset.score >= 0.75 ? 'hoch' : asset.score >= 0.5 ? 'mittel' : 'niedrig'}</p><p className="small">{asset.reason}</p><p className="small muted">Qualitätshinweise: {(asset.quality_notes || []).join(' · ') || 'Keine Hinweise'}</p></div></article>))}</div>
+          </>
+        )}
         <div className="section-actions"><button className="primary" onClick={onGenerateSuggestedReport} disabled={busy || suggestion.assets.length===0}>Report erzeugen</button></div>
+        {!hasSuggestedAssets && <p className="small muted">Report kann erst erzeugt werden, wenn ein Vorschlag Assets enthält.</p>}
       </>)}
-      {report ? <details><summary>Aktuellen Report anzeigen</summary><iframe title="report" srcDoc={report.html_content || ''} /></details> : <p className="muted">Noch kein Report erzeugt.</p>}
+      {report ? <details><summary>Aktuellen Report anzeigen</summary><p className="muted small">Report wurde erstellt.</p><div className="section-actions"><a href="/api/reports/latest/download.html">HTML herunterladen</a><a href="/api/reports/latest/download.md">Markdown herunterladen</a></div><iframe title="report" srcDoc={report.html_content || ''} /></details> : <p className="muted">Noch kein Report erzeugt.</p>}
     </Section>
   );
 }
@@ -590,7 +618,7 @@ function App() {
   const [whitelistStats, setWhitelistStats] = useState(null);
   const [batchFeedback, setBatchFeedback] = useState(null);
   const [reportSuggestion, setReportSuggestion] = useState(null);
-  const [reportForm, setReportForm] = useState({ report_type: 'weekly_overview', date_range: '7d', market: 'all', channel: 'all', limit: 10 });
+  const [reportForm, setReportForm] = useState({ report_type: 'weekly_overview', date_range: '30d', market: 'all', channel: 'all', limit: 10 });
 
   const sortedTitles = useMemo(() => {
     const map = new Map();
@@ -772,7 +800,7 @@ function App() {
       };
       const suggested = await endpoints.suggestReport(payload);
       setReportSuggestion(suggested);
-      setMessage('Report-Vorschlag kann erstellt werden. Das System wählt passende Treffer automatisch aus.');
+      setMessage(suggested.selected > 0 ? 'Vorschlag erstellt. Bitte vorgeschlagene Assets prüfen und danach den Report erzeugen.' : 'Kein technischer Fehler. Es wurden nur keine passenden Treffer für diese Filter gefunden.');
     });
   }
 
@@ -786,6 +814,14 @@ function App() {
       });
       setReport(created);
       setMessage('Report bereit. Die ausgewählten Treffer sind ausreichend geprüft und visuell dokumentiert.');
+    });
+  }
+  async function relaxFiltersAndResuggest() {
+    const nextForm = { ...reportForm, date_range: '30d', market: 'all', channel: 'all', limit: 10 };
+    setReportForm(nextForm);
+    await run(async () => {
+      const suggested = await endpoints.suggestReport({ report_type: nextForm.report_type, date_range: nextForm.date_range, channels: [], markets: [], limit: 10 });
+      setReportSuggestion(suggested);
     });
   }
 
@@ -827,6 +863,7 @@ function App() {
           setForm={setReportForm}
           onSuggest={generateReportSuggestion}
           onGenerateSuggestedReport={generateReportFromSuggestion}
+          onRelaxFiltersAndSuggest={relaxFiltersAndResuggest}
         />
       )}
       {activeTab === 'Treffer prüfen' && (

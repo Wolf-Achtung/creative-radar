@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import WeeklyReport, Asset
@@ -29,6 +29,41 @@ def latest_report(session: Session = Depends(get_session)):
     if not report:
         raise HTTPException(status_code=404, detail="No report found")
     return report
+
+
+@router.get("/latest/download.html")
+def latest_report_download_html(session: Session = Depends(get_session)):
+    report = session.exec(select(WeeklyReport).order_by(WeeklyReport.generated_at.desc())).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="No report found")
+    return Response(
+        content=report.html_content or "",
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="creative-radar-report.html"'},
+    )
+
+
+@router.get("/latest/download.md")
+def latest_report_download_markdown(session: Session = Depends(get_session)):
+    report = session.exec(select(WeeklyReport).order_by(WeeklyReport.generated_at.desc())).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="No report found")
+    markdown = (
+        "# Creative Radar Report\n\n"
+        f"- Zeitraum: {report.week_start} bis {report.week_end}\n"
+        f"- Erstellt am: {report.generated_at}\n\n"
+        "## Executive Summary (DE)\n\n"
+        f"{report.executive_summary_de or 'Keine Zusammenfassung verfügbar.'}\n\n"
+        "## Executive Summary (EN)\n\n"
+        f"{report.executive_summary_en or 'No summary available.'}\n\n"
+        "## Trend Summary (DE)\n\n"
+        f"{report.trend_summary_de or 'Keine Trend-Zusammenfassung verfügbar.'}\n"
+    )
+    return Response(
+        content=markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="creative-radar-report.md"'},
+    )
 
 
 @router.get("/{report_id}")
