@@ -1,4 +1,5 @@
 from uuid import UUID
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.database import get_session
@@ -7,6 +8,7 @@ from app.schemas.dto import AssetReviewUpdate
 from app.services.visual_analysis import analyze_asset_visual
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
+logger = logging.getLogger(__name__)
 
 
 def _asset_card(asset: Asset, post: Post | None, channel: Channel | None, title: Title | None) -> dict:
@@ -139,6 +141,9 @@ def analyze_visual_batch(limit: int = 10, only_pending: bool = True, session: Se
     checked = len(assets)
     done = 0
     no_source = 0
+    fetch_failed = 0
+    text_fallback = 0
+    provider_error = 0
     failed = 0
     for asset in assets:
         updated = analyze_asset_visual(session, asset)
@@ -146,6 +151,27 @@ def analyze_visual_batch(limit: int = 10, only_pending: bool = True, session: Se
             done += 1
         elif updated.visual_analysis_status == "no_source":
             no_source += 1
-        elif updated.visual_analysis_status in {"error", "fetch_failed", "text_fallback"}:
+        elif updated.visual_analysis_status == "fetch_failed":
+            fetch_failed += 1
             failed += 1
-    return {"checked": checked, "analyzed": done, "no_source": no_source, "failed": failed}
+        elif updated.visual_analysis_status == "text_fallback":
+            text_fallback += 1
+            failed += 1
+        elif updated.visual_analysis_status in {"error", "provider_error"}:
+            provider_error += 1
+            failed += 1
+        elif updated.visual_analysis_status not in {"running", "pending"}:
+            failed += 1
+    logger.info(
+        "visual-batch-summary",
+        extra={
+            "checked": checked,
+            "analyzed": done,
+            "no_source": no_source,
+            "fetch_failed": fetch_failed,
+            "text_fallback": text_fallback,
+            "provider_error": provider_error,
+            "failed": failed,
+        },
+    )
+    return {"checked": checked, "analyzed": done, "no_source": no_source, "fetch_failed": fetch_failed, "text_fallback": text_fallback, "provider_error": provider_error, "failed": failed}
