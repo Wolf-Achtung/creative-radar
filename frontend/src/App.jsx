@@ -101,14 +101,33 @@ function inferTitleHint(asset, titles) {
   return { label: 'Filmtitel noch offen', source: 'Bitte zuordnen' };
 }
 
-function ImagePreview({ sources = [] }) {
-  const validSources = sources.filter(Boolean);
-  const [index, setIndex] = useState(0);
+function ImagePreview({ imageUrl, evidenceQuality, sources = [] }) {
+  // Backwards-compat: callers passing `sources={[url]}` (asset/review cards) still work.
+  const resolvedUrl = imageUrl || sources.find(Boolean) || null;
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  useEffect(() => { setIndex(0); }, [validSources.join('|')]);
+  useEffect(() => { setLoadFailed(false); }, [resolvedUrl]);
 
-  if (!validSources[index]) return <div className="preview-placeholder"><strong>Kein Bild gesichert</strong><span>Screenshot fehlt.</span></div>;
-  return <img src={validSources[index]} alt="Creative Vorschau" onError={() => setIndex((current) => current + 1)} />;
+  if (!resolvedUrl) {
+    const subtitle = evidenceQuality === 'missing' ? 'Keine Bildquelle erfasst' : 'Bildquelle nicht verfügbar';
+    return (
+      <div className="preview-placeholder preview-placeholder--no-source">
+        <strong>Kein Bild</strong>
+        <span>{subtitle}</span>
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="preview-placeholder preview-placeholder--load-failed">
+        <strong>Bild lädt nicht</strong>
+        <span>Quelle nicht erreichbar</span>
+      </div>
+    );
+  }
+
+  return <img src={resolvedUrl} alt="Creative Vorschau" onError={() => setLoadFailed(true)} />;
 }
 
 function MetricStrip({ asset }) {
