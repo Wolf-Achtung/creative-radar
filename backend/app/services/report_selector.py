@@ -30,20 +30,21 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
         tags.append("Titel erkannt")
     else:
         score -= 0.22
-        warnings.append("Titel fehlt")
+        warnings.append("Titel nicht eindeutig")
 
     if asset.visual_analysis_status == "done":
         score += 0.1
         tags.append("Bildanalyse geprüft")
     elif asset.visual_analysis_status in {"error", "fetch_failed", "no_source"}:
         score -= 0.2
-        warnings.append("Visual-Analyse unvollständig")
+        warnings.append("keine Bildanalyse")
 
     if asset.visual_evidence_url or asset.screenshot_url or asset.thumbnail_url:
         score += 0.1
         tags.append("Evidence vorhanden")
     else:
         score -= 0.15
+        warnings.append("kein Screenshot")
 
     if asset.ocr_text:
         score += 0.08
@@ -67,6 +68,7 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
         score += 0.05
     else:
         score -= 0.15
+        warnings.append("kein Screenshot")
 
     signal = _interaction_signal(post)
     if signal >= baseline * 1.25 and signal > 0:
@@ -82,6 +84,25 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
             score -= 0.08
 
     return max(0.0, min(1.0, score + 0.5)), tags, warnings
+
+
+
+
+def _build_reason(report_type: str, tags: list[str], warnings: list[str], signal: float, baseline: float) -> str:
+    tag_set = set(tags)
+    if report_type == "de_us_comparison":
+        if "DE/US Paarung erkannt" in tag_set:
+            return "Vorgeschlagen, weil zum Titel passende DE-/US-Treffer vorhanden sind."
+        return "Vorgeschlagen, weil der Treffer für den DE/US-Vergleich relevante Markt- und Titel-Signale hat."
+    if report_type == "visual_kinetics":
+        if "OCR sichtbar" in tag_set and ("Kinetic erkannt" in tag_set or "Titel erkannt" in tag_set):
+            return "Vorgeschlagen, weil OCR/Text und Titel-/Claim-Platzierung erkannt wurden."
+        return "Vorgeschlagen, weil sichtbare Text- und Bewegungs-Signale für Bild/Text & Kinetics vorliegen."
+    if signal >= baseline * 1.25 and signal > 0:
+        return "Vorgeschlagen, weil der Treffer im beobachteten Datensatz hohe sichtbare Interaktion zeigt."
+    if "Titel erkannt" in tag_set and "Evidence vorhanden" in tag_set and "CTA erkannt" in tag_set:
+        return "Vorgeschlagen, weil Titel erkannt, Evidence-Bild vorhanden und CTA sichtbar ist."
+    return "Vorgeschlagen, weil belastbare Titel-, Visual- und Kontextsignale vorliegen."
 
 
 def select_assets_for_report(
@@ -115,6 +136,12 @@ def select_assets_for_report(
     selected = []
     eligible = 0
 
+    title_market_map: dict[str, set[Market]] = {}
+    for asset, post, channel in rows:
+        title_key = str(asset.title_id) if asset.title_id else (asset.title_name or asset.placement_title_text or "")
+        if title_key:
+            title_market_map.setdefault(title_key, set()).add(channel.market)
+
     for asset, post, channel in rows:
         if not asset.title_id:
             excluded["missing_title"] += 1
@@ -132,12 +159,16 @@ def select_assets_for_report(
             continue
 
         score, tags, warnings = _score_asset(asset, post, channel, baseline, report_type)
+        title_key = str(asset.title_id) if asset.title_id else (asset.title_name or asset.placement_title_text or "")
+        markets_for_title = title_market_map.get(title_key, set())
+        if report_type == "de_us_comparison" and Market.DE in markets_for_title and (Market.US in markets_for_title or Market.INT in markets_for_title):
+            tags.append("DE/US Paarung erkannt")
         if score < 0.45:
             excluded["low_signal"] += 1
             continue
         eligible += 1
         title = asset.title.title_original if asset.title else "Filmtitel offen"
-        reason = "Hohe sichtbare Interaktion im Datensatz, mit Titel-/Visual-Signalen und belastbarer Evidence."
+        reason = _build_reason(report_type, tags, warnings, signal=_interaction_signal(post), baseline=baseline)
         selected.append({
             "asset_id": str(asset.id),
             "title": title,
