@@ -95,6 +95,16 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
 
 .find-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .find-card { display: grid; grid-template-columns: 100px 1fr; gap: 12px; padding: 12px; border-radius: 14px; background: #f4eee3; }
+.report-types { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.report-type-card { text-align: left; border: 1px solid #e0d8cb; cursor: pointer; min-height: 150px; grid-template-columns: 1fr; }
+.report-type-card:hover { border-color: #cdbaa4; background: #f8f1e6; }
+.active-choice.report-type-card { border: 2px solid #1d2330; background: #fff7ea; }
+.selected-marker { margin: 0 0 4px; font-size: 12px; font-weight: 800; color: #1f6c32; text-transform: uppercase; letter-spacing: .05em; }
+.selected-report { margin: 12px 0; }
+.step-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.step-pill { font-size: 12px; font-weight: 700; padding: 6px 10px; border-radius: 999px; border: 1px solid #ddd4c6; background: #fffaf1; color: #6c6458; }
+.step-pill.active { background: #1d2330; color: #fff; border-color: #1d2330; }
+.report-empty { border: 1px solid #f2c489; background: #fff1dd; border-radius: 12px; padding: 12px; }
 .find-card img, .find-card .preview-placeholder { width: 100px; height: 90px; object-fit: cover; overflow: hidden; border-radius: 10px; display: block; }
 .find-title { margin: 0 0 6px; font-weight: 700; }
 
