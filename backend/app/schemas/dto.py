@@ -119,3 +119,17 @@ class TitleSyncRequest(BaseModel):
     markets: list[str] = ["DE", "US"]
     lookback_weeks: int = 8
     lookahead_weeks: int = 24
+
+
+class ReportSuggestRequest(BaseModel):
+    report_type: str
+    date_range: str = "7d"
+    channels: list[str] = []
+    markets: list[str] = []
+    limit: int = 10
+
+
+class ReportGenerateRequest(BaseModel):
+    report_type: str
+    asset_ids: list[UUID]
+    date_range: str = "7d"

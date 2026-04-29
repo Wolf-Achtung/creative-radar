@@ -470,31 +470,32 @@ function ComparisonPanel({ assets }) {
   );
 }
 
-function ReportsPanel({ report, approved, highlights, openReview, missingTitles, busy, onGenerateReport }) {
+function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGenerateSuggestedReport }) {
+  const reportTypes = [
+    { key: 'weekly_overview', label: 'Wochenüberblick', desc: 'Die wichtigsten Creative-Funde der letzten 7 Tage für Geschäftsführung und Marketing.' },
+    { key: 'de_us_comparison', label: 'DE/US Vergleich', desc: 'Vergleicht Titel-, Claim-, CTA- und Kinetic-Platzierungen zwischen deutschen und internationalen Creatives.' },
+    { key: 'visual_kinetics', label: 'Bild/Text & Kinetics', desc: 'Dokumentiert sichtbaren Text, Claims, Overlays, CTAs und Screenshots.' },
+  ];
   return (
-    <Section title="Weekly Report" kicker="Ergebnisraum">
-      <div className="report-head">
-        <p><strong>Zeitraum:</strong> letzte 7 Tage</p>
-        <p><strong>Status:</strong> {report?.status || 'Noch nicht erstellt'}</p>
+    <Section title="Welchen Report möchtest du erstellen?" kicker="Report-Zentrale">
+      <div className="find-grid">{reportTypes.map((t) => (
+        <article key={t.key} className={`find-card ${form.report_type === t.key ? 'active-choice' : ''}`} onClick={() => setForm({ ...form, report_type: t.key })}>
+          <div><p className="find-title">{t.label}</p><p className="small muted">{t.desc}</p></div>
+        </article>
+      ))}</div>
+      <div className="form-grid">
+        <label>Zeitraum<select value={form.date_range} onChange={(e) => setForm({ ...form, date_range: e.target.value })}><option value="7d">letzte 7 Tage</option><option value="14d">14 Tage</option><option value="30d">30 Tage</option></select></label>
+        <label>Märkte<select value={form.market} onChange={(e) => setForm({ ...form, market: e.target.value })}><option value="all">alle</option><option value="DE">DE</option><option value="US">US</option><option value="INT">INT</option></select></label>
+        <label>Max. Assets<select value={form.limit} onChange={(e) => setForm({ ...form, limit: Number(e.target.value) })}><option value={5}>5</option><option value={10}>10</option><option value={20}>20</option></select></label>
       </div>
-      <div className="status-pills">
-        <span className="pill">Management Summary</span>
-        <span className="pill">Trend Snapshot</span>
-        <span className="pill">Highlight Creatives</span>
-        <span className="pill">DE/US Vergleich</span>
-        <span className="pill">Appendix</span>
-      </div>
-      <p className="muted small">Freigegeben: {approved.length} · Highlights: {highlights.length} · Noch zu prüfen: {openReview} · Ohne Filmtitel-Zuordnung: {missingTitles}</p>
-      {missingTitles > 0 && <p className="report-warning">Für einen belastbaren Report zuerst offene Filmtitel-Zuordnungen schließen.</p>}
-      <div className="section-actions">
-        <button className="primary" onClick={onGenerateReport} disabled={busy || approved.length === 0}>Report aktualisieren</button>
-      </div>
-      {report ? (
-        <details>
-          <summary>Report-Vorschau öffnen</summary>
-          <iframe title="report" srcDoc={report.html_content || ''} />
-        </details>
-      ) : <p className="muted">Noch kein Weekly Report erzeugt.</p>}
+      <div className="section-actions"><button className="primary" onClick={onSuggest} disabled={busy}>Report-Vorschlag erstellen</button></div>
+      {suggestion && (<>
+        <h3>Report-Vorschlag</h3>
+        <p className="muted small">Gefunden: {suggestion.checked} Assets · Geeignet: {suggestion.eligible} · Vorgeschlagen: {suggestion.selected}</p>
+        <div className="find-grid">{suggestion.assets.map((asset) => (<article key={asset.asset_id} className="find-card"><ImagePreview sources={[asset.visual_evidence_url]} /><div><p className="find-title">{asset.title}</p><p className="muted small">{asset.channel} · {asset.market} · Score {asset.score}</p><p className="small">{asset.reason}</p></div></article>))}</div>
+        <div className="section-actions"><button className="primary" onClick={onGenerateSuggestedReport} disabled={busy || suggestion.assets.length===0}>Report erzeugen</button></div>
+      </>)}
+      {report ? <details><summary>Aktuellen Report anzeigen</summary><iframe title="report" srcDoc={report.html_content || ''} /></details> : <p className="muted">Noch kein Report erzeugt.</p>}
     </Section>
   );
 }
@@ -587,6 +588,8 @@ function App() {
   const [titleCandidates, setTitleCandidates] = useState([]);
   const [whitelistStats, setWhitelistStats] = useState(null);
   const [batchFeedback, setBatchFeedback] = useState(null);
+  const [reportSuggestion, setReportSuggestion] = useState(null);
+  const [reportForm, setReportForm] = useState({ report_type: 'weekly_overview', date_range: '7d', market: 'all', limit: 10 });
 
   const sortedTitles = useMemo(() => {
     const map = new Map();
@@ -757,14 +760,31 @@ function App() {
     });
   }
 
-  async function generateReport() {
+  async function generateReportSuggestion() {
     await run(async () => {
-      const today = new Date();
-      const end = today.toISOString().slice(0, 10);
-      const startDate = new Date(today.getTime() - 7 * 86400000).toISOString().slice(0, 10);
-      const created = await endpoints.generateReport({ week_start: startDate, week_end: end, include_only_reviewed: true });
+      const payload = {
+        report_type: reportForm.report_type,
+        date_range: reportForm.date_range,
+        channels: [],
+        markets: reportForm.market === 'all' ? [] : [reportForm.market],
+        limit: reportForm.limit,
+      };
+      const suggested = await endpoints.suggestReport(payload);
+      setReportSuggestion(suggested);
+      setMessage('Report-Vorschlag kann erstellt werden. Das System wählt passende Treffer automatisch aus.');
+    });
+  }
+
+  async function generateReportFromSuggestion() {
+    await run(async () => {
+      if (!reportSuggestion) return;
+      const created = await endpoints.generateSuggestedReport({
+        report_type: reportSuggestion.report_type,
+        asset_ids: reportSuggestion.assets.map((a) => a.asset_id),
+        date_range: reportForm.date_range,
+      });
       setReport(created);
-      setMessage('Weekly Report wurde aktualisiert.');
+      setMessage('Report bereit. Die ausgewählten Treffer sind ausreichend geprüft und visuell dokumentiert.');
     });
   }
 
@@ -834,7 +854,11 @@ function App() {
           openReview={openReview}
           missingTitles={missingTitles}
           busy={busy}
-          onGenerateReport={generateReport}
+          suggestion={reportSuggestion}
+          form={reportForm}
+          setForm={setReportForm}
+          onSuggest={generateReportSuggestion}
+          onGenerateSuggestedReport={generateReportFromSuggestion}
         />
       )}
       {activeTab === 'Quellen' && (
