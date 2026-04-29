@@ -6,9 +6,17 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from app.config import settings
 from app.models.entities import Asset, Channel, Market, Post
 
 REPORT_TYPES = {"weekly_overview", "de_us_comparison", "visual_kinetics"}
+
+EVIDENCE_LABELS = {
+    "secure": "Bild intern gesichert",
+    "external": "Externe Bildquelle",
+    "source_only": "Bildquelle vorhanden",
+    "missing": "Keine Bildquelle",
+}
 
 ANALYSIS_DONE_STATES = {"done", "analyzed", "text_fallback"}
 ANALYSIS_FAILURE_STATES = {"error", "fetch_failed", "no_source"}
@@ -57,19 +65,69 @@ def _asset_title_key(asset: Asset) -> str:
     return ""
 
 
+def _has_internal_storage_path(asset: Asset) -> bool:
+    """Hat das Asset einen lokalen Storage-Pfad eingetragen? Sagt nichts über Erreichbarkeit."""
+    url = str(getattr(asset, "visual_evidence_url", "") or "")
+    return "/storage/evidence/" in url
+
+
 def _has_secure_evidence(asset: Asset) -> bool:
-    evidence_url = str(asset.visual_evidence_url or "")
-    return bool(evidence_url and (evidence_url.startswith("/storage/evidence/") or "/storage/evidence/" in evidence_url))
+    """Echte secure-Evidence: interner Storage-Pfad UND Storage-Mount produktiv aktiviert."""
+    return _has_internal_storage_path(asset) and settings.secure_storage_enabled
 
 
 def _evidence_quality(asset: Asset) -> str:
+    """
+    Klassifiziert Evidence-Qualität.
+
+    secure       interner Storage-Pfad UND SECURE_STORAGE_ENABLED=True. Solange kein
+                 persistentes Volume + Static-Mount existieren, bleibt das deaktiviert
+                 und kein Asset wird je als secure klassifiziert (Sprint 8.2b, Pfad C).
+    external     externe http(s)-URL als visual_evidence_url (CDN, Instagram).
+    source_only  nur thumbnail/screenshot/visual_source vorhanden, ODER interner
+                 Storage-Pfad bei deaktiviertem Storage (faktisch nicht erreichbar).
+    missing      keine Bildquelle.
+    """
     if _has_secure_evidence(asset):
         return "secure"
-    if asset.visual_evidence_url:
+
+    visual_evidence = str(getattr(asset, "visual_evidence_url", "") or "")
+    if visual_evidence.startswith(("http://", "https://")):
         return "external"
-    if asset.screenshot_url or asset.thumbnail_url or asset.visual_source_url:
+
+    if _has_internal_storage_path(asset):
         return "source_only"
+
+    if (
+        getattr(asset, "screenshot_url", None)
+        or getattr(asset, "thumbnail_url", None)
+        or getattr(asset, "visual_source_url", None)
+    ):
+        return "source_only"
+
     return "missing"
+
+
+def _displayable_image_url(asset: Asset) -> str | None:
+    """
+    Liefert die URL, die das UI tatsächlich anzeigen kann. Nicht identisch mit
+    evidence_quality — dies ist die Frage „was kann der Browser laden?".
+
+    Bevorzugt interne Storage-Pfade nur, wenn der Storage-Mount aktiv ist.
+    Fällt sonst auf externe http(s)-Quellen zurück, weil interne Pfade aktuell
+    tot sind. Gibt None zurück, wenn nichts Anzeigbares existiert.
+    """
+    if settings.secure_storage_enabled:
+        ev = getattr(asset, "visual_evidence_url", None)
+        if ev and "/storage/evidence/" in str(ev):
+            return ev
+
+    for field in ("visual_evidence_url", "visual_source_url", "screenshot_url", "thumbnail_url"):
+        url = getattr(asset, field, None)
+        if url and isinstance(url, str) and url.startswith(("http://", "https://")):
+            return url
+
+    return None
 
 
 def _suitability_label(score: float, report_type: str, evidence_quality: str, warnings: list[str], has_title: bool) -> str:
@@ -270,14 +328,17 @@ def select_assets_for_report(
             warnings.append("Externe Bildquelle, nicht dauerhaft gesichert")
         reason = _build_reason(report_type, tags, warnings, signal=_interaction_signal(post), baseline=baseline)
         suitability = _suitability_label(score, report_type, evidence_quality, warnings, has_title=bool(asset.title_id))
+        display_url = _displayable_image_url(asset)
         selected.append({
             "asset_id": str(asset.id),
             "title": title,
             "channel": channel.name,
             "market": channel.market.value,
-            "visual_evidence_url": asset.visual_evidence_url or asset.screenshot_url or asset.thumbnail_url,
+            "display_image_url": display_url,
             "evidence_quality": evidence_quality,
             "has_secure_evidence": evidence_quality == "secure",
+            "evidence_label": EVIDENCE_LABELS[evidence_quality],
+            "is_evidence_displayable": display_url is not None,
             "score": round(score, 2),
             "suitability": suitability,
             "reason": reason,
