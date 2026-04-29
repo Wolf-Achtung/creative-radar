@@ -46,6 +46,20 @@ def _asset_title_key(asset: Asset) -> str:
     return ""
 
 
+def _has_secure_evidence(asset: Asset) -> bool:
+    return bool(asset.visual_evidence_url and str(asset.visual_evidence_url).startswith("/storage/evidence/"))
+
+
+def _evidence_quality(asset: Asset) -> str:
+    if _has_secure_evidence(asset):
+        return "secure"
+    if asset.visual_evidence_url:
+        return "external"
+    if asset.screenshot_url or asset.thumbnail_url:
+        return "source_only"
+    return "missing"
+
+
 def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, report_type: str) -> tuple[float, list[str], list[str]]:
     score = 0.0
     tags: list[str] = []
@@ -65,12 +79,19 @@ def _score_asset(asset: Asset, post: Post, channel: Channel, baseline: float, re
         score -= 0.2
         warnings.append("keine Bildanalyse")
 
-    if asset.visual_evidence_url or asset.screenshot_url or asset.thumbnail_url:
-        score += 0.1
-        tags.append("Evidence vorhanden")
+    evidence_quality = _evidence_quality(asset)
+    if evidence_quality == "secure":
+        score += 0.18
+        tags.append("Bild gesichert")
+    elif evidence_quality == "external":
+        score += 0.05
+        warnings.append("Bildquelle nicht intern gesichert")
+    elif evidence_quality == "source_only":
+        score += 0.02
+        warnings.append("kein gesichertes Bild")
     else:
-        score -= 0.15
-        warnings.append("kein Screenshot")
+        score -= 0.18
+        warnings.append("kein gesichertes Bild")
 
     if asset.ocr_text:
         score += 0.08
@@ -125,7 +146,7 @@ def _build_reason(report_type: str, tags: list[str], warnings: list[str], signal
         return "Vorgeschlagen, weil sichtbare Text- und Bewegungs-Signale für Bild/Text & Kinetics vorliegen."
     if signal >= baseline * 1.25 and signal > 0:
         return "Vorgeschlagen, weil der Treffer im beobachteten Datensatz hohe sichtbare Interaktion zeigt."
-    if "Titel erkannt" in tag_set and "Evidence vorhanden" in tag_set and "CTA erkannt" in tag_set:
+    if "Titel erkannt" in tag_set and "Bild gesichert" in tag_set and "CTA erkannt" in tag_set:
         return "Vorgeschlagen, weil Titel erkannt, Evidence-Bild vorhanden und CTA sichtbar ist."
     return "Vorgeschlagen, weil belastbare Titel-, Visual- und Kontextsignale vorliegen."
 
@@ -174,12 +195,12 @@ def select_assets_for_report(
                 continue
         if not (asset.visual_evidence_url or asset.screenshot_url or asset.thumbnail_url):
             excluded["missing_visual"] += 1
-            if report_type in {"weekly_overview", "visual_kinetics"}:
+            if report_type == "visual_kinetics":
                 continue
         if asset.visual_analysis_status in {"error", "fetch_failed", "no_source"}:
             excluded["analysis_error"] += 1
             continue
-        if report_type == "visual_kinetics" and not (asset.ocr_text and (asset.has_kinetic or asset.has_title_placement)):
+        if report_type == "visual_kinetics" and not (_has_secure_evidence(asset) or asset.ocr_text or asset.has_title_placement or asset.has_kinetic or asset.kinetic_text):
             excluded["low_signal"] += 1
             continue
 
@@ -200,6 +221,7 @@ def select_assets_for_report(
             "channel": channel.name,
             "market": channel.market.value,
             "visual_evidence_url": asset.visual_evidence_url or asset.screenshot_url or asset.thumbnail_url,
+            "evidence_quality": _evidence_quality(asset),
             "score": round(score, 2),
             "reason": reason,
             "tags": tags,

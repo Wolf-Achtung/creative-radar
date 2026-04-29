@@ -6,6 +6,7 @@ from app.database import get_session
 from app.models.entities import WeeklyReport, Asset
 from app.schemas.dto import GenerateWeeklyReportRequest, ReportStatusUpdate, ReportSuggestRequest, ReportGenerateRequest
 from app.services.report_generator import generate_weekly_report_html
+from app.services.report_renderer_v2 import generate_report_html
 from app.services.report_selector import select_assets_for_report
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -48,17 +49,43 @@ def latest_report_download_markdown(session: Session = Depends(get_session)):
     report = session.exec(select(WeeklyReport).order_by(WeeklyReport.generated_at.desc())).first()
     if not report:
         raise HTTPException(status_code=404, detail="No report found")
-    markdown = (
-        "# Creative Radar Report\n\n"
-        f"- Zeitraum: {report.week_start} bis {report.week_end}\n"
-        f"- Erstellt am: {report.generated_at}\n\n"
-        "## Executive Summary (DE)\n\n"
-        f"{report.executive_summary_de or 'Keine Zusammenfassung verfügbar.'}\n\n"
-        "## Executive Summary (EN)\n\n"
-        f"{report.executive_summary_en or 'No summary available.'}\n\n"
-        "## Trend Summary (DE)\n\n"
-        f"{report.trend_summary_de or 'Keine Trend-Zusammenfassung verfügbar.'}\n"
-    )
+    assets = list(session.exec(select(Asset).where(Asset.include_in_report == True)).all())
+    report_type = "weekly_overview"
+    if report.trend_summary_de and report.trend_summary_de.startswith("["):
+        report_type = report.trend_summary_de.split("]", 1)[0].strip("[]")
+    lines = [
+        "# Creative Radar Report",
+        "",
+        f"- Report-Typ: {report_type}",
+        f"- Zeitraum: {report.week_start} bis {report.week_end}",
+        f"- Erstellt am: {report.generated_at}",
+        "",
+        "## Executive Summary (DE)",
+        "",
+        report.executive_summary_de or "Keine Zusammenfassung verfügbar.",
+        "",
+        "## Trend Summary",
+        "",
+        report.trend_summary_de or "Keine Trend-Zusammenfassung verfügbar.",
+        "",
+        "## Top Findings",
+    ]
+    for a in assets[:5]:
+        lines += [f"- {a.ai_summary_de or 'Creative-Fund'} ({a.asset_type.value})"]
+    lines += ["", "## Asset-Details"]
+    for a in assets:
+        lines += [
+            f"### Asset {a.id}",
+            f"- Evidence URL: {a.visual_evidence_url or a.screenshot_url or a.thumbnail_url or 'keine'}",
+            f"- OCR: {a.ocr_text or 'nicht erkannt'}",
+            f"- Titel/Claim: {a.placement_title_text or 'nicht erkannt'}",
+            f"- Kinetic: {a.kinetic_text or a.kinetic_type or 'nicht erkannt'}",
+            f"- CTA: {'erkannt' if a.asset_type.value in {'CTA Post', 'Ticket CTA'} else 'nicht erkannt'}",
+            f"- KI-Zusammenfassung: {a.ai_summary_de or 'keine'}",
+            "",
+        ]
+    lines += ["## Datenlücken", "", "- Assets ohne gesichertes Evidence-Bild wurden als Datenlücke behandelt."]
+    markdown = "\n".join(lines)
     return Response(
         content=markdown,
         media_type="text/markdown; charset=utf-8",
@@ -118,14 +145,14 @@ def generate_from_suggestion(payload: ReportGenerateRequest, session: Session = 
     session.add_all(valid_assets)
     session.commit()
 
-    html, meta = generate_weekly_report_html(session, date_from, date_to, include_only_reviewed=False)
+    html, meta = generate_report_html(session=session, report_type=payload.report_type, asset_ids=payload.asset_ids, date_from=date_from, date_to=date_to)
     report = WeeklyReport(
         week_start=date_from,
         week_end=date_to,
         html_content=html,
         executive_summary_de=meta['executive_summary_de'],
         executive_summary_en=meta['executive_summary_en'],
-        trend_summary_de=meta['trend_summary_de'],
+        trend_summary_de=f"[{meta.get('report_type','weekly_overview')}] {meta['trend_summary_de']}",
     )
     session.add(report)
     session.commit()
