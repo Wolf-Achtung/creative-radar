@@ -576,6 +576,47 @@ Der Plan deckt einen **Solo-Founder-Rhythmus von 3–4 PT-S/Woche** neben dem Be
 - **70-%-Metrik** kann erst nach mindestens einem realen Wochen-Lauf bewertet werden — Akzeptanz teilweise verzögert messbar.
 - **Storage-Provider-Latenz** (Woche-2-Entscheidung): wenn S3-Endpoint deutlich langsamer als IG-CDN ist, könnte die Vision-Analyse-Latenz steigen. Beobachten via F1.17-Logs.
 
+### Woche 4: DB-Trennung + DSGVO-Skelett
+
+**Ziel der Woche.** Das größte verbleibende strukturelle Risiko der ersten 4 Wochen schließen (geteilte DB mit `ki-sicherheit.jetzt` gegen silent column drift) und parallel ein dokumentiertes DSGVO-Fundament im Repo verankern, damit der spätere produktive Vollbetrieb nicht ohne Rechts­absicherung läuft.
+
+**Tasks.**
+
+- **F0.2 DB-Trennung von `ki-sicherheit.jetzt`** — Migration auf eine der von Wolf in Sektion 7.A freigegebenen Varianten (eigenes Schema `creative_radar` ODER eigene Postgres-Instanz). Schritte: a) Pre-Backup mit `pg_dump` der relevanten Tabellen, abgelegt mit Datum + SHA-Hash, b) neue Ziel-DB / neues Schema provisionieren, c) Daten der 8 Creative-Radar-Tabellen kopieren (`asset`, `title`, `titlekeyword`, `post`, `channel`, `titlesyncrun`, `titlecandidate`, `weeklyreport`), d) `DATABASE_URL` in Railway umstellen, e) Smoke-Test gegen `/api/health/db` und `/api/insights/overview`, f) alte Tabellen **nicht löschen** — nur abkoppeln, Löschung erst nach 14 Tagen Stabilbetrieb auf Wolf-Freigabe. (Diagnose §1 Pkt. 2, §4 „Geteilte-DB-Risiko", §9, §11 R2, Backlog F0.2.) **3 PT-S**
+- **F1.14 Alembic aktivieren** — die in Woche 1 vorbereitete Baseline-Revision auf der neuen DB / dem neuen Schema einspielen, `create_db_and_tables()` in `app/database.py` so umstellen, dass `metadata.create_all` ersetzt wird durch `alembic upgrade head`. `_ensure_columns()` und `_ensure_pg_enum_values()` als deprecated markieren (Aufruf bleibt vorerst neben Alembic, Entfernung in Folge-Sprint). Plus: Performance-Indizes-Revision aus Woche 2 als zweite Migration anwenden. (Diagnose §4 Indizes, §11 R2, Backlog F1.14, F2.18.) **0,5 PT-S**
+- **F0.7 DSGVO-Doku-Skelett** — `docs/data_protection.md` anlegen mit den Pflicht-Abschnitten als Überschriften und je 2–3 Bullet-Stichpunkten: Verarbeitungsverzeichnis (Art. 30 DSGVO), Rechtsgrundlagen je Datenkategorie (Art. 6), Aufbewahrungsfristen, Lösch-Workflow, technisch-organisatorische Maßnahmen (TOMs), Auftragsverarbeiter-Liste (Apify, OpenAI, TMDb, Railway, Netlify, Storage-Provider), Auskunftsanspruchs-Prozess. Inhaltliche Ausarbeitung in eigenem Folge-Sprint mit ggf. juristischer Zweitprüfung. (Diagnose §11 R18, §12 S-5, Backlog F0.7.) **1 PT-S**
+- **Sprint-8.2-Puffer** — DB-Migration ändert keinen Sprint-8.2-Code, aber neue Connection-String braucht Smoke-Test gegen `/api/img`-Proxy (Health-Pfad). **0,3 PT-S**
+
+**Aufwand gesamt:** ~4,8 PT-S — am oberen Rand der Wochen-Kapazität, vertretbar weil DSGVO-Skelett primär Schreib- statt Code-Arbeit ist.
+
+**Akzeptanzkriterien.**
+
+- `/api/health/db` antwortet aus der neuen DB / dem neuen Schema; `database_diagnostics()` zeigt den korrekten URL-Prefix.
+- `pg_dump`-Backup der alten DB liegt mit Datum, SHA-Hash und Speicherpfad in einem privaten Ablageort (Wolf-Notizen oder Railway-eigener Backup-Slot); Pfad ist Wolf bekannt.
+- `alembic current` auf Production zeigt die Baseline + Index-Revision; `_ensure_columns()` ist mit `# deprecated`-Kommentar markiert.
+- Alle bestehenden Endpunkte funktionieren nach Migration: Smoke-Test über `/api/health`, `/api/channels`, `/api/titles`, `/api/posts`, `/api/assets`, `/api/reports`, `/api/img` (Sprint-8.2-Pfad), `/api/insights/overview`.
+- `docs/data_protection.md` existiert mit den 7 Pflicht-Abschnitten als Überschriften plus Stichpunkten; Datei ist im Repo, im README verlinkt.
+- Sprint 8.2 weiter unverändert: kein Diff in `api/proxy.py`, `report_selector.py`, `report_renderer_v2.py`.
+
+**Risiken / Abhängigkeiten.**
+
+- **Wolf-Entscheidung 7.A** (Variante A/B/C zur DB-Trennung) muss vor Woche-4-Start vorliegen. Ohne Entscheidung blockiert F0.2 vollständig.
+- **Daten-Co-Habitation mit `ki-sicherheit.jetzt`**: beim `pg_dump` und Datenkopie dürfen ki-sicherheit-Tabellen nicht angefasst werden (Schutzregel 6.3). Selektive Tabellen­auswahl per `pg_dump -t cr_*` oder explizite Tabellenliste.
+- **Migration-Fenster**: kurze Down­zeit für den DATABASE_URL-Switch einkalkulieren (Frontend-Anwender sehen ggf. einen Refresh-Loop). Vorab Wolf informieren.
+- **DSGVO-Skelett ist nicht das fertige Konzept** — es ersetzt keine juristische Prüfung; Folge-Sprint mit Anwalt notwendig (Querverweis F0.5 Apify-ToS-Termin, ggf. Bündelung).
+
+### Was nach Woche 4 kommt
+
+Nach Woche 4 ist das Stabilisierungs-Fundament gelegt: aufgeräumtes Repo (W1), persistentes Asset-Storage (W2), ehrliche Visual-Pipeline (W3), getrennte DB plus DSGVO-Skelett (W4). Ab Woche 5 verschiebt sich der Schwerpunkt von Stabilisierung zu Produkt-Bausteinen.
+
+Bewusst nach hinten geschobene Items aus den ersten 4 Wochen, in der empfohlenen Reihenfolge für Woche 5+:
+
+- **F0.3 Auth-Layer + F0.6 Rate-Limit / Cost-Cap** (~2 PT-S) — sobald externe Nutzer absehbar werden oder Apify-/OpenAI-Verbrauch ungeplant steigt. Solange Solo-Betrieb mit dokumentiertem Cost-Cap (manuell überwacht) bleibt, ist der Aufschub vertretbar.
+- **F1.5 Magic-String-Hack auf `trend_summary_de` ablösen** (1,5 PT-S) — Quick Win, jederzeit nachziehbar; ideal kombiniert mit F1.18 (tote API-Endpunkte aufräumen).
+- **F1.1 Title-Tracking-Dashboard** (3 PT-S) — der erste echte Produkt-Baustein nach Stabilisierung; trägt unmittelbar auf Briefing-Abschnitt 3 (Title-Tracking).
+- **F1.6 Background-Jobs** für Apify-Monitor — schließt das 120-s-Browser-Timeout-Risiko (Diagnose §11 R10).
+- Weitere P1- und gezielte P2-Items nach Backlog-Reihung in Sektion 2.4.
+
 
 
 
