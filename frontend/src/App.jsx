@@ -102,13 +102,17 @@ function inferTitleHint(asset, titles) {
 }
 
 function ImagePreview({ imageUrl, evidenceQuality, sources = [] }) {
-  // Backwards-compat: callers passing `sources={[url]}` (asset/review cards) still work.
-  const resolvedUrl = imageUrl || sources.find(Boolean) || null;
-  const [loadFailed, setLoadFailed] = useState(false);
+  // Two calling conventions:
+  //   1. Vorschlagskarte: imageUrl already curated by backend (display_image_url).
+  //      Treated as a single-element candidate list.
+  //   2. Asset-/Review-Card: sources={[evidence, screenshot, thumbnail, source]}.
+  //      Iterate on onError until one loads or the list is exhausted.
+  const candidates = imageUrl ? [imageUrl] : sources.filter(Boolean);
+  const [index, setIndex] = useState(0);
 
-  useEffect(() => { setLoadFailed(false); }, [resolvedUrl]);
+  useEffect(() => { setIndex(0); }, [candidates.join('|')]);
 
-  if (!resolvedUrl) {
+  if (candidates.length === 0) {
     const subtitle = evidenceQuality === 'missing' ? 'Keine Bildquelle erfasst' : 'Bildquelle nicht verfügbar';
     return (
       <div className="preview-placeholder preview-placeholder--no-source">
@@ -118,7 +122,7 @@ function ImagePreview({ imageUrl, evidenceQuality, sources = [] }) {
     );
   }
 
-  if (loadFailed) {
+  if (index >= candidates.length) {
     return (
       <div className="preview-placeholder preview-placeholder--load-failed">
         <strong>Bild lädt nicht</strong>
@@ -127,7 +131,13 @@ function ImagePreview({ imageUrl, evidenceQuality, sources = [] }) {
     );
   }
 
-  return <img src={resolvedUrl} alt="Creative Vorschau" onError={() => setLoadFailed(true)} />;
+  return (
+    <img
+      src={candidates[index]}
+      alt="Creative Vorschau"
+      onError={() => setIndex((current) => current + 1)}
+    />
+  );
 }
 
 function MetricStrip({ asset }) {
