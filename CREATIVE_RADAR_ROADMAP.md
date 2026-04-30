@@ -612,6 +612,74 @@ Der Plan deckt einen **Solo-Founder-Rhythmus von 3–4 PT-S/Woche** neben dem Be
 
 Nach Woche 4 ist das Stabilisierungs-Fundament gelegt: aufgeräumtes Repo (W1), persistentes Asset-Storage (W2), ehrliche Visual-Pipeline (W3), getrennte DB plus geschlossener Zugang (W4). Direkt im Anschluss steht **F0.6 Hard-Cap-Vollausbau** an (Cost-Cap-Service, der bei Überschreiten `APIFY_MONITOR_ENABLED=False` runtime setzt — eine Folgewoche, ~0,5 PT). Parallel wird **F0.7 DSGVO-Doku-Skelett** als eigener Sprint mit juristischer Begleitung aufgesetzt (siehe §4.4); bis dahin bleibt Diagnose §11 R18 ein offenes, dokumentiertes Risiko. **F1.5 Magic-String-Hack auf `trend_summary_de` ablösen** (1,5 PT) bleibt Wandertask, jederzeit nachziehbar wenn Luft ist — ideal kombiniert mit F1.18 (tote API-Endpunkte aufräumen). Weitere P1- und P2-Items folgen nach Backlog-Reihung aus Sektion 2.4; der Schwerpunkt verschiebt sich danach von Stabilisierung zu Produkt-Bausteinen — Title-Tracking-Dashboard (F1.1), Background-Jobs für Apify (F1.6), Trend-Detection (F2.2), perspektivisch Creative-Briefing-Generator und Markt-Vergleich-Erweiterung.
 
+---
+
+## 6. Schutzregeln für die Umsetzung
+
+Diese Regeln gelten ab Phase 4 (Umsetzung) und leiten sich direkt aus den Diagnose-Befunden in DIAGNOSIS.md §11 (Risiken) und §13 (Stille Fehler) ab. Sie sind kein generisches Best-Practice-Set, sondern konkrete Reaktionen auf identifizierte Schwächen — etwa die geteilte DB mit `ki-sicherheit.jetzt`, ungeprüfte Apify-Pipelines, Cost-Exposure ohne Hard-Cap, und die Sprint-8.2-Pfade, die nicht regressioniert werden dürfen.
+
+### Datenbank-Sicherheit
+
+- **Vor jeder Schema-Migration: vollständiges `pg_dump`-Backup** der betroffenen Creative-Radar-Tabellen, abgelegt mit Datum + SHA-Hash + Pfad-Notiz. Begründung: §1 Pkt. 2 + §11 R2 — silent column drift auf geteilter DB.
+- **Keine `DROP`/`TRUNCATE`/`DELETE`-DDL ohne explizite Wolf-Freigabe.** Auch nicht „nur Test", „nur kurz", „rolle ich gleich zurück". Begründung: §11 R2 + Schutz vor irreversiblen Datenverlusten.
+- **Bis F0.2 abgeschlossen ist (DB-Trennung): keine `ALTER TABLE`** auf den generischen Tabellennamen (`asset`, `title`, `channel`, `post`) — die könnten ki-sicherheit-Daten treffen. Migrations laufen erst nach Schema-Trennung. Begründung: §4 „Geteilte-DB-Risiko" + §9.
+- **Alembic-Revisions immer mit Down-Migration**, auch wenn down nur ein `pass` ist. Rollback-Befehl im Revisions-Header dokumentiert. Begründung: §4 + §11 R2.
+- **Solange DB geteilt ist: keine langen Transaktionen, keine `LOCK TABLE`** — Pool-Konkurrenz mit ki-sicherheit.jetzt (§9).
+
+### Pipeline-Idempotenz
+
+- **Apify-Pulls müssen Duplikate stillschweigend skippen.** Idempotenz über `Post.post_url UNIQUE` (§4) reicht für IG, **nicht** für TikTok (`external_id` nicht UNIQUE — §7). Bis F1.19 greift: defensiv prüfen.
+- **`Post.raw_payload JSON` bleibt erhalten** (Replay-Fähigkeit, §5.3) — kein Cleanup-Skript löscht ihn ohne dokumentierte Begründung.
+- **Cron-Race-Conditions vermeiden**: F1.6 bringt Background-Jobs, jeder mit Lock-Strategie (Postgres-Advisory-Lock o.ä.) — keine zwei Apify-Monitors parallel.
+- **Visual-Pipeline-Status nur aus dem Enum** (F1.15). Kein freier String. Begründung: §13 stille Fehler — `text_only`-vs-`text_fallback`-Drift hat den Insights-Counter auf 0 gehalten.
+
+### Externe API-Kosten
+
+- **Cost-Logging in W4 ist Voraussetzung für Hard-Cap in W5+** — ohne Counter keine Schaltung (§11 R7 + R14).
+- **Hard-Cap-Schwellen** explizit von Wolf bestätigt (Tages- + Monats-Limit getrennt). Bei Überschreiten: `APIFY_MONITOR_ENABLED=False` runtime + Alert; manueller Reset durch Wolf.
+- **Rate-Limit-Backoff** bei TMDb (§5.4), OpenAI (429), Apify (5xx): exponential, max 3 Versuche, dann harter Fail mit Status `provider_error` (§5.5).
+- **Kein neuer kostenpflichtiger API-Aufruf** ohne Counter + Wolf-Sichtung — gilt bei gpt-4o-Wechsel, Perplexity-Aktivierung, Apify-Comment-Scraper.
+
+### Auth + CORS
+
+- **Bei jedem neuen Endpoint nach W4: Auth-Dependency Pflicht.** Default ist „geschützt"; öffentliche Endpoints brauchen explizite Begründung im PR. Begründung: §1 Pkt. 6 + §11 R7 (heute alle Endpunkte public).
+- **CORS_ORIGINS bei jeder Domain-Änderung pflegen.** Heute lebt `app.creative-radar.de` und `creative-radar.ki-sicherheit.jetzt` parallel; alte Origins erst nach Migrationsfenster entfernen. Begründung: vermeiden von 502/CORS-Fehlern bei Live-Nutzern.
+- **Bearer-Token niemals committen.** `.env`/`.env.local` in `.gitignore` (§3 — bereits vorhanden), `.env.example` ohne echte Werte pflegen. Pre-Commitment aus Briefing §10.
+- **Token-Rotation-Plan** dokumentieren, sobald Auth produktiv ist — wer rotiert, wie oft, wo dokumentiert.
+
+### Datenfluss-Integrität
+
+- **Mapping-Audit ist Mandatory Check vor Production-Deploy** für jede Pipeline-Änderung. Diagnose §7 Format ist die Vorlage: Quelle → DB → API → Frontend, plus „Befund / Risiko / Priorität". Begründung: §6.2 (Datenverlust an Pipeline-Grenzen) + §13 stille Fehler.
+- **Schema-Migrationen mit Backfill-Plan**: neue Spalte = entweder Default-Wert ODER explizites Backfill-Skript ODER dokumentiert „leer ok". Keine stillen `NULL`-Spalten, die später Reports verzerren.
+- **Keine stillen Drops von Feldern.** Wenn ein Feld nicht mehr genutzt wird (z.B. `WeeklyReport.html_url`, `pdf_url` — §7), erst deprecaten, dann nach 1+ Sprint löschen, beides via Alembic.
+- **Sprint-8.2-Pfade** (`api/proxy.py`, `report_selector.py`, `report_renderer_v2.py`, `frontend/src/App.jsx ImagePreview`) sind tabu für unbekannte Folgeänderungen, bis 8.2 abgeschlossen ist. Begründung: laufender Parallel-Sprint, Konflikt-Vermeidung.
+
+### Compliance + Recht
+
+- **TikTok/Instagram-Scraping** nur mit explizitem Wolf-OK, idealerweise nach Rückmeldung aus dem Anwalts-Termin (F0.5). Bis dahin: Apify-Endpoints hinter Feature-Flag `APIFY_MONITOR_ENABLED`. Pre-Commitment aus Briefing §10 + §4.4.1.
+- **DSGVO-Verarbeitungsverzeichnis** vor Skalierung über den Pilot-User-Kreis hinaus. F0.7 ist der Trigger. Begründung: §11 R18 + §4.4.4.
+- **OpenAI-DPA/AVV** aktivieren, **bevor** Captions mit personenbezogenen Inhalten weiterverarbeitet werden. Heute laufen sie bereits — daher: bald, nicht „irgendwann". Begründung: §4.4.3.
+- **Drittlandtransfer** (USA: OpenAI; Region je Storage-Provider) im Verzeichnis dokumentieren. Begründung: DSGVO Art. 30 + §4.4.
+
+### Code-Hygiene
+
+- **Eine Aufgabe pro Commit.** Multi-Edit-Chaos vermeiden, weil Reviews und Bisects sonst leiden. Bewährtes Muster aus dieser Roadmap-Arbeit.
+- **`force-with-lease` nur auf Solo-Branches nach Rebase.** Niemals auf `main` (Pre-Commitment Briefing §10).
+- **Doppelungen pflegen, bis sie konsolidiert sind.** Konkret: `netlify.toml` ↔ `frontend/netlify.toml` müssen bei jeder Änderung beide angefasst werden, bis F2.16 sie auf eine Quelle reduziert. Genauso die drei `startCommand`-Quellen (Dockerfile + start.sh + railway.json/toml) bis F2.16-Begleit. Begründung: §11 R9.
+- **Tests vor Merge.** `pytest -q` muss grün sein. Frontend-Build (`npm run build`) muss durchlaufen. Sprint-8.2-Tests (`test_proxy.py`, `test_report_selector.py`, `test_report_renderer_v2.py`) dürfen nie regressionieren.
+
+### Eskalation an Wolf
+
+Claude Code entscheidet in Phase 4 **nicht** autonom — STOP und Wolf fragen — bei:
+
+- **Externe Verträge / API-Kosten** mit erwartetem Verbrauch > **50 €/Monat** oder neuem Anbieter-Account (Storage, Sentry-Pro, Auth0-Pro).
+- **Juristischen Risiken**: Scraping-Erweiterungen, neue DSGVO-Datenkategorien (Comments, DMs), Drittlandtransfers, Lizenzfragen (TMDb commercial, IGDB).
+- **Irreversiblen Architektur-Entscheidungen**: DB-/KI-/Auth-/Storage-Provider-Wechsel, auch wenn technisch reversibel mit > 1 PT Migrationsaufwand.
+- **Datenverlust-Potenzial**: jede `DROP COLUMN`/`DROP TABLE`, destruktive Massen-`UPDATE`s, Datentyp-Wechsel ohne Lossless-Cast.
+- **Branding/UX jenseits klarer Vorgaben**: Texte, Farben, Wordings, die nicht aus Briefing oder Diagnose ableitbar sind.
+
+Sonst gilt: minimal-invasiv, Diagnose-Querverweis im Commit-Body, klein und reversibel.
+
 
 
 
