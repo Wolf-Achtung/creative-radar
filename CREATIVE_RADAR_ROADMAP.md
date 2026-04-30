@@ -604,6 +604,7 @@ Der Plan deckt einen **Solo-Founder-Rhythmus von 3–4 PT-S/Woche** neben dem Be
 - **Budget 5,0 PT vs. Standard 3–4 PT** — am oberen Rand. Vertretbar, weil F1.14, F2.18 und F0.6 (reduziert) Vorarbeit aus W1–W3 nutzen statt neu zu bauen; falls die Auth-Mechanismus-Wahl auf einen externen Provider fällt, F0.6-Cost-Logging in W5+ verschieben (Mitigation siehe nächster Punkt).
 - **DB-Migration ist die riskanteste Operation der ersten 4 Wochen.** Rollback-Plan vor Start verifiziert (Restore-Test in Staging oder lokal), Wartungsfenster vorab angekündigt, schrittweise Verifikation gegen Smoke-Test-Endpunkte.
 - **Auth-Mechanismus-Wahl (Bearer-ENV vs. externer Provider)** beeinflusst W4-Aufwand: bei externem Provider (Auth0 / Netlify Identity / Supabase Auth) Aufwand ca. +1 PT, dann verschiebt sich F0.6-Cost-Logging in W5+ und wird durch reines Railway-Log-Monitoring überbrückt.
+- **Domain-Migration auf `creative-radar.de` bereits abgeschlossen** (`app.creative-radar.de` + `api.creative-radar.de` live). Auth-Implementierung in dieser Woche muss die neuen Origins in Allow-List/CORS berücksichtigen — bestehende CORS-Konfiguration in `backend/app/config.py:44-49` unterstützt Multi-Origin bereits.
 - **Sprint 8.2 darf nicht durch DB-Migration blockiert werden** — offene 8.2-PRs entweder vor Migrationsstart mergen oder erst nach Abschluss der Migration neu rebasen.
 - **Wolf-Entscheidungen 7.A** (DB-Variante A/B/C) und **7.E** (Auth-Mechanismus) müssen vor Woche-4-Start vorliegen — beides ist Go/No-Go für diese Woche.
 
