@@ -576,46 +576,40 @@ Der Plan deckt einen **Solo-Founder-Rhythmus von 3–4 PT-S/Woche** neben dem Be
 - **70-%-Metrik** kann erst nach mindestens einem realen Wochen-Lauf bewertet werden — Akzeptanz teilweise verzögert messbar.
 - **Storage-Provider-Latenz** (Woche-2-Entscheidung): wenn S3-Endpoint deutlich langsamer als IG-CDN ist, könnte die Vision-Analyse-Latenz steigen. Beobachten via F1.17-Logs.
 
-### Woche 4: DB-Trennung + DSGVO-Skelett
+### Woche 4: Zugang sichern: DB-Trennung + Alembic + Auth + Cost-Logging
 
-**Ziel der Woche.** Das größte verbleibende strukturelle Risiko der ersten 4 Wochen schließen (geteilte DB mit `ki-sicherheit.jetzt` gegen silent column drift) und parallel ein dokumentiertes DSGVO-Fundament im Repo verankern, damit der spätere produktive Vollbetrieb nicht ohne Rechts­absicherung läuft.
+**Ziel der Woche.** Strukturelle und zugangsseitige Härtung in einem zusammenhängenden Schritt: die DB von `ki-sicherheit.jetzt` trennen und gleichzeitig die heute öffentlichen Endpoints schließen, bevor die geplanten ~5 echten User dranhängen. Drei der Tasks (F1.14, F2.18, F0.6 reduziert) nutzen Vorarbeit aus W1–W3 statt neu zu bauen.
 
 **Tasks.**
 
-- **F0.2 DB-Trennung von `ki-sicherheit.jetzt`** — Migration auf eine der von Wolf in Sektion 7.A freigegebenen Varianten (eigenes Schema `creative_radar` ODER eigene Postgres-Instanz). Schritte: a) Pre-Backup mit `pg_dump` der relevanten Tabellen, abgelegt mit Datum + SHA-Hash, b) neue Ziel-DB / neues Schema provisionieren, c) Daten der 8 Creative-Radar-Tabellen kopieren (`asset`, `title`, `titlekeyword`, `post`, `channel`, `titlesyncrun`, `titlecandidate`, `weeklyreport`), d) `DATABASE_URL` in Railway umstellen, e) Smoke-Test gegen `/api/health/db` und `/api/insights/overview`, f) alte Tabellen **nicht löschen** — nur abkoppeln, Löschung erst nach 14 Tagen Stabilbetrieb auf Wolf-Freigabe. (Diagnose §1 Pkt. 2, §4 „Geteilte-DB-Risiko", §9, §11 R2, Backlog F0.2.) **3 PT-S**
-- **F1.14 Alembic aktivieren** — die in Woche 1 vorbereitete Baseline-Revision auf der neuen DB / dem neuen Schema einspielen, `create_db_and_tables()` in `app/database.py` so umstellen, dass `metadata.create_all` ersetzt wird durch `alembic upgrade head`. `_ensure_columns()` und `_ensure_pg_enum_values()` als deprecated markieren (Aufruf bleibt vorerst neben Alembic, Entfernung in Folge-Sprint). Plus: Performance-Indizes-Revision aus Woche 2 als zweite Migration anwenden. (Diagnose §4 Indizes, §11 R2, Backlog F1.14, F2.18.) **0,5 PT-S**
-- **F0.7 DSGVO-Doku-Skelett** — `docs/data_protection.md` anlegen mit den Pflicht-Abschnitten als Überschriften und je 2–3 Bullet-Stichpunkten: Verarbeitungsverzeichnis (Art. 30 DSGVO), Rechtsgrundlagen je Datenkategorie (Art. 6), Aufbewahrungsfristen, Lösch-Workflow, technisch-organisatorische Maßnahmen (TOMs), Auftragsverarbeiter-Liste (Apify, OpenAI, TMDb, Railway, Netlify, Storage-Provider), Auskunftsanspruchs-Prozess. Inhaltliche Ausarbeitung in eigenem Folge-Sprint mit ggf. juristischer Zweitprüfung. (Diagnose §11 R18, §12 S-5, Backlog F0.7.) **1 PT-S**
-- **Sprint-8.2-Puffer** — DB-Migration ändert keinen Sprint-8.2-Code, aber neue Connection-String braucht Smoke-Test gegen `/api/img`-Proxy (Health-Pfad). **0,3 PT-S**
+- **F0.2 DB-Trennung von `ki-sicherheit.jetzt`** — Migration auf eine der von Wolf in Sektion 7.A freigegebenen Varianten (eigenes Schema `creative_radar` ODER eigene Postgres-Instanz). Schritte: a) Pre-Backup mit `pg_dump` der Creative-Radar-Tabellen, abgelegt mit Datum + SHA-Hash; b) neue Ziel-DB / neues Schema provisionieren; c) Daten der 8 Creative-Radar-Tabellen kopieren (`asset`, `title`, `titlekeyword`, `post`, `channel`, `titlesyncrun`, `titlecandidate`, `weeklyreport`); d) `DATABASE_URL` in Railway umstellen; e) Smoke-Test gegen `/api/health/db`, `/api/channels`, `/api/titles`, `/api/posts`, `/api/assets`, `/api/reports`, `/api/img`; f) alte Tabellen **nicht löschen** — read-only abkoppeln (Schutzregel 6.3), Löschung erst nach 14 Tagen Stabilbetrieb auf Wolf-Freigabe. Rollback-Plan vor Start verifiziert: `DATABASE_URL` zurückstellen, Backup-Restore in Staging probegelaufen. (Diagnose §1 Pkt. 2, §4, §9, §11 R2.) **3,0 PT**
+- **F1.14 Alembic aktivieren** — die in Woche 1 vorbereitete Baseline-Revision auf der neuen DB einspielen; `create_db_and_tables()` in `app/database.py` umstellen, sodass `metadata.create_all` durch `alembic upgrade head` ersetzt wird. `_ensure_columns()` und `_ensure_pg_enum_values()` nach Migrations-Erfolg entfernen. (Diagnose §4, §11 R2.) **0,5 PT**
+- **F2.18 Performance-Indizes anwenden** — die in Woche 2 vorbereitete Indizes-Revision (`post.detected_at`, `post.channel_id`, `asset.title_id`, `asset.review_status`, `asset.visual_analysis_status`) im selben Migrations-Run anwenden. Wirksamkeit per `EXPLAIN ANALYZE` vor/nach für je eine Beispiel-Query prüfen. (Diagnose §4 Indizes, §12 QW-9.) — Aufwand im Migrations-Schritt enthalten, eigener Bullet zur Sichtbarkeit.
+- **F0.3 Auth — Bearer-Token aus ENV** — alle heute öffentlichen Endpoints schließen: `/api/posts/manual-import`, `/api/posts/analyze-instagram-link`, `/api/monitor/apify-instagram`, `/api/monitor/apify-tiktok`, `/api/titles/sync/tmdb`, plus alle `PATCH`/`DELETE`-Routen. FastAPI-Dependency, die `Authorization: Bearer <token>` gegen ENV-Wert prüft; Frontend liest `VITE_API_TOKEN` und setzt den Header in `api/client.js`. Konkrete Mechanismus-Wahl (Bearer-ENV vs. Netlify Identity / Auth0 / Supabase Auth) **TBD im Implementierungs-Briefing**, abhängig von Go/No-Go-Punkt 7.E. (Diagnose §1 Pkt. 6, §11 R7, §12 S-1.) **1,0 PT**
+- **F0.6 Cost-Logging (reduzierter Scope)** — Quota-Counter pro Apify- und OpenAI-Call in strukturierte Logs schreiben (Anschluss an F1.17 aus Woche 3): Quelle, User-Identifier (Token-Subject), Token/Request-Counts, geschätzte Kosten in Cent. **Hard-Cap-Schaltung verschoben** auf Woche 5+. In der Zwischenzeit Railway-Logs + manuelles Monitoring. (Diagnose §11 R7/R14.) **0,5 PT**
 
-**Aufwand gesamt:** ~4,8 PT-S — am oberen Rand der Wochen-Kapazität, vertretbar weil DSGVO-Skelett primär Schreib- statt Code-Arbeit ist.
+**Aufwand gesamt:** ~5,0 PT — am oberen Rand der Wochen-Kapazität, vertretbar weil drei Tasks auf Vorarbeit aus W1–W3 aufsetzen und der Netto-Neuaufwand moderat bleibt.
 
 **Akzeptanzkriterien.**
 
-- `/api/health/db` antwortet aus der neuen DB / dem neuen Schema; `database_diagnostics()` zeigt den korrekten URL-Prefix.
-- `pg_dump`-Backup der alten DB liegt mit Datum, SHA-Hash und Speicherpfad in einem privaten Ablageort (Wolf-Notizen oder Railway-eigener Backup-Slot); Pfad ist Wolf bekannt.
-- `alembic current` auf Production zeigt die Baseline + Index-Revision; `_ensure_columns()` ist mit `# deprecated`-Kommentar markiert.
-- Alle bestehenden Endpunkte funktionieren nach Migration: Smoke-Test über `/api/health`, `/api/channels`, `/api/titles`, `/api/posts`, `/api/assets`, `/api/reports`, `/api/img` (Sprint-8.2-Pfad), `/api/insights/overview`.
-- `docs/data_protection.md` existiert mit den 7 Pflicht-Abschnitten als Überschriften plus Stichpunkten; Datei ist im Repo, im README verlinkt.
-- Sprint 8.2 weiter unverändert: kein Diff in `api/proxy.py`, `report_selector.py`, `report_renderer_v2.py`.
+- Creative Radar läuft auf separater DB / separatem Schema; alte Tabellen in der ki-sicherheit-DB sind read-only abgekoppelt oder gelöscht (mit Backup-Pfad und SHA-Hash dokumentiert).
+- Alembic-Migrations-Historie ist initialisiert; mindestens ein Migrations-Schritt erfolgreich angewendet (`alembic current` zeigt die Revision); Eigenbau-`_ensure_columns()` ist entfernt.
+- Performance-Indizes sind auf den fünf Hot-Path-Spalten messbar wirksam (`EXPLAIN ANALYZE` vor/nach für je eine Beispiel-Query, Differenz im Commit-Body protokolliert).
+- Alle drei Endpoint-Familien (`/api/posts/*` POST, `/api/monitor/*`, `/api/titles/sync/*`) lehnen Requests ohne gültigen Bearer-Token mit `401 Unauthorized` ab; mit gültigem Token funktionieren sie unverändert. Frontend funktioniert end-to-end mit gesetztem `VITE_API_TOKEN`.
+- Cost-Counter loggt für jeden Apify- und OpenAI-Call mindestens Quelle, User-Identifier und geschätzte Kosten in Cent als JSON-Log-Eintrag.
+- Sprint 8.2 ist unverändert: kein Diff in `api/proxy.py`, `report_selector.py`, `report_renderer_v2.py`, `frontend/src/App.jsx` (außer Auth-Header-Setzung in `api/client.js`).
 
 **Risiken / Abhängigkeiten.**
 
-- **Wolf-Entscheidung 7.A** (Variante A/B/C zur DB-Trennung) muss vor Woche-4-Start vorliegen. Ohne Entscheidung blockiert F0.2 vollständig.
-- **Daten-Co-Habitation mit `ki-sicherheit.jetzt`**: beim `pg_dump` und Datenkopie dürfen ki-sicherheit-Tabellen nicht angefasst werden (Schutzregel 6.3). Selektive Tabellen­auswahl per `pg_dump -t cr_*` oder explizite Tabellenliste.
-- **Migration-Fenster**: kurze Down­zeit für den DATABASE_URL-Switch einkalkulieren (Frontend-Anwender sehen ggf. einen Refresh-Loop). Vorab Wolf informieren.
-- **DSGVO-Skelett ist nicht das fertige Konzept** — es ersetzt keine juristische Prüfung; Folge-Sprint mit Anwalt notwendig (Querverweis F0.5 Apify-ToS-Termin, ggf. Bündelung).
+- **Budget 5,0 PT vs. Standard 3–4 PT** — am oberen Rand. Vertretbar, weil F1.14, F2.18 und F0.6 (reduziert) Vorarbeit aus W1–W3 nutzen statt neu zu bauen; falls die Auth-Mechanismus-Wahl auf einen externen Provider fällt, F0.6-Cost-Logging in W5+ verschieben (Mitigation siehe nächster Punkt).
+- **DB-Migration ist die riskanteste Operation der ersten 4 Wochen.** Rollback-Plan vor Start verifiziert (Restore-Test in Staging oder lokal), Wartungsfenster vorab angekündigt, schrittweise Verifikation gegen Smoke-Test-Endpunkte.
+- **Auth-Mechanismus-Wahl (Bearer-ENV vs. externer Provider)** beeinflusst W4-Aufwand: bei externem Provider (Auth0 / Netlify Identity / Supabase Auth) Aufwand ca. +1 PT, dann verschiebt sich F0.6-Cost-Logging in W5+ und wird durch reines Railway-Log-Monitoring überbrückt.
+- **Sprint 8.2 darf nicht durch DB-Migration blockiert werden** — offene 8.2-PRs entweder vor Migrationsstart mergen oder erst nach Abschluss der Migration neu rebasen.
+- **Wolf-Entscheidungen 7.A** (DB-Variante A/B/C) und **7.E** (Auth-Mechanismus) müssen vor Woche-4-Start vorliegen — beides ist Go/No-Go für diese Woche.
 
 ### Was nach Woche 4 kommt
 
-Nach Woche 4 ist das Stabilisierungs-Fundament gelegt: aufgeräumtes Repo (W1), persistentes Asset-Storage (W2), ehrliche Visual-Pipeline (W3), getrennte DB plus DSGVO-Skelett (W4). Ab Woche 5 verschiebt sich der Schwerpunkt von Stabilisierung zu Produkt-Bausteinen.
-
-Bewusst nach hinten geschobene Items aus den ersten 4 Wochen, in der empfohlenen Reihenfolge für Woche 5+:
-
-- **F0.3 Auth-Layer + F0.6 Rate-Limit / Cost-Cap** (~2 PT-S) — sobald externe Nutzer absehbar werden oder Apify-/OpenAI-Verbrauch ungeplant steigt. Solange Solo-Betrieb mit dokumentiertem Cost-Cap (manuell überwacht) bleibt, ist der Aufschub vertretbar.
-- **F1.5 Magic-String-Hack auf `trend_summary_de` ablösen** (1,5 PT-S) — Quick Win, jederzeit nachziehbar; ideal kombiniert mit F1.18 (tote API-Endpunkte aufräumen).
-- **F1.1 Title-Tracking-Dashboard** (3 PT-S) — der erste echte Produkt-Baustein nach Stabilisierung; trägt unmittelbar auf Briefing-Abschnitt 3 (Title-Tracking).
-- **F1.6 Background-Jobs** für Apify-Monitor — schließt das 120-s-Browser-Timeout-Risiko (Diagnose §11 R10).
-- Weitere P1- und gezielte P2-Items nach Backlog-Reihung in Sektion 2.4.
+Nach Woche 4 ist das Stabilisierungs-Fundament gelegt: aufgeräumtes Repo (W1), persistentes Asset-Storage (W2), ehrliche Visual-Pipeline (W3), getrennte DB plus geschlossener Zugang (W4). Direkt im Anschluss steht **F0.6 Hard-Cap-Vollausbau** an (Cost-Cap-Service, der bei Überschreiten `APIFY_MONITOR_ENABLED=False` runtime setzt — eine Folgewoche, ~0,5 PT). Parallel wird **F0.7 DSGVO-Doku-Skelett** als eigener Sprint mit juristischer Begleitung aufgesetzt (siehe §4.4); bis dahin bleibt Diagnose §11 R18 ein offenes, dokumentiertes Risiko. **F1.5 Magic-String-Hack auf `trend_summary_de` ablösen** (1,5 PT) bleibt Wandertask, jederzeit nachziehbar wenn Luft ist — ideal kombiniert mit F1.18 (tote API-Endpunkte aufräumen). Weitere P1- und P2-Items folgen nach Backlog-Reihung aus Sektion 2.4; der Schwerpunkt verschiebt sich danach von Stabilisierung zu Produkt-Bausteinen — Title-Tracking-Dashboard (F1.1), Background-Jobs für Apify (F1.6), Trend-Detection (F2.2), perspektivisch Creative-Briefing-Generator und Markt-Vergleich-Erweiterung.
 
 
 
