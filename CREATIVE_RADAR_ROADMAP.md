@@ -680,6 +680,60 @@ Claude Code entscheidet in Phase 4 **nicht** autonom — STOP und Wolf fragen �
 
 Sonst gilt: minimal-invasiv, Diagnose-Querverweis im Commit-Body, klein und reversibel.
 
+---
+
+## 7. Go/No-Go-Punkte zur Phase-4-Freigabe
+
+Phase 4 ist die Umsetzung des 4-Wochen-Plans aus Sektion 5. Diese letzte Sektion fasst zusammen, an welchen Kriterien Wolf entscheidet, ob Phase 4 starten kann, verschoben werden muss oder zurück ins Re-Scoping geht. Sie greift die Schutzregeln aus Sektion 6 als verbindlichen Vertrag auf — ohne deren Einhaltung kein Start.
+
+### Go-Kriterien
+
+Phase 4 darf starten, wenn **alle** Punkte erfüllt sind:
+
+- Roadmap-Review durch Wolf abgeschlossen, Sektionen 1–6 inhaltlich freigegeben.
+- Backlog-Priorisierung in Sektion 2 (P0 / P1 / P2) bestätigt; insbesondere die Auswahl der Items für die Wochen 1–4.
+- Woche-1-Tasks (Stabilisierungs-Set, Sektion 5) sind klar genug spezifiziert, dass ein Implementierungs-Briefing direkt geschrieben werden kann — ohne weitere Rückfrage zu Scope oder Reihenfolge.
+- Kapazitäts-Realität geprüft: 3–4 Personentage pro Woche neben Bestandsbetrieb sind in den nächsten 4 Wochen realistisch verfügbar.
+- Sprint 8.2 läuft parallel, blockiert die Stabilisierungs-Pfade nicht; Schutz-Pfade (`api/proxy.py`, `report_selector.py`, `report_renderer_v2.py`, `frontend/src/App.jsx ImagePreview`) bleiben unangetastet bis 8.2 abgeschlossen ist.
+- DB-Backup-Strategie für F0.2 (W4) ist mit Wolf abgestimmt: Pfad, Frequenz, Restore-Test-Plan dokumentiert vor dem Migrations-Tag.
+- Wolf ist in den 4 Wochen für die in Sektion 6 „Eskalation an Wolf" gelisteten Punkte erreichbar; Reaktionszeit für Eskalations-Fragen unter 24 h.
+
+### No-Go / Re-Scoping-Kriterien
+
+Phase 4 darf **nicht** starten oder muss zurück in die Roadmap, wenn einer dieser Auslöser greift:
+
+- Diagnose-Befunde aus DIAGNOSIS §11 (R1–R18) oder §13 (stille Fehler), die Wolf jetzt für kritisch hält und im Plan nicht adressiert sind → Backlog (Sektion 2) re-priorisieren, nicht improvisieren.
+- Realistisch verfügbare Kapazität liegt unter 3 PT/Woche → Plan **dehnen, nicht stauchen**; Sektion 5 in 5–6 Wochen umschreiben statt Tasks aus Wochen rauspressen.
+- Externe API-Pipelines laufen aktiv, ohne dass F0.6 Cost-Logging in W4 etabliert wäre → erst Logging und Sichtbarkeit, dann weitere Aktivität.
+- Juristische Klärung des TikTok-/Instagram-Scrapings (F0.5) ist noch offen → Apify-Pipelines pausieren via Feature-Flag `APIFY_MONITOR_ENABLED=False`, bis Anwalts-Rückmeldung dokumentiert ist (siehe Sektion 4.4.1 + Schutzregel „Compliance + Recht").
+- Auth-Mechanismus-Wahl für F0.3 (Bearer-ENV vs. externer Provider) ist vor W4-Start nicht getroffen → entscheiden, sonst rutscht W4-Auth-Aufwand ins Unbekannte.
+
+### Punkte mit expliziter Wolf-Freigabe vor Phase 4
+
+Bei diesen Items entscheidet Claude Code in Phase 4 **nicht** autonom — explizite Vorab-Freigabe nötig:
+
+- **Konkreter Auth-Mechanismus für F0.3** (Bearer-ENV als MVP-Variante, oder direkt Netlify Identity / Auth0 / Supabase Auth). Beeinflusst W4-Aufwand und Folge-Sprints.
+- **Backup-Strategie und Rollback-Plan für F0.2** (DB-Trennung): wo das `pg_dump` liegt, wie lange aufbewahrt, wer Restore-Tests fährt, wann alte Tabellen tatsächlich gelöscht werden dürfen.
+- **DSGVO-Begleitsprint (W5+)**: mit oder ohne juristische Drittprüfung, Budget für Anwalts-Honorar, Termin-Slot.
+- Falls F0.6 Hard-Cap-Vollausbau nach W5 hinaus verschoben wird: konkrete **Schwellenwerte für manuelles Cost-Monitoring** im Übergang (Tages- und Monats-Limit), plus Alarmschwelle.
+
+### Empfohlener Entscheidungs-Workflow
+
+Wolf geht der Reihe nach durch:
+
+1. Roadmap (Sektionen 1–7) und Diagnose komplett lesen.
+2. Diagnose §13 (stille Fehler) und §11 (Risiken) gegen Sektion 5 (Sprint-Plan) abgleichen — sind alle P0-Risiken in W1–W4 oder im Outlook adressiert?
+3. Schutzregeln (Sektion 6) als Vertrag durchgehen — sind alle akzeptabel?
+4. Go/No-Go-Kriterien aus 7.1 + 7.2 abhaken.
+5. Bei Go: Implementierungs-Briefing für Woche 1 schreiben und an Claude Code übergeben.
+6. Bei No-Go: spezifischen Punkt im Backlog (Sektion 2) als P0 markieren oder Sprint-Plan (Sektion 5) anpassen — dann Schritt 4 wiederholen.
+
+### Was nach Phase 4 kommt
+
+Direkt anschließend: F0.6 Hard-Cap-Vollausbau (W5), F0.7 DSGVO-Doku-Sprint mit juristischer Begleitung. Mittelfristig der Übergang zu Produkt-Bausteinen — siehe Sektion 5 „Was nach Woche 4 kommt" und Backlog Sektion 2.4.
+
+— Ende Roadmap —
+
 
 
 
