@@ -16,6 +16,32 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 
+// Whitelisted host suffixes for the image proxy (must match the backend
+// IMAGE_PROXY_ALLOWED_HOSTS default in app/config.py). Other URLs are returned
+// unchanged so the browser can try them direct — useful for storage paths or
+// hosts the proxy isn't authorised to fetch.
+const PROXY_HOST_SUFFIXES = [
+  'cdninstagram.com',
+  'fbcdn.net',
+  'tiktokcdn.com',
+  'tiktokcdn-us.com',
+  'tiktokcdn-eu.com',
+];
+
+export function proxyImageUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  if (!/^https?:\/\//i.test(url)) return url;
+  let host;
+  try {
+    host = new URL(url).host.toLowerCase();
+  } catch (_) {
+    return url;
+  }
+  const allowed = PROXY_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith('.' + suffix));
+  if (!allowed) return url;
+  return `${API_BASE}/api/img?url=${encodeURIComponent(url)}`;
+}
+
 async function parseJsonResponse(response) {
   const contentType = response.headers.get('content-type') || '';
   const body = await response.text();
