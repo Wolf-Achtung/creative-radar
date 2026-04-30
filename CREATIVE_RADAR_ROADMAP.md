@@ -518,6 +518,36 @@ Der Plan deckt einen **Solo-Founder-Rhythmus von 3–4 PT-S/Woche** neben dem Be
 - **Branch-Cleanup**: vor Löschen der `codex/*`-Branches Wolf-OK pro Sammel-Bestätigung einholen — siehe Schutzregel 6.3.
 - **Alembic-Baseline auf der Live-DB**: nicht in Woche 1, aber vorzubereiten — Wolf-Entscheidung zu DB-Variante (A/B/C, Sektion 7) muss spätestens Mitte Woche 2 vorliegen, sonst rutscht F1.14/F0.2 in Woche 4.
 
+### Woche 2: Asset-Capture-Persistenz (Fundament für Märkte-Vergleich)
+
+**Ziel der Woche.** Asset-Bilder überleben Railway-Deploys und werden für die KI-Vision (und damit für DE/US-Vergleiche) verlässlich erreichbar — Voraussetzung dafür, dass Briefing-Abschnitt 3 (Asset-Capture, Märkte-Vergleich) überhaupt belastbar wird.
+
+**Tasks.**
+
+- **F0.1 Persistentes Asset-Storage** — `services/storage.py` als Adapter-Pattern einführen (`LocalFileStorage` für Tests, `S3Storage` für Production), `screenshot_capture.capture_asset_screenshot()` schreibt darüber. Bucket-Policy: privat mit Random-UUID-Pfad oder signed URL. Heutige `/storage/evidence/`-Dateien bleiben übergangsweise als Fallback lesbar. ENV-Variablen `STORAGE_BACKEND`, `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` ergänzen. (Diagnose §1 Pkt. 1, §2 Storage, §11 R1, Backlog F0.1.) **3 PT-S**
+- **`SECURE_STORAGE_ENABLED` aktivieren — abgesichert** — erst wenn neue Captures erfolgreich auf Storage landen UND der Selector/Renderer-Test (`test_report_selector.py`) das `secure`-Klassifikationsverhalten dadurch nicht regressioniert. Sprint 8.2 `report_selector.py` und `report_renderer_v2.py` werden **nicht editiert**, nur via ENV gesetzt. (Diagnose §5.5, §11 R1.) **0,3 PT-S**
+- **Backfill-Skript (einmalig, manuell ausgeführt)** — `scripts/backfill_evidence.py` durchläuft Assets mit existierender `screenshot_url`/`thumbnail_url`, lädt das Bild via Storage-Service, setzt `visual_evidence_url` auf die neue Storage-URL. Idempotent über `Asset.id` + Existenz-Check. **0,5 PT-S**
+- **F2.18 Performance-Indizes als Alembic-Revision** — `post.detected_at`, `post.channel_id`, `asset.title_id`, `asset.review_status`, `asset.visual_analysis_status`. Revision in Woche 2 erstellt, **Migration-Run in Woche 4** mit der DB-Trennung. (Diagnose §4 Indizes, §12 QW-9.) **0,3 PT-S**
+- **Sprint-8.2-Puffer** — wenn ein Sprint-8.2-Folge-PR aufgemacht wird, Reviewen ohne den Storage-Pfad anzufassen. **0,3 PT-S**
+
+**Aufwand gesamt:** ~4,4 PT-S — am oberen Rand der Wochen-Kapazität, vertretbar weil F0.1 der zentrale Hebel ist.
+
+**Akzeptanzkriterien.**
+
+- `STORAGE_BACKEND=s3` in Production gesetzt; ein neuer Apify-Run produziert Assets, deren `visual_evidence_url` auf eine **vom Browser und von externen Diensten erreichbare URL** zeigt (HTTP 200 GET aus zwei Netzen geprüft).
+- Nach einem Test-Redeploy auf Railway sind die in Woche 2 ge­cap­tu­red Bilder weiterhin abrufbar (kein 404).
+- `pytest -q` deckt den Storage-Adapter ab: ein Test mit `LocalFileStorage` und ein Mock-Test mit `S3Storage` (Stubbed Client).
+- Backfill-Skript wurde einmal gegen Production ausgeführt; Anzahl migrierter Assets im Skript-Output protokolliert.
+- Alembic-Revision für Performance-Indizes existiert, **noch nicht angewendet** (markiert mit `# pending: deploy in Woche 4`).
+- Sprint 8.2 ist unverändert: kein Diff in `api/proxy.py`, `report_selector.py`, `report_renderer_v2.py`, `frontend/src/App.jsx` (außer Bugfix-Hotfixes).
+
+**Risiken / Abhängigkeiten.**
+
+- **Wolf-Entscheidung zu Storage-Provider** (S3 / R2 / Backblaze B2 oder Railway-Volume) muss **vor Woche-2-Start** vorliegen — Go/No-Go-Punkt 7.D. Ohne Entscheidung blockiert F0.1.
+- **Bestandsdaten-Größe unbekannt** (Diagnose §0 Disclaimer: keine Live-DB-Queries). Backfill-Aufwand kann höher liegen als 0,5 PT-S, falls bereits viele hundert Assets existieren — Skript dann in Chunks ausführen.
+- **CDN-Hotlink-Block** der externen IG/TikTok-CDNs kann Backfill scheitern lassen; in dem Fall bleibt die heutige `screenshot_url` als Fallback im Frontend (Sprint 8.2-`display_image_candidates`-Logik trägt das bereits).
+- **Visual-Pipeline (F0.4) ist noch nicht repariert** — die neue Storage-URL macht die Reparatur in Woche 3 erst möglich, ist aber für Woche 2 noch nicht wirksam. Status `done` zählt erst ab Woche 3.
+
 
 
 
