@@ -478,5 +478,46 @@ Damit Wolf das Hard-Cap aus 4.2 durchsetzen kann:
 - **Wochen-Dashboard** (P1): Endpoint `/api/insights/cost-overview` zeigt Apify+OpenAI-Cost letzten 7 Tagen. Frontend rendert.
 - **Hard-Cap**: bei Überschreiten setzt der Cost-Cap-Service `APIFY_MONITOR_ENABLED=False` runtime und alarmiert (Sentry/E-Mail).
 
+---
+
+## 5. Sprint-Vorschlag — Erste 4 Wochen
+
+Der Plan deckt einen **Solo-Founder-Rhythmus von 3–4 PT-S/Woche** neben dem Bestandsbetrieb ab. Sprint 8.2 läuft parallel weiter (Image-Proxy, Display-Image-Candidates, Evidence-Selector); der 4-Wochen-Plan **fasst die Sprint-8.2-Pfade nicht an** (`api/proxy.py`, `report_selector.py`, `report_renderer_v2.py`, `ImagePreview` im Frontend) und arbeitet stattdessen an Stabilisierung, DB- und Storage-Fundament. Die Logik ist bewusst **Stabilisierung zuerst, Produkt-Bausteine danach** — kein Big-Bang. Woche 1 räumt auf, Woche 2 schließt Sicherheitslücken, Woche 3 löst die Visual-Pipeline, Woche 4 trennt die DB und stabilisiert die Report-Persistenz.
+
+### Woche 1: Stabilisierung & Sicherheitsnetze
+
+**Ziel der Woche.** Bestehende stille Fehler stilllegen, Build-Reproduzierbarkeit herstellen und Konfigurations-Drift entfernen — damit ab Woche 2 die schwereren P0-Themen (Auth, Storage, DB-Trennung) auf einer aufgeräumten Basis aufsetzen.
+
+**Tasks.**
+
+- **F1.4 Insights-Counter-Bug fixen** — Status-Set `{"analyzed","text_only"}` → `{"done","text_fallback"}` in `services/insights.py:117`, Test ergänzen (Diagnose §1 Pkt. 4, §11 R5). **0,3 PT-S**
+- **F1.12 Frontend-Deps pinnen** — `react`, `react-dom`, `vite`, `@vitejs/plugin-react` auf konkrete Major.Minor.Patch, `package-lock.json` committen, `.gitignore`-Eintrag entfernen (Diagnose §11 R8, §12 QW-2). **0,3 PT-S**
+- **QW-3 Doppel-`netlify.toml`** — Root-Variante behalten, `frontend/netlify.toml` löschen (Diagnose §2 Deploy-Topologie). **0,1 PT-S**
+- **QW-4 Drei `startCommand`-Quellen reduzieren** — `Dockerfile CMD ["./start.sh"]` als alleinige Quelle behalten, `railway.json`/`railway.toml` `startCommand` entfernen (Diagnose §2, §11 R9). **0,1 PT-S**
+- **F2.17 `.env.example` synchron zur `Settings`-Klasse** — Apify-, TMDb-, Image-Proxy-, Storage-Variablen ergänzen (Diagnose §2 Konfiguration, §12 QW-8). **0,2 PT-S**
+- **F2.15 Hygiene-Aufräumen** — Issues `#3`, `#7`, `#10`, `#12` mit Verweis auf jeweiligen Merge-Commit schließen; 17 `codex/*`- und 4 `feat/sprint-8-2*`-Branches nach Bestätigung gemergt löschen (Diagnose §3 Git-Aktivität, §12 QW-5/QW-6). **0,3 PT-S**
+- **F2.14 (Teil-Scope) tote Pfade entfernen** — `app/jobs/*.py` Platzhalter, `app/data/channels_seed.json` (verwaist) und `app/prompts/*.md` (nicht im Code geladen) löschen oder im Code referenzieren (Diagnose §3 Tote Pfade). **0,5 PT-S**
+- **Vorbereitung F1.14 Alembic** — Alembic in `requirements.txt` aufnehmen, `alembic init`, Baseline-Revision aus aktuellen SQLModel-Modellen erzeugen, **noch nicht aktivieren** (Migration-Switch erst Woche 4). **1 PT-S**
+- **Sprint-8.2-Begleitung** — keine Code-Änderung, nur Lesen + Tests laufen lassen, falls Wolf einen 8.2-PR aufmacht. **0,3 PT-S Puffer**
+
+**Aufwand gesamt:** ~3,1 PT-S — passt in die Wochen-Kapazität.
+
+**Akzeptanzkriterien.**
+
+- `pytest -q` läuft grün und enthält den neuen Test für `insights.visual_analyzed`.
+- `npm run build` produziert ein Bundle mit gepinnten Versionen aus committedem `package-lock.json`.
+- Repo enthält genau **eine** `netlify.toml` und genau **einen** `startCommand`-Pfad (Dockerfile-CMD).
+- `.env.example` deckt alle in `app/config.py` definierten Settings ab; ein neuer Mitarbeiter kann ohne Rückfrage das Backend lokal starten.
+- Issues `#3`, `#7`, `#10`, `#12` sind closed; Branchliste auf `main` + aktiver Branch + ggf. lebende Sprint-Branches reduziert.
+- `app/jobs/`, `app/data/`, `app/prompts/` enthalten nur noch Code, der real geladen wird.
+- Alembic ist installiert, Baseline existiert, aber `create_db_and_tables()` ist unverändert (kein Aktivieren in Woche 1).
+
+**Risiken / Abhängigkeiten.**
+
+- **Pinning kann Build-Brüche zeigen**, wenn die heute live gezogene `latest`-Version inkompatibel zu einer expliziten Version ist. Mitigation: Netlify-Preview-Deploy testen, bevor `main` gemergt.
+- **Branch-Cleanup**: vor Löschen der `codex/*`-Branches Wolf-OK pro Sammel-Bestätigung einholen — siehe Schutzregel 6.3.
+- **Alembic-Baseline auf der Live-DB**: nicht in Woche 1, aber vorzubereiten — Wolf-Entscheidung zu DB-Variante (A/B/C, Sektion 7) muss spätestens Mitte Woche 2 vorliegen, sonst rutscht F1.14/F0.2 in Woche 4.
+
+
 
 
