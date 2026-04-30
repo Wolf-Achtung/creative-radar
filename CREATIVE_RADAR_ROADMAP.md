@@ -175,3 +175,308 @@ Das ist der **maximalistische Umfang**. Der Sprint-Plan in Abschnitt 5 zeigt ein
 | §10 Lücken-Matrix | F1.1, F2.1–F2.21 | teilweise adressiert; P2 deckt den Rest |
 | §13 Offene Fragen | Abschnitt 7 dieser Roadmap | als Go/No-Go geführt |
 
+---
+
+## 3. Architektur-Soll
+
+### 3.1 Soll-Topologie (12-Monats-Sicht)
+
+```
+                 ┌─────────────────────────────────────────────┐
+                 │  Externe Quellen                            │
+                 │  Apify (IG, TT, optional Comments)          │
+                 │  TMDb (Movies + TV) · IGDB (Games, P2)      │
+                 │  YouTube Data API (P2) · OpenAI · Perplexity│
+                 └────────────────────┬────────────────────────┘
+                                      │
+                                      ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │  Backend (Railway, FastAPI)                             │
+   │                                                         │
+   │  API-Layer  ── Auth (Bearer-Token, ENV)                 │
+   │             ── Rate-Limit + Cost-Cap                    │
+   │             ── Public/internal endpoint split           │
+   │                                                         │
+   │  Worker-Pool (Railway Cron Service oder asyncio Queue)  │
+   │   ↳ apify-monitor-job                                   │
+   │   ↳ visual-analysis-batch-job                           │
+   │   ↳ tmdb-sync-job                                       │
+   │   ↳ weekly-report-job (optional, halbautomatisch)       │
+   │                                                         │
+   │  Service-Layer (Domänen-Services, unverändert)          │
+   │  Modelle (versioniert via Alembic)                      │
+   └────────┬─────────────────────────────────┬──────────────┘
+            │                                 │
+            │ SQLAlchemy                      │ httpx
+            ▼                                 ▼
+   ┌────────────────────┐         ┌─────────────────────────┐
+   │ Postgres           │         │  Persistent Asset       │
+   │ (eigenes Schema    │         │  Storage                │
+   │  ODER eigene DB,   │         │  ↳ Railway Volume       │
+   │  Alembic-versio-   │         │  ODER S3/R2/B2          │
+   │  niert, isoliert   │         │  (Wolf-Entscheidung)    │
+   │  von KI-Sicherheit)│         │                         │
+   └────────────────────┘         └─────────────────────────┘
+                                              ▲
+                                              │ Public-URL
+                                              │ (Signed oder via /api/img)
+   ┌────────────────────────────────────────────────────────┐
+   │  Frontend (Netlify, Vite/React)                        │
+   │  components/   pages/   api/   hooks/                  │
+   │  Auth-Header (Bearer aus VITE_API_TOKEN)               │
+   │  Image-Proxy-Hostlist über /api/img/allowed-hosts      │
+   └────────────────────────────────────────────────────────┘
+```
+
+### 3.2 Zentrale Architektur-Entscheidungen
+
+#### 3.2.1 Storage-Strategie (F0.1)
+
+**Empfehlung: S3-kompatibles Object-Storage** (z.B. Backblaze B2 oder Cloudflare R2). Begründung:
+
+- **Reproduzierbar zwischen Deploys** (Railway Volume verschwindet bei Service-Recreate)
+- **Multi-Region zugänglich** (für OpenAI Vision wichtig — F0.4)
+- **Kostengünstig** für reine Bild-Daten (Größenordnung MB, nicht GB pro Woche)
+- **Standard-Tooling** (boto3 kompatibel, gut dokumentiert)
+- **Backup-fähig** (Versionierung, Lifecycle-Policies)
+
+Alternative Railway-Volume: einfacher zu provisionieren (1 Klick), aber an Service gebunden, schwer zu migrieren, kein eingebautes Backup. Für MVP machbar, mittelfristig schwächer.
+
+**Migration**: `screenshot_capture.capture_asset_screenshot()` schreibt in `Storage`-Service (Adapter-Pattern), das initial `LocalFileStorage` bleibt für Tests, in Production aber `S3Storage`. `visual_evidence_url` wird zur signed URL oder public bucket URL — damit löst sich das Vision-API-Problem (F0.4) automatisch.
+
+#### 3.2.2 DB-Trennung (F0.2)
+
+**Variante A — eigenes Schema in derselben Postgres-Instanz** (`creative_radar.asset`, `creative_radar.title`, …):
+
+- Pro: minimaler Cost-Impact, eine Backup-Quelle
+- Pro: keine zusätzliche Connection-Pool-Konkurrenz auf Cluster-Ebene
+- Contra: weiterhin `max_connections` shared, ein Runaway-Query in einer App stört die andere
+- Contra: pg_dump greift weiterhin beide Schemas (kann gewollt sein)
+- Aufwand: 1–2 PT-S (Search-Path setzen, Models neu mappen, Alembic-Baseline)
+
+**Variante B — eigene Postgres-Datenbank-Service** auf Railway:
+
+- Pro: klare Trennung, eigene Connection-Pools, eigenes Backup
+- Pro: Skaliert unabhängig — wenn Creative Radar wächst, betrifft das ki-sicherheit.jetzt nicht
+- Contra: zusätzliche Postgres-Instanz kostet (Railway-Pricing TBD, je nach Plan)
+- Aufwand: 2–3 PT-S (neuer Service, ENV-Migration, Daten-Export+Import, Alembic-Baseline)
+
+**Empfehlung dieses Reports: Variante B** (eigene DB), weil sie die Trennung sauber zementiert. Die Mehrkosten sind vorhersehbar; das Risiko einer Schema-Kollision oder Migration-Race wiegt höher. Wenn Wolf das Cost-Argument bevorzugt: Variante A ist akzeptabel, sofern Tabellen ein Prefix `cr_` bekommen.
+
+**Variante C — Status quo behalten**: ausdrücklich nicht empfohlen. Diagnose §4 und §11 R2 zeigen das Risiko.
+
+→ Wolf-Frage 7.A.
+
+#### 3.2.3 Migrations-Werkzeug (F1.14)
+
+Heute: `_ensure_columns()` ist eigenbau, keine Versionierung, kein Rollback.
+
+**Soll: Alembic** als Standard. Plan:
+
+1. Alembic einrichten, Baseline-Migration aus aktuellen SQLModel-Modellen (`alembic stamp head` nach manueller Erst-Revision).
+2. `_ensure_columns()` deprecaten, in Zukunft nur noch Alembic-Revisions.
+3. Bei `create_db_and_tables()` startup-seitig: nur noch `alembic.command.upgrade(..., 'head')` aufrufen, kein `metadata.create_all` mehr.
+4. Rollback-Plan pro Revision dokumentieren.
+
+#### 3.2.4 Auth (F0.3)
+
+**Variante A — Bearer-Token (gemeinsamer ENV-Wert)**:
+
+- Pro: trivial, MVP-tauglich
+- Pro: kompatibel mit Postman, curl, automatisierte Tests
+- Contra: kein Multi-User, keine Audit-Trace pro Mensch
+- Aufwand: 1 PT-S
+
+**Variante B — Netlify Identity / Auth0 / Supabase Auth**:
+
+- Pro: echte User, JWT, Multi-User-fähig
+- Pro: skaliert auf Pilotkunden
+- Contra: 1–2 PT-S Mehraufwand, externe Abhängigkeit
+- Aufwand: 2 PT-S
+
+**Empfehlung MVP: Variante A** (Bearer-Token). Wenn Pilotkunden dazukommen (Q3 oder später), umstellen auf Variante B.
+
+#### 3.2.5 Background-Jobs (F1.6)
+
+Heute: alles synchron im API-Worker. `/api/monitor/apify-instagram` blockiert bis 120 s.
+
+**Variante A — Railway Cron Service** (separater Container, der `python -m app.jobs.apify_monitor` o.ä. ausführt):
+
+- Pro: vom API entkoppelt, kein Browser-Timeout
+- Pro: Standard-Pattern, einfach zu provisionieren
+- Contra: zwei Container = doppelter Bare-Service-Cost
+- Aufwand: 1,5 PT-S
+
+**Variante B — `BackgroundTasks` von FastAPI** (Job läuft in derselben API-Worker, aber asynchron nach Response):
+
+- Pro: kein separater Service, keine Mehrkosten
+- Pro: Reuse von DB-Session/Engine
+- Contra: läuft nur, solange der Worker steht; Restart killt In-Flight-Job
+- Aufwand: 0,5 PT-S
+
+**Variante C — Externe Queue (Redis + RQ / Celery)**:
+
+- für MVP zu schwergewichtig, erst bei mehreren parallelen Jobs sinnvoll
+- Aufwand: 4+ PT-S
+
+**Empfehlung**: für den ersten Schritt **Variante B** (BackgroundTasks) als Stop-Gap, danach Übergang zu **Variante A** sobald ein zweiter Service ohnehin nötig ist (z.B. für nächtliche TMDb-Syncs). Wolf-Frage 7.E.
+
+### 3.3 Komponenten-Soll im Backend
+
+| Komponente | Zustand heute | Zustand Soll |
+|---|---|---|
+| API-Layer | 9 Router, public, ohne Auth | 9 Router, Bearer-Auth-geschützt, mit Rate-Limit |
+| Service-Layer | gut getrennt, aber Doppelimplementierungen | v1-Pfade entfernt; Adapter-Patterns für Storage und KI |
+| Modelle | SQLModel 8 Tabellen | + `report_assets` (Many-to-Many), + `post_music` (P2), + `audit_log` (P2), `Asset` mit Storage-FK |
+| Migrations | `_ensure_columns()` eigenbau | Alembic-versioniert |
+| Jobs | 3 Platzhalter-Files | echte Jobs als Cron oder BackgroundTask |
+| Tests | 4 Files mit Coverage auf Sprint 8.2 | Coverage-Report ≥60 %, mindestens 1 Test pro Service |
+| Config | `pydantic-settings`, `.env.example` veraltet | aktuell, plus `docs/env_reference.md` |
+
+### 3.4 Komponenten-Soll im Frontend
+
+| Komponente | Zustand heute | Zustand Soll |
+|---|---|---|
+| Bundle | `App.jsx` 965 LoC monolith | aufgeteilt: `pages/Home`, `pages/Review`, `pages/Reports`, `pages/Sources`, `pages/TitleTracking`, gemeinsame `components/` und `hooks/` |
+| API-Client | hartkodierte Endpoint-Map | TypeScript-Codegen aus OpenAPI (Phase 2) — optional, nicht im MVP |
+| Image-Proxy-Liste | hartkodiert | runtime aus `/api/img/allowed-hosts` |
+| Auth | keine | Bearer-Token aus `VITE_API_TOKEN`, im Header |
+| Build | `latest`-Versionen | gepinnt, `package-lock.json` committed |
+| Linting | keins | ESLint + Prettier |
+
+### 3.5 Datenfluss-Soll für die Visual-Pipeline (F0.4)
+
+Aus Diagnose §5.5 ist der heutige Pfad fragil. Soll-Pfad:
+
+1. Apify-Monitor erstellt `Asset` mit externer `screenshot_url`/`thumbnail_url`.
+2. Background-Job `visual-analysis-job` nimmt das Asset, lädt das Bild via `screenshot_capture` aus dem CDN, **speichert es nach S3** (oder Railway-Volume), bekommt eine **öffentlich erreichbare URL** zurück.
+3. Diese öffentliche URL wird in `visual_evidence_url` geschrieben und an OpenAI Vision übergeben.
+4. OpenAI antwortet mit JSON, Status wird auf `done` gesetzt.
+5. Wenn das Bild nicht ge­cap­tu­red werden kann (CDN-Block, 404), wird Status auf `fetch_failed` gesetzt — und eine Retry-Strategie greift (z.B. erneut versuchen mit anderer Source-URL nach Wartezeit).
+6. Wenn Vision selbst fehlschlägt (Provider-Error, Quota), Status `provider_error`, kein Auto-Heuristik-Fallback ohne explizite Markierung.
+
+**Vorteile**: KI sieht das Bild wirklich, `text_fallback` wird ehrlich (nur wenn auch wirklich kein Bild da war), `secure`-Klassifikation funktioniert, Cross-Sprint-Vergleich wird möglich.
+
+### 3.6 Naming-Hygiene (F0.2-Begleit)
+
+Wenn Variante A (gemeinsames Schema mit Prefix) gewählt wird: alle Tabellen `cr_channel`, `cr_title`, `cr_post`, `cr_asset` etc. Außerdem Postgres-Enum `cr_assettype` statt `assettype`. Migration: in Alembic-Baseline-Revision umbenennen.
+
+Wenn Variante B (eigene DB): keine Prefix nötig, aber `Title.tmdb_id` als UNIQUE konstruieren (heute nur Index — Diagnose §4).
+
+### 3.7 Was bewusst NICHT geändert wird
+
+- **FastAPI** bleibt — läuft, ist passend skalierbar.
+- **SQLModel** bleibt — Alembic-Migrations passen weiterhin auf die Modelle.
+- **Vite/React** bleibt — Vue/Next/Svelte bringen keinen Mehrwert für den MVP-Scope.
+- **Apify als Scraping-Layer** bleibt — selbst-gebaute Scraper sind teurer und juristisch nicht weniger riskant. Apify ist hier ein angemessener Trade-off (juristische Klärung trotzdem nötig, F0.5).
+- **OpenAI als KI-Provider** bleibt — Multimodal-fähig, Vision-Pricing günstig (F0.4). Wechsel zu Anthropic Claude oder Google Gemini wäre denkbar, ist aber kein Diagnose-Befund.
+
+---
+
+## 4. Externe Abhängigkeiten (APIs, Kosten, Verträge, juristische Klärung)
+
+### 4.1 API-Inventar
+
+| Anbieter | Wofür | Pflicht/Optional | Heute integriert | Vertragsstatus |
+|---|---|---|---|---|
+| **Railway** | Backend-Hosting + Postgres | Pflicht | ja | Standard-Vertrag mit Railway Inc. |
+| **Netlify** | Frontend-Hosting + Build + API-Proxy | Pflicht | ja | Standard-Vertrag mit Netlify Inc. |
+| **Apify** | Instagram + TikTok Scraping | Pflicht (für Auto-Modus); Manual-Import als Fallback | ja | Standard-Vertrag — **ToS-Implikationen für Drittseiten ungeklärt** (siehe 4.4) |
+| **TMDb** | Film-/Serien-Whitelist-Quelle | Pflicht für Auto-Whitelist | ja (Movies); TV-Sync fehlt (F1.7) | TMDb-Terms verlangen Attribution + non-commercial Default — siehe 4.4 |
+| **OpenAI** | Text-Klassifikation + Vision | Pflicht (sonst Stub-Mode) | ja | Standard-Anthropic/OpenAI-Terms |
+| **Perplexity** | Wochen-Marktkontext | Optional, **heute toter Pfad** (Diagnose §5.5) | nicht aktiv | Standard-Terms |
+| **S3 / R2 / B2** | Persistentes Storage (F0.1) | Pflicht ab P0 | nein | TBD (Wolf-Entscheidung) |
+| **YouTube Data API** | Trailer-Channels (F2.1) | Optional (P2) | nein | Google API Terms |
+| **IGDB** | Game-Titel (F2.8) | Optional (P2) | nein | Twitch/IGDB-Terms |
+| **Sentry / Logflare** | Logs/Alerts (F1.17) | Optional | nein | Standard-Terms |
+
+### 4.2 Kostenstruktur (Größenordnung, alles **TBD genau**)
+
+> **Hinweis:** alle Preise unten sind Größenordnungs-Schätzungen für ein Solo-Founder-MVP mit moderater Last (~20 Channels, ~5 Posts/Channel/Woche, ~100 Assets/Woche). Verbindliche Zahlen muss Wolf vor Phase 4 aus den aktuellen Pricing-Pages ziehen — Preise ändern sich häufig, und ich vermeide bewusst veraltete Zahlen.
+
+| Posten | Größenordnung pro Monat | Anmerkung |
+|---|---|---|
+| Railway Backend (Hobby/Starter) | TBD — siehe railway.app/pricing | Hobby-Plan reicht initial; bei separatem Cron-Service zusätzlicher Service-Plan |
+| Railway Postgres | TBD — siehe railway.app/pricing | Variante A (gemeinsame DB) keine Mehrkosten; Variante B eigene Instanz |
+| Netlify | 0 € (Free-Tier voraussichtlich ausreichend) | siehe netlify.com/pricing für Free-Tier-Limits |
+| Apify Instagram Scraper | TBD — siehe apify.com/apify/instagram-scraper Pricing-Tab | Pay-per-result oder Pay-per-Compute-Unit (CU) |
+| Apify TikTok Scraper (`clockworks~tiktok-scraper`) | TBD — siehe apify.com/clockworks/tiktok-scraper Pricing-Tab | gleiche Logik |
+| OpenAI gpt-4o-mini Text + Vision | TBD — siehe openai.com/pricing | Vision-Calls werden nach Token-Volumen abgerechnet; pro Bild deutlich günstiger als gpt-4o |
+| Perplexity sonar-pro | TBD — siehe perplexity.ai/pricing | optional |
+| S3-kompatibles Storage (R2/B2) | TBD — siehe Anbieter-Pricing | Größenordnung ≪ andere Posten bei wenigen GB Bilder |
+| Sentry/Logflare | 0 € im Free-Tier voraussichtlich ausreichend | optional |
+
+**Empfehlung**: Wolf legt einen **monatlichen Hard-Cap** fest (z.B. 100 €/Monat oder 200 €/Monat). Cost-Cap (F0.6) im Code überwacht den Apify-Cost-Counter und stoppt Auto-Runs bei Überschreitung.
+
+### 4.3 Vertragslage und Beschaffung
+
+| Anbieter | Heute | Soll vor Phase 4 |
+|---|---|---|
+| Railway | abgeschlossen | unverändert |
+| Netlify | abgeschlossen | unverändert |
+| Apify | Standard-Account (Free oder Paid) | bezahlter Plan klar gewählt + ToS-Review (siehe 4.4) |
+| TMDb | API-Key vorhanden (`TMDB_API_KEY` im Code) | Lizenz-Status klären (commercial vs. non-commercial) |
+| OpenAI | API-Key | Usage-Tier klar; Hard-Cap aktivieren |
+| S3/R2/B2 | nicht vorhanden | Account anlegen, Bucket-Policy schreiben (private mit signed URLs ODER public mit Random-UUID-Pfaden) |
+
+### 4.4 Juristische Klärung (P0 Blocker)
+
+#### 4.4.1 Instagram + TikTok ToS
+
+Die ToS von Instagram (Meta Platforms Terms) und TikTok (Terms of Service) verbieten in der Standard-Lesart automatisiertes Scraping ohne ausdrückliche Genehmigung. Apify positioniert sich als Tool-Anbieter, der das Compliance-Risiko vertraglich an den Kunden weitergibt (typisch im Scraping-as-a-Service-Markt).
+
+**Konkrete Risiken:**
+
+- **Plattform-seitig**: Sperrung der eingesetzten Account-IDs / IP-Adressen, Cease-and-Desist gegen den Betreiber, im Extremfall Klage. Präzedenzfälle: hiQ Labs ./. LinkedIn (US); in der EU schwächere Eskalationspraxis, aber nicht risikolos.
+- **DSGVO-seitig**: gescrapte Daten enthalten personenbezogene Inhalte (Caption mit User-Handles, Comment-Daten falls eingeschaltet). Die Verarbeitung benötigt eine Rechtsgrundlage (Art. 6 DSGVO) — typischerweise berechtigtes Interesse mit Interessenabwägung. Für interne Kreativ-Inspiration vertretbar, aber dokumentations­pflichtig.
+- **Urheberrecht** an den gespeicherten Bildern (Trailer-Frames, Poster): Privilegierungen aus § 51 UrhG (Zitatrecht) oder die EU-Text-and-Data-Mining-Ausnahme (§ 44b UrhG, Art. 4 DSM-Richtlinie) können einschlägig sein, sind aber an Bedingungen geknüpft (interner Zweck, kein Public-Vertrieb). Pre-Commitment im Briefing: keine Implementierung neuer Scraper ohne Wolf-Freigabe.
+
+**Empfehlung**:
+
+1. Anwalts-Termin (Anwalt für IT-/Medienrecht) zur Klärung der drei Punkte oben. Aufwand intern: 0,5 PT-S Doku-Vorbereitung + extern Honorar (TBD).
+2. Ergebnis als `docs/legal_review.md` im Repo, mit Stand-Datum und Wieder­vor­lage­frist.
+3. Bis zum Ergebnis: Apify-Monitoring hinter Feature-Flag `APIFY_MONITOR_ENABLED=False`. Manueller Import bleibt aktiv, ist juristisch unkritisch (Mensch-im-Loop).
+
+#### 4.4.2 TMDb-Lizenz
+
+TMDb-Terms unterscheiden non-commercial und commercial Use. Creative Radar wird intern für Marketing-Beratung genutzt — das kann commercial sein. **Klärung**: TMDb-API-Antrag mit kommerziellem Nutzungs-Use-Case prüfen.
+
+#### 4.4.3 OpenAI-Datenfluss
+
+Captions, OCR-Texte und Bilder werden an OpenAI gesendet. OpenAI verarbeitet API-Daten standardmäßig **nicht** für Modelltraining (laut aktuellen OpenAI-API-Terms — Stand prüfen). Trotzdem: relevant für Auftragsverarbeitungsvertrag (AVV/DPA), wenn personenbezogene Daten enthalten sind (z.B. User-Handles in Captions).
+
+**Empfehlung**: OpenAI-DPA aktivieren (gibt es im Account-Settings) und im DSGVO-Konzept dokumentieren (F0.7).
+
+#### 4.4.4 DSGVO im engeren Sinn (F0.7)
+
+Pflicht für ein produktiv betriebenes System mit personenbezogenen Daten Dritter:
+
+- **Verarbeitungsverzeichnis** (Art. 30 DSGVO) — pflegen
+- **Rechtsgrundlage** je Datenkategorie (Art. 6 DSGVO) — dokumentieren
+- **Aufbewahrungsdauer** definieren (z.B. 12 Monate für Captions, 24 Monate für Asset-Bilder, danach Löschung/Anonymisierung)
+- **Lösch-Workflow** (Diagnose §11 R18): Endpoint `POST /api/posts/{id}/delete-personal-data`, der `caption`, `external_id`, `Channel.handle` maskt; der Asset-Datensatz für das aggregierte Reporting bleibt erhalten
+- **Auskunftsanspruch** Dritter: erst relevant wenn Anfragen kommen — Prozess intern dokumentieren
+
+### 4.5 SLA/Verfügbarkeit der externen Abhängigkeiten
+
+| Anbieter | Typische Verfügbarkeit | Was passiert bei Ausfall? |
+|---|---|---|
+| Apify | hoch (>99 %), aber gelegentlich Actor-Schemata-Änderungen | Apify-Monitor-Job logged Error, Retry beim nächsten Cron-Run |
+| TMDb | sehr hoch | Title-Sync skippt, nächste Woche neu |
+| OpenAI | hoch, gelegentlich Rate-Limits | Visual-Analyse-Job markiert Asset als `provider_error`, Retry-Loop mit exponential backoff |
+| S3/R2 | sehr hoch | hart kritisch — Asset-Capture failt, Status `fetch_failed` |
+| Railway | hoch | Service-Restart auto, Cron-Job wartet |
+
+Soll-Verhalten: alle externen Calls müssen `try/except` mit explizitem Status auf dem Asset/Job. Heute teilweise gegeben (Visual-Analyse hat das, Apify hat das nicht in jeder Variante).
+
+### 4.6 Cost-Observability (F0.6 + F1.17)
+
+Damit Wolf das Hard-Cap aus 4.2 durchsetzen kann:
+
+- **Apify**: nach jedem Run `usage`-Daten aus Apify-API holen (Run-Cost in CU/USD) und in Tabelle `apify_run_log` speichern.
+- **OpenAI**: Token-Counts pro Vision/Text-Call loggen, Multiplikation mit Pricing-Konstante (im Code als `OPENAI_PRICE_PER_1K_INPUT/OUTPUT`-ENV).
+- **Wochen-Dashboard** (P1): Endpoint `/api/insights/cost-overview` zeigt Apify+OpenAI-Cost letzten 7 Tagen. Frontend rendert.
+- **Hard-Cap**: bei Überschreiten setzt der Cost-Cap-Service `APIFY_MONITOR_ENABLED=False` runtime und alarmiert (Sentry/E-Mail).
+
+
+
