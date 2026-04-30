@@ -142,6 +142,7 @@ class AssetSuggestion(BaseModel):
     market: str
 
     display_image_url: Optional[str] = None
+    display_image_candidates: list[str] = []
     evidence_quality: Literal["secure", "external", "source_only", "missing"]
     has_secure_evidence: bool
     evidence_label: str
