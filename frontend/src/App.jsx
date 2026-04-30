@@ -102,12 +102,11 @@ function inferTitleHint(asset, titles) {
 }
 
 function ImagePreview({ imageUrl, evidenceQuality, sources = [] }) {
-  // Two calling conventions:
-  //   1. Vorschlagskarte: imageUrl already curated by backend (display_image_url).
-  //      Treated as a single-element candidate list.
-  //   2. Asset-/Review-Card: sources={[evidence, screenshot, thumbnail, source]}.
-  //      Iterate on onError until one loads or the list is exhausted.
-  const candidates = imageUrl ? [imageUrl] : sources.filter(Boolean);
+  // Callers pass a sources array of candidate URLs (proposal cards use
+  // display_image_candidates from the backend; review/asset cards use the raw
+  // asset URL fields). Iterate via onError until one loads or all are spent.
+  // imageUrl is kept as a single-URL shortcut for any caller still using it.
+  const candidates = sources.length > 0 ? sources.filter(Boolean) : (imageUrl ? [imageUrl] : []);
   const [index, setIndex] = useState(0);
 
   useEffect(() => { setIndex(0); }, [candidates.join('|')]);
@@ -556,7 +555,12 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
               const hinweis = warnings.length > 0 ? warnings.join(' · ') : 'keine kritischen Hinweise';
               return (
                 <article key={asset.asset_id} className="find-card">
-                  <ImagePreview imageUrl={asset.display_image_url} evidenceQuality={asset.evidence_quality} />
+                  <ImagePreview
+                    sources={(asset.display_image_candidates && asset.display_image_candidates.length > 0)
+                      ? asset.display_image_candidates
+                      : (asset.display_image_url ? [asset.display_image_url] : [])}
+                    evidenceQuality={asset.evidence_quality}
+                  />
                   <div>
                     <p className="find-title">{asset.title || 'Ohne Titel'}</p>
                     <p className="muted small">{asset.channel} · {asset.market} · Eignung: {asset.suitability}</p>
