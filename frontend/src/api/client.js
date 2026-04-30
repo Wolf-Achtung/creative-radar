@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = 'https://creative-radar-production.up.railway.app';
+const DEFAULT_API_BASE = 'https://api.creative-radar.de';
 
 function resolveApiBase() {
   const configured = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '').trim();
