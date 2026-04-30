@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { endpoints } from './api/client';
+import { endpoints, proxyImageUrl } from './api/client';
 import './styles.css';
 
 const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
@@ -198,7 +198,7 @@ function ImportantFinds({ assets, titles }) {
             const hint = inferTitleHint(asset, titles);
             return (
               <article key={asset.id} className="find-card">
-                <ImagePreview sources={[asset.visual_evidence_url, asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url]} />
+                <ImagePreview sources={[asset.visual_evidence_url, asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url].map(proxyImageUrl)} />
                 <div>
                   <p className="find-title">{hint.label}</p>
                   <p className="muted small">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.created_at)}</p>
@@ -311,7 +311,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
 
   return (
     <article className="asset-card">
-      <div className="asset-preview"><ImagePreview sources={[asset.visual_evidence_url, asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url]} /></div>
+      <div className="asset-preview"><ImagePreview sources={[asset.visual_evidence_url, asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url].map(proxyImageUrl)} /></div>
       <div className="asset-content">
         <div className="asset-topline">
           <span className="asset-title">{getAssetDisplayTitle(asset, titles)}</span>
@@ -556,9 +556,10 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
               return (
                 <article key={asset.asset_id} className="find-card">
                   <ImagePreview
-                    sources={(asset.display_image_candidates && asset.display_image_candidates.length > 0)
+                    sources={((asset.display_image_candidates && asset.display_image_candidates.length > 0)
                       ? asset.display_image_candidates
-                      : (asset.display_image_url ? [asset.display_image_url] : [])}
+                      : (asset.display_image_url ? [asset.display_image_url] : [])
+                    ).map(proxyImageUrl)}
                     evidenceQuality={asset.evidence_quality}
                   />
                   <div>
