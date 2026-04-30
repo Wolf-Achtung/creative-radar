@@ -4,6 +4,7 @@ from app.config import settings
 from app.services.report_selector import (
     EVIDENCE_LABELS,
     EVIDENCE_WARNINGS,
+    _displayable_image_candidates,
     _displayable_image_url,
     _evidence_quality,
     _has_secure_evidence,
@@ -64,6 +65,43 @@ def test_displayable_image_url_prefers_external_over_dead_internal_path():
 def test_displayable_image_url_returns_none_when_only_internal_path():
     asset = _asset(visual_evidence_url="/storage/evidence/dead.jpg")
     assert _displayable_image_url(asset) is None
+
+
+def test_displayable_image_candidates_returns_all_http_urls_in_priority_order():
+    asset = _asset(
+        visual_evidence_url="/storage/evidence/dead.jpg",
+        visual_source_url="https://cdn.a/source.jpg",
+        screenshot_url="https://cdn.b/shot.jpg",
+        thumbnail_url="https://cdn.c/thumb.jpg",
+    )
+    candidates = _displayable_image_candidates(asset)
+    assert candidates == [
+        "https://cdn.a/source.jpg",
+        "https://cdn.b/shot.jpg",
+        "https://cdn.c/thumb.jpg",
+    ]
+
+
+def test_displayable_image_candidates_deduplicates_repeated_urls():
+    asset = _asset(
+        screenshot_url="https://cdn/x.jpg",
+        thumbnail_url="https://cdn/x.jpg",
+    )
+    assert _displayable_image_candidates(asset) == ["https://cdn/x.jpg"]
+
+
+def test_displayable_image_candidates_returns_empty_when_only_dead_internal_path():
+    asset = _asset(visual_evidence_url="/storage/evidence/dead.jpg")
+    assert _displayable_image_candidates(asset) == []
+
+
+def test_displayable_image_url_matches_first_candidate():
+    asset = _asset(
+        visual_source_url="https://cdn.a/source.jpg",
+        thumbnail_url="https://cdn.c/thumb.jpg",
+    )
+    candidates = _displayable_image_candidates(asset)
+    assert candidates[0] == _displayable_image_url(asset)
 
 
 def test_suitability_capped_when_no_secure_evidence():

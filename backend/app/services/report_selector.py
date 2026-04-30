@@ -114,26 +114,50 @@ def _evidence_quality(asset: Asset) -> str:
     return "missing"
 
 
-def _displayable_image_url(asset: Asset) -> str | None:
+def _displayable_image_candidates(asset: Asset) -> list[str]:
     """
-    Liefert die URL, die das UI tatsächlich anzeigen kann. Nicht identisch mit
-    evidence_quality — dies ist die Frage „was kann der Browser laden?".
+    Liefert ALLE potenziell anzeigbaren Bild-URLs in priorisierter Reihenfolge.
+    Das Frontend probiert sie sequentiell durch und nimmt die erste, die lädt.
 
-    Bevorzugt interne Storage-Pfade nur, wenn der Storage-Mount aktiv ist.
-    Fällt sonst auf externe http(s)-Quellen zurück, weil interne Pfade aktuell
-    tot sind. Gibt None zurück, wenn nichts Anzeigbares existiert.
+    Begründung: externe CDN-URLs (Instagram-Story-Thumbnails etc.) sind kurzlebig
+    und unterschiedlich stabil pro Feld. Wenn _displayable_image_url nur die erste
+    Treffer-URL zurückgibt und die expired ist, wird der zweite Kandidat nie
+    versucht — Vorschlagskarten zeigen den Load-Failed-Placeholder, obwohl
+    thumbnail_url oder screenshot_url noch laden würden.
+
+    Reihenfolge: secure-Evidence (falls Flag an) → visual_evidence_url →
+    visual_source_url → screenshot_url → thumbnail_url. Duplikate entfernt.
     """
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add(url: str | None) -> None:
+        if url and isinstance(url, str) and url not in seen:
+            candidates.append(url)
+            seen.add(url)
+
     if settings.secure_storage_enabled:
         ev = getattr(asset, "visual_evidence_url", None)
         if ev and "/storage/evidence/" in str(ev):
-            return ev
+            add(ev)
 
     for field in ("visual_evidence_url", "visual_source_url", "screenshot_url", "thumbnail_url"):
         url = getattr(asset, field, None)
         if url and isinstance(url, str) and url.startswith(("http://", "https://")):
-            return url
+            add(url)
 
-    return None
+    return candidates
+
+
+def _displayable_image_url(asset: Asset) -> str | None:
+    """Erste Wahl-URL — Backwards-Compat für Pfad-B-Übergang und Tests.
+
+    Identisch zur ersten Position aus _displayable_image_candidates(). Wird
+    weiterhin im Selector-Output mitgeliefert, damit ein altes Frontend, das
+    nur display_image_url kennt, nicht bricht.
+    """
+    candidates = _displayable_image_candidates(asset)
+    return candidates[0] if candidates else None
 
 
 def _suitability_label(score: float, report_type: str, evidence_quality: str, warnings: list[str], has_title: bool) -> str:
@@ -345,13 +369,15 @@ def select_assets_for_report(
             warnings.append(expected_warning)
         reason = _build_reason(report_type, tags, warnings, signal=_interaction_signal(post), baseline=baseline)
         suitability = _suitability_label(score, report_type, evidence_quality, warnings, has_title=bool(asset.title_id))
-        display_url = _displayable_image_url(asset)
+        display_candidates = _displayable_image_candidates(asset)
+        display_url = display_candidates[0] if display_candidates else None
         item: dict[str, Any] = {
             "asset_id": str(asset.id),
             "title": title,
             "channel": channel.name,
             "market": channel.market.value,
             "display_image_url": display_url,
+            "display_image_candidates": display_candidates,
             "evidence_quality": evidence_quality,
             "has_secure_evidence": evidence_quality == "secure",
             "evidence_label": EVIDENCE_LABELS[evidence_quality],
