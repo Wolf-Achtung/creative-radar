@@ -548,6 +548,34 @@ Der Plan deckt einen **Solo-Founder-Rhythmus von 3–4 PT-S/Woche** neben dem Be
 - **CDN-Hotlink-Block** der externen IG/TikTok-CDNs kann Backfill scheitern lassen; in dem Fall bleibt die heutige `screenshot_url` als Fallback im Frontend (Sprint 8.2-`display_image_candidates`-Logik trägt das bereits).
 - **Visual-Pipeline (F0.4) ist noch nicht repariert** — die neue Storage-URL macht die Reparatur in Woche 3 erst möglich, ist aber für Woche 2 noch nicht wirksam. Status `done` zählt erst ab Woche 3.
 
+### Woche 3: Visual-Pipeline ehrlich machen
+
+**Ziel der Woche.** OpenAI Vision sieht das Bild wirklich, der Status `done` bedeutet das auch — und Begleit-Felder, die Visual-Output speisen (DE/US-Match-Key, Status-Enum, strukturierte Logs), werden konsistent. Aufsatzpunkt: die in Woche 2 verfügbar gemachte öffentlich erreichbare Storage-URL.
+
+**Tasks.**
+
+- **F0.4 Visual-Pipeline reparieren** — `services/visual_analysis.py` so umbauen, dass `image_url` an OpenAI **nur** die Storage-URL aus F0.1 (oder eine externe URL, die nachweislich öffentlich erreichbar ist) bekommt. Niemals `/storage/evidence/...`-relativen Pfad. Status-Setzung sauber: `done` nur, wenn das Vision-Modell tatsächlich strukturiertes JSON zurückgegeben hat; Heuristik-Fallback markiert als `text_fallback` mit explizitem Grund-Feld (`visual_notes`). Provider-Fehler (Quota, Timeout) → `provider_error` mit Retry-Logik (exponential backoff, max 3 Versuche). (Diagnose §1 Pkt. 3, §5.5 „Stiller Fehler #1", §6.2, §11 R4, Backlog F0.4.) **2 PT-S**
+- **F1.15 Status-Werte als Enum konsolidieren** — `visual_analysis_status` aus freiem String in eine zentrale Konstante / `Enum` in `entities.py` heben. Werte: `pending`, `running`, `done`, `text_fallback`, `no_source`, `fetch_failed`, `provider_error`. Insights-Counter (F1.4) und Selector (`ANALYSIS_DONE_STATES` in `report_selector.py` — Sprint-8.2-Code wird **nicht editiert**, sondern nur an die neuen Konstanten verwiesen) ziehen die Werte zentral. (Diagnose §11 R13, §13 Stille Fehler.) **0,5 PT-S**
+- **F1.10 `Asset.de_us_match_key` deterministisch** — Slug-Erzeugung aus `Title.franchise || Title.title_original` als Single-Source-of-Truth in `services/title_candidates.py`-Helper, KI darf den Wert nicht mehr überschreiben. Migration-Skript pro Asset: Re-Compute des Keys nach neuer Logik. (Diagnose §7 Audit-Tabelle, Backlog F1.10.) **0,5 PT-S**
+- **F1.17 Strukturierte Logs (Minimalscope)** — JSON-Logger einbinden (`python-json-logger` o.ä.), die drei kostentreibenden Pipelines explizit loggen: `apify-monitor-outcome` (Run-ID, Cost, Items-Zahl, Skips), `visual-analysis-outcome` (Asset-ID, Status, Confidence, Provider-Latenz), `tmdb-sync-outcome` (Run-ID, Fetched, Upserted). Plattform: Railway-Stdout — ein Sentry-/Logflare-Aufsatz wird in P1 später ergänzt. (Diagnose §11 R5/R10/R14, Backlog F1.17.) **1 PT-S**
+- **Sprint-8.2-Puffer** — F0.4 ändert `visual_analysis_status`-Setzung; vor Merge prüfen, dass `report_selector.ANALYSIS_DONE_STATES` weiterhin `done` und `text_fallback` enthält (Sprint 8.2 erwartet beide). **0,3 PT-S**
+
+**Aufwand gesamt:** ~4,3 PT-S — am oberen Rand der Wochen-Kapazität.
+
+**Akzeptanzkriterien.**
+
+- Bei einem manuellen Test-Run (10 frische Apify-IG-Treffer plus Visual-Batch-Aufruf) erreichen **mindestens 70 %** den Status `done` (MVP-Erfolgsmetrik aus Roadmap §1.6).
+- `pytest -q` enthält neue Tests: a) `visual_analysis_status` akzeptiert nur Enum-Werte, b) `de_us_match_key` ist für identischen Titel/Franchise deterministisch (zwei Aufrufe → gleiches Ergebnis).
+- Re-Compute-Skript für `de_us_match_key` ist einmal gegen Production gelaufen, Anzahl aktualisierter Rows protokolliert.
+- Production-Logs zeigen für jeden Apify-Run, jeden Visual-Call und jeden TMDb-Sync genau einen JSON-Log-Eintrag mit Outcome-Daten — manuell verifiziert in Railway-Logs.
+- `report_selector.py` und `report_renderer_v2.py` sind unverändert (Sprint-8.2-Schutz).
+
+**Risiken / Abhängigkeiten.**
+
+- **Hotlink-Block externer CDNs** kann selbst mit gültiger Storage-URL noch dazu führen, dass das Bild zur Capture-Zeit (vor Storage-Upload) nicht geladen werden kann. Mitigation: F0.1-Backfall-Pfad bleibt aktiv; Status `fetch_failed` ist dann ehrlich.
+- **70-%-Metrik** kann erst nach mindestens einem realen Wochen-Lauf bewertet werden — Akzeptanz teilweise verzögert messbar.
+- **Storage-Provider-Latenz** (Woche-2-Entscheidung): wenn S3-Endpoint deutlich langsamer als IG-CDN ist, könnte die Vision-Analyse-Latenz steigen. Beobachten via F1.17-Logs.
+
 
 
 
