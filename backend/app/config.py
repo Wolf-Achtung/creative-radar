@@ -33,6 +33,12 @@ class Settings(BaseSettings):
 
     secure_storage_enabled: bool = False
 
+    image_proxy_allowed_hosts: str = (
+        "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
+    )
+    image_proxy_timeout_seconds: float = 8.0
+    image_proxy_max_bytes: int = 8 * 1024 * 1024  # 8 MiB
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property
@@ -41,6 +47,10 @@ class Settings(BaseSettings):
         if raw.strip() == "*":
             return ["*"]
         return [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+
+    @property
+    def image_proxy_host_suffixes(self) -> list[str]:
+        return [item.strip().lower().lstrip(".") for item in self.image_proxy_allowed_hosts.split(",") if item.strip()]
 
 
 settings = Settings()
