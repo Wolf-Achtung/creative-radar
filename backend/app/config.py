@@ -41,11 +41,6 @@ class Settings(BaseSettings):
     s3_secret_access_key: str | None = None
     s3_signed_url_ttl_seconds: int = 3600
 
-    # Temporary admin endpoint for sampling vision outputs (Phase 4 W3, Task 3.4).
-    # Set via ENV ADMIN_SAMPLE_TOKEN, clear after sampling. Endpoint returns 503
-    # when this is None.
-    admin_sample_token: str | None = None
-
     image_proxy_allowed_hosts: str = (
         "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
     )
