@@ -56,7 +56,7 @@ def _is_already_migrated(asset: Asset) -> bool:
     return bool(value) and not value.startswith(("http://", "https://"))
 
 
-def run(session: Session) -> dict[str, int]:
+def run(session: Session) -> dict:
     statement = select(Asset).where(
         (Asset.screenshot_url.is_not(None)) | (Asset.thumbnail_url.is_not(None))
     ).order_by(Asset.created_at.desc())
@@ -66,11 +66,16 @@ def run(session: Session) -> dict[str, int]:
     migrated = 0
     skipped = 0
     failed = 0
+    failed_ids: list[str] = []
+    failed_reasons: dict[str, str] = {}
 
     print(f"Backfill candidates: {total} assets (screenshot or thumbnail present)")
     if not total:
         print("Nothing to do.")
-        return {"total": 0, "migrated": 0, "skipped": 0, "failed": 0}
+        return {
+            "total": 0, "migrated": 0, "skipped": 0, "failed": 0,
+            "failed_ids": [], "failed_reasons": {},
+        }
 
     batch_index = 0
     for batch in _batched(assets, BATCH_SIZE):
@@ -85,8 +90,11 @@ def run(session: Session) -> dict[str, int]:
             try:
                 result = capture_asset_screenshot(asset)
             except Exception as exc:  # noqa: BLE001
-                print(f"FAIL {asset_id}: {type(exc).__name__}: {exc}")
+                reason = f"{type(exc).__name__}: {exc}"
+                print(f"FAIL {asset_id}: {reason}")
                 failed += 1
+                failed_ids.append(asset_id)
+                failed_reasons[asset_id] = reason
                 continue
 
             if result.status == "captured" and result.evidence_url:
@@ -102,17 +110,25 @@ def run(session: Session) -> dict[str, int]:
                     migrated += 1
                 except Exception as exc:  # noqa: BLE001
                     session.rollback()
-                    print(f"FAIL {asset_id}: db commit failed: {type(exc).__name__}: {exc}")
+                    reason = f"db commit failed: {type(exc).__name__}: {exc}"
+                    print(f"FAIL {asset_id}: {reason}")
                     failed += 1
+                    failed_ids.append(asset_id)
+                    failed_reasons[asset_id] = reason
             else:
-                print(f"FAIL {asset_id}: capture status={result.status}")
+                reason = f"capture status={result.status}"
+                print(f"FAIL {asset_id}: {reason}")
                 failed += 1
+                failed_ids.append(asset_id)
+                failed_reasons[asset_id] = reason
 
     summary = {
         "total": total,
         "migrated": migrated,
         "skipped": skipped,
         "failed": failed,
+        "failed_ids": failed_ids,
+        "failed_reasons": failed_reasons,
     }
     print(
         f"\n=== Backfill summary ===\n"

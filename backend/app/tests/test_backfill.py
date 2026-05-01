@@ -70,7 +70,12 @@ def test_skips_assets_with_object_key(monkeypatch: pytest.MonkeyPatch,
     summary = backfill.run(session)
     out = capsys.readouterr().out
 
-    assert summary == {"total": 1, "migrated": 0, "skipped": 1, "failed": 0}
+    assert summary["total"] == 1
+    assert summary["migrated"] == 0
+    assert summary["skipped"] == 1
+    assert summary["failed"] == 0
+    assert summary["failed_ids"] == []
+    assert summary["failed_reasons"] == {}
     assert f"SKIP {asset.id}" in out
 
 
@@ -110,7 +115,11 @@ def test_migrates_asset_with_http_url(monkeypatch: pytest.MonkeyPatch,
     summary = backfill.run(session)
     out = capsys.readouterr().out
 
-    assert summary == {"total": 1, "migrated": 1, "skipped": 0, "failed": 0}
+    assert summary["total"] == 1
+    assert summary["migrated"] == 1
+    assert summary["skipped"] == 0
+    assert summary["failed"] == 0
+    assert summary["failed_ids"] == []
     session.refresh(asset)
     assert asset.visual_evidence_url == captured_key
     assert asset.visual_evidence_status == "captured"
@@ -142,6 +151,8 @@ def test_per_asset_capture_exception_does_not_abort(
     assert summary["total"] == 2
     assert summary["migrated"] == 1
     assert summary["failed"] == 1
+    assert str(bad.id) in summary["failed_ids"]
+    assert "R2 connection refused" in summary["failed_reasons"][str(bad.id)]
     assert summary["skipped"] == 0
     assert f"FAIL {bad.id}: RuntimeError: R2 connection refused" in out
     assert f"OK   {good.id}" in out
@@ -161,7 +172,13 @@ def test_capture_status_other_than_captured_counts_as_failed(
     )
     summary = backfill.run(session)
 
-    assert summary == {"total": 1, "migrated": 0, "skipped": 0, "failed": 1}
+    assert summary["total"] == 1
+    assert summary["migrated"] == 0
+    assert summary["skipped"] == 0
+    assert summary["failed"] == 1
+    assert len(summary["failed_ids"]) == 1
+    # capture status is reported as the failure reason
+    assert "fetch_failed" in next(iter(summary["failed_reasons"].values()))
 
 
 def test_idempotent_second_run_is_all_skips(
@@ -189,7 +206,11 @@ def test_idempotent_second_run_is_all_skips(
         lambda a: pytest.fail("second run must not re-capture"),
     )
     second = backfill.run(session)
-    assert second == {"total": 1, "migrated": 0, "skipped": 1, "failed": 0}
+    assert second["total"] == 1
+    assert second["migrated"] == 0
+    assert second["skipped"] == 1
+    assert second["failed"] == 0
+    assert second["failed_ids"] == []
 
 
 def test_batches_in_chunks_of_fifty(monkeypatch: pytest.MonkeyPatch,
