@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     s3_secret_access_key: str | None = None
     s3_signed_url_ttl_seconds: int = 3600
 
+    # Temporary admin endpoints for the F0.2 schema migration (Phase 4 W4).
+    # Both forward and rollback share the same token. Cleanup commit after
+    # the migration is verified will remove the field plus the endpoints.
+    admin_migration_token: str | None = None
+
     image_proxy_allowed_hosts: str = (
         "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
     )
