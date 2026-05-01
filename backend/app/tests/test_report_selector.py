@@ -140,3 +140,64 @@ def test_evidence_label_and_warning_are_consistent():
     for quality in ("external", "source_only", "missing"):
         assert quality in EVIDENCE_WARNINGS
     assert "secure" not in EVIDENCE_WARNINGS  # secure produces a tag, not a warning
+
+
+# --- W3 / F0.4: Object-Key recognition (parallel to legacy path) ---
+
+
+def test_evidence_quality_secure_for_object_key_when_flag_enabled(monkeypatch):
+    monkeypatch.setattr(settings, "secure_storage_enabled", True)
+    asset = _asset(visual_evidence_url="evidence/asset_123_abc.jpg")
+    assert _evidence_quality(asset) == "secure"
+    assert _has_secure_evidence(asset) is True
+
+
+def test_evidence_quality_source_only_for_object_key_when_flag_disabled():
+    assert settings.secure_storage_enabled is False
+    asset = _asset(visual_evidence_url="evidence/asset_123_abc.jpg")
+    assert _evidence_quality(asset) == "source_only"
+
+
+def test_evidence_quality_external_unchanged_for_http_url(monkeypatch):
+    monkeypatch.setattr(settings, "secure_storage_enabled", True)
+    asset = _asset(visual_evidence_url="https://cdn.instagram.com/foo.jpg")
+    assert _evidence_quality(asset) == "external"
+    assert _has_secure_evidence(asset) is False
+
+
+def test_displayable_image_candidates_resolves_object_key_when_flag_enabled(monkeypatch):
+    monkeypatch.setattr(settings, "secure_storage_enabled", True)
+    monkeypatch.setattr(settings, "storage_backend", "local", raising=False)
+    asset = _asset(visual_evidence_url="evidence/asset_123_abc.jpg")
+    candidates = _displayable_image_candidates(asset)
+    assert "/storage/evidence/asset_123_abc.jpg" in candidates
+
+
+def test_displayable_image_candidates_skips_object_key_when_flag_disabled():
+    assert settings.secure_storage_enabled is False
+    asset = _asset(visual_evidence_url="evidence/asset_123_abc.jpg",
+                   thumbnail_url="https://cdn/thumb.jpg")
+    candidates = _displayable_image_candidates(asset)
+    # bare object key MUST NOT appear; only the http thumbnail should
+    assert "evidence/asset_123_abc.jpg" not in candidates
+    assert candidates == ["https://cdn/thumb.jpg"]
+
+
+def test_legacy_path_still_recognised_as_secure_when_flag_enabled(monkeypatch):
+    """Backwards-compat: pre-F0.1 '/storage/evidence/...' paths must keep
+    working until backfill + 14d stability are confirmed."""
+    monkeypatch.setattr(settings, "secure_storage_enabled", True)
+    asset = _asset(visual_evidence_url="/storage/evidence/legacy.jpg")
+    assert _evidence_quality(asset) == "secure"
+    candidates = _displayable_image_candidates(asset)
+    assert "/storage/evidence/legacy.jpg" in candidates
+
+
+def test_is_analysis_failed_includes_new_w3_statuses():
+    """Selector must filter out the W3 honest-status failures."""
+    from app.services.report_selector import _is_analysis_failed
+    assert _is_analysis_failed(_asset(visual_analysis_status="vision_empty")) is True
+    assert _is_analysis_failed(_asset(visual_analysis_status="vision_timeout")) is True
+    assert _is_analysis_failed(_asset(visual_analysis_status="vision_error")) is True
+    assert _is_analysis_failed(_asset(visual_analysis_status="image_unreachable")) is True
+    assert _is_analysis_failed(_asset(visual_analysis_status="image_invalid")) is True

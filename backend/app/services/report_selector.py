@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.models.entities import Asset, Channel, Market, Post
+from app.services.storage import is_legacy_storage_path, is_object_key, resolve_url
 
 REPORT_TYPES = {"weekly_overview", "de_us_comparison", "visual_kinetics"}
 
@@ -78,9 +79,16 @@ def _asset_title_key(asset: Asset) -> str:
 
 
 def _has_internal_storage_path(asset: Asset) -> bool:
-    """Hat das Asset einen lokalen Storage-Pfad eingetragen? Sagt nichts über Erreichbarkeit."""
-    url = str(getattr(asset, "visual_evidence_url", "") or "")
-    return "/storage/evidence/" in url
+    """Hat das Asset eine interne Storage-Referenz? Erkennt parallel:
+    - Legacy: '/storage/evidence/<file>.jpg' (pre-F0.1, Backing-File ggf. weg)
+    - Object-Key: 'evidence/<asset_id>_<uuid>.jpg' (post-F0.1, in R2)
+
+    Beide gelten als 'internal'. Erreichbarkeit wird hier nicht geprüft — das
+    macht das Frontend, indem es die resolved URL aus _displayable_image_candidates
+    sequentiell durchprobiert. Parallel-Match bleibt aktiv, bis Backfill 100%
+    + 14 Tage Stabilbetrieb nachgewiesen sind (Wolf-Vorgabe W3)."""
+    value = getattr(asset, "visual_evidence_url", None)
+    return is_legacy_storage_path(value) or is_object_key(value)
 
 
 def _has_secure_evidence(asset: Asset) -> bool:
@@ -144,8 +152,14 @@ def _displayable_image_candidates(asset: Asset) -> list[str]:
 
     if settings.secure_storage_enabled:
         ev = getattr(asset, "visual_evidence_url", None)
-        if ev and "/storage/evidence/" in str(ev):
+        if is_legacy_storage_path(ev):
+            # Legacy substring path stays as-is; FastAPI's /storage mount
+            # serves it if the backing file survived the redeploy.
             add(ev)
+        elif is_object_key(ev):
+            # Object-key resolves to a presigned GET (R2) or /storage/<key>
+            # (local). Frontend never sees the bare key — it would 404.
+            add(resolve_url(ev))
 
     for field in ("visual_evidence_url", "visual_source_url", "screenshot_url", "thumbnail_url"):
         url = getattr(asset, field, None)
