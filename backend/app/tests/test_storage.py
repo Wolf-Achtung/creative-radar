@@ -12,6 +12,8 @@ from app.services.storage import (
     S3Storage,
     StorageBackend,
     get_storage,
+    is_legacy_storage_path,
+    is_object_key,
     resolve_url,
 )
 
@@ -128,3 +130,37 @@ def test_resolve_url_returns_none_when_backend_raises(monkeypatch: pytest.Monkey
     monkeypatch.setattr(settings, "s3_bucket", "creative-radar-assets", raising=False)
     with patch("app.services.storage.boto3.client", return_value=fake_client):
         assert resolve_url("evidence/key.jpg") is None
+
+
+# --- W3 / F0.4 helpers ---
+
+
+def test_is_legacy_storage_path_recognises_substring() -> None:
+    assert is_legacy_storage_path("/storage/evidence/abc.jpg") is True
+    assert is_legacy_storage_path("https://app.example.com/storage/evidence/abc.jpg") is True
+
+
+def test_is_legacy_storage_path_falsy_inputs() -> None:
+    assert is_legacy_storage_path(None) is False
+    assert is_legacy_storage_path("") is False
+    assert is_legacy_storage_path("evidence/abc.jpg") is False
+    assert is_legacy_storage_path("https://cdn/foo.jpg") is False
+
+
+def test_is_object_key_recognises_bare_key() -> None:
+    assert is_object_key("evidence/asset_123_abc.jpg") is True
+    assert is_object_key("evidence/2026/05/01/asset.png") is True
+
+
+def test_is_object_key_rejects_url_forms() -> None:
+    assert is_object_key("https://cdn/foo.jpg") is False
+    assert is_object_key("http://example.com/x.png") is False
+    assert is_object_key("data:image/png;base64,iVBOR") is False
+    assert is_object_key("/storage/evidence/abc.jpg") is False
+
+
+def test_is_object_key_rejects_falsy_or_no_extension() -> None:
+    assert is_object_key(None) is False
+    assert is_object_key("") is False
+    assert is_object_key("evidence/no_extension") is False
+    assert is_object_key("notakey.jpg") is False  # no slash

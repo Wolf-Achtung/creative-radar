@@ -64,3 +64,38 @@ def test_visual_analyzed_ignores_pending_and_legacy_statuses():
         _make_asset(session, visual_analysis_status="error")
         overview = build_overview(session)
         assert overview["visual_analyzed"] == 0
+
+
+def test_visual_analyzed_ignores_new_w3_failure_statuses():
+    """W3 Variante A: vision_empty/vision_timeout/vision_error/image_unreachable
+    /image_invalid are honest failures and must NOT count as analyzed."""
+    with _session() as session:
+        _make_asset(session, visual_analysis_status="vision_empty")
+        _make_asset(session, visual_analysis_status="vision_timeout")
+        _make_asset(session, visual_analysis_status="vision_error")
+        _make_asset(session, visual_analysis_status="image_unreachable")
+        _make_asset(session, visual_analysis_status="image_invalid")
+        overview = build_overview(session)
+        assert overview["visual_analyzed"] == 0
+
+
+def test_visual_analyzed_mixed_with_new_failure_statuses():
+    """Done + text_fallback still count; new failure statuses don't."""
+    with _session() as session:
+        _make_asset(session, visual_analysis_status="done")
+        _make_asset(session, visual_analysis_status="text_fallback")
+        _make_asset(session, visual_analysis_status="vision_empty")
+        _make_asset(session, visual_analysis_status="vision_timeout")
+        overview = build_overview(session)
+        assert overview["visual_analyzed"] == 2
+
+
+def test_status_breakdown_includes_new_statuses():
+    """visual_status_breakdown KPI surfaces every status the user might see in
+    production, including the new W3 ones."""
+    with _session() as session:
+        _make_asset(session, visual_analysis_status="vision_empty")
+        _make_asset(session, visual_analysis_status="image_unreachable")
+        overview = build_overview(session)
+        assert overview["visual_status_breakdown"].get("vision_empty") == 1
+        assert overview["visual_status_breakdown"].get("image_unreachable") == 1

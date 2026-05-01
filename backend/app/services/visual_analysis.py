@@ -14,6 +14,47 @@ from app.services.screenshot_capture import capture_asset_screenshot
 from app.services.storage import resolve_url
 
 
+# Status values the model is allowed to feed back via data["visual_analysis_status"].
+# Anything else (hallucinated, legacy "analyzed", typos) collapses to text_fallback.
+ALLOWED_TERMINAL_STATUS_FROM_DATA = {"done", "text_fallback"}
+
+# Substrings in OpenAI exception messages that signal "the model could not load
+# the image we passed". Conservative match — used after exception class checks.
+_IMAGE_UNREACHABLE_MARKERS = (
+    "could not download",
+    "could not load image",
+    "failed to download",
+    "image_url",
+    "invalid_image_url",
+    "unable to fetch image",
+    "image url could not be fetched",
+)
+
+
+def _vision_data_is_empty(data: dict[str, Any]) -> bool:
+    """OpenAI returned a non-exception response, but the parsed dict has nothing
+    useful in it. Triggered when raw == '{}' or _safe_json fell back to {}."""
+    if not data:
+        return True
+    meaningful_keys = ("ocr_text", "visual_summary_de", "title_placement",
+                       "kinetics", "creative_mechanic", "placement_title_text",
+                       "visual_notes")
+    return not any(_as_text(data.get(k)).strip() for k in meaningful_keys)
+
+
+def _classify_openai_exception(exc: BaseException) -> str:
+    """Map a raised exception from the OpenAI Vision call to a terminal status.
+    Falls back to 'vision_error' for anything we don't recognise."""
+    cls_name = type(exc).__name__
+    msg = str(exc).lower()
+
+    if "timeout" in cls_name.lower() or "timeout" in msg:
+        return "vision_timeout"
+    if any(marker in msg for marker in _IMAGE_UNREACHABLE_MARKERS):
+        return "image_unreachable"
+    return "vision_error"
+
+
 def _safe_json(text: str) -> dict[str, Any]:
     try:
         return json.loads(text)
@@ -181,22 +222,50 @@ de_us_match_key, visual_confidence_score, confidence
         )
             raw = response.choices[0].message.content or "{}"
             data = _safe_json(raw)
-            data["visual_analysis_status"] = "done"
+            if _vision_data_is_empty(data):
+                # Model returned an empty / unparseable JSON payload. Don't claim
+                # 'done' — surface as vision_empty so the counter stays honest.
+                data = {"visual_analysis_status": "vision_empty",
+                        "visual_notes": "OpenAI Vision lieferte keine verwertbare Antwort."}
+            else:
+                data["visual_analysis_status"] = "done"
         except Exception as exc:
+            classified = _classify_openai_exception(exc)
             data = _heuristic_analysis(asset, post, title)
-            data["visual_analysis_status"] = "text_fallback"
-            data["visual_notes"] = "Bild konnte nicht ausgewertet werden. Die Caption wurde ersatzweise analysiert."
-            logger.warning("visual-analysis-failed", extra={"asset_id": str(asset.id), "visual_source_url": image_url, "error_class": type(exc).__name__})
+            data["visual_analysis_status"] = classified
+            data["visual_notes"] = (
+                "Bild konnte nicht ausgewertet werden. Die Caption wurde ersatzweise analysiert."
+            )
+            logger.warning(
+                "visual-analysis-failed",
+                extra={
+                    "asset_id": str(asset.id),
+                    "visual_source_url": image_url,
+                    "error_class": type(exc).__name__,
+                    "classified_status": classified,
+                },
+            )
     
     title_placement = data.get("title_placement") if isinstance(data.get("title_placement"), dict) else {}
     kinetics = data.get("kinetics") if isinstance(data.get("kinetics"), dict) else {}
 
     if evidence.status == "no_source":
         asset.visual_analysis_status = "no_source"
-    elif evidence.status == "fetch_failed" and data.get("visual_analysis_status") == "done":
+    elif evidence.status == "fetch_failed":
+        # Capture failure dominates: without a real image, any vision claim is
+        # speculative. Drop the prior 'and data == "done"' guard.
         asset.visual_analysis_status = "fetch_failed"
     else:
-        asset.visual_analysis_status = _as_text(data.get("visual_analysis_status"), "text_fallback")
+        # Whitelist-guard: only 'done' or 'text_fallback' may come from the model
+        # data. New error statuses set by our own classification path are also
+        # accepted. Anything else (hallucinated, typos) collapses to text_fallback.
+        raw_status = _as_text(data.get("visual_analysis_status"), "text_fallback")
+        if raw_status in ALLOWED_TERMINAL_STATUS_FROM_DATA or raw_status in {
+            "vision_empty", "vision_timeout", "vision_error", "image_unreachable", "image_invalid"
+        }:
+            asset.visual_analysis_status = raw_status
+        else:
+            asset.visual_analysis_status = "text_fallback"
     asset.visual_source_url = image_url
     asset.ocr_text = _as_text(data.get("ocr_text"), asset.ocr_text or "") or None
     asset.visual_notes = _as_text(data.get("visual_summary_de"), _as_text(data.get("visual_notes"), "")) or None

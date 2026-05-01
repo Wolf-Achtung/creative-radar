@@ -119,6 +119,34 @@ def get_storage() -> StorageBackend:
     return LocalFileStorage()
 
 
+def is_legacy_storage_path(value: str | None) -> bool:
+    """Pre-F0.1 evidence reference: literally '/storage/evidence/...' as written
+    by the old screenshot_capture before the storage adapter landed. Backing
+    files are gone after every Railway redeploy, but the substring still
+    classifies as 'internal' for selector purposes during the W3 transition."""
+    return bool(value) and "/storage/evidence/" in value
+
+
+_OBJECT_KEY_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+
+
+def is_object_key(value: str | None) -> bool:
+    """Post-F0.1 evidence reference: a bare object key like
+    'evidence/<asset_id>_<uuid>.jpg' written by the storage adapter. Detection
+    is heuristic by design — until a dedicated DB column lands, the helper is
+    the single source of truth so selector and any future caller share the
+    same recogniser."""
+    if not value:
+        return False
+    if value.startswith(("http://", "https://", "data:", "/")):
+        # http URLs, data URIs, and any leading slash (legacy /storage/...,
+        # absolute filesystem paths) are explicitly *not* object keys.
+        return False
+    if "/" not in value:
+        return False
+    return value.lower().endswith(_OBJECT_KEY_EXTENSIONS)
+
+
 def resolve_url(value: str | None) -> str | None:
     """Resolve a stored evidence reference into a fetchable URL.
 
