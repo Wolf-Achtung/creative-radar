@@ -5,6 +5,7 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import Asset, Channel, Post, ReviewStatus, Title
 from app.schemas.dto import AssetReviewUpdate
+from app.services.storage import resolve_url
 from app.services.visual_analysis import analyze_asset_visual
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
@@ -46,7 +47,8 @@ def _asset_card(asset: Asset, post: Post | None, channel: Channel | None, title:
         "kinetic_text": asset.kinetic_text,
         "de_us_match_key": asset.de_us_match_key,
         "visual_confidence_score": asset.visual_confidence_score,
-        "visual_evidence_url": asset.visual_evidence_url,
+        "visual_evidence_url": resolve_url(asset.visual_evidence_url),
+        "visual_evidence_key": asset.visual_evidence_url,
         "visual_crop_title_url": asset.visual_crop_title_url,
         "visual_crop_cta_url": asset.visual_crop_cta_url,
         "visual_crop_kinetic_url": asset.visual_crop_kinetic_url,

@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.models.entities import Asset, AssetType, Channel, Post, Title
 from app.services.screenshot_capture import capture_asset_screenshot
+from app.services.storage import resolve_url
 
 
 def _safe_json(text: str) -> dict[str, Any]:
@@ -137,6 +138,9 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
         data["visual_analysis_status"] = "text_fallback"
         data["visual_notes"] = "Bild konnte nicht ausgewertet werden. Die Caption wurde ersatzweise analysiert."
     else:
+        # image_url may be a bare object key (post-F0.1) — resolve it to a fetchable
+        # URL (presigned for S3, /storage/<key> for local) before sending to OpenAI.
+        openai_image_url = resolve_url(image_url) or image_url
         client = OpenAI(api_key=settings.openai_api_key)
         prompt = f"""
 Analysiere das Creative-Visual für ein Film-/Serien-/Game-Marketing-Monitoring.
@@ -170,7 +174,7 @@ de_us_match_key, visual_confidence_score, confidence
                 {"role": "system", "content": "Du bist ein präziser Visual-Analyst für Entertainment-Marketing. Gib ausschließlich valides JSON zurück."},
                 {"role": "user", "content": [
                     {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": image_url}},
+                    {"type": "image_url", "image_url": {"url": openai_image_url}},
                 ]},
             ],
             temperature=0.1,
