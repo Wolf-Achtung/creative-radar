@@ -9,7 +9,6 @@ venv/
 # Node / Vite
 node_modules/
 dist/
-package-lock.json
 
 # OS / editor
 .DS_Store
