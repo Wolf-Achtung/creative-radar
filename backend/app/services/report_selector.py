@@ -25,7 +25,13 @@ EVIDENCE_WARNINGS = {
 }
 
 ANALYSIS_DONE_STATES = {"done", "analyzed", "text_fallback"}
-ANALYSIS_FAILURE_STATES = {"error", "fetch_failed", "no_source"}
+ANALYSIS_FAILURE_STATES = {
+    "error", "fetch_failed", "no_source",
+    # W3 honest-status set (Task 3.2). All four are terminal failures the
+    # selector should treat as "not eligible for the report".
+    "vision_empty", "vision_timeout", "vision_error",
+    "image_unreachable", "image_invalid",
+}
 
 
 def _is_analysis_done(asset: Asset) -> bool:
