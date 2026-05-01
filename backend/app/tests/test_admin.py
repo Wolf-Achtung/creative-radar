@@ -70,7 +70,8 @@ def test_run_backfill_calls_backfill_run_when_authorized(
         "failed_ids": ["asset-1", "asset-2"],
         "failed_reasons": {"asset-1": "fetch_failed", "asset-2": "fetch_failed"},
     }
-    with patch("app.api.admin.backfill_evidence.run", return_value=fake_stats) as mocked:
+    # The handler does an in-function import; patch the source module instead.
+    with patch("scripts.backfill_evidence.run", return_value=fake_stats) as mocked:
         response = client.post(
             "/api/admin/run-backfill",
             headers={"Authorization": "Bearer secret-w3-backfill"},

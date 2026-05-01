@@ -8,7 +8,6 @@ from sqlmodel import Session
 
 from app.config import settings
 from app.database import get_session
-from scripts import backfill_evidence
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -51,6 +50,9 @@ def run_backfill(
     timeout is 5 min — well above the expected upper bound for the W3
     follow-up run."""
     _verify_token(authorization)
+    # Defensive: import inside the handler so a missing scripts/ folder
+    # surfaces as a 500 on the call instead of a hard app-boot failure.
+    from scripts import backfill_evidence  # noqa: PLC0415
     stats = backfill_evidence.run(session)
     return {
         "total": stats["total"],
