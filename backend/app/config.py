@@ -41,11 +41,6 @@ class Settings(BaseSettings):
     s3_secret_access_key: str | None = None
     s3_signed_url_ttl_seconds: int = 3600
 
-    # Temporary admin endpoint for one-shot evidence backfill (Phase 4 W3
-    # follow-up before W4). Set via ENV ADMIN_BACKFILL_TOKEN; clear after the
-    # run. POST /api/admin/run-backfill returns 503 when this is None.
-    admin_backfill_token: str | None = None
-
     image_proxy_allowed_hosts: str = (
         "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
     )
