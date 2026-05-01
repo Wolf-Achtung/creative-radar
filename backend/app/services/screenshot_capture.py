@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from uuid import uuid4
 
 import httpx
 
 from app.models.entities import Asset
+from app.services.storage import get_storage
 
 
 @dataclass
 class VisualEvidenceResult:
     status: str
-    evidence_url: str | None = None
+    evidence_url: str | None = None  # object key, e.g. "evidence/asset_123_uuid.jpg"
     source_url: str | None = None
     thumbnail_url: str | None = None
     captured_at: str | None = None
@@ -37,8 +37,7 @@ def capture_asset_screenshot(asset: Asset) -> VisualEvidenceResult:
     if not sources:
         return VisualEvidenceResult(status="no_source")
 
-    evidence_dir = Path("backend/storage/evidence")
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    storage = get_storage()
 
     with httpx.Client(timeout=12, follow_redirects=True) as client:
         for source in sources:
@@ -46,19 +45,21 @@ def capture_asset_screenshot(asset: Asset) -> VisualEvidenceResult:
                 response = client.get(source)
                 if response.status_code >= 400:
                     continue
-                content_type = (response.headers.get("content-type") or "").lower()
+                content_type = (response.headers.get("content-type") or "").lower().split(";")[0].strip() or "image/jpeg"
                 if not content_type.startswith("image/"):
                     continue
                 payload = response.content or b""
                 if len(payload) < 1024:
                     continue
-                filename = f"{asset.id}_{uuid4().hex}.{_safe_extension(content_type)}"
-                target = evidence_dir / filename
-                target.write_bytes(payload)
+                key = f"evidence/{asset.id}_{uuid4().hex}.{_safe_extension(content_type)}"
+                try:
+                    storage.put(key, payload, content_type)
+                except Exception:
+                    return VisualEvidenceResult(status="fetch_failed")
                 captured_at = datetime.now(timezone.utc).isoformat()
                 return VisualEvidenceResult(
                     status="captured",
-                    evidence_url=f"/storage/evidence/{filename}",
+                    evidence_url=key,
                     source_url=source,
                     thumbnail_url=asset.thumbnail_url,
                     captured_at=captured_at,

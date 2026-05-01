@@ -12,6 +12,7 @@ from app.services.storage import (
     S3Storage,
     StorageBackend,
     get_storage,
+    resolve_url,
 )
 
 
@@ -99,3 +100,31 @@ def test_factory_returns_s3_when_configured(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert isinstance(backend, S3Storage)
     assert isinstance(backend, StorageBackend)
+
+
+def test_resolve_url_passes_through_http() -> None:
+    assert resolve_url("https://cdn.example/foo.jpg") == "https://cdn.example/foo.jpg"
+    assert resolve_url("http://internal.example/bar.png") == "http://internal.example/bar.png"
+
+
+def test_resolve_url_passes_through_legacy_storage_path() -> None:
+    assert resolve_url("/storage/evidence/abc123.jpg") == "/storage/evidence/abc123.jpg"
+
+
+def test_resolve_url_returns_none_for_falsy() -> None:
+    assert resolve_url(None) is None
+    assert resolve_url("") is None
+
+
+def test_resolve_url_resolves_object_key_via_local_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "storage_backend", "local", raising=False)
+    assert resolve_url("evidence/asset_123.jpg") == "/storage/evidence/asset_123.jpg"
+
+
+def test_resolve_url_returns_none_when_backend_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "storage_backend", "s3", raising=False)
+    fake_client = MagicMock()
+    fake_client.generate_presigned_url.side_effect = RuntimeError("R2 down")
+    monkeypatch.setattr(settings, "s3_bucket", "creative-radar-assets", raising=False)
+    with patch("app.services.storage.boto3.client", return_value=fake_client):
+        assert resolve_url("evidence/key.jpg") is None

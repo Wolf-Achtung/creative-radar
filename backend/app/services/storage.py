@@ -117,3 +117,24 @@ def get_storage() -> StorageBackend:
     if settings.storage_backend == "s3":
         return S3Storage()
     return LocalFileStorage()
+
+
+def resolve_url(value: str | None) -> str | None:
+    """Resolve a stored evidence reference into a fetchable URL.
+
+    `value` may be:
+    - None or empty -> None
+    - an http(s) URL or a legacy `/storage/...` path -> returned as-is
+    - a bare object key (e.g. ``evidence/asset_123.jpg``) -> resolved via the
+      active storage backend (presigned URL for S3, ``/storage/<key>`` for
+      LocalFileStorage). Errors during resolution fall back to None so callers
+      never crash on a temporarily unreachable backend.
+    """
+    if not value:
+        return None
+    if value.startswith(("http://", "https://", "/storage/", "/")):
+        return value
+    try:
+        return get_storage().get_url(value)
+    except Exception:  # noqa: BLE001
+        return None
