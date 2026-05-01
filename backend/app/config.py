@@ -33,6 +33,14 @@ class Settings(BaseSettings):
 
     secure_storage_enabled: bool = False
 
+    storage_backend: str = "local"  # "local" | "s3"
+    s3_bucket: str | None = None
+    s3_region: str = "auto"
+    s3_endpoint_url: str | None = None
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    s3_signed_url_ttl_seconds: int = 3600
+
     image_proxy_allowed_hosts: str = (
         "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
     )
