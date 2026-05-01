@@ -94,3 +94,21 @@ Plus Logik-Fixes:
 - Edge-Case #6 (Vision-Output halluziniert Inhalte) — gehört zu Task 3.4 (Diagnose) und 3.5 (Hebel).
 - Backfill von Legacy-`analyzed`-Werten — kein Briefing-Auftrag.
 - DB-Migration für die neuen Status-Werte — kein Constraint nötig (`visual_analysis_status` ist `VARCHAR`).
+
+## 8. KORREKTUR (W3 Task 3.4 follow-up)
+
+Diese Diagnose markierte ursprünglich `analyzed` als „tot — nur historische Daten". **Falsch.** Production-Aggregat (20 Assets) zeigt `analyzed` als zweithäufigsten Status (4/20). `W3_VISION_QUALITY.md` Abschnitt 5 hat den blinden Fleck identifiziert.
+
+**Wo `analyzed` und `error` aktiv gesetzt werden (entdeckt nach Task 3.4):**
+
+`services/creative_ai.py` ist der zweite, parallele AI-Pfad neben `services/visual_analysis.py`. Aufgerufen von:
+- `app/api/posts.py:170` (Apify-Receiver)
+- `app/api/monitor.py:90` (alternativer Monitor-Pfad)
+
+`creative_ai.py` setzt aber selbst KEIN `visual_analysis_status` direkt. Die `analyzed`/`error`-Werte stammen wahrscheinlich aus einem dritten Pfad — vermutlich Apify-Webhook oder externem Skript, der zwischen `creative_ai.py`-Aufruf und Asset-Persist die Status-Spalte schreibt. **Folge-Diagnose erforderlich, nicht Teil von W3.**
+
+**Counter-Korrektur in W3 Task 3.5 umgesetzt:**
+
+`services/insights.py:116`: `{"done", "text_fallback"}` → `{"done", "analyzed", "text_fallback"}`.
+
+Damit zählen die 4 Production-`analyzed`-Assets als `visual_analyzed`. Der Counter ist jetzt ehrlich nach links UND rechts: er zählt alle drei Erfolgs-Status, ignoriert die 5 W3-honest-failure-Status (`vision_empty`/`vision_timeout`/`vision_error`/`image_unreachable`/`image_invalid`) sowie Legacy-Failures (`error`/`fetch_failed`/`no_source`).

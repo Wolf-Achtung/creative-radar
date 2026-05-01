@@ -113,7 +113,7 @@ def build_overview(session: Session, week_start: date | None = None, week_end: d
             title_placements += 1
         if asset.has_kinetic:
             kinetic_assets += 1
-        if asset.visual_analysis_status in {"done", "text_fallback"}:
+        if asset.visual_analysis_status in {"done", "analyzed", "text_fallback"}:
             visual_analyzed += 1
 
     channel_rankings = []

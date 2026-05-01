@@ -18,6 +18,7 @@ from app.services.storage import resolve_url
 # Anything else (hallucinated, legacy "analyzed", typos) collapses to text_fallback.
 ALLOWED_TERMINAL_STATUS_FROM_DATA = {"done", "text_fallback"}
 
+
 # Substrings in OpenAI exception messages that signal "the model could not load
 # the image we passed". Conservative match — used after exception class checks.
 _IMAGE_UNREACHABLE_MARKERS = (
@@ -119,8 +120,35 @@ def _find_title_match(session: Session, visual_text: str, caption: str) -> Title
     return None
 
 
+_NO_ANALYSIS_POSSIBLE_NOTE = (
+    "Keine Inhaltsanalyse möglich — weder Bild noch Caption-Text vorhanden."
+)
+
+
 def _heuristic_analysis(asset: Asset, post: Post | None, title: Title | None) -> dict[str, Any]:
     caption = (post.caption if post else "") or ""
+    # W3 Hebel B: when there is genuinely nothing to analyse (no image url, no
+    # caption, no OCR), don't let the heuristic invent vague context. Surface
+    # an explicit "not possible" note so downstream consumers (and the UI)
+    # can distinguish 'analysis attempted but inconclusive' from 'nothing to
+    # analyse'.
+    if not caption.strip() and not (asset.ocr_text or "").strip():
+        return {
+            "visual_analysis_status": "text_fallback",
+            "ocr_text": None,
+            "visual_notes": _NO_ANALYSIS_POSSIBLE_NOTE,
+            "placement_title_text": title.title_original if title else None,
+            "placement_position": "unknown",
+            "placement_strength": "none",
+            "has_title_placement": False,
+            "has_kinetic": False,
+            "kinetic_type": None,
+            "kinetic_text": None,
+            "asset_type": asset.asset_type,
+            "de_us_match_key": _slug(title.franchise or title.title_original) if title else None,
+            "visual_confidence_score": 0.0,
+        }
+
     text = f"{caption}\n{asset.ocr_text or ''}"
     lower = text.lower()
     has_kinetic = any(word in lower for word in ["kinetic", "motion", "animated", "text", "typography", "schrift", "titeltafel", "title card"])

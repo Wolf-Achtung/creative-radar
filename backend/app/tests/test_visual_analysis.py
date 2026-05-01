@@ -280,3 +280,48 @@ def test_text_fallback_when_no_api_key(session: Session,
 
     result = analyze_asset_visual(session, asset)
     assert result.visual_analysis_status == "text_fallback"
+
+
+# --- W3 Hebel B: explicit no-analysis-possible phrase ---
+
+
+def test_heuristic_returns_explicit_phrase_when_caption_and_ocr_empty(
+    session: Session,
+) -> None:
+    """Hebel B: production sample 7 (24 Bilder) had no image, no caption,
+    no OCR — yet the heuristic invented '...im internationalen Kontext'.
+    Now: explicit, non-misleading phrase."""
+    from app.services.visual_analysis import _heuristic_analysis
+
+    asset = _make(session)
+    asset.thumbnail_url = None
+    asset.screenshot_url = None
+    asset.visual_source_url = None
+    asset.ocr_text = None
+
+    # post.caption is None / empty
+    post = MagicMock()
+    post.caption = ""
+
+    data = _heuristic_analysis(asset, post, None)
+    assert data["visual_notes"] == (
+        "Keine Inhaltsanalyse möglich — weder Bild noch Caption-Text vorhanden."
+    )
+    assert data["has_title_placement"] is False
+    assert data["has_kinetic"] is False
+    assert data["placement_strength"] == "none"
+    assert data["visual_confidence_score"] == 0.0
+
+
+def test_heuristic_uses_caption_when_present(session: Session) -> None:
+    """Hebel B doesn't kick in when caption has content — old heuristic path."""
+    from app.services.visual_analysis import _heuristic_analysis
+
+    asset = _make(session)
+    asset.ocr_text = None
+    post = MagicMock()
+    post.caption = "Watch the trailer for Mortal Kombat — only in theaters October 2026."
+
+    data = _heuristic_analysis(asset, post, None)
+    assert "Heuristische Analyse" in data["visual_notes"]
+    assert "Keine Inhaltsanalyse möglich" not in data["visual_notes"]

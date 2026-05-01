@@ -41,6 +41,46 @@ def _as_text(value: Any, fallback: str = '') -> str:
     return str(value).strip() or fallback
 
 
+# W3 Hebel A — language whitelist. Production showed the model writing whole
+# sentences ("English (caption); likely mixed with Spanish context due to
+# CDMX") into the language column. _as_text + [:64] truncated those but
+# didn't normalize them. ALLOWED_LANGUAGE_CODES + _normalize_language
+# collapse free-form output into a small ISO 639-1 set plus 'unknown'.
+ALLOWED_LANGUAGE_CODES = {"de", "en", "es", "fr", "it", "pt", "ja", "ko", "zh", "unknown"}
+
+_LANGUAGE_WORD_MAP = {
+    "german": "de", "deutsch": "de",
+    "english": "en",
+    "spanish": "es", "español": "es",
+    "french": "fr", "français": "fr",
+    "italian": "it", "italiano": "it",
+    "portuguese": "pt", "português": "pt",
+    "japanese": "ja",
+    "korean": "ko",
+    "chinese": "zh",
+}
+
+
+def _normalize_language(value: Any) -> str:
+    """Collapse the model's free-form language output into the whitelist.
+    Lower-case + exact match first, then word-form match (English -> en),
+    then ISO code as standalone word, finally 'unknown'."""
+    if value is None:
+        return "unknown"
+    raw = str(value).strip().lower()
+    if not raw:
+        return "unknown"
+    if raw in ALLOWED_LANGUAGE_CODES:
+        return raw
+    for word, iso in _LANGUAGE_WORD_MAP.items():
+        if word in raw:
+            return iso
+    for token in raw.replace("(", " ").replace(")", " ").replace(";", " ").replace(",", " ").split():
+        if token in ALLOWED_LANGUAGE_CODES and token != "unknown":
+            return token
+    return "unknown"
+
+
 def _asset_type(value: Any) -> AssetType:
     if isinstance(value, AssetType):
         return value
@@ -110,7 +150,7 @@ def analyze_creative_text(
     if not settings.openai_api_key:
         return {
             'asset_type': asset_type_hint,
-            'language': 'Unknown',
+            'language': 'unknown',
             'ai_summary_de': 'OpenAI ist noch nicht konfiguriert. Der Treffer wurde angelegt und sollte manuell geprüft werden.',
             'ai_summary_en': 'OpenAI is not configured yet. Manual review required.',
             'ai_trend_notes': 'Nach Setzen von OPENAI_API_KEY in Railway wird diese Zusammenfassung automatisch erzeugt.',
@@ -155,7 +195,7 @@ Antworte nur als JSON. Alle Textfelder müssen Strings sein, keine Arrays.
     data = _safe_json(raw)
     return {
         'asset_type': _asset_type(data.get('asset_type')),
-        'language': _as_text(data.get('language'), 'Unknown')[:64],
+        'language': _normalize_language(data.get('language')),
         'ai_summary_de': _as_text(data.get('ai_summary_de'), 'Keine belastbare Zusammenfassung erzeugt.'),
         'ai_summary_en': _as_text(data.get('ai_summary_en'), ''),
         'ai_trend_notes': _as_text(data.get('ai_trend_notes'), ''),

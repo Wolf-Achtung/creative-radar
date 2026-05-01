@@ -56,11 +56,14 @@ def test_visual_analyzed_counts_text_fallback_status():
         assert overview["visual_analyzed"] == 1
 
 
-def test_visual_analyzed_ignores_pending_and_legacy_statuses():
+def test_visual_analyzed_ignores_non_success_statuses():
+    """W3 correction: 'analyzed' moved out of the ignore-list because the
+    Production aggregate diagnosis showed it is the second-most-common
+    success status. Pending / text_only / error / failure-statuses still
+    don't count."""
     with _session() as session:
         _make_asset(session, visual_analysis_status="pending")
-        _make_asset(session, visual_analysis_status="analyzed")
-        _make_asset(session, visual_analysis_status="text_only")
+        _make_asset(session, visual_analysis_status="text_only")  # legacy, never set today
         _make_asset(session, visual_analysis_status="error")
         overview = build_overview(session)
         assert overview["visual_analyzed"] == 0
@@ -99,3 +102,24 @@ def test_status_breakdown_includes_new_statuses():
         overview = build_overview(session)
         assert overview["visual_status_breakdown"].get("vision_empty") == 1
         assert overview["visual_status_breakdown"].get("image_unreachable") == 1
+
+
+def test_visual_analyzed_counts_analyzed_status():
+    """W3 correction: 'analyzed' is the production success status set by the
+    creative_ai pipeline (not visual_analysis), seen in 4 of 20 prod samples.
+    Counter must include it for honest visual_analyzed numbers."""
+    with _session() as session:
+        _make_asset(session, visual_analysis_status="analyzed")
+        overview = build_overview(session)
+        assert overview["visual_analyzed"] == 1
+
+
+def test_visual_analyzed_counts_all_three_success_states():
+    """Honest counter: done + analyzed + text_fallback all count."""
+    with _session() as session:
+        _make_asset(session, visual_analysis_status="done")
+        _make_asset(session, visual_analysis_status="analyzed")
+        _make_asset(session, visual_analysis_status="text_fallback")
+        _make_asset(session, visual_analysis_status="error")  # legacy / failure
+        overview = build_overview(session)
+        assert overview["visual_analyzed"] == 3
