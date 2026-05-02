@@ -15,8 +15,11 @@ from app.services.storage import resolve_url
 
 
 # Status values the model is allowed to feed back via data["visual_analysis_status"].
-# Anything else (hallucinated, legacy "analyzed", typos) collapses to text_fallback.
-ALLOWED_TERMINAL_STATUS_FROM_DATA = {"done", "text_fallback"}
+# Anything else (hallucinated, typos) collapses to text_fallback.
+# 'analyzed' is the canonical W4 success status; 'done' stays accepted for the
+# 14-day toleranz fenster so historical assets and any external pipeline path
+# that still writes 'done' are not treated as bad data.
+ALLOWED_TERMINAL_STATUS_FROM_DATA = {"done", "analyzed", "text_fallback"}
 
 
 # Substrings in OpenAI exception messages that signal "the model could not load
@@ -256,7 +259,12 @@ de_us_match_key, visual_confidence_score, confidence
                 data = {"visual_analysis_status": "vision_empty",
                         "visual_notes": "OpenAI Vision lieferte keine verwertbare Antwort."}
             else:
-                data["visual_analysis_status"] = "done"
+                # W4 / Mini-Run: 'analyzed' is the canonical success status,
+                # converging the in-repo write path with what the external
+                # pipeline (Apify webhook / out-of-repo script) already writes
+                # in production. 'done' stays accepted by the selector and
+                # counter for 14 days of toleranz.
+                data["visual_analysis_status"] = "analyzed"
         except Exception as exc:
             classified = _classify_openai_exception(exc)
             data = _heuristic_analysis(asset, post, title)

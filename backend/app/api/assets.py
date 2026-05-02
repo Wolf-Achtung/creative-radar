@@ -149,7 +149,7 @@ def analyze_visual_batch(limit: int = 10, only_pending: bool = True, session: Se
     failed = 0
     for asset in assets:
         updated = analyze_asset_visual(session, asset)
-        if updated.visual_analysis_status == "done":
+        if updated.visual_analysis_status in {"done", "analyzed"}:
             done += 1
         elif updated.visual_analysis_status == "no_source":
             no_source += 1
