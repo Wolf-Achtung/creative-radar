@@ -39,6 +39,19 @@ def _resolve_table_schema() -> Optional[str]:
 _CR_TABLE_ARGS: dict = {"schema": _resolve_table_schema()} if _resolve_table_schema() else {}
 
 
+def _fk(target: str) -> str:
+    """Qualify a foreign-key target with the active CR schema, when present.
+
+    SQLAlchemy resolves ``Field(foreign_key="title.id")`` by looking up the
+    bare table name in the metadata registry. When tables are registered with
+    a schema (Postgres production), the registry key is
+    ``"creative_radar.title"`` — so the FK string must match. SQLite tests
+    keep the bare form because the schema clause is absent there.
+    """
+    schema = _resolve_table_schema()
+    return f"{schema}.{target}" if schema else target
+
+
 class Market(str, Enum):
     DE = "DE"
     US = "US"
@@ -149,7 +162,7 @@ class Title(SQLModel, table=True):
 class TitleKeyword(SQLModel, table=True):
     __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    title_id: UUID = Field(foreign_key="title.id")
+    title_id: UUID = Field(foreign_key=_fk("title.id"))
     keyword: str
     keyword_type: str = "keyword"
     active: bool = True
@@ -160,7 +173,7 @@ class TitleKeyword(SQLModel, table=True):
 class Post(SQLModel, table=True):
     __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    channel_id: UUID = Field(foreign_key="channel.id")
+    channel_id: UUID = Field(foreign_key=_fk("channel.id"))
     platform: str = "instagram"
     post_url: str = Field(unique=True, index=True)
     external_id: Optional[str] = None
@@ -186,8 +199,8 @@ class Post(SQLModel, table=True):
 class Asset(SQLModel, table=True):
     __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    post_id: UUID = Field(foreign_key="post.id")
-    title_id: Optional[UUID] = Field(default=None, foreign_key="title.id")
+    post_id: UUID = Field(foreign_key=_fk("post.id"))
+    title_id: Optional[UUID] = Field(default=None, foreign_key=_fk("title.id"))
     asset_type: AssetType = AssetType.UNKNOWN
     language: str = "Unknown"
     screenshot_url: Optional[str] = None
@@ -252,7 +265,7 @@ class TitleSyncRun(SQLModel, table=True):
 class TitleCandidate(SQLModel, table=True):
     __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    asset_id: UUID = Field(foreign_key="asset.id", index=True)
+    asset_id: UUID = Field(foreign_key=_fk("asset.id"), index=True)
     suggested_title: str
     suggested_franchise: Optional[str] = None
     source: CandidateSource = CandidateSource.TEXT

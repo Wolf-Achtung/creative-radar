@@ -169,7 +169,24 @@ def _ensure_pg_enum_values(enum_name: str, values: list[str]) -> None:
                 connection.execute(text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{safe_value}'"))
 
 
+def _ensure_cr_schema() -> None:
+    """If the ORM is configured to put CR tables in the 'creative_radar'
+    schema (Postgres production only), make sure the schema exists before
+    metadata.create_all walks the table list. Idempotent CREATE SCHEMA;
+    no-op for SQLite because SQLite ignores schema clauses."""
+    if DATABASE_URL.startswith("sqlite"):
+        return
+    # Late import to avoid a circular dep at module load time.
+    from app.models.entities import _resolve_table_schema  # noqa: PLC0415
+    schema = _resolve_table_schema()
+    if not schema:
+        return
+    with engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+
+
 def create_db_and_tables() -> None:
+    _ensure_cr_schema()
     SQLModel.metadata.create_all(engine)
     _ensure_pg_enum_values("assettype", ASSETTYPE_ENUM_VALUES)
     _ensure_columns("asset", ASSET_COLUMNS)
