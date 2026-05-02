@@ -4,9 +4,39 @@ from typing import Optional
 from uuid import UUID, uuid4
 from sqlmodel import Field, SQLModel, Relationship, Column, JSON
 
+from app.config import settings
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _resolve_table_schema() -> Optional[str]:
+    """Return 'creative_radar' for Postgres deploys, None for SQLite tests.
+
+    F0.2 places all CR tables in the dedicated 'creative_radar' schema. SQLite
+    (used by pytest with an in-memory DB) does not understand Postgres schemas
+    in the same way, so we strip the schema clause when running against it.
+    The check inspects every URL field that resolve_database_url() consults so
+    a Production override path (DATABASE_PRIVATE_URL etc.) still flips the
+    flag correctly.
+    """
+    candidates = (
+        settings.database_url,
+        settings.database_private_url,
+        settings.database_public_url,
+        settings.pghost,
+    )
+    for raw in candidates:
+        if raw and "postgres" in str(raw).lower():
+            return "creative_radar"
+    return None
+
+
+# Module-level constant so __table_args__ stays a plain dict literal at the
+# call site. Re-evaluating per class is overkill — settings don't change at
+# runtime once the app has booted.
+_CR_TABLE_ARGS: dict = {"schema": _resolve_table_schema()} if _resolve_table_schema() else {}
 
 
 class Market(str, Enum):
@@ -75,6 +105,7 @@ class CandidateSource(str, Enum):
 
 
 class Channel(SQLModel, table=True):
+    __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str
     platform: str = "instagram"
@@ -93,6 +124,7 @@ class Channel(SQLModel, table=True):
 
 
 class Title(SQLModel, table=True):
+    __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     tmdb_id: Optional[int] = Field(default=None, index=True)
     title_original: str
@@ -115,6 +147,7 @@ class Title(SQLModel, table=True):
 
 
 class TitleKeyword(SQLModel, table=True):
+    __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     title_id: UUID = Field(foreign_key="title.id")
     keyword: str
@@ -125,6 +158,7 @@ class TitleKeyword(SQLModel, table=True):
 
 
 class Post(SQLModel, table=True):
+    __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     channel_id: UUID = Field(foreign_key="channel.id")
     platform: str = "instagram"
@@ -150,6 +184,7 @@ class Post(SQLModel, table=True):
 
 
 class Asset(SQLModel, table=True):
+    __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     post_id: UUID = Field(foreign_key="post.id")
     title_id: Optional[UUID] = Field(default=None, foreign_key="title.id")
@@ -200,6 +235,7 @@ class Asset(SQLModel, table=True):
 
 
 class TitleSyncRun(SQLModel, table=True):
+    __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     source: str = "tmdb"
     markets: list[str] = Field(default_factory=list, sa_column=Column(JSON))
@@ -214,6 +250,7 @@ class TitleSyncRun(SQLModel, table=True):
 
 
 class TitleCandidate(SQLModel, table=True):
+    __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     asset_id: UUID = Field(foreign_key="asset.id", index=True)
     suggested_title: str
@@ -226,6 +263,7 @@ class TitleCandidate(SQLModel, table=True):
 
 
 class WeeklyReport(SQLModel, table=True):
+    __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     week_start: date
     week_end: date
