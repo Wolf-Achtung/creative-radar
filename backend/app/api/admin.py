@@ -1,16 +1,22 @@
-"""Admin endpoints.
+"""Admin endpoints (Phase-4-Abschluss-Stand).
 
-This module currently mixes two concerns:
+After Task 4.5 cleanup this module hosts exactly one permanent endpoint:
 
-- Throwaway migration endpoints (run-schema-migration, run-schema-rollback,
-  run-alembic-upgrade). Will be removed in Task 4.5 once the F0.2/F2.18
-  migrations are confirmed stable. Gated by the global Bearer-auth
-  middleware (Task 4.3) — same token as the rest of the API. Earlier
-  drafts of these endpoints carried a separate ADMIN_MIGRATION_TOKEN
-  check; W4-Hotfix-4 removed that double-auth (see PHASE_4_DONE.md
-  Lesson 6).
-- Cost-summary read endpoint (Task 4.4 / F0.6). Permanent. Same global
-  Bearer-auth, same API token.
+- ``GET /api/admin/cost-summary``: aggregate read over creative_radar.costlog
+  for daily monitoring (W4 Task 4.4 / F0.6).
+
+The W4 throwaway endpoints — run-schema-migration, run-schema-rollback,
+run-alembic-upgrade — were removed in Task 4.5 once the F0.2/F2.18/F0.6
+migrations were confirmed stable in production. The underlying scripts
+under backend/scripts/ are retained as maintenance tooling: they can be
+invoked manually from a Railway shell or replicated via a fresh
+short-lived endpoint if a future migration ever needs orchestrating.
+
+Auth: every endpoint here is gated by the global Bearer-auth middleware
+(W4 Task 4.3) and reads ``settings.api_token``. There is no separate
+admin token; the historical layer-drift between an earlier per-endpoint
+token check and the global middleware is described in
+PHASE_4_DONE.md Lesson 6.
 """
 from __future__ import annotations
 
@@ -26,44 +32,6 @@ from app.database import get_session
 from app.models.entities import CostLog
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-
-
-@router.post("/run-schema-migration")
-def run_schema_migration() -> dict:
-    """Forward migration: move the eight CR tables from public to
-    creative_radar. Idempotent (re-run is safe — already-moved tables are
-    reported as skipped). The migration script handles its own transaction.
-    Auth: global Bearer middleware (no separate token)."""
-    # In-function import per the W3 hotfix lesson: keep app boot decoupled
-    # from scripts/ being importable.
-    from scripts import migrate_to_creative_radar_schema as forward  # noqa: PLC0415
-
-    stats = forward.run()
-    return stats
-
-
-@router.post("/run-schema-rollback")
-def run_schema_rollback() -> dict:
-    """Symmetric rollback: move the eight CR tables back from
-    creative_radar to public. Used only if the forward migration leaves
-    production in a state Wolf cannot recover otherwise.
-    Auth: global Bearer middleware (no separate token)."""
-    from scripts import rollback_creative_radar_schema as backward  # noqa: PLC0415
-
-    stats = backward.run()
-    return stats
-
-
-@router.post("/run-alembic-upgrade")
-def run_alembic_upgrade() -> dict:
-    """Apply pending Alembic migrations against the creative_radar schema.
-    Idempotent: stamps baseline if alembic_version is empty, then upgrades
-    to head. Re-running is a no-op once at head.
-    Auth: global Bearer middleware (no separate token)."""
-    from scripts import apply_alembic_upgrade as alembic_apply  # noqa: PLC0415
-
-    stats = alembic_apply.run()
-    return stats
 
 
 # ---------- Cost summary (Task 4.4 / F0.6, permanent) -----------------

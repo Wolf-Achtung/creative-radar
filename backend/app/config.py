@@ -58,9 +58,6 @@ class Settings(BaseSettings):
     # land Frontend changes first; Wolf flips AUTH_ENABLED=true once both
     # Netlify and Railway carry the matching token. Public-path whitelist
     # lives in app/auth.py — this flag is the on/off switch only.
-    # Migration endpoints in app/api/admin.py also rely on this token (no
-    # separate ADMIN_MIGRATION_TOKEN since W4-Hotfix-4, see PHASE_4_DONE.md
-    # Lesson 6).
     auth_enabled: bool = False
     api_token: str | None = None
 

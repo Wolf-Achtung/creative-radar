@@ -1,8 +1,77 @@
-# Phase 4 — Lessons-Learned (Work-in-Progress)
+# Phase 4 — Abschluss-Bericht
 
-**Status:** Phase 4 läuft noch (W4 in Bearbeitung). Diese Datei sammelt
-Lessons-Learned, sobald sie aufkommen, damit der Phase-Abschluss-Bericht in
-Task 4.5b nicht aus dem Gedächtnis rekonstruiert werden muss.
+**Status:** Phase 4 abgeschlossen am 2026-05-02. Diese Datei dokumentiert das
+gelieferte Scope, alle Lessons-Learned und die Phase-5-Backlog-Übergabe. Für
+den kompakten externen Stand siehe `PHASE_4_SUMMARY.md` im Repo-Root.
+
+---
+
+## Übersicht: alle Wochen + Tasks
+
+### Woche 1 — Stabilisierung & Sicherheitsnetze (8 Tasks)
+
+| Task | Inhalt | Roadmap-Ref |
+|---|---|---|
+| 1.1 | Insights-Counter-Bug-Fix (`visual_analyzed`-Set korrigiert) | F1.4 |
+| 1.2 | Doppel-`netlify.toml` entfernt | QW-3 |
+| 1.3 | `startCommand` auf Dockerfile-CMD konsolidiert | QW-4 |
+| 1.4 | `.env.example` synchron zur `Settings`-Klasse (30 Felder) | F2.17 |
+| 1.5 | Tote Pfade entfernt (`app/jobs/`, `app/data/`, `app/prompts/`) | F2.14 |
+| 1.6 | Issues #3/#7/#10/#12 closed + Branch-Hygiene | F2.15 |
+| 1.7 | Frontend-Deps gepinnt + `package-lock.json` | F1.12 |
+| 1.8 | Alembic-Baseline `cf842bbfaeb5` vorbereitet (nicht aktiviert) | F1.14 |
+
+### R2-Storage-Adapter-Mini-Run (vor W2)
+
+Boto3-Setup, `services/storage.py` mit `LocalFileStorage` + `S3Storage` + `resolve_url()` + `get_storage()`-Factory + Smoke-Test-Skript. Adapter-Pattern, kein produktiver Schreib-Pfad in diesem Run.
+
+### Woche 2 — Asset-Capture-Persistenz (R2)
+
+| Task | Inhalt | Roadmap-Ref |
+|---|---|---|
+| 2.1 | Storage-Adapter in capture-Pipeline verdrahtet (Object-Key-Design) | F0.1 |
+| 2.2 | Idempotentes Backfill-Skript für Bestandsassets | F0.1 |
+| 2.3 | Performance-Indizes als Alembic-Revision (pending) | F2.18 |
+| 2.4 | Sprint-8.2-Pfad-Verifikation für Object-Keys | – |
+| 2.5 | Sprint-8.2-Puffer (passiv) | – |
+
+### Woche 3 — Visual-Pipeline ehrlich machen (5 Tasks)
+
+| Task | Inhalt | Roadmap-Ref |
+|---|---|---|
+| 3.1 | Status-Übergangs-Diagnose → `docs/W3_STATUS_DIAGNOSE.md` | F0.4 prep |
+| 3.2 | Honest-Status-Klassifikation (4 neue Status, 3 Logik-Fixes) | F0.4 |
+| 3.3 | Selector-Update für Object-Keys (parallel zu Legacy) | F0.4 |
+| 3.4 | Vision-Output-Quality-Diagnose → `docs/W3_VISION_QUALITY.md` | F0.4 |
+| 3.5 | 3 Hebel: Language-Whitelist + No-Source-Phrase + Counter-Fix | F0.4 |
+
+### Woche 4 — DB-Trennung, Auth, Cost-Logging (5 Tasks + 4 Hotfixes)
+
+| Task | Inhalt | Roadmap-Ref |
+|---|---|---|
+| 4.1 | DB-Trennung in `creative_radar`-Schema (4 Sub-Tasks) | F0.2 |
+| Mini-Run | Status-Konvergenz Variante (a): `done` → `analyzed` | F0.4 closing |
+| 4.2 | Performance-Indizes via Alembic angewendet (CONCURRENTLY) | F2.18 |
+| 4.3 | Bearer-Token-Auth mit Feature-Flag-Rollout | F0.3 |
+| 4.4 | Cost-Logging für Apify + OpenAI | F0.6 |
+| 4.5 | Phase-Abschluss + Throwaway-Cleanup | – |
+
+**Vier W4-Hotfixes** waren zwischendurch nötig: scripts-Dir im Container, FK-Schema-Resolution, alembic.ini-Layout, Doppel-Auth auf Migrations-Endpoints. Alle in Lessons-Learned dokumentiert.
+
+### Erledigte Roadmap-Punkte
+
+- **F0.1** Asset-Capture-Persistenz (R2-Adapter + Backfill)
+- **F0.2** DB-Trennung (`creative_radar`-Schema, 8 Tabellen migriert)
+- **F0.3** Bearer-Token-Auth (Feature-Flag, Public-Whitelist, Frontend-Header-Injection)
+- **F0.4** Visual-Pipeline ehrlich (Object-Key-Selector + Status-Konvergenz auf `analyzed`)
+- **F0.6** Cost-Logging (cost_log-Tabelle, Hooks an drei Stellen, Read-Endpoint)
+- **F2.18** Performance-Indizes (5 + 3 für cost_log = 8 Indizes total via Alembic)
+- **F1.4** Insights-Counter-Bug
+- **F1.12** Frontend-Deps-Pinning
+- **F1.14** Alembic produktiv
+- **F2.14** Tote Pfade
+- **F2.15** Branch-Hygiene + Issues
+- **F2.17** `.env.example` Sync
 
 ---
 
@@ -142,27 +211,56 @@ Pflicht.**
 
 ---
 
+## Production-Stand am Phase-Ende (2026-05-02)
+
+**Datenbank** (`railway.public` Postgres-Instanz):
+- Schema `creative_radar` mit 8 CR-Tabellen (channel, title, titlekeyword, post, asset, titlesyncrun, titlecandidate, weeklyreport) + cost_log + alembic_version
+- 8 Performance-Indizes (5 in `creative_radar.post`/`asset` + 3 in `creative_radar.costlog`), alle CONCURRENTLY erstellt
+- Alembic produktiv: Head-Revision `4f1c8b2d9e30`
+- `auth_audit` bleibt in `public` (Wolf-Entscheidung W4 4.1a)
+- Pre-W4-Backup vom 2026-05-01 19:06 UTC, 1.53 GB, 7d Retention — bleibt Sicherheitsnetz bis Phase-5
+
+**Backend** (`api.creative-radar.de`, Railway):
+- Bearer-Auth aktiv (`AUTH_ENABLED=true`), `API_TOKEN` gesetzt
+- Public-Whitelist: `/api/health*`, `/api/img*`, `/docs`, `/redoc`, `/openapi.json`, `/api/reports/latest/download.{html,md}`
+- 14 von 18 Bestandsassets mit Evidence-Storage in R2/Local (4 fetch_failed durch TikTok-CDN-Hotlink-Block, dokumentiert)
+- F0.1 Object-Key-Capture aktiv, F0.4 Selector erkennt parallel Object-Keys + Legacy-Pfade
+- Status-Konvergenz Variante (a): in-repo-Pipeline schreibt jetzt `analyzed` als kanonischen Erfolgs-Status; `done` bleibt 14d toleriert
+- Cost-Logging-Hooks aktiv: Apify-Connector, Visual-Analysis, Creative-AI
+
+**Frontend** (`app.creative-radar.de`, Netlify):
+- `VITE_API_TOKEN` gesetzt, sendet Bearer-Header bei allen `api()` und `upload()`
+- Pinned Versions: react/react-dom 19.2.5, vite 8.0.10, @vitejs/plugin-react 6.0.1
+- Image-Proxy bleibt URL-basiert (`<img>` kann keinen Header senden)
+
+**Tests:** 161/161 grün am Phase-Ende. 95 neue Tests in W1–W4 dazugekommen, einschließlich vier neuer Test-Pattern: Subprocess-basierte Postgres-Mode-Probes (FK-Resolution, Alembic-Config), Layout-Probes (Public-Path-Whitelist, ALEMBIC_INI-Pfad), Regression-Guards (kein zweiter Auth-Layer), und StaticPool-basierte SQLite-Test-Engines mit `dependency_overrides`.
+
+**Permanent-Endpoints am Phase-Ende:** `GET /api/admin/cost-summary` ist der einzige neue admin-Endpoint, der bestehen bleibt. Alle Throwaway-Endpoints (run-schema-migration/-rollback/-alembic-upgrade plus W3-Backfill und Sample) wurden in Task 4.5 entfernt; die zugehörigen Skripte unter `backend/scripts/` bleiben als Wartungs-Tools für künftige manuelle Aufrufe.
+
+---
+
 ## Backlog für Phase 5+
 
-(Sammelliste; wird in Task 4.5b zusammen mit dem Phase-Abschluss-Bericht
-finalisiert.)
+### Operativ
+- **`done`-Bestandsdaten-Migration** nach 14d Stabilbetrieb: `UPDATE asset SET visual_analysis_status = 'analyzed' WHERE visual_analysis_status = 'done'`. Nach Migration kann `done` aus `ALLOWED_TERMINAL_STATUS_FROM_DATA`, `ANALYSIS_DONE_STATES` und `insights.py` Counter-Set raus.
+- **Identifikation des externen `analyzed`-Setters**: kein Repo-Code-Pfad schreibt `analyzed`, aber Production hat 4/20 Assets damit. Vermutlich Apify-Webhook außerhalb des Trees oder manuelle DB-Updates. Wolf-eigene Diagnose der Apify-Webhook-Konfiguration.
+- **`auth_audit`-Eigentümer-Klärung** mit ki-sicherheit.jetzt-Code-Review (Default-Annahme: bleibt in `public`, falls CR später Auth-Audit braucht, eigene Tabelle in `creative_radar` anlegen)
+- **`error`-Status-Diagnose** (Hebel D aus W3): A24-Euphoria-Sample zeigt `error`-Status mit vollständiger Vision-Analyse — Status widerspricht Inhalt. Vermutlich derselbe externe Code-Pfad wie der `analyzed`-Setter.
 
-* `auth_audit`-Eigentümer-Klärung mit ki-sicherheit.jetzt-Code-Review (W4
-  4.1a Default-Annahme: bleibt in `public`, falls Creative Radar später
-  Auth-Audit braucht, eigene Tabelle anlegen)
-* Bootstrap-Skript für Fresh-Install einer leeren Postgres-DB (heute
-  manuelles Migrations-Curl nötig, weil `create_all` für Postgres deaktiviert
-  ist)
-* Hebel C aus W3 (Prompt-Anti-Halluzination, braucht größere Stichprobe)
-* Hebel D aus W3 (`error`-Status-Diagnose) — falls in W4 nicht abschließend
-  gelöst
-* Befund 4 aus W3 (`error`-Status mit Vision-Output)
-* Status-Naming-Migration für Bestandsdaten (`done` → `analyzed`-
-  Bestandskorrektur), nach 14-Tage-Toleranz-Fenster
-* Image-Proxy via R2 (Performance-Hebel aus W3-Bericht)
-* Image-Proxy + Bearer-Token-Kompatibilität (W4 4.3c-Diagnose ergibt ggf.
-  Backlog-Eintrag)
-* Hard-Cost-Cap (Erweiterung von F0.6 in Phase 5+)
-* DSGVO-Sprint (F0.7) — laut Wolf-Roadmap-Entscheidung aktuell keine
-  Priorität
-* Living-Doc-Konsolidierung (`docs/visual_pipeline.md` aus W3-Snapshots)
+### Sicherheit
+- **Auth-Schicht-Audit pro Task** einbauen (W4-Hotfix-4-Lesson 6): Layout-Probe-Test der für jeden Endpoint prüft, dass keine zwei Auth-Mechanismen gleichzeitig greifen (entweder Dependency-basiert ODER Middleware-basiert, nicht beide).
+- **Bearer-Auth → Session-Cookies oder OAuth**: `VITE_API_TOKEN` lebt im Frontend-Bundle und ist effektiv öffentlich. Anti-Bot-Schutz, keine User-Auth. Phase-5-Übergang sobald mehr als 5 Pilot-User.
+- **Signed-URLs für Image-Proxy + Report-Downloads**: ersetzen die heutigen Public-Whitelist-Pfade durch URL-Signaturen, die ohne Header authentifizieren.
+- **Image-Proxy via R2** (Performance-Hebel aus W3): direkte CDN-Zugriffe vermeiden, Cache-Hits aus R2 bedienen.
+- **DSGVO-Sprint** (F0.7): aktuell keine Priorität laut Wolf-Roadmap; eigene Phase oder mit oder ohne juristische Drittprüfung.
+
+### Test-Strategie
+- **Dockerfile-Parser-Test** (W4-Hotfix-3-Lesson 4): `COPY`-Statements gegen Code-Pfad-Resolutionen cross-prüfen. Drei Vorfälle in W4 argumentieren für den Build-Time-Aufwand.
+- **Bootstrap-Skript für Fresh-Install** einer leeren Postgres-DB (heute manuelles Migration-Curl nötig, weil `create_all` für Postgres deaktiviert)
+
+### Vision-Pipeline
+- **Hebel C aus W3** (Prompt-Anti-Halluzination): braucht größere Stichprobe als die 10 W3-Samples
+- **Living-Doc-Konsolidierung** (`docs/visual_pipeline.md`): W3-Snapshots `W3_STATUS_DIAGNOSE.md` und `W3_VISION_QUALITY.md` zusammenziehen, sobald Pipeline-Verhalten 30+ Tage stabil
+
+### Cost-Logging
+- **Hard-Cost-Cap** (Erweiterung von F0.6): Tagesschwellen aus Master-Briefing als automatische Stop-Condition implementieren (Apify >15 €/Tag, OpenAI >5 €/Tag, Monats-Max 150 €). Aktuell nur Logging.
