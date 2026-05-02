@@ -12,11 +12,6 @@ under backend/scripts/ are retained as maintenance tooling: they can be
 invoked manually from a Railway shell or replicated via a fresh
 short-lived endpoint if a future migration ever needs orchestrating.
 
-TEMPORARY (Sprint 5.2.1): ``POST /api/admin/run-alembic-upgrade`` is
-re-added below to apply the channel-registry migration (revision
-7e3b2c4a8f51). Will be removed again once Sprint-5.4 auto-migration-
-on-startup is in place.
-
 Auth: every endpoint here is gated by the global Bearer-auth middleware
 (W4 Task 4.3) and reads ``settings.api_token``. There is no separate
 admin token; the historical layer-drift between an earlier per-endpoint
@@ -128,35 +123,4 @@ def cost_summary(
             {"key": key, **values}
             for key, values in sorted(buckets.items())
         ],
-    }
-
-
-# ---------- Throwaway: alembic upgrade (Sprint 5.2.1, will be removed) ----
-
-
-@router.post("/run-alembic-upgrade")
-def run_alembic_upgrade() -> dict:
-    """Apply pending Alembic migrations against the live DB.
-
-    TEMPORARY — re-added in Sprint 5.2.1 to ship revision 7e3b2c4a8f51
-    (channel-registry fields). Auto-migration on container start is on
-    the Sprint 5.4 backlog; once that lands this endpoint goes away
-    again, matching the W4 throwaway lifecycle described above.
-
-    Wraps scripts.apply_alembic_upgrade.run() — that script handles
-    schema bootstrap, baseline-stamp, and the upgrade itself. Auth comes
-    from the global Bearer middleware (W4 Task 4.3); no per-endpoint
-    token check (Lesson 6).
-    """
-    # In-function import per Phase-4 Lesson #1: keep app boot decoupled
-    # from scripts/ being importable inside the container.
-    from scripts import apply_alembic_upgrade as apply_mod  # noqa: PLC0415
-
-    stats = apply_mod.run()
-    return {
-        "status": "ok" if not stats["errors"] else "error",
-        "previous": stats["before_revision"],
-        "current": stats["after_revision"],
-        "actions": stats["actions"],
-        "errors": stats["errors"],
     }
