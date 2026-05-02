@@ -137,7 +137,10 @@ def test_done_when_vision_returns_useful_json(session: Session,
     _mock_openai(monkeypatch, return_content='{"ocr_text": "MOTHER MARY", "visual_summary_de": "Trailer"}')
 
     result = analyze_asset_visual(session, asset)
-    assert result.visual_analysis_status == "done"
+    # W4 convergence: 'analyzed' is the canonical success status set by the
+    # in-repo pipeline. 'done' remains tolerated by the selector and counter
+    # for 14d, but new writes use 'analyzed'.
+    assert result.visual_analysis_status == "analyzed"
 
 
 def test_vision_empty_when_openai_returns_empty_object(session: Session,
@@ -325,3 +328,59 @@ def test_heuristic_uses_caption_when_present(session: Session) -> None:
     data = _heuristic_analysis(asset, post, None)
     assert "Heuristische Analyse" in data["visual_notes"]
     assert "Keine Inhaltsanalyse möglich" not in data["visual_notes"]
+
+
+def test_done_status_from_data_dict_is_still_accepted_for_compat(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """W4 Mini-Run convergence: 14d toleranz fenster. If anything in the
+    pipeline (e.g. an out-of-repo script that wrote 'done' before) feeds
+    'done' through data['visual_analysis_status'], the whitelist guard
+    must still let it through, not collapse to text_fallback."""
+    asset = _make(session)
+    asset.thumbnail_url = None
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+
+    monkeypatch.setattr(visual_analysis, "capture_asset_screenshot",
+                        lambda a: VisualEvidenceResult(status="captured",
+                                                       evidence_url=None))
+    monkeypatch.setattr(
+        visual_analysis,
+        "_heuristic_analysis",
+        lambda asset, post, title: {
+            "visual_analysis_status": "done",
+            "ocr_text": "x",
+        },
+    )
+
+    result = analyze_asset_visual(session, asset)
+    assert result.visual_analysis_status == "done"
+
+
+def test_analyzed_status_from_data_dict_is_accepted(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Symmetric: an out-of-repo path that already writes 'analyzed' must
+    also pass through the whitelist guard verbatim."""
+    asset = _make(session)
+    asset.thumbnail_url = None
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+
+    monkeypatch.setattr(visual_analysis, "capture_asset_screenshot",
+                        lambda a: VisualEvidenceResult(status="captured",
+                                                       evidence_url=None))
+    monkeypatch.setattr(
+        visual_analysis,
+        "_heuristic_analysis",
+        lambda asset, post, title: {
+            "visual_analysis_status": "analyzed",
+            "ocr_text": "x",
+        },
+    )
+
+    result = analyze_asset_visual(session, asset)
+    assert result.visual_analysis_status == "analyzed"
