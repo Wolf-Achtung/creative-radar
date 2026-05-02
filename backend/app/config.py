@@ -41,6 +41,19 @@ class Settings(BaseSettings):
     s3_secret_access_key: str | None = None
     s3_signed_url_ttl_seconds: int = 3600
 
+    # Cost-logging (Phase 4 W4 Task 4.4 / F0.6). Logging only — no hard cap
+    # (Wolf decision: Phase 5+).
+    # USD->EUR conversion is static per Wolf-decision; adaptable via Railway
+    # ENV without a code deploy.
+    usd_to_eur_rate: float = 0.92
+    # Apify default pricing: ~ 0.4 USD per Compute Unit. Override via ENV
+    # if Wolf negotiates a different rate.
+    apify_compute_unit_usd: float = 0.4
+    # OpenAI gpt-4o-mini Vision/Text pricing per 1k tokens (USD).
+    # Source: openai.com/api/pricing as of 2026-04. Update if model changes.
+    openai_input_per_1k_usd: float = 0.000150
+    openai_output_per_1k_usd: float = 0.000600
+
     # Bearer-token auth (Phase 4 W4 Task 4.3). Default off so the rollout can
     # land Frontend changes first; Wolf flips AUTH_ENABLED=true once both
     # Netlify and Railway carry the matching token. Public-path whitelist
