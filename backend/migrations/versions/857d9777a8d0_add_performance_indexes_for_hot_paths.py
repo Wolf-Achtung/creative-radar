@@ -4,10 +4,10 @@ Revision ID: 857d9777a8d0
 Revises: cf842bbfaeb5
 Create Date: 2026-05-01 12:25:21.802193
 
-# pending: deploy in W4 with F0.2 (DB-Trennung). Do NOT alembic upgrade
-# in W2 — capture pipeline does not require these indexes to function,
-# and activating before W4 would couple migration cutover to F0.1
-# rollout. Wolf decides cutover timing.
+W4 update: tables now live in the 'creative_radar' schema (F0.2 migration
+ran on 2026-05-02). Index DDL targets that schema explicitly. Postgres-only
+revision; SQLite test paths bootstrap via SQLModel.metadata.create_all and
+do not run alembic.
 """
 from typing import Sequence, Union
 
@@ -22,6 +22,8 @@ down_revision: Union[str, Sequence[str], None] = 'cf842bbfaeb5'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+
+SCHEMA = "creative_radar"
 
 # Indexes kept as data so upgrade/downgrade stay symmetrical and the list
 # is reviewable at a glance. Order: most-frequent-read first.
@@ -42,10 +44,24 @@ _INDEXES = (
 
 
 def upgrade() -> None:
-    for name, table, columns in _INDEXES:
-        op.create_index(name, table, columns, unique=False, if_not_exists=True)
+    # postgresql_concurrently=True so the index build doesn't take a long
+    # ACCESS EXCLUSIVE lock on the table (problematic on a live system even
+    # if the data volume is currently small). CONCURRENTLY cannot run inside
+    # a transaction, hence the autocommit_block. if_not_exists keeps the
+    # operation idempotent across re-runs.
+    with op.get_context().autocommit_block():
+        for name, table, columns in _INDEXES:
+            op.create_index(
+                name, table, columns,
+                unique=False, if_not_exists=True, schema=SCHEMA,
+                postgresql_concurrently=True,
+            )
 
 
 def downgrade() -> None:
-    for name, table, _columns in reversed(_INDEXES):
-        op.drop_index(name, table_name=table, if_exists=True)
+    with op.get_context().autocommit_block():
+        for name, table, _columns in reversed(_INDEXES):
+            op.drop_index(
+                name, table_name=table, if_exists=True, schema=SCHEMA,
+                postgresql_concurrently=True,
+            )
