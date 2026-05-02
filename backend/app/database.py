@@ -169,8 +169,41 @@ def _ensure_pg_enum_values(enum_name: str, values: list[str]) -> None:
                 connection.execute(text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{safe_value}'"))
 
 
+def _ensure_cr_schema() -> None:
+    """Idempotent CREATE SCHEMA IF NOT EXISTS for the creative_radar schema.
+
+    Runs only when the ORM is configured for the schema (Postgres production).
+    Re-Boot-safe because of IF NOT EXISTS — re-running adds no DDL, no error,
+    no race. SQLite paths are no-ops because SQLite ignores schema clauses.
+    """
+    if DATABASE_URL.startswith("sqlite"):
+        return
+    # Late import to avoid a circular dep at module load time.
+    from app.models.entities import _resolve_table_schema  # noqa: PLC0415
+    schema = _resolve_table_schema()
+    if not schema:
+        return
+    with engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+
+
 def create_db_and_tables() -> None:
-    SQLModel.metadata.create_all(engine)
+    """App startup hook. Deliberately does NOT run metadata.create_all on
+    Postgres — DDL is owned exclusively by Alembic + the W4 migration scripts
+    once F0.2 is in flight. Running create_all on Postgres would either fail
+    (schema absent) or, worse, silently shadow the migration by creating
+    empty tables in the target schema and blocking ALTER TABLE SET SCHEMA on
+    the real data.
+
+    SQLite tests keep create_all so the in-memory test DB still bootstraps
+    every fixture from the metadata. The _ensure_columns / _ensure_pg_enum
+    helpers are retained as additive Alembic-gap patches; they only execute
+    when the inspected default-search-path table is present, so they remain
+    safe on Postgres regardless of which schema currently holds the data.
+    """
+    _ensure_cr_schema()
+    if DATABASE_URL.startswith("sqlite"):
+        SQLModel.metadata.create_all(engine)
     _ensure_pg_enum_values("assettype", ASSETTYPE_ENUM_VALUES)
     _ensure_columns("asset", ASSET_COLUMNS)
     _ensure_columns("post", POST_COLUMNS)
