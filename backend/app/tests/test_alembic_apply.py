@@ -159,3 +159,104 @@ def test_summary_line_reports_revision_transition(mock_conn_factory) -> None:
         stats = apply_mod.run()
 
     assert "none -> 857d9777a8d0" in stats["summary"]
+
+
+# ----------------------- production-layout tests -----------------------
+#
+# These two tests guard against the W4-Hotfix-3 regression: the orchestration
+# tests above mock command.stamp / command.upgrade and never load the real
+# Alembic config. That made it impossible for them to detect a missing
+# alembic.ini in the production container. The two tests here close that
+# gap.
+
+
+def test_alembic_ini_path_resolves_to_real_file_in_repo_layout() -> None:
+    """The apply script computes ALEMBIC_INI relative to its own location.
+    If the Dockerfile drops alembic.ini next to scripts/, the resolved path
+    in the container will match the layout this test verifies in the repo.
+    Failure means the apply script's path resolution diverged from where
+    alembic.ini actually lives — and production will hit the same divergence.
+    """
+    from scripts.apply_alembic_upgrade import ALEMBIC_INI
+
+    assert ALEMBIC_INI.is_file(), (
+        f"Alembic config missing at {ALEMBIC_INI}. Either ALEMBIC_INI in "
+        "scripts/apply_alembic_upgrade.py needs adjusting, or alembic.ini "
+        "is missing from the expected location."
+    )
+
+
+def test_apply_loads_alembic_config_against_sqlite_subprocess(tmp_path) -> None:
+    """Hermetic E2E: spawn a subprocess with DATABASE_URL=sqlite, allow the
+    fallback, and call scripts.apply_alembic_upgrade.run(). This exercises
+    the real Config + command path without any mocks. If alembic.ini is
+    missing or malformed, this test fails early with a readable error.
+
+    Subprocess pattern matches test_orm_fk_resolution.py — gives a clean
+    DATABASE_URL flip without colliding with the parent pytest's ORM
+    metadata cache.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    backend_root = Path(__file__).resolve().parents[2]  # tests -> app -> backend
+    db_file = tmp_path / "alembic_apply_probe.db"
+    probe = r"""
+import json
+import sys
+import os
+os.environ['DATABASE_URL'] = 'sqlite:///{db}'
+os.environ['ALLOW_SQLITE_FALLBACK'] = 'true'
+
+from scripts import apply_alembic_upgrade as m
+
+# Smoke-test the config load without running stamp/upgrade against the
+# real DB (those would touch a fresh sqlite that has no schema yet).
+try:
+    cfg = m._alembic_config()
+    out = {{
+        'config_loaded': True,
+        'script_location': cfg.get_main_option('script_location'),
+        'errors': [],
+    }}
+except Exception as exc:
+    out = {{
+        'config_loaded': False,
+        'script_location': None,
+        'errors': [type(exc).__name__ + ': ' + str(exc)],
+    }}
+
+sys.stdout.write(json.dumps(out))
+""".format(db=str(db_file).replace("\\", "/"))
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(backend_root)
+    for var in ("DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL",
+                "PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE"):
+        env.pop(var, None)
+
+    proc = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=str(backend_root),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+    )
+    assert proc.returncode == 0, (
+        f"Probe subprocess failed (rc={proc.returncode}).\n"
+        f"stderr:\n{proc.stderr}\nstdout:\n{proc.stdout}"
+    )
+    result = json.loads(proc.stdout)
+    assert result["config_loaded"] is True, (
+        f"Alembic config could not be loaded: {result['errors']}"
+    )
+    assert result["script_location"], (
+        "Alembic config has no script_location — production-blocker"
+    )
+    assert result["script_location"].endswith("migrations"), (
+        f"Unexpected script_location: {result['script_location']}"
+    )

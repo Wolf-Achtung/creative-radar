@@ -51,6 +51,26 @@ Implementiert in `backend/app/models/entities.py:_fk`. Fünf FK-Stellen
 gepatcht: `TitleKeyword.title_id`, `Post.channel_id`, `Asset.title_id`,
 `Asset.post_id`, `TitleCandidate.asset_id`.
 
+### Lesson 4: Production-Dateilayout vs. lokales Repository-Layout
+
+**Symptom:** Alembic-Upgrade-Curl scheiterte mit `CommandError: No 'script_location' key found in configuration`. Production hatte den Curl strukturell nicht ausführen können, weil `alembic.ini` und `migrations/` nicht im Container lagen — nur `app/`, `scripts/`, `start.sh` und `requirements.txt` wurden vom Dockerfile kopiert.
+
+Lokal funktioniert alles: `pytest` läuft im Repository-Root mit allen Dateien verfügbar. Container hat `WORKDIR /app` und nur die im Dockerfile gelisteten `COPY`-Statements — eine kleinere Untermenge.
+
+**Drittes Mal in W4 aufgetreten:**
+- W4-Hotfix #1 (Backfill-Endpoint): `scripts/`-Verzeichnis fehlte im Container → `ModuleNotFoundError`
+- W4-Hotfix #2 (FK-Schema-Resolution): SQLite-Tests deckten Postgres-Schema-Verhalten nicht ab → ähnlicher Test-Coverage-Bug, aber Code-Pfad-Drift
+- W4-Hotfix #3 (Alembic-Config): `alembic.ini` + `migrations/` fehlten im Container → `script_location`-Fehler
+
+**Lesson:** Tests, die das Production-Dateilayout nicht spiegeln, sind blind für Container-vs-Repo-Layout-Drift. Konkret implementiert in `tests/test_alembic_apply.py`:
+
+1. **Filesystem-Probe (`test_alembic_ini_path_resolves_to_real_file_in_repo_layout`):** prüft, dass `ALEMBIC_INI` aus dem Apply-Skript auf eine real existierende Datei zeigt. Wenn die Pfad-Resolution divergiert oder die Datei verschoben wurde, schlägt der Test fehl, BEVOR Production ihn trifft.
+2. **Subprocess-E2E ohne Mock (`test_apply_loads_alembic_config_against_sqlite_subprocess`):** spawnt einen Sub-Python-Prozess, lädt die Config real (kein `command.*`-Mock), prüft `script_location` ist gesetzt. Hermetic, ~1s, fängt jeden Config-Load-Fehler.
+
+**Phase-5-Backlog:** Test-Strategie entwickeln, die Container-vs-Repo-Layout-Drift systematisch fängt. Vorschlag: Dockerfile-Parser-Test, der die `COPY`-Statements gegen die Code-Imports + Code-Pfad-Resolutionen prüft. Beispiel: wenn `scripts/apply_alembic_upgrade.py` auf `parents[1] / "alembic.ini"` zeigt, muss `COPY alembic.ini` im Dockerfile stehen.
+
+Implementiert in: `Dockerfile` (jetzt mit `COPY migrations` + `COPY alembic.ini`), `scripts/apply_alembic_upgrade.py` (FileNotFoundError mit lesbarer Message statt Alembic-Silent-Fail), `migrations/__init__.py` (Belt-and-Braces-Marker, Alembic braucht ihn nicht aber macht künftige Imports deterministisch).
+
 ### Lesson 3: SQLite-Tests können Postgres-spezifische Schema-Probleme nicht abdecken
 
 **Symptom:** CI war 128/128 grün, Production crashte beim Boot.

@@ -36,8 +36,17 @@ ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
 
 
 def _alembic_config() -> Config:
-    cfg = Config(str(ALEMBIC_INI))
-    return cfg
+    # Alembic's Config(str) silently swallows a missing-file path and returns
+    # an empty config — the next command.* call then fails deep inside with
+    # a confusing 'No script_location key' error. Surface the real cause
+    # early so the endpoint response carries a readable message instead.
+    if not ALEMBIC_INI.is_file():
+        raise FileNotFoundError(
+            f"Alembic config not found at {ALEMBIC_INI}. "
+            "The Dockerfile must COPY alembic.ini and migrations/ into the "
+            "container; see PHASE_4_DONE.md Lesson 4."
+        )
+    return Config(str(ALEMBIC_INI))
 
 
 def _alembic_version_exists(connection: Connection) -> bool:
