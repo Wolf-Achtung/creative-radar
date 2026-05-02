@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
+import sqlalchemy as sa
 from sqlmodel import Field, SQLModel, Relationship, Column, JSON
 
 from app.config import settings
@@ -121,6 +122,53 @@ class CandidateSource(str, Enum):
     MATCHER = "matcher"
 
 
+class ChannelRole(str, Enum):
+    STUDIO_DISTRIBUTOR = "studio_distributor"
+    FRANCHISE = "franchise"
+    TALENT_CAST = "talent_cast"
+    REGIONAL = "regional"
+    PUBLISHER_PLATFORM = "publisher_platform"
+
+
+class QualityTier(str, Enum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+
+
+class AcquisitionStrategy(str, Enum):
+    APIFY = "apify"
+    YOUTUBE_API = "youtube_api"
+    MANUAL = "manual"
+
+
+def _enum_column(enum_cls, name: str, *, nullable: bool, server_default: Optional[str] = None) -> Column:
+    """Build a column for one of the channel-registry enums. Postgres uses the
+    native ENUM type defined in migration 7e3b2c4a8f51 (creative_radar schema);
+    SQLite falls back to VARCHAR so the in-memory test DB and alembic-roundtrip
+    test stay green. ``values_callable`` is critical — without it SQLAlchemy
+    would write member NAMES (uppercase) to the DB instead of the lowercase
+    enum values defined in the migration.
+    """
+    schema = _resolve_table_schema()
+    if schema:
+        col_type = sa.Enum(
+            enum_cls,
+            name=name,
+            schema=schema,
+            native_enum=True,
+            values_callable=lambda x: [e.value for e in x],
+            create_constraint=False,
+            create_type=False,
+        )
+    else:
+        col_type = sa.String()
+    kwargs: dict = {"nullable": nullable}
+    if server_default is not None:
+        kwargs["server_default"] = server_default
+    return Column(col_type, **kwargs)
+
+
 class Channel(SQLModel, table=True):
     __table_args__ = _CR_TABLE_ARGS
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -134,6 +182,22 @@ class Channel(SQLModel, table=True):
     active: bool = True
     mvp: bool = False
     notes: Optional[str] = None
+    channel_role: Optional[ChannelRole] = Field(
+        default=None,
+        sa_column=_enum_column(ChannelRole, "channel_role", nullable=True),
+    )
+    quality_tier: QualityTier = Field(
+        default=QualityTier.P1,
+        sa_column=_enum_column(QualityTier, "quality_tier", nullable=False, server_default="P1"),
+    )
+    acquisition_strategy: AcquisitionStrategy = Field(
+        default=AcquisitionStrategy.APIFY,
+        sa_column=_enum_column(AcquisitionStrategy, "acquisition_strategy", nullable=False, server_default="apify"),
+    )
+    monitoring_enabled: bool = Field(
+        default=True,
+        sa_column=Column(sa.Boolean(), nullable=False, server_default=sa.true()),
+    )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
