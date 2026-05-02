@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.models.entities import Asset, AssetType, Channel, Post, Title
+from app.services.cost_log import record_openai_call
 from app.services.screenshot_capture import capture_asset_screenshot
 from app.services.storage import resolve_url
 
@@ -252,6 +253,14 @@ de_us_match_key, visual_confidence_score, confidence
             temperature=0.1,
         )
             raw = response.choices[0].message.content or "{}"
+            # Cost-log hook (W4 Task 4.4 / F0.6). Logs token counts and the
+            # asset id so the cost summary can group per-asset later if
+            # needed. Never raises.
+            record_openai_call(
+                getattr(response, "usage", None),
+                operation="vision_call",
+                meta={"asset_id": str(asset.id), "model": settings.openai_model},
+            )
             data = _safe_json(raw)
             if _vision_data_is_empty(data):
                 # Model returned an empty / unparseable JSON payload. Don't claim

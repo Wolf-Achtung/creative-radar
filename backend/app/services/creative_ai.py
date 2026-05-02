@@ -5,6 +5,7 @@ from openai import OpenAI
 
 from app.config import settings
 from app.models.entities import AssetType, ReviewStatus
+from app.services.cost_log import record_openai_call
 
 
 def _safe_json(text: str) -> dict[str, Any]:
@@ -192,6 +193,12 @@ Antworte nur als JSON. Alle Textfelder müssen Strings sein, keine Arrays.
         temperature=0.2,
     )
     raw = response.choices[0].message.content or '{}'
+    # Cost-log hook (W4 Task 4.4 / F0.6). Never raises.
+    record_openai_call(
+        getattr(response, "usage", None),
+        operation="chat_completion",
+        meta={"channel": channel_name, "model": settings.openai_model},
+    )
     data = _safe_json(raw)
     return {
         'asset_type': _asset_type(data.get('asset_type')),

@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.services.cost_log import record_apify_run
 
 
 BASE_URL = "https://api.apify.com/v2"
@@ -37,7 +38,15 @@ async def _run_actor(actor_id: str, actor_input: dict[str, Any], wait_seconds: i
         )
         items_response.raise_for_status()
         items = items_response.json()
-        return items if isinstance(items, list) else []
+        normalized_items = items if isinstance(items, list) else []
+        # Cost-log hook (W4 Task 4.4 / F0.6). Never lets a failed log break
+        # the actor run — record_apify_run swallows its own errors.
+        record_apify_run(
+            run_data=run_data,
+            items_count=len(normalized_items),
+            operation=f"actor:{actor_id}",
+        )
+        return normalized_items
 
 
 async def run_public_channel_monitor(channel_urls: list[str], results_limit: int | None = None) -> list[dict[str, Any]]:

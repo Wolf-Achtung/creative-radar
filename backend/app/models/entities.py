@@ -294,3 +294,25 @@ class WeeklyReport(SQLModel, table=True):
     html_content: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class CostLog(SQLModel, table=True):
+    """Persisted log of every paid external call (Apify, OpenAI). Phase 4 W4
+    Task 4.4 / F0.6 — logging only, no hard cap. The hard cap is Phase 5+
+    work; for now this table is the audit-trail and the data source for
+    the GET /api/admin/cost-summary endpoint.
+
+    Cost is stored in cents (integer) for both USD and EUR to avoid the
+    floating-point rounding hell of summing thousands of small costs.
+    EUR is derived at insert time from settings.usd_to_eur_rate so the
+    rate snapshot used at logging time is preserved even if Wolf adjusts
+    the rate later.
+    """
+    __table_args__ = _CR_TABLE_ARGS
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    timestamp: datetime = Field(default_factory=utc_now, index=True)
+    provider: str = Field(index=True)  # 'apify' | 'openai'
+    operation: str = Field(index=True)  # e.g. 'instagram_actor', 'vision_call', 'chat_completion'
+    cost_usd_cents: int = 0
+    cost_eur_cents: int = 0
+    cost_meta: dict = Field(default_factory=dict, sa_column=Column(JSON))
