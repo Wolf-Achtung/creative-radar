@@ -4,10 +4,13 @@ This module currently mixes two concerns:
 
 - Throwaway migration endpoints (run-schema-migration, run-schema-rollback,
   run-alembic-upgrade). Will be removed in Task 4.5 once the F0.2/F2.18
-  migrations are confirmed stable. Gated by their own ADMIN_MIGRATION_TOKEN.
-- Cost-summary read endpoint (Task 4.4 / F0.6). Permanent. Gated by the
-  global Bearer-auth middleware (Task 4.3) — same token as the rest of
-  the API, no separate ADMIN_*_TOKEN.
+  migrations are confirmed stable. Gated by the global Bearer-auth
+  middleware (Task 4.3) — same token as the rest of the API. Earlier
+  drafts of these endpoints carried a separate ADMIN_MIGRATION_TOKEN
+  check; W4-Hotfix-4 removed that double-auth (see PHASE_4_DONE.md
+  Lesson 6).
+- Cost-summary read endpoint (Task 4.4 / F0.6). Permanent. Same global
+  Bearer-auth, same API token.
 """
 from __future__ import annotations
 
@@ -15,7 +18,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from app.config import settings
@@ -25,22 +28,12 @@ from app.models.entities import CostLog
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-def _verify_token(authorization: str | None) -> None:
-    expected = settings.admin_migration_token
-    if not expected:
-        raise HTTPException(status_code=503, detail="Migration endpoints disabled (ADMIN_MIGRATION_TOKEN not set)")
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Bearer token")
-    if authorization.removeprefix("Bearer ") != expected:
-        raise HTTPException(status_code=403, detail="Invalid token")
-
-
 @router.post("/run-schema-migration")
-def run_schema_migration(authorization: str | None = Header(None)) -> dict:
+def run_schema_migration() -> dict:
     """Forward migration: move the eight CR tables from public to
     creative_radar. Idempotent (re-run is safe — already-moved tables are
-    reported as skipped). The migration script handles its own transaction."""
-    _verify_token(authorization)
+    reported as skipped). The migration script handles its own transaction.
+    Auth: global Bearer middleware (no separate token)."""
     # In-function import per the W3 hotfix lesson: keep app boot decoupled
     # from scripts/ being importable.
     from scripts import migrate_to_creative_radar_schema as forward  # noqa: PLC0415
@@ -50,11 +43,11 @@ def run_schema_migration(authorization: str | None = Header(None)) -> dict:
 
 
 @router.post("/run-schema-rollback")
-def run_schema_rollback(authorization: str | None = Header(None)) -> dict:
+def run_schema_rollback() -> dict:
     """Symmetric rollback: move the eight CR tables back from
     creative_radar to public. Used only if the forward migration leaves
-    production in a state Wolf cannot recover otherwise. Same token gate."""
-    _verify_token(authorization)
+    production in a state Wolf cannot recover otherwise.
+    Auth: global Bearer middleware (no separate token)."""
     from scripts import rollback_creative_radar_schema as backward  # noqa: PLC0415
 
     stats = backward.run()
@@ -62,11 +55,11 @@ def run_schema_rollback(authorization: str | None = Header(None)) -> dict:
 
 
 @router.post("/run-alembic-upgrade")
-def run_alembic_upgrade(authorization: str | None = Header(None)) -> dict:
+def run_alembic_upgrade() -> dict:
     """Apply pending Alembic migrations against the creative_radar schema.
     Idempotent: stamps baseline if alembic_version is empty, then upgrades
-    to head. Re-running is a no-op once at head."""
-    _verify_token(authorization)
+    to head. Re-running is a no-op once at head.
+    Auth: global Bearer middleware (no separate token)."""
     from scripts import apply_alembic_upgrade as alembic_apply  # noqa: PLC0415
 
     stats = alembic_apply.run()
