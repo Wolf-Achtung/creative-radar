@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     s3_secret_access_key: str | None = None
     s3_signed_url_ttl_seconds: int = 3600
 
+    # Bearer-token auth (Phase 4 W4 Task 4.3). Default off so the rollout can
+    # land Frontend changes first; Wolf flips AUTH_ENABLED=true once both
+    # Netlify and Railway carry the matching token. Public-path whitelist
+    # lives in app/auth.py — this flag is the on/off switch only.
+    auth_enabled: bool = False
+    api_token: str | None = None
+
     # Temporary admin endpoints for the F0.2 schema migration (Phase 4 W4).
     # Both forward and rollback share the same token. Cleanup commit after
     # the migration is verified will remove the field plus the endpoints.

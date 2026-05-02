@@ -57,9 +57,26 @@ async function parseJsonResponse(response) {
   return body ? JSON.parse(body) : null;
 }
 
+// Bearer-token auth header (Phase 4 W4 Task 4.3).
+// VITE_API_TOKEN is a build-time env var injected by Netlify. If it is missing
+// or empty, we omit the header entirely — sending 'Bearer undefined' would
+// fail every backend check once auth_enabled flips on.
+//
+// Security note: this token lives in the Frontend bundle and is therefore
+// effectively public. It is anti-bot, not user auth. Phase-5 replaces with
+// session cookies or OAuth.
+function authHeaders() {
+  const token = (import.meta.env.VITE_API_TOKEN || '').trim();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+      ...(options.headers || {}),
+    },
     ...options,
   });
   return parseJsonResponse(response);
@@ -68,6 +85,7 @@ export async function api(path, options = {}) {
 export async function upload(path, formData) {
   const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
+    headers: { ...authHeaders() },
     body: formData,
   });
   return parseJsonResponse(response);

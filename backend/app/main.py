@@ -4,9 +4,15 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from app.config import settings
 from app.database import create_db_and_tables
+from app.auth import auth_middleware
 from app.api import health, channels, titles, posts, assets, reports, monitor, insights, proxy, admin
 
 app = FastAPI(title="Creative Radar API", version="1.0.0")
+
+# Order: register auth_middleware FIRST so CORSMiddleware (added second) sits
+# outermost and handles preflight before auth runs. Starlette executes
+# middleware in reverse-add order on the request side.
+app.middleware("http")(auth_middleware)
 
 app.add_middleware(
     CORSMiddleware,

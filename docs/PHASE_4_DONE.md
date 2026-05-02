@@ -51,6 +51,36 @@ Implementiert in `backend/app/models/entities.py:_fk`. Fünf FK-Stellen
 gepatcht: `TitleKeyword.title_id`, `Post.channel_id`, `Asset.title_id`,
 `Asset.post_id`, `TitleCandidate.asset_id`.
 
+### Lesson 5: Bearer-Auth-Strategie für eine SPA
+
+**Symptom:** keiner — saubere Vorbereitung.
+
+Die FE-spezifische Limitation, dass `<img>` und `<a href download>` keinen `Authorization`-Header senden können, hätte fast den Image-Proxy und die Report-Downloads gebrochen, wenn Auth ohne Whitelist global aktiviert worden wäre.
+
+**Architektur-Entscheidungen für Task 4.3:**
+
+1. **Feature-Flag-basierter Roll-out** statt Split-PR. Ein Atomic-Diff, Rollback via ENV-Toggle, Frontend kann den Header sofort senden ohne Backend-Race.
+
+2. **Public-Whitelist im Code, nicht via per-Router-Dependency.** Drei Klassen von Public-Pfaden:
+   - **Probes** (`/api/health`, `/api/health/db`): Liveness/Readiness — Container-Orchestrierung darf nie auf Auth warten.
+   - **`<img>`-getriggerte Endpoints** (`/api/img`): Browser-HTML-Tag-Limitation. Sicherheit weiterhin via Host-Whitelist + Größenlimit.
+   - **`<a href download>`-getriggerte Endpoints** (`/api/reports/latest/download.*`): selbe Browser-Limitation. Alternative wäre ein Frontend-Refactor zu fetch+blob, der den Right-Click-Save-As-Workflow bricht — nicht im W4-Scope.
+
+3. **Fail-closed bei Misconfig.** `AUTH_ENABLED=true` ohne `API_TOKEN` setzt zurück auf 503 mit lesbarer Message statt jeden Caller durchzuwinken. Wolf sieht den Misconfig sofort statt erst nach einem Sicherheits-Audit.
+
+4. **OPTIONS passt durch.** CORS-Preflights senden bewusst keinen `Authorization`-Header, weil Browser sie aus dem Preflight strippen. Auth-Middleware skippt OPTIONS unconditional, CORS-Middleware antwortet wie immer.
+
+5. **Layout-Probe-Tests** spiegeln das Production-Routing-Setup. Die Tests prüfen, dass jeder Eintrag in `PUBLIC_PATH_PREFIXES` und `PUBLIC_PATH_EXACT` einer real registrierten Route entspricht — fängt Drift, wenn ein Router umbenannt wird oder ein Endpoint verschwindet.
+
+**Sicherheitsnotiz für Phase 5:**
+
+`VITE_API_TOKEN` lebt im Frontend-Bundle und ist effektiv öffentlich (jeder Browser kann das Bundle laden und den Token extrahieren). Der Token ist **Anti-Bot-Schutz, nicht User-Auth**. Was er NICHT macht:
+- User-Identifikation (es gibt keine User-Sessions)
+- Authorization-Granularität (jeder authentifizierte Request hat denselben Scope)
+- Schutz vor einem entschlossenen Angreifer, der das Bundle inspiziert
+
+Phase 5+: Ersetzen durch (a) Session-Cookies mit Backend-User-Tabelle, (b) OAuth-Flow mit externem IdP, oder (c) signed-URL-basierte Per-Request-Auth.
+
 ### Lesson 4: Production-Dateilayout vs. lokales Repository-Layout
 
 **Symptom:** Alembic-Upgrade-Curl scheiterte mit `CommandError: No 'script_location' key found in configuration`. Production hatte den Curl strukturell nicht ausführen können, weil `alembic.ini` und `migrations/` nicht im Container lagen — nur `app/`, `scripts/`, `start.sh` und `requirements.txt` wurden vom Dockerfile kopiert.
