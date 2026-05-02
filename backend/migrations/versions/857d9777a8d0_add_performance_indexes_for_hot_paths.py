@@ -44,13 +44,24 @@ _INDEXES = (
 
 
 def upgrade() -> None:
-    for name, table, columns in _INDEXES:
-        op.create_index(
-            name, table, columns,
-            unique=False, if_not_exists=True, schema=SCHEMA,
-        )
+    # postgresql_concurrently=True so the index build doesn't take a long
+    # ACCESS EXCLUSIVE lock on the table (problematic on a live system even
+    # if the data volume is currently small). CONCURRENTLY cannot run inside
+    # a transaction, hence the autocommit_block. if_not_exists keeps the
+    # operation idempotent across re-runs.
+    with op.get_context().autocommit_block():
+        for name, table, columns in _INDEXES:
+            op.create_index(
+                name, table, columns,
+                unique=False, if_not_exists=True, schema=SCHEMA,
+                postgresql_concurrently=True,
+            )
 
 
 def downgrade() -> None:
-    for name, table, _columns in reversed(_INDEXES):
-        op.drop_index(name, table_name=table, if_exists=True, schema=SCHEMA)
+    with op.get_context().autocommit_block():
+        for name, table, _columns in reversed(_INDEXES):
+            op.drop_index(
+                name, table_name=table, if_exists=True, schema=SCHEMA,
+                postgresql_concurrently=True,
+            )

@@ -15,24 +15,33 @@
 
 `_migration_schema()` ist ein lokaler Helper, der die Schema-Entscheidung anhand der DB-URL trifft (Postgres → `creative_radar`, SQLite → None). Spiegelbild zur ORM-Logik in `app/models/entities.py:_resolve_table_schema`.
 
-### Revision `857d9777a8d0` für `creative_radar`-Schema
+### Revision `857d9777a8d0` für `creative_radar`-Schema mit CONCURRENTLY
 
-Indizes werden jetzt mit `schema="creative_radar"` erstellt:
+Indizes werden mit `schema="creative_radar"` UND `postgresql_concurrently=True` erstellt — letzteres verhindert eine ACCESS EXCLUSIVE-Sperre auf der Tabelle während des Index-Builds. Bei aktuell kleinen Tabellen (~50 Posts) wäre der Lock nur Millisekunden lang, aber best practice ist concurrent für jede Production-DDL auf live-Systemen:
 
 ```python
 SCHEMA = "creative_radar"
 
 def upgrade() -> None:
-    for name, table, columns in _INDEXES:
-        op.create_index(
-            name, table, columns,
-            unique=False, if_not_exists=True, schema=SCHEMA,
-        )
+    # CONCURRENTLY kann nicht in einer Transaction laufen → autocommit_block
+    with op.get_context().autocommit_block():
+        for name, table, columns in _INDEXES:
+            op.create_index(
+                name, table, columns,
+                unique=False, if_not_exists=True, schema=SCHEMA,
+                postgresql_concurrently=True,
+            )
 
 def downgrade() -> None:
-    for name, table, _columns in reversed(_INDEXES):
-        op.drop_index(name, table_name=table, if_exists=True, schema=SCHEMA)
+    with op.get_context().autocommit_block():
+        for name, table, _columns in reversed(_INDEXES):
+            op.drop_index(
+                name, table_name=table, if_exists=True, schema=SCHEMA,
+                postgresql_concurrently=True,
+            )
 ```
+
+`if_not_exists=True` bleibt idempotent — Re-Run nach Erfolg ist No-Op.
 
 Fünf Indizes wie in W2 spezifiziert:
 
