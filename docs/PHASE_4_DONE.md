@@ -51,6 +51,20 @@ Implementiert in `backend/app/models/entities.py:_fk`. Fünf FK-Stellen
 gepatcht: `TitleKeyword.title_id`, `Post.channel_id`, `Asset.title_id`,
 `Asset.post_id`, `TitleCandidate.asset_id`.
 
+### Lesson 6: Auth-Schicht-Drift zwischen Tasks
+
+**Symptom:** `/api/admin/run-alembic-upgrade` antwortet nach Aktivierung der globalen Bearer-Auth (Task 4.3) mit `Invalid token` für jeden Request — sowohl mit `API_TOKEN` als auch mit `ADMIN_MIGRATION_TOKEN`. Der Endpoint ist erreichbar (kein 5xx), aber kein Token-Wert passiert beide Auth-Schichten gleichzeitig.
+
+**Ursache:** Task 4.1d (Schema-Migration-Endpoint) führte einen lokalen `_verify_token`-Check ein, der `settings.admin_migration_token` (= `ADMIN_MIGRATION_TOKEN`) prüfte. Damals existierte keine globale Auth-Middleware; das war die einzige Schicht. Task 4.3 ergänzte später die globale Bearer-Middleware, die `settings.api_token` (= `API_TOKEN`) prüft. Niemand passte die Migrations-Endpoints an. Resultat: zwei sequenzielle Auth-Schichten mit unterschiedlichen Erwartungs-Werten. Wolfs ADMIN_MIGRATION_TOKEN ≠ API_TOKEN → keine Variante passiert beide.
+
+**Hotfix (W4-Hotfix-4):** `_verify_token` aus `app/api/admin.py` entfernt. Migrations-Endpoints stützen sich nur noch auf die globale Bearer-Middleware mit `API_TOKEN`. `admin_migration_token`-Setting + `ADMIN_MIGRATION_TOKEN`-ENV-Variable obsolet, in `.env.example` entfernt.
+
+Plus: Regression-Guard-Test `test_endpoints_have_no_local_token_check` in `test_admin_migration.py` — mit `auth_enabled=False` müssen alle Endpoints ohne `Authorization`-Header durchkommen. Wenn jemand wieder einen lokalen Token-Check einführt, bricht der Test.
+
+**Sicherheits-Equivalenz:** API_TOKEN ist Wolf-only (Anti-Bot-Schutz für SPA, gleichzeitig „Admin-Token" weil nur Wolf ihn hat). Throwaway-Endpoints werden in Task 4.5 sowieso entfernt — Defense-in-Depth via separatem Token war ohnehin nominal.
+
+**Phase-5-Backlog:** Auth-Schicht-Audit pro Task einbauen, sodass spätere Auth-Änderungen frühere Endpoint-Auth-Logik konsistent anpassen. Konkrete Idee: Layout-Probe-Test, der für jeden Endpoint der `app.routes`-Registry prüft, dass keine zwei Auth-Mechanismen gleichzeitig greifen (entweder Dependency-basiert ODER Middleware-basiert, nicht beide).
+
 ### Lesson 5: Bearer-Auth-Strategie für eine SPA
 
 **Symptom:** keiner — saubere Vorbereitung.

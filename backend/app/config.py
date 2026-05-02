@@ -58,13 +58,11 @@ class Settings(BaseSettings):
     # land Frontend changes first; Wolf flips AUTH_ENABLED=true once both
     # Netlify and Railway carry the matching token. Public-path whitelist
     # lives in app/auth.py — this flag is the on/off switch only.
+    # Migration endpoints in app/api/admin.py also rely on this token (no
+    # separate ADMIN_MIGRATION_TOKEN since W4-Hotfix-4, see PHASE_4_DONE.md
+    # Lesson 6).
     auth_enabled: bool = False
     api_token: str | None = None
-
-    # Temporary admin endpoints for the F0.2 schema migration (Phase 4 W4).
-    # Both forward and rollback share the same token. Cleanup commit after
-    # the migration is verified will remove the field plus the endpoints.
-    admin_migration_token: str | None = None
 
     image_proxy_allowed_hosts: str = (
         "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
