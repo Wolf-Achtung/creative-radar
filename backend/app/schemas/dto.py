@@ -2,7 +2,16 @@ from datetime import date, datetime
 from typing import Literal, Optional
 from uuid import UUID
 from pydantic import BaseModel
-from app.models.entities import AssetType, Market, Priority, ReviewStatus, ReportStatus
+from app.models.entities import (
+    AcquisitionStrategy,
+    AssetType,
+    ChannelRole,
+    Market,
+    Priority,
+    QualityTier,
+    ReportStatus,
+    ReviewStatus,
+)
 
 
 class ChannelCreate(BaseModel):
@@ -16,6 +25,10 @@ class ChannelCreate(BaseModel):
     mvp: bool = False
     notes: Optional[str] = None
     platform: str = "instagram"
+    channel_role: Optional[ChannelRole] = None
+    quality_tier: QualityTier = QualityTier.P1
+    acquisition_strategy: AcquisitionStrategy = AcquisitionStrategy.APIFY
+    monitoring_enabled: bool = True
 
 
 class ChannelUpdate(BaseModel):
@@ -29,6 +42,10 @@ class ChannelUpdate(BaseModel):
     mvp: Optional[bool] = None
     notes: Optional[str] = None
     platform: Optional[str] = None
+    channel_role: Optional[ChannelRole] = None
+    quality_tier: Optional[QualityTier] = None
+    acquisition_strategy: Optional[AcquisitionStrategy] = None
+    monitoring_enabled: Optional[bool] = None
 
 
 class TitleCreate(BaseModel):
