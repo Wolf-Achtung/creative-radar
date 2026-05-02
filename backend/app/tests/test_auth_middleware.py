@@ -8,8 +8,9 @@ Coverage:
 - auth_enabled=True with malformed Authorization (no 'Bearer ' prefix): 401
 - auth_enabled=True with API_TOKEN unset: 503 (fail closed)
 - public-path whitelist still 200 even with auth_enabled=True and no token:
-  /api/health, /api/health/db, /api/img, /docs, /openapi.json,
-  /api/reports/latest/download.html, /api/reports/latest/download.md
+  /api/health, /api/health/db, /api/img, /storage/<file>, /docs,
+  /openapi.json, /api/reports/latest/download.html,
+  /api/reports/latest/download.md
 - OPTIONS preflight passes through (CORS handler should answer)
 - Layout-probe: PUBLIC_PATH_PREFIXES references match real route prefixes
 """
@@ -168,6 +169,21 @@ def test_image_proxy_public_when_auth_enabled(
     assert response.status_code != 403 or response.json().get("detail") != "Invalid token"
 
 
+def test_storage_mount_public_when_auth_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The /storage mount serves evidence images via <img src>, which cannot
+    send Bearer headers. It MUST stay reachable when auth is on. Auth must
+    not be the layer that returns 401/403; a 404 from StaticFiles for a
+    missing file is the expected outcome here."""
+    monkeypatch.setattr(settings, "auth_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "api_token", "valid-token", raising=False)
+
+    response = client.get("/storage/evidence/does-not-exist.jpg")
+    assert response.status_code != 401
+    assert response.status_code != 403
+
+
 def test_docs_endpoint_public_when_auth_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -211,6 +227,8 @@ def test_path_is_public_prefix_match() -> None:
     assert _path_is_public("/api/health/db") is True
     assert _path_is_public("/api/img") is True
     assert _path_is_public("/api/img?url=foo") is False  # query string isn't part of path
+    assert _path_is_public("/storage") is True
+    assert _path_is_public("/storage/evidence/abc.jpg") is True
     assert _path_is_public("/docs") is True
     assert _path_is_public("/redoc") is True
     assert _path_is_public("/openapi.json") is True
@@ -221,6 +239,7 @@ def test_path_is_public_rejects_lookalikes() -> None:
     public just because it starts with /api/health."""
     assert _path_is_public("/api/healthbeat") is False
     assert _path_is_public("/api/imgproxy") is False
+    assert _path_is_public("/storagebox") is False
     assert _path_is_public("/api/_auth_probe") is False
     assert _path_is_public("/api/reports/latest") is False  # no /download suffix
     assert _path_is_public("/api/reports/latest/download.json") is False  # not in whitelist

@@ -15,6 +15,9 @@ Public paths (always pass through, regardless of auth flag):
 - ``/api/img`` and any sub-path — the image proxy is hit by ``<img src>``
   tags from the browser, which cannot send an Authorization header (HTML
   limitation). Security stays via host-whitelist + size limit.
+- ``/storage`` and any sub-path — internal evidence files served by the
+  ``StaticFiles`` mount, also fetched by ``<img src>`` (same header
+  limitation). Read-only mount, files written only by the storage adapter.
 - ``/api/reports/latest/download.html`` and ``download.md`` — clicked via
   ``<a href download>``, same Authorization-header limitation.
 - ``/docs``, ``/redoc``, ``/openapi.json`` — FastAPI's own documentation
@@ -45,6 +48,7 @@ from app.config import settings
 PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/api/health",
     "/api/img",
+    "/storage",
     "/docs",
     "/redoc",
     "/openapi.json",
