@@ -112,3 +112,44 @@ def test_run_schema_rollback_calls_rollback_run_when_authorized(
     body = response.json()
     assert "rolled back" in body["summary"]
     assert mocked.called
+
+
+# ---------- alembic upgrade endpoint ----------
+
+
+def test_run_alembic_upgrade_returns_503_when_token_not_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "admin_migration_token", None, raising=False)
+    response = client.post(
+        "/api/admin/run-alembic-upgrade",
+        headers={"Authorization": "Bearer anything"},
+    )
+    assert response.status_code == 503
+
+
+def test_run_alembic_upgrade_calls_apply_run_when_authorized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "admin_migration_token", "secret-w4-mig", raising=False)
+    fake_stats = {
+        "before_revision": None,
+        "after_revision": "857d9777a8d0",
+        "baseline_stamped": True,
+        "actions": ["stamped baseline cf842bbfaeb5", "upgraded to head"],
+        "errors": {},
+        "summary": "Alembic: none -> 857d9777a8d0. Actions: stamped baseline cf842bbfaeb5, upgraded to head",
+    }
+    with patch(
+        "scripts.apply_alembic_upgrade.run", return_value=fake_stats
+    ) as mocked:
+        response = client.post(
+            "/api/admin/run-alembic-upgrade",
+            headers={"Authorization": "Bearer secret-w4-mig"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["after_revision"] == "857d9777a8d0"
+    assert body["baseline_stamped"] is True
+    assert mocked.called

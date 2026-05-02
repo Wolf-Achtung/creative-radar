@@ -49,3 +49,15 @@ def run_schema_rollback(authorization: str | None = Header(None)) -> dict:
 
     stats = backward.run()
     return stats
+
+
+@router.post("/run-alembic-upgrade")
+def run_alembic_upgrade(authorization: str | None = Header(None)) -> dict:
+    """Apply pending Alembic migrations against the creative_radar schema.
+    Idempotent: stamps baseline if alembic_version is empty, then upgrades
+    to head. Re-running is a no-op once at head."""
+    _verify_token(authorization)
+    from scripts import apply_alembic_upgrade as alembic_apply  # noqa: PLC0415
+
+    stats = alembic_apply.run()
+    return stats

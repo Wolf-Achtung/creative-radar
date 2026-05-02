@@ -34,6 +34,14 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _migration_schema() -> str | None:
+    """Postgres deployments place the alembic_version table in the
+    creative_radar schema so it travels with the rest of CR's data. SQLite
+    paths leave it in the default schema (no concept of schemas here)."""
+    url = config.get_main_option("sqlalchemy.url") or ""
+    return "creative_radar" if "postgres" in url.lower() else None
+
+
 def run_migrations_online() -> None:
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
@@ -42,7 +50,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_schema=_migration_schema(),
+            include_schemas=True,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
