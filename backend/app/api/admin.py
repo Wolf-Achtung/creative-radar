@@ -277,3 +277,139 @@ def youtube_sync(
         "errors": errors,
         "quota_units_used": quota_units_used,
     }
+
+
+# ---------- Cross-platform AI analysis (Sprint 5.3.1) -----------------
+
+
+@router.post("/analyze/{channel_id}")
+def analyze_channel(
+    channel_id: UUID,
+    force: bool = Query(False),
+    limit: int = Query(50, ge=1, le=500),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Run the cross-platform AI analyzer for the most recent posts of
+    ``channel_id``. Per post: vision-describe the asset (Sonnet), then
+    classify format+tone (Haiku) + purpose+lifecycle_stage (Sonnet).
+
+    Idempotent by default: posts whose ``last_analyzed_at`` is already
+    set are skipped. ``?force=true`` re-analyzes everything in the
+    selected window. ``?limit=N`` (default 50) caps the batch as a
+    cost guardrail — typical channel-sync drops 5-10 new posts, so 50
+    leaves headroom for backfill on first runs without going wild.
+
+    The analyzer commits per post — a crash mid-batch keeps the
+    already-completed posts intact and returns the partial result with
+    an ``errors`` array describing what went wrong.
+
+    Errors map to:
+    - 401: ANTHROPIC_API_KEY missing/invalid (auth failures from any
+      Anthropic call short-circuit the whole batch — non-recoverable)
+    - 404: channel UUID unknown
+    - 503: analyzer module unavailable (lazy-import failure of the
+      anthropic SDK or app.services.post_analyzer)
+
+    Per-post failures (rate limit after the wrapper's retries, vision
+    URL unreachable, classifier returns invalid JSON twice) are
+    swallowed and surface in the response's ``errors`` array — the
+    batch keeps going so a single bad post doesn't strand 49 healthy
+    ones. The HTTP status stays 200 in that case; callers should
+    inspect ``errors`` and ``analyzed_posts`` for the real outcome.
+    """
+    try:
+        from app.services.anthropic_client import (
+            AnthropicAuthError,
+            is_anthropic_configured,
+        )
+        from app.services.post_analyzer import analyze_post
+    except ImportError as exc:  # noqa: BLE001
+        logger.exception("analyzer-import-failed")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Analyzer unavailable: {exc}",
+        ) from exc
+
+    if not is_anthropic_configured():
+        raise HTTPException(
+            status_code=401,
+            detail="ANTHROPIC_API_KEY ist nicht gesetzt. Bitte in Railway konfigurieren.",
+        )
+
+    channel = session.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail=f"Channel {channel_id} nicht gefunden.")
+
+    # Pick posts: newest first, capped at ``limit``. Default skip-pre-check
+    # filters posts we've already analyzed; ?force=true re-runs them.
+    post_q = (
+        select(Post)
+        .where(Post.channel_id == channel_id)
+        .order_by(Post.detected_at.desc())
+        .limit(limit)
+    )
+    if not force:
+        post_q = post_q.where(Post.last_analyzed_at.is_(None))
+    posts_to_analyze = list(session.exec(post_q).all())
+
+    # Skipped = posts in the channel we *would* have analyzed but for
+    # the last_analyzed_at filter. Counted in a second query so the
+    # response is honest even when the limit cap excludes some new posts.
+    if not force:
+        skipped_q = (
+            select(Post)
+            .where(Post.channel_id == channel_id)
+            .where(Post.last_analyzed_at.is_not(None))
+        )
+        skipped_count = len(list(session.exec(skipped_q).all()))
+    else:
+        skipped_count = 0
+
+    analyzed = 0
+    asset_rows_created = 0
+    errors: list[str] = []
+    calls_total = {"haiku": 0, "sonnet": 0, "sonnet_vision": 0}
+
+    for post in posts_to_analyze:
+        try:
+            result = analyze_post(session, post)
+        except AnthropicAuthError as exc:
+            # Auth is non-recoverable — short-circuit the whole batch.
+            session.rollback()
+            raise HTTPException(status_code=401, detail=f"Anthropic auth failed: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001
+            # Per-post failure outside the analyzer's own try/except
+            # — log + continue. Rate-limit is already absorbed inside
+            # analyze_post (skip-and-log per Wolf's Sprint-5.3.1 spec),
+            # so anything that reaches here is genuinely unexpected.
+            session.rollback()
+            logger.exception("analyze-post-failed", extra={"post_id": str(post.id)})
+            errors.append(f"{post.id}:{type(exc).__name__}:{exc}")
+            continue
+
+        for key, n in result.calls.items():
+            calls_total[key] = calls_total.get(key, 0) + n
+
+        if result.status == "analyzed":
+            try:
+                session.commit()
+            except Exception as exc:  # noqa: BLE001
+                session.rollback()
+                errors.append(f"{post.id}:persist:{type(exc).__name__}:{exc}")
+                continue
+            analyzed += 1
+            if result.asset_created:
+                asset_rows_created += 1
+        else:
+            session.rollback()
+            errors.append(f"{post.id}:{','.join(result.errors) or result.status}")
+
+    return {
+        "channel_id": str(channel.id),
+        "platform": channel.platform,
+        "analyzed_posts": analyzed,
+        "skipped_posts": skipped_count,
+        "asset_rows_created": asset_rows_created,
+        "errors": errors,
+        "anthropic_calls": calls_total,
+    }

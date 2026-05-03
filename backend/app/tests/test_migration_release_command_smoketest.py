@@ -83,7 +83,10 @@ def test_upgrade_advances_alembic_version_and_is_schema_noop(sqlite_url, alembic
     assert _current_revision(sqlite_url) == PRIOR_REVISION
     columns_before = _channel_columns(sqlite_url)
 
-    command.upgrade(alembic_cfg, "head")
+    # Pin to NEW_REVISION rather than "head" so this test stays valid
+    # when later migrations land — otherwise it replays them too and
+    # may collide with SQLModel.metadata.create_all bootstrap state.
+    command.upgrade(alembic_cfg, NEW_REVISION)
 
     assert _current_revision(sqlite_url) == NEW_REVISION, (
         "release_command smoketest migration did not advance alembic_version"
@@ -96,7 +99,7 @@ def test_upgrade_advances_alembic_version_and_is_schema_noop(sqlite_url, alembic
 
 
 def test_roundtrip_up_down_up(sqlite_url, alembic_cfg):
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
     assert _current_revision(sqlite_url) == NEW_REVISION
 
     command.downgrade(alembic_cfg, "-1")
@@ -104,7 +107,7 @@ def test_roundtrip_up_down_up(sqlite_url, alembic_cfg):
         "downgrade did not return alembic_version to the prior head"
     )
 
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
     assert _current_revision(sqlite_url) == NEW_REVISION, (
         "second upgrade did not re-advance alembic_version"
     )
