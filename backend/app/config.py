@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     apify_tiktok_actor_id: str = "clockworks~tiktok-scraper"
     apify_results_limit_per_channel: int = 5
     apify_wait_seconds: int = 60
+
+    # YouTube Data API v3 (Sprint 5.2.3). Free tier is 10k quota units/day;
+    # one channel sync = 3 units (channels.list + playlistItems.list +
+    # videos.list). Cost-log records units, not USD — see
+    # record_youtube_api_call() in services/cost_log.py.
+    youtube_api_key: str | None = None
+    youtube_results_limit_per_channel: int = 10
     frontend_url: str = "*"
     cors_origins: str = "*"
     backend_url: str = ""
