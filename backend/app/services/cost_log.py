@@ -99,6 +99,26 @@ def record_apify_run(
     _persist("apify", operation, usd_cents, full_meta)
 
 
+def record_youtube_api_call(
+    quota_units: int,
+    operation: str,
+    meta: dict | None = None,
+) -> None:
+    """Persist one cost log row for a YouTube Data API v3 call.
+
+    YouTube's free tier is 10k quota units per day; we don't pay USD until
+    that's exhausted. We log ``cost_usd_cents=0`` and stash ``quota_units``
+    in ``cost_meta`` so cost-summary can surface the daily quota burn even
+    though the EUR/USD totals stay at zero. Provider name matches the
+    ``AcquisitionStrategy.YOUTUBE_API`` enum value from Sprint 5.2.1.
+    """
+    full_meta = {
+        "quota_units": int(quota_units or 0),
+        **(meta or {}),
+    }
+    _persist("youtube_api", operation, 0, full_meta)
+
+
 def record_openai_call(
     usage: Any,
     operation: str,
