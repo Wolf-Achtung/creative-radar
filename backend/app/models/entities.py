@@ -198,6 +198,13 @@ class Channel(SQLModel, table=True):
         default=True,
         sa_column=Column(sa.Boolean(), nullable=False, server_default=sa.true()),
     )
+    # Audit-Felder, befüllt nur durch scripts/import_channels.py
+    # (Sprint 5.3.X Perplexity-seed bulk-import). Read-only-by-convention
+    # für alle anderen Code-Pfade — die admin/channels-Endpoints lassen
+    # die Felder unangetastet, damit `import_source` weiterhin verlässlich
+    # angibt, aus welchem Recherche-Batch ein Channel stammt.
+    category: Optional[str] = None
+    import_source: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

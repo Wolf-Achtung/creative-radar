@@ -1,0 +1,5 @@
+company_name,category,market,platform,handle,url,confidence,notes
+Demo Streamer DE,streamer,DE,instagram,demo_streamer_de,https://www.instagram.com/demo_streamer_de/,verified,Beispiel-Eintrag — durch echte Perplexity-CSV ersetzen
+Demo Major Studio US,major_studio,US,instagram,demo_major_us,https://www.instagram.com/demo_major_us/,verified,
+Demo Arthouse DE,arthouse_distributor,DE,youtube,demo_arthouse_de,https://www.youtube.com/@demo_arthouse_de,verified,
+Demo Independent INT,indie_distributor,INT,tiktok,demo_indie_int,https://www.tiktok.com/@demo_indie_int,verified,
