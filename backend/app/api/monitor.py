@@ -13,6 +13,7 @@ from app.services.apify_connector import (
     run_public_channel_monitor,
     run_tiktok_profile_monitor,
 )
+from app.services.asset_screenshot_persistence import persist_asset_screenshot
 from app.services.creative_ai import analyze_creative_text
 from app.services.whitelist_matcher import find_best_title_match, is_safe_auto_match
 from app.services.title_candidates import create_candidate_from_asset, resolve_open_candidates_for_asset
@@ -123,6 +124,7 @@ def _create_asset_from_item(
             match = enriched_match
             asset.title_id = enriched_match.title.id if enriched_match.title else None
 
+    persist_asset_screenshot(asset)
     session.add(asset)
     session.commit()
     session.refresh(asset)

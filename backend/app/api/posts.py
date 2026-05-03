@@ -6,6 +6,7 @@ from app.models.entities import Asset, Channel, Post, Title, Market, Priority
 from app.services.title_candidates import create_candidate_from_asset, resolve_open_candidates_for_asset
 from app.schemas.dto import ManualPostImport, AnalyzeInstagramLinkRequest
 from app.services.ai_asset_analyzer import create_placeholder_ai_summary
+from app.services.asset_screenshot_persistence import persist_asset_screenshot
 from app.services.creative_ai import analyze_creative_text
 from app.services.link_preview import fetch_public_preview, infer_instagram_handle
 from app.services.whitelist_matcher import find_best_title_match, is_safe_auto_match
@@ -133,6 +134,7 @@ def manual_import(payload: ManualPostImport, session: Session = Depends(get_sess
             confidence = matched_confidence
             asset.title_id = matched_title.id
 
+    persist_asset_screenshot(asset)
     session.add(asset)
     session.commit()
     session.refresh(asset)
@@ -205,6 +207,7 @@ async def analyze_instagram_link(payload: AnalyzeInstagramLinkRequest, session: 
             confidence = matched_confidence
             asset.title_id = matched_title.id
 
+    persist_asset_screenshot(asset)
     session.add(asset)
     session.commit()
     session.refresh(asset)
