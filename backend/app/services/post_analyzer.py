@@ -62,6 +62,7 @@ from app.services.anthropic_client import (
     messages_create_vision,
 )
 from app.services.apify_connector import _image_from_item
+from app.services.asset_screenshot_persistence import persist_asset_screenshot
 from app.services.cost_log import record_anthropic_call
 from app.services.youtube_connector import _best_thumbnail_url
 
@@ -374,6 +375,12 @@ def analyze_post(session: Session, post: Post) -> AnalyzePostResult:
             asset.vision_description = vision_description
             asset.vision_model = settings.anthropic_sonnet_model
             asset.analyzed_at = datetime.now(timezone.utc)
+            # capture_asset_screenshot reads from screenshot_url / thumbnail_url /
+            # visual_source_url — this analyzer path only has asset_url, so bridge
+            # it onto visual_source_url before the capture call.
+            if not asset.visual_source_url:
+                asset.visual_source_url = asset_url
+            persist_asset_screenshot(asset)
             session.add(asset)
             result.asset_created = existing is None
 
