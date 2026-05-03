@@ -257,6 +257,12 @@ class Post(SQLModel, table=True):
     duration_seconds: Optional[int] = None
     media_type: Optional[str] = None
     status: str = "new"
+    # Sprint 5.3.1: cross-platform AI analysis. ``analysis`` carries the
+    # PostAnalysis dict (format/purpose/tone/lifecycle_stage + confidence
+    # + classified_at + model strings); ``last_analyzed_at`` drives the
+    # idempotent skip-pre-check in /api/admin/analyze/{channel_id}.
+    analysis: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    last_analyzed_at: Optional[datetime] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -307,6 +313,17 @@ class Asset(SQLModel, table=True):
     visual_crop_kinetic_url: Optional[str] = None
     visual_evidence_status: Optional[str] = None
     visual_evidence_pack: dict = Field(default_factory=dict, sa_column=Column(JSON))
+
+    # Sprint 5.3.1: vision-pipeline fields. The new analyzer writes only
+    # to these four columns; the legacy ai_summary_de/en + visual_*
+    # fields above belong to the older plan-doc pipeline and are not
+    # remapped (Wolf decision: additive reconcile, no mapping shim).
+    # Idempotency key is the partial-unique index on (post_id, asset_url)
+    # WHERE asset_url IS NOT NULL — see migration 9a2e7c4f5b18.
+    asset_url: Optional[str] = None
+    vision_description: Optional[str] = None
+    vision_model: Optional[str] = None
+    analyzed_at: Optional[datetime] = None
 
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

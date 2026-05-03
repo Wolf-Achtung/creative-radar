@@ -183,3 +183,70 @@ class ReportSuggestResponse(BaseModel):
     selected: int
     excluded: dict[str, int]
     assets: list[AssetSuggestion]
+
+
+# ---------- Sprint 5.3.1: cross-platform AI analysis pipeline ---------
+#
+# PostAnalysis is the dict shape persisted in Post.analysis (JSONB on
+# Postgres, JSON on SQLite). Literal types lock the vocabulary so any
+# typo from the Anthropic JSON output gets caught at parse time. The
+# two model strings are recorded per row for cost-summary attribution
+# and for future reproducibility (which model produced which label).
+#
+# AssetCreate / AssetRead cover only the four new vision fields the
+# 5.3.1 analyzer touches. The legacy plan-doc fields (ai_summary_de/en,
+# visual_*) keep their existing schemas elsewhere — additive reconcile,
+# no shared model (Wolf decision in Sprint 5.3.1 diagnose).
+
+
+PostAnalysisFormat = Literal[
+    "teaser", "trailer", "clip", "behind_the_scenes",
+    "interview", "short", "compilation", "promo", "other",
+]
+PostAnalysisPurpose = Literal[
+    "launch_announcement", "release_week", "ongoing_promotion",
+    "evergreen", "audience_engagement", "event_coverage", "other",
+]
+PostAnalysisTone = Literal[
+    "energetic", "emotional", "humorous", "suspenseful",
+    "informative", "inspirational", "edgy", "neutral",
+]
+PostAnalysisLifecycle = Literal[
+    "pre_launch", "launch", "post_launch", "evergreen", "unclear",
+]
+
+
+class PostAnalysis(BaseModel):
+    format: PostAnalysisFormat
+    purpose: PostAnalysisPurpose
+    tone: PostAnalysisTone
+    lifecycle_stage: PostAnalysisLifecycle
+    confidence: float
+    classified_at: datetime
+    haiku_model: str
+    sonnet_model: str
+
+
+class AssetCreate(BaseModel):
+    """Input for the 5.3.1 vision-pipeline upsert. The analyzer assembles
+    one of these per (post, asset_url) pair after the vision call
+    returns; the persistence layer then inserts an Asset row or skips
+    if the partial-unique idempotency key already exists with a non-null
+    vision_description."""
+    post_id: UUID
+    asset_url: str
+    vision_description: Optional[str] = None
+    vision_model: Optional[str] = None
+    analyzed_at: Optional[datetime] = None
+
+
+class AssetRead(BaseModel):
+    """Read-side projection of the four 5.3.1 vision fields. Kept
+    deliberately narrow — the legacy AssetSuggestion / asset endpoints
+    still expose the rest of the Asset surface."""
+    id: UUID
+    post_id: UUID
+    asset_url: Optional[str] = None
+    vision_description: Optional[str] = None
+    vision_model: Optional[str] = None
+    analyzed_at: Optional[datetime] = None
