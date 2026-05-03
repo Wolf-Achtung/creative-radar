@@ -12,6 +12,48 @@ Migration **erfolgreich durchlief**, aber Production danach kaputt ist?
 
 ---
 
+## Migration-Compatibility-Klassen
+
+`preDeployCommand` läuft **vor** dem neuen Container-Start, aber der
+**alte Container ist noch live** und schreibt parallel auf die DB. Das
+ist nur dann sicher, wenn die Migration **rückwärts-kompatibel** zum
+alten Code ist.
+
+### Sicher (additive Migrationen, single-PR)
+- `ADD COLUMN ... NULL` (oder mit `server_default`)
+- `CREATE TABLE`
+- `CREATE INDEX CONCURRENTLY` (oder regulär bei kleinen Tabellen)
+- `COMMENT ON ...` (siehe Smoketest-Migration 571f54840f19)
+- Neue ENUM-Werte am Ende (`ALTER TYPE ... ADD VALUE`)
+
+Der alte Container bemerkt diese Änderungen nicht und schreibt
+weiterhin korrektes SQL. Single-PR-Deploy ist OK.
+
+### Heikel — Mehrschritt-Strategie nötig (Expand/Contract)
+- `DROP COLUMN`, `DROP TABLE`
+- `ALTER COLUMN TYPE` (auch implizit via SQLModel-Type-Wechsel)
+- `ALTER COLUMN ... SET NOT NULL` auf bestehender, ggf. teilbefüllter Spalte
+- `RENAME COLUMN`, `RENAME TABLE`
+- Entfernen von ENUM-Werten
+
+Diese Änderungen würden den alten Container kaputtschreiben oder
+SELECT-Queries crashen, solange beide Versionen parallel laufen.
+
+### Mehrschritt-Pattern (Expand → Migrate → Contract)
+1. **PR 1 — Expand:** Additive Migration (z. B. neue Spalte parallel
+   zur alten anlegen), Code liest **beide** Schemas und schreibt in
+   beide. Deploy.
+2. **PR 2 — Backfill (optional):** Daten von alt nach neu kopieren
+   (Migration oder Job), Code-Defaults auf den neuen Pfad umstellen.
+   Deploy.
+3. **PR 3 — Contract:** Alte Spalte/Tabelle entfernen, Code-Pfad zu
+   altem Schema löschen. Deploy.
+
+Zwischen den Deploys jeweils Rollout vollständig abwarten und
+verifizieren — keine zwei Phasen in einem Deploy zusammenziehen.
+
+---
+
 ## Wann braucht man Rollback?
 
 - Migration durchläuft sauber, aber das neue Schema ist semantisch
