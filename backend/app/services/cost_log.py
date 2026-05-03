@@ -156,3 +156,79 @@ def record_openai_call(
         **(meta or {}),
     }
     _persist("openai", operation, usd_cents, full_meta)
+
+
+def record_anthropic_call(
+    usage: Any,
+    model: str,
+    operation: str,
+    meta: dict | None = None,
+) -> None:
+    """Persist one cost log row for an Anthropic Messages call (Sprint 5.3.1).
+
+    ``usage`` is the ``message.usage`` object from the SDK (or a dict
+    in tests). The Anthropic SDK has reported the *final*
+    input_tokens (already including image-conversion tokens for vision
+    calls) since mid-2024, so there is no separate image-token
+    pricing — input_tokens is the truth.
+
+    Provider routing into three cost-summary buckets (Wolf-spec):
+    - operation starting with ``vision_`` -> ``anthropic_sonnet_vision``
+    - model starting with ``claude-haiku``  -> ``anthropic_haiku``
+    - model starting with ``claude-sonnet`` -> ``anthropic_sonnet``
+    Anything else falls through to the generic ``anthropic`` provider
+    so the row is still auditable.
+
+    The pricing-per-1k-token lookup keys off the same model-prefix
+    check; cost_meta records the resolved provider + model for
+    post-hoc auditing without re-deriving the bucket logic.
+    """
+    def _get(name_a: str, name_b: str) -> int:
+        if usage is None:
+            return 0
+        for name in (name_a, name_b):
+            if hasattr(usage, name):
+                value = getattr(usage, name)
+                if value is not None:
+                    return int(value)
+            if isinstance(usage, dict) and name in usage:
+                return int(usage[name] or 0)
+        return 0
+
+    input_tokens = _get("input_tokens", "prompt_tokens")
+    output_tokens = _get("output_tokens", "completion_tokens")
+
+    model_lc = (model or "").lower()
+    if model_lc.startswith("claude-haiku"):
+        in_rate = settings.anthropic_haiku_input_per_1k_usd or 0.0
+        out_rate = settings.anthropic_haiku_output_per_1k_usd or 0.0
+        bucket_family = "anthropic_haiku"
+    elif model_lc.startswith("claude-sonnet"):
+        in_rate = settings.anthropic_sonnet_input_per_1k_usd or 0.0
+        out_rate = settings.anthropic_sonnet_output_per_1k_usd or 0.0
+        bucket_family = "anthropic_sonnet"
+    else:
+        in_rate = 0.0
+        out_rate = 0.0
+        bucket_family = "anthropic"
+
+    # Vision attribution rides on the operation name, not the model —
+    # Wolf's design: vision and text Sonnet calls share the same
+    # token-cost math, but report into separate buckets so daily
+    # cost-summary can split text vs vision spend at a glance.
+    if bucket_family == "anthropic_sonnet" and (operation or "").startswith("vision_"):
+        provider = "anthropic_sonnet_vision"
+    else:
+        provider = bucket_family
+
+    input_usd = (input_tokens / 1000.0) * in_rate
+    output_usd = (output_tokens / 1000.0) * out_rate
+    usd_cents = int(round((input_usd + output_usd) * 100))
+
+    full_meta = {
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        **(meta or {}),
+    }
+    _persist(provider, operation, usd_cents, full_meta)

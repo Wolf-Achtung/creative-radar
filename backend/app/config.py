@@ -61,6 +61,20 @@ class Settings(BaseSettings):
     openai_input_per_1k_usd: float = 0.000150
     openai_output_per_1k_usd: float = 0.000600
 
+    # Anthropic API (Sprint 5.3.1). Hybrid model strategy: Haiku for the
+    # mechanical fields (format + tone), Sonnet for the contextual fields
+    # (purpose + lifecycle_stage) and the vision call. Model strings are
+    # the alias form by default — the alias auto-tracks the latest 4.5/4.6
+    # release; override via Railway ENV to pin a specific datestamp.
+    # Pricing per 1k tokens, source: anthropic.com/pricing as of 2026-05.
+    anthropic_api_key: str | None = None
+    anthropic_haiku_model: str = "claude-haiku-4-5-20251001"
+    anthropic_sonnet_model: str = "claude-sonnet-4-6"
+    anthropic_haiku_input_per_1k_usd: float = 0.001
+    anthropic_haiku_output_per_1k_usd: float = 0.005
+    anthropic_sonnet_input_per_1k_usd: float = 0.003
+    anthropic_sonnet_output_per_1k_usd: float = 0.015
+
     # Bearer-token auth (Phase 4 W4 Task 4.3). Default off so the rollout can
     # land Frontend changes first; Wolf flips AUTH_ENABLED=true once both
     # Netlify and Railway carry the matching token. Public-path whitelist
