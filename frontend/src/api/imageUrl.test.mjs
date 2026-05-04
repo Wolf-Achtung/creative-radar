@@ -51,13 +51,21 @@ test('non-allowlisted absolute http(s) URL is returned unchanged', () => {
   );
 });
 
-test('YouTube thumbnail URL passes through unchanged (allowlist not yet extended)', () => {
-  // Documents current behaviour ahead of Sprint 5.2.3, where the YouTube
-  // connector lands and *.ytimg.com is added to PROXY_HOST_SUFFIXES.
+test('YouTube thumbnail URL is routed through /api/img proxy', () => {
   const upstream = 'https://i.ytimg.com/vi/abc123/hqdefault.jpg';
+  const result = buildProxyImageUrl(upstream, { apiBase: API_BASE });
   assert.equal(
-    buildProxyImageUrl(upstream, { apiBase: API_BASE }),
-    upstream,
+    result,
+    `${API_BASE}/api/img?url=${encodeURIComponent(upstream)}`,
+  );
+});
+
+test('YouTube channel avatar (ggpht) URL is routed through /api/img proxy', () => {
+  const upstream = 'https://yt3.ggpht.com/ytc/abcDEF=s88-c-k-c0x00ffffff-no-rj';
+  const result = buildProxyImageUrl(upstream, { apiBase: API_BASE });
+  assert.equal(
+    result,
+    `${API_BASE}/api/img?url=${encodeURIComponent(upstream)}`,
   );
 });
 

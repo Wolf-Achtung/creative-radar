@@ -424,6 +424,7 @@ function ReviewPanel({
           <option value="all">Alle Kanäle</option>
           <option value="instagram">Instagram</option>
           <option value="tiktok">TikTok</option>
+          <option value="youtube">YouTube</option>
         </select>
         <select value={filters.market} onChange={(e) => setFilters({ ...filters, market: e.target.value })}>
           <option value="all">Alle Märkte</option>
@@ -527,9 +528,9 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
       <p className="selected-report">Gewählter Report: <strong>{selectedType?.label}</strong></p>
       <div className="form-grid">
         <label>Zeitraum<select value={form.date_range} onChange={(e) => setForm({ ...form, date_range: e.target.value })}><option value="7d">letzte 7 Tage</option><option value="14d">14 Tage</option><option value="30d">30 Tage</option></select></label>
-        <label>Kanäle<select value={form.channel || "all"} onChange={(e) => setForm({ ...form, channel: e.target.value })}><option value="all">alle</option><option value="tiktok">TikTok</option><option value="instagram">Instagram</option></select></label>
-        <label>Märkte<select value={form.market} onChange={(e) => setForm({ ...form, market: e.target.value })}><option value="all">alle</option><option value="DE">DE</option><option value="US">US</option><option value="INT">INT</option></select></label>
-        <label>Max. Assets<select value={form.limit} onChange={(e) => setForm({ ...form, limit: Number(e.target.value) })}><option value={5}>5</option><option value={10}>10</option><option value={20}>20</option></select></label>
+        <label>Kanäle<select value={form.channel || "all"} onChange={(e) => setForm({ ...form, channel: e.target.value })}><option value="all">alle</option><option value="tiktok">TikTok</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option></select></label>
+        <label>Märkte<select value={form.market} onChange={(e) => setForm({ ...form, market: e.target.value })}><option value="all">alle</option><option value="DE">DE</option><option value="US">US</option><option value="INT">INT</option><option value="UNKNOWN">UNKNOWN</option></select></label>
+        <label>Max. Assets<select value={form.limit} onChange={(e) => setForm({ ...form, limit: Number(e.target.value) })}><option value={5}>5</option><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label>
       </div>
       <div className="section-actions"><button className="primary" onClick={onSuggest} disabled={busy}>Report-Vorschlag erstellen</button></div>
       {suggestion && (<>
