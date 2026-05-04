@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -19,8 +20,35 @@ class VisualEvidenceResult:
     captured_at: str | None = None
 
 
+_YOUTUBE_VIDEO_ID_RE = re.compile(
+    r"(?:youtube\.com/watch\?(?:[^#]*&)?v=|youtu\.be/|youtube\.com/shorts/|youtube\.com/embed/)"
+    r"([A-Za-z0-9_-]{11})"
+)
+
+_YOUTUBE_THUMBNAIL_QUALITIES = ("maxresdefault", "sddefault", "hqdefault", "mqdefault")
+
+
+def _youtube_thumbnail_candidates(url: str | None) -> list[str]:
+    """Derive ordered i.ytimg.com thumbnail URLs from a YouTube watch/shorts/shortlink URL.
+
+    Returns empty list if the URL is None, empty, or not a recognizable YouTube URL.
+    The downstream httpx loop in capture_asset_screenshot tries them in order, so
+    higher-resolution variants that don't exist (common on older or short-form videos)
+    fall through to lower-resolution ones automatically.
+    """
+    if not url:
+        return []
+    match = _YOUTUBE_VIDEO_ID_RE.search(url)
+    if not match:
+        return []
+    video_id = match.group(1)
+    return [f"https://i.ytimg.com/vi/{video_id}/{q}.jpg" for q in _YOUTUBE_THUMBNAIL_QUALITIES]
+
+
 def _candidate_sources(asset: Asset) -> list[str]:
-    return [url for url in [asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url] if url]
+    sources = [url for url in [asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url] if url]
+    sources.extend(_youtube_thumbnail_candidates(getattr(asset, "asset_url", None)))
+    return sources
 
 
 def _safe_extension(content_type: str) -> str:
