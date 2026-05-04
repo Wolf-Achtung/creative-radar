@@ -4,7 +4,7 @@ import { endpoints, proxyImageUrl } from './api/client';
 import './styles.css';
 
 const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
-const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'Quellen'];
+const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'DE/US Vergleich', 'Quellen'];
 
 const ACTION_HELP = [
   ['Für Report freigeben', 'Der Treffer ist relevant und kommt in den Report-Anhang.'],
@@ -935,6 +935,9 @@ function App() {
           onReportMissingTitle={reportMissingTitle}
           recentlyCreatedByAssetId={recentlyCreatedByAssetId}
         />
+      )}
+      {activeTab === 'DE/US Vergleich' && (
+        <ComparisonPanel assets={assets} />
       )}
       {activeTab === 'Quellen' && (
         <SourcesPanel
