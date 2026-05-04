@@ -1,24 +1,25 @@
 # Recherche-Briefing v2.1 — DE/US-Channel-Whitelist-Erweiterung
 ## Creative Radar Backlog-Sprint, Mai 2026
 
-> **Adressat dieser Recherche:** Claude Research / ChatGPT Deep Research /
-> Perplexity Pro. Ergebnis: priorisierte Liste neuer Social-Media-Channels
-> für die Whitelist von creative-radar.de.
+> **Adressat dieser Recherche:** Claude Research / ChatGPT Deep
+> Research / Perplexity Pro. Ergebnis: priorisierte Liste neuer
+> Social-Media-Channels für die Whitelist von creative-radar.de.
 
 ---
 
 ## Geschäftskontext (3-Satz-Erklärung für den Agent)
 
-Creative Radar ist eine KI-gestützte Social-Media-Monitoring-Plattform für
-Film/Serien-Marketing, deren Kern-Use-Case der **DE+US-Marketing-Vergleich**
-ist: wie unterscheidet sich die Vermarktung desselben Films im deutschen
-Markt vs US-/Global-Markt? Die Plattform scrapt offizielle Studio-,
-Verleih- und Streaming-Plattform-Accounts auf Instagram, TikTok und YouTube,
-extrahiert per Vision-Pipeline strukturierte Erkenntnisse zu Asset-Typen
-(Trailer, Poster, Tickets-CTA, Behind the Scenes etc.), Kinetics,
-Title-Placement und Creative-Mechaniken. **Ohne systematische
-DE+US-Channel-Pairs liefert die Plattform keinen Vergleich — und genau
-das ist das Problem heute.**
+Creative Radar ist eine KI-gestützte Social-Media-Monitoring-
+Plattform für Film/Serien-Marketing, deren Kern-Use-Case der
+**DE+US-Marketing-Vergleich** ist: wie unterscheidet sich die
+Vermarktung desselben Films im deutschen Markt vs US-/Global-
+Markt? Die Plattform scrapt offizielle Studio-, Verleih- und
+Streaming-Plattform-Accounts auf Instagram, TikTok und YouTube,
+extrahiert per Vision-Pipeline strukturierte Erkenntnisse zu
+Asset-Typen (Trailer, Poster, Tickets-CTA, Behind the Scenes
+etc.), Kinetics, Title-Placement und Creative-Mechaniken.
+**Ohne systematische DE+US-Channel-Pairs liefert die Plattform
+keinen Vergleich — und genau das ist das Problem heute.**
 
 ---
 
@@ -31,21 +32,22 @@ das ist das Problem heute.**
 - Nur **2 Match-Keys** mit Assets aus ≥2 Märkten
 - Davon nur **ein einziges echtes DE+US-Cross-Market-Pair**
   ("Der Teufel trägt Prada 2")
-- Format-Inkonsistenz: 4 Werte in Raw-Form, 20 in Slug-Form
-  (Bug, separat behoben in PR #67)
+- Format-Inkonsistenz: heute via PR #67 behoben (alle 24 Werte
+  in Slug-Form, Schreib-Pfade vereinheitlicht)
 
-**Ursache:** Whitelist hat 55 IG-Channels, aber wenige systematische
-DE+US-Studio-Paarungen. Ein DE-Channel ohne US-Pendant kann nie
-Cross-Market-Pairing liefern.
+**Ursache:** Whitelist hat 55 IG-Channels, aber wenige
+systematische DE+US-Studio-Paarungen. Ein DE-Channel ohne
+US-Pendant kann nie Cross-Market-Pairing liefern.
 
 ---
 
 ## Phase 1 — Datenanalyse (Wolf-Aktion VOR der Recherche)
 
-> **Wichtig: Phase 1 ist verpflichtender Vorab-Schritt.** Die Recherche
-> darf NICHT generisch laufen, weil die Priorisierung sonst falsch wird.
-> Ein produktiver kleiner Channel könnte übersehen, ein großer aber
-> inaktiver zu hoch gewichtet werden. Reality-Daten schlagen Bauchgefühl.
+> **Wichtig: Phase 1 ist verpflichtender Vorab-Schritt.** Die
+> Recherche darf NICHT generisch laufen, weil die Priorisierung
+> sonst falsch wird. Ein produktiver kleiner Channel könnte
+> übersehen, ein großer aber inaktiver zu hoch gewichtet
+> werden. Reality-Daten schlagen Bauchgefühl.
 
 ### Schritt 1.1: Top-produktive Channels (letzte 30 Tage)
 
@@ -77,13 +79,13 @@ cur.execute("""
     LIMIT 30;
 """)
 print(f"{'Handle':<35s} {'Market':<8s} {'Platform':<10s} {'Type':<20s} "
-      f"{'Assets':>7s} {'Titles':>7s} {'UniqueT':>7s} {'MatchK':>7s}")
+      f"{'Assets':>7s} {'Titles':>7s} {'UniqueT':>8s} {'MatchK':>7s}")
 print("-" * 130)
 for row in cur.fetchall():
     handle, market, platform, ctype, total, with_title, unique_t, unique_m = row
     print(f"{handle or '-':<35s} {market or '-':<8s} {platform or '-':<10s} "
           f"{(ctype or '-')[:18]:<20s} {total or 0:>7d} {with_title or 0:>7d} "
-          f"{unique_t or 0:>7d} {unique_m or 0:>7d}")
+          f"{unique_t or 0:>8d} {unique_m or 0:>7d}")
 
 cur.close()
 conn.close()
@@ -148,9 +150,9 @@ PYEOF
 
 ### Phase-1-Output einfügen (HIER vor Versand an Agent)
 
-> **Wolf-Aktion:** Output von 1.1, 1.2, 1.3 hier hineinkopieren, bevor das
-> Briefing an den Recherche-Agent geht. Ohne diese Daten läuft die
-> Recherche im Blindflug.
+> **Wolf-Aktion:** Output von 1.1, 1.2, 1.3 hier hineinkopieren,
+> bevor das Briefing an den Recherche-Agent geht. Ohne diese
+> Daten läuft die Recherche im Blindflug.
 
 ```
 === PHASE-1-OUTPUT ===
@@ -168,21 +170,23 @@ PYEOF
 
 ## Phase 2 — Markt-Priorisierung (Tier-System)
 
-> **Achtung: Drei Tiers verschiedener Wichtigkeit. Nicht gleichgewichten.**
+> **Achtung: Drei Tiers verschiedener Wichtigkeit. Nicht
+> gleichgewichten.**
 
 ### Markt-Tier-A — Kern-Use-Case (höchste Priorität)
 
-**DE + US.** Das ist der wirtschaftliche Kern von Creative Radar. Hier
-mindestens 70% der Recherche-Zeit investieren.
+**DE + US.** Das ist der wirtschaftliche Kern von Creative
+Radar. Hier mindestens 70% der Recherche-Zeit investieren.
 
 Konkrete Zielzahl: **15-25 neue Channels** in DE+US-Pairings.
 
 ### Markt-Tier-B — Sekundär (mittlere Priorität)
 
-**UK + andere englischsprachige Märkte mit eigener Marketing-Identität.**
+**UK + andere englischsprachige Märkte mit eigener Marketing-
+Identität.**
 
-Begründung: UK-Marketing ist oft eigenständig vom US-Marketing und
-parallel zum DE-Markt (gleiche Release-Termine). Beispiele:
+Begründung: UK-Marketing ist oft eigenständig vom US-Marketing
+und parallel zum DE-Markt (gleiche Release-Termine). Beispiele:
 
 - `marvelukandireland`
 - `universalpicturesuk`
@@ -195,19 +199,20 @@ Cross-Market-Quellen.
 
 ### Markt-Tier-C — Bedingt (niedrige Priorität)
 
-**Global-Hubs nur wenn sie messbar anderes Material posten als
-US-Pendant.**
+**Global-Hubs nur wenn sie messbar anderes Material posten
+als US-Pendant.**
 
 Beispiele die zu prüfen sind:
 
 - `marvelentertainment` vs `marvelstudios` — postet
-  Marvel-Entertainment substantiell andere Inhalte? Falls ja: aufnehmen.
-  Falls fast identisch zum US-Pendant: skip.
-- `disney` vs `disneyplus` — Branding vs. Streaming-Releases. Klare
-  Differenzierung? Falls ja: beide. Falls Doublette: nur eines.
+  Marvel-Entertainment substantiell andere Inhalte? Falls ja:
+  aufnehmen. Falls fast identisch zum US-Pendant: skip.
+- `disney` vs `disneyplus` — Branding vs. Streaming-Releases.
+  Klare Differenzierung? Falls ja: beide. Falls Doublette:
+  nur eines.
 
-Konkrete Zielzahl: **0-5 Channels** nur bei klar unterschiedlichem
-Content.
+Konkrete Zielzahl: **0-5 Channels** nur bei klar
+unterschiedlichem Content.
 
 ---
 
@@ -220,27 +225,29 @@ Content.
 
 - **Heutige Coverage:** 55 Channels, produktive Plattform
 - **Problem:** unsystematische DE+US-Pairings
-- **Recherche-Fokus:** Komplettierung von Pairs (wenn DE-Account drin,
-  US-Account suchen — und umgekehrt)
+- **Recherche-Fokus:** Komplettierung von Pairs
+  (wenn DE-Account drin, US-Account suchen — und umgekehrt)
 - **Konkrete Zielzahl: 15-25 neue Channels**
 
 ### Plattform-Tier-TikTok (mittel-tiefe Recherche, große Lücken)
 
 - **Heutige Coverage:** 3 Channels, lächerlich klein
-- **Problem:** Whitelist deckt TikTok-Marketing nicht ab, obwohl
-  Plattform für Film-Promotion (besonders Gen-Z-Filme) zunehmend
-  wichtig wird
-- **Recherche-Fokus:** Substanzielle Erweiterung; pro empfohlenem
-  IG-Studio prüfen ob es einen aktiven TikTok-Account gibt
+- **Problem:** Whitelist deckt TikTok-Marketing nicht ab,
+  obwohl Plattform für Film-Promotion (besonders Gen-Z-Filme)
+  zunehmend wichtig wird
+- **Recherche-Fokus:** Substanzielle Erweiterung; pro
+  empfohlenem IG-Studio prüfen ob es einen aktiven TikTok-
+  Account gibt
 - **Konkrete Zielzahl: 10-15 neue Channels**
 
 ### Plattform-Tier-YouTube (mittlere Recherche, mittlere Lücken)
 
-- **Heutige Coverage:** unklar (in Cron-Daten nicht aktiv sichtbar)
-- **Problem:** Vision-Pipeline für YT fehlt sowieso
-  (Backlog-Item), heute weniger akut
-- **Recherche-Fokus:** Trailer-spezifische YT-Channels von Studios
-  mit regelmäßigen Uploads
+- **Heutige Coverage:** unklar (in Cron-Daten nicht aktiv
+  sichtbar)
+- **Problem:** Vision-Pipeline für YT fehlt sowieso (Backlog-
+  Item), heute weniger akut
+- **Recherche-Fokus:** Trailer-spezifische YT-Channels von
+  Studios mit regelmäßigen Uploads
 - **Konkrete Zielzahl: 5-10 neue Channels**
 
 **Gesamt-Zielzahl: 30-50 neue Channels über alle Plattformen.**
@@ -249,35 +256,35 @@ Content.
 
 ## Phase 4 — Recherche-Aufgaben
 
-Mit Phase-1-Daten + Tier-System hat der Agent klare Priorisierung.
-Jetzt die eigentliche Recherche.
+Mit Phase-1-Daten + Tier-System hat der Agent klare
+Priorisierung. Jetzt die eigentliche Recherche.
 
 ### Aufgabe 4.1 — Direct-Pair-Matching (Markt-Tier-A)
 
 Für jeden der Top-produktiven Channels aus Phase 1 (insbesondere
 `channel_priority='A'` und Studio/Verleih/Streaming):
 
-**Wenn DE-Channel:** existiert ein US/Global-Pendant mit analoger
-Account-Struktur?
+**Wenn DE-Channel:** existiert ein US/Global-Pendant mit
+analoger Account-Struktur?
 
 Beispiel-Suchen:
 
 - `disneyplusde` → existiert `disneyplus` auf IG? Aktivitätslevel?
-- `netflixde` → `netflix` ist trivial, aber: wie aktiv ist `netflix`
-  mit Film/Serien-Posts vs allgemeine Brand-Posts?
+- `netflixde` → `netflix` ist trivial, aber: wie aktiv ist
+  `netflix` mit Film/Serien-Posts vs allgemeine Brand-Posts?
 - `wowtv` → existiert ein US-Pendant von Sky/Showtime mit
   vergleichbarem Posting-Stil?
-- `tobisfilm` → DE-Verleih für US-Filme; gibt's dort systematische
-  US-Quelle (oft kein direktes Pendant, weil Tobis-Verleih
-  Mischportfolio hat)?
+- `tobisfilm` → DE-Verleih für US-Filme; gibt's dort
+  systematische US-Quelle (oft kein direktes Pendant, weil
+  Tobis-Verleih Mischportfolio hat)?
 
 **Wenn US/Global-Channel:** existiert ein DE-Pendant?
 
 Beispiel-Suchen:
 
 - `warnerbros` → `wbpicturesgermany`? `warnerbrosde`?
-- `20thcenturystudios` → `20thcenturystudiosde` ist da, aber gibt es
-  weitere DE-Sub-Accounts (z.B. franchisespezifisch)?
+- `20thcenturystudios` → `20thcenturystudiosde` ist da, aber
+  gibt es weitere DE-Sub-Accounts (z.B. franchisespezifisch)?
 
 **Output-Format pro Pair:**
 
@@ -302,13 +309,13 @@ Film-Inhalten:
 
 Beispiele:
 
-- A24: hat einen US-Account, aber DE-Verleih ist meist Capelight
-  Pictures oder Plaion Pictures — gibt's deren Social-Accounts mit
-  aktiven A24-Film-Posts?
-- Neon (US-Indie-Studio): wer macht den DE-Vertrieb? Existiert dort
-  ein aktiver Channel?
-- Lionsgate: in DE oft Universum Film oder Constantin Film — welche
-  Channels?
+- A24: hat einen US-Account, aber DE-Verleih ist meist
+  Capelight Pictures oder Plaion Pictures — gibt's deren
+  Social-Accounts mit aktiven A24-Film-Posts?
+- Neon (US-Indie-Studio): wer macht den DE-Vertrieb? Existiert
+  dort ein aktiver Channel?
+- Lionsgate: in DE oft Universum Film oder Constantin Film —
+  welche Channels?
 
 **Output-Format pro Franchise-Pair:**
 
@@ -333,31 +340,33 @@ Pro recherchiertem US-Channel auch prüfen:
 
 ### Aufgabe 4.4 — Streaming-Plattform-Coverage (Markt-Tier-A)
 
-Streaming-Plattformen sind oft Cross-Market wertvoll, weil gleiche
-Inhalte (z.B. Stranger Things) parallel beworben werden:
+Streaming-Plattformen sind oft Cross-Market wertvoll, weil
+gleiche Inhalte (z.B. Stranger Things) parallel beworben werden:
 
 Recherche pro Plattform:
 
-- **Netflix:** US-Hauptaccount, DE-Account, ggf. Genre-Sub-Accounts
-  wie `netflixfilm`, `netflixqueue`, `strongblacklead`
-- **Disney+:** Hauptaccount + Film-spezifische Sub-Accounts wie
-  `marvelstudios`, `starwars`
-- **Amazon Prime Video:** US: `primevideo`, DE: `primevideode` ist
-  drin — gibt's `amazonmgmstudios` oder ähnliches?
+- **Netflix:** US-Hauptaccount, DE-Account, ggf. Genre-Sub-
+  Accounts wie `netflixfilm`, `netflixqueue`, `strongblacklead`
+- **Disney+:** Hauptaccount + Film-spezifische Sub-Accounts
+  wie `marvelstudios`, `starwars`
+- **Amazon Prime Video:** US: `primevideo`, DE: `primevideode`
+  ist drin — gibt's `amazonmgmstudios` oder ähnliches?
 - **Apple TV+:** `appletvplus` global, gibt's DE-Variante?
-- **HBO/Max:** US: `streamonmax`, früher `hbo` — aktuelle Struktur?
+- **HBO/Max:** US: `streamonmax`, früher `hbo` — aktuelle
+  Struktur?
 - **Paramount+:** US und DE-Variante?
 
 ### Aufgabe 4.5 — TikTok-Coverage (Plattform-Tier-TikTok)
 
 TikTok hat heute nur 3 Channels in der Whitelist. Recherche:
 
-- Welche der DE+US-Studios aus 4.1-4.4 haben aktive TikTok-Pendants?
-- Gibt es TikTok-only-Accounts die im Film-Marketing-Kontext relevant
-  sind (z.B. `screenrant` für Trailer-Reactions, Studio-eigene
-  TikToks)?
-- Welche Major-Studios haben **keine** TikTok-Präsenz und sollten
-  daher übersprungen werden?
+- Welche der DE+US-Studios aus 4.1-4.4 haben aktive TikTok-
+  Pendants?
+- Gibt es TikTok-only-Accounts die im Film-Marketing-Kontext
+  relevant sind (z.B. `screenrant` für Trailer-Reactions,
+  Studio-eigene TikToks)?
+- Welche Major-Studios haben **keine** TikTok-Präsenz und
+  sollten daher übersprungen werden?
 
 **Output:** Top-15-TikTok-Channels mit Empfehlung.
 
@@ -383,19 +392,19 @@ Trend-Sichtbarkeit für DE/US-Vergleich liefern:
 
 - Keine Personal-Influencer-Accounts (zu unstrukturiert)
 - Keine Fan-Accounts (rechtliche Grauzone)
-- Keine Aggregator-Apps wie Letterboxd/IMDB (bereits via TMDB-API
-  abgedeckt)
+- Keine Aggregator-Apps wie Letterboxd/IMDB (bereits via
+  TMDB-API abgedeckt)
 
 **Output:** 3-7 Discovery-Channels mit klarer Markierung
-"Discovery-Mode" und Empfehlung welche `is_discovery=True` geflaggt
-werden sollen.
+"Discovery-Mode" und Empfehlung welche `is_discovery=True`
+geflaggt werden sollen.
 
 ---
 
 ## Phase 5 — Strukturiertes Output-Format
 
-Der Recherche-Agent soll das Endergebnis in genau diesem Format
-liefern:
+Der Recherche-Agent soll das Endergebnis in genau diesem
+Format liefern:
 
 ```markdown
 # DE/US-Channel-Recherche — Ergebnis
@@ -437,32 +446,34 @@ Begründung, damit nicht später nochmal recherchiert wird]
 
 **Worauf besonders achten:**
 
-1. **Aktivität ist Pflicht.** Ein DE-Account der seit 6 Monaten nichts
-   gepostet hat ist wertlos. Cron-System holt Posts der letzten
-   7-14 Tage. Mindestens 2-3 Posts pro Woche sind wünschenswert.
+1. **Aktivität ist Pflicht.** Ein DE-Account der seit 6 Monaten
+   nichts gepostet hat ist wertlos. Cron-System holt Posts der
+   letzten 7-14 Tage. Mindestens 2-3 Posts pro Woche sind
+   wünschenswert.
 
-2. **Film-Marketing-Fokus.** Generische Brand-Accounts (z.B. `disney`
-   als allgemeines Branding) sind weniger wertvoll als
-   film-spezifische Sub-Accounts (`disneyplus` für aktuelle Releases).
+2. **Film-Marketing-Fokus.** Generische Brand-Accounts
+   (z.B. `disney` als allgemeines Branding) sind weniger
+   wertvoll als film-spezifische Sub-Accounts (`disneyplus`
+   für aktuelle Releases).
 
-3. **Account-Konsistenz.** Manche Studios wechseln Account-Strategien
-   — z.B. `hbomax` wurde zu `streamonmax`. Aktuelle Handles verwenden,
-   alte als deprecated markieren.
+3. **Account-Konsistenz.** Manche Studios wechseln
+   Account-Strategien — z.B. `hbomax` wurde zu `streamonmax`.
+   Aktuelle Handles verwenden, alte als deprecated markieren.
 
-4. **Sprache verifizieren.** Manche DE-Accounts posten primär auf
-   Englisch (Marketing-Strategie). Das ist OK, solange
+4. **Sprache verifizieren.** Manche DE-Accounts posten primär
+   auf Englisch (Marketing-Strategie). Das ist OK, solange
    `channel_market='DE'` korrekt ist (Markt-Zuordnung, nicht
    Sprach-Zuordnung).
 
 5. **Pairing-Wahrscheinlichkeit ist das Hauptkriterium.** Ein
    eigenständiger US-Account ohne DE-Pendant bringt für DE+US-
-   Cross-Market-Vergleich wenig Wert. Lieber einen weniger großen
-   Account aufnehmen, der ein klares Pairing ergibt, als einen
-   riesigen Solitär.
+   Cross-Market-Vergleich wenig Wert. Lieber einen weniger
+   großen Account aufnehmen, der ein klares Pairing ergibt,
+   als einen riesigen Solitär.
 
-6. **Nicht-empfohlene Channels begründen.** Wenn ein Account geprüft
-   und nicht empfohlen wird, kurzer Grund — verhindert dass später
-   jemand denselben Account nochmal vorschlägt.
+6. **Nicht-empfohlene Channels begründen.** Wenn ein Account
+   geprüft und nicht empfohlen wird, kurzer Grund — verhindert
+   dass später jemand denselben Account nochmal vorschlägt.
 
 **Was NICHT recherchiert werden soll:**
 
@@ -471,8 +482,8 @@ Begründung, damit nicht später nochmal recherchiert wird]
 - Nicht-Film/Serien-Inhalte
 - Aggregator-Apps wie Letterboxd/IMDB (bereits via TMDB-API
   abgedeckt)
-- Nationale Märkte außerhalb Tier-A/B (Asien, LATAM) — separater
-  Recherche-Sprint falls je gewollt
+- Nationale Märkte außerhalb Tier-A/B (Asien, LATAM) —
+  separater Recherche-Sprint falls je gewollt
 
 ---
 
@@ -482,8 +493,8 @@ Begründung, damit nicht später nochmal recherchiert wird]
 
 1. **Claude Research** für die Hauptrecherche (Aufgaben 4.1-4.7)
    - Stärke: strukturierter Markdown-Output, gute Quellen-Zitate
-   - Anweisung: dieses Briefing in voller Länge inkl. Phase-1-Output
-     als Eingabe geben
+   - Anweisung: dieses Briefing in voller Länge inkl. Phase-1-
+     Output als Eingabe geben
 
 2. **Perplexity Pro** für Live-Verifikation
    - Pro empfohlenem Channel: ist der Account aktuell aktiv?
@@ -503,7 +514,8 @@ Begründung, damit nicht später nochmal recherchiert wird]
 ## Erwarteter Output-Umfang
 
 - 60-100 recherchierte Channels (mehr als v1, weil 3 Plattformen)
-- 30-50 empfohlene Channels (verteilt über die drei Plattform-Tiers)
+- 30-50 empfohlene Channels (verteilt über die drei
+  Plattform-Tiers)
 - 5-8 Seiten strukturierter Markdown-Output
 - Aufwand für Recherche-Agent: 45-75 Min Echtzeit
 - Wolf-Reading-Time: 20-30 Min
@@ -524,8 +536,8 @@ VALUES
   ...;
 ```
 
-Plus: nächsten Cron-Trigger manuell starten, neue Channels werden
-gescraped, neue Assets fließen rein.
+Plus: nächsten Cron-Trigger manuell starten, neue Channels
+werden gescraped, neue Assets fließen rein.
 
 ### Folge-Sprint 2: REALITY-CHECK 14 Tage später
 
@@ -539,26 +551,19 @@ GROUP BY a.de_us_match_key
 HAVING COUNT(DISTINCT c.market) >= 2;
 ```
 
-Wenn das Ergebnis ≥ 10 ist → Sprint 5.3.7 (Frontend-Pairing-View)
-lohnt sich endlich. Vorher nicht.
-
-### Folge-Sprint 3 (erledigt in PR #67): Match-Key-Konsistenz-Fix
-
-Aus Diagnose 2026-05-04 bekannt: 4 Werte in Raw-Form, sollten
-Slug-Form sein. Code-Stellen `title_rematch.py:52` und
-`api/assets.py:112` umgestellt, plus Migration die existierende
-4 Werte konvertiert. **Erledigt in PR #67 (gemerged 2026-05-04).**
+Wenn das Ergebnis ≥ 10 ist → Sprint 5.3.7 (Frontend-Pairing-
+View) lohnt sich endlich. Vorher nicht.
 
 ---
 
 ## Versions-Historie dieses Briefings
 
-- v1: Initial-Briefing, IG-fokussiert, kein Markt-Tier
-- v2: Markt-Tier-System (DE+US/UK+/Global), Plattform-Gewichtung mit
-  konkreten Zielzahlen, Phase 1 als zwingend markiert,
-  Geschäftskontext-Block hinzugefügt
-- **v2.1 (aktuell):** Format-Bug in Query 1.1 gefixt
+- **v1**: Initial-Briefing, IG-fokussiert, kein Markt-Tier
+- **v2**: Markt-Tier-System (DE+US/UK+/Global), Plattform-
+  Gewichtung mit konkreten Zielzahlen, Phase 1 als zwingend
+  markiert, Geschäftskontext-Block hinzugefügt
+- **v2.1 (aktuell)**: Format-Bug in Query 1.1 gefixt
   (`unique_titles` und `unique_match_keys` waren in `print()`
-  verloren — Header und Print-Zeile um beide Felder erweitert,
-  Trennlinie auf 130 Zeichen verbreitert). Folge-Sprint 3
-  (Match-Key-Konsistenz-Fix) als erledigt markiert (PR #67 gemerged).
+  verloren); Match-Key-Konsistenz-Folge-Sprint entfernt
+  (durch PR #67 erledigt); Reality-Check-Block aktualisiert
+  (Format-Inkonsistenz beseitigt)
