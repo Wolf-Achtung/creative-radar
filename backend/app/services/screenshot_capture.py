@@ -47,7 +47,10 @@ def _youtube_thumbnail_candidates(url: str | None) -> list[str]:
 
 def _candidate_sources(asset: Asset) -> list[str]:
     sources = [url for url in [asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url] if url]
-    sources.extend(_youtube_thumbnail_candidates(getattr(asset, "asset_url", None)))
+    asset_url = getattr(asset, "asset_url", None)
+    if asset_url:
+        sources.append(asset_url)
+        sources.extend(_youtube_thumbnail_candidates(asset_url))
     return sources
 
 
