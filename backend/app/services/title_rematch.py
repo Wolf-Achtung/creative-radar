@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from sqlmodel import Session, select
 
 from app.models.entities import Asset, Post, TitleCandidate, CandidateStatus
+from app.services.match_key import slugify_match_key
 from app.services.title_candidates import create_candidate_from_asset, resolve_open_candidates_for_asset
 from app.services.whitelist_matcher import find_best_title_match, is_safe_auto_match
 
@@ -49,7 +50,7 @@ def rematch_unassigned_assets(session: Session) -> RematchSummary:
 
         if is_safe_auto_match(match) and match.title:
             asset.title_id = match.title.id
-            asset.de_us_match_key = match.title.franchise or match.title.title_original
+            asset.de_us_match_key = slugify_match_key(match.title.franchise or match.title.title_original)
             session.add(asset)
             session.commit()
             resolve_open_candidates_for_asset(session, asset.id)

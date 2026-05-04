@@ -5,6 +5,7 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import Asset, Channel, Post, ReviewStatus, Title
 from app.schemas.dto import AssetReviewUpdate
+from app.services.match_key import slugify_match_key
 from app.services.storage import resolve_url
 from app.services.visual_analysis import analyze_asset_visual
 
@@ -109,7 +110,7 @@ def update_asset_review(asset_id: UUID, payload: AssetReviewUpdate, session: Ses
         if not title:
             raise HTTPException(status_code=404, detail="Title not found")
         asset.title_id = payload.title_id
-        asset.de_us_match_key = title.franchise or title.title_original
+        asset.de_us_match_key = slugify_match_key(title.franchise or title.title_original)
     asset.review_status = payload.review_status
     asset.include_in_report = payload.include_in_report
     asset.is_highlight = payload.is_highlight or payload.review_status == ReviewStatus.HIGHLIGHT
