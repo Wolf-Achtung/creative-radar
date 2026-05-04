@@ -126,8 +126,9 @@ def test_non_youtube_url_returns_empty_list() -> None:
 def test_candidate_sources_includes_youtube_thumbnails_from_asset_url() -> None:
     asset = _asset(asset_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     sources = _candidate_sources(asset)
-    assert len(sources) == 4
-    assert sources[0] == "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
+    assert len(sources) == 5
+    assert sources[0] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert sources[1] == "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
 
 
 def test_candidate_sources_keeps_explicit_fields_before_derived_youtube_urls() -> None:
@@ -138,6 +139,35 @@ def test_candidate_sources_keeps_explicit_fields_before_derived_youtube_urls() -
     sources = _candidate_sources(asset)
     assert sources[0] == "https://cdn.example/explicit.jpg"
     assert any("ytimg.com" in u for u in sources[1:])
+
+
+def test_candidate_sources_includes_asset_url_directly() -> None:
+    asset = _asset(asset_url="https://i.ytimg.com/vi/abc123XYZab/maxresdefault.jpg")
+    sources = _candidate_sources(asset)
+    assert sources == ["https://i.ytimg.com/vi/abc123XYZab/maxresdefault.jpg"]
+
+
+def test_candidate_sources_with_youtube_watch_url_in_asset_url() -> None:
+    asset = _asset(asset_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    sources = _candidate_sources(asset)
+    assert sources[0] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert any("dQw4w9WgXcQ" in s and "ytimg.com" in s for s in sources[1:])
+    assert len(sources) >= 5
+
+
+def test_candidate_sources_full_priority_order() -> None:
+    asset = _asset(
+        screenshot_url="https://example.com/screenshot.jpg",
+        thumbnail_url="https://example.com/thumb.jpg",
+        visual_source_url="https://example.com/source.jpg",
+        asset_url="https://www.youtube.com/watch?v=abc123XYZab",
+    )
+    sources = _candidate_sources(asset)
+    assert sources[0] == "https://example.com/screenshot.jpg"
+    assert sources[1] == "https://example.com/thumb.jpg"
+    assert sources[2] == "https://example.com/source.jpg"
+    assert sources[3] == "https://www.youtube.com/watch?v=abc123XYZab"
+    assert "abc123XYZab" in sources[4]
 
 
 def test_capture_returns_fetch_failed_when_storage_put_raises() -> None:
