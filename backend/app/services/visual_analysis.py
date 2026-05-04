@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Any
 
 from openai import OpenAI
@@ -12,6 +11,7 @@ from app.config import settings
 from app.models.entities import Asset, AssetType, Channel, Post, Title
 from app.prompts import visual_analysis as visual_analysis_prompt
 from app.services.cost_log import record_openai_call
+from app.services.match_key import slugify_match_key
 from app.services.screenshot_capture import capture_asset_screenshot
 from app.services.storage import resolve_url
 
@@ -103,14 +103,6 @@ def _as_float(value: Any, fallback: float = 0.35) -> float:
     return max(0.0, min(1.0, number))
 
 
-def _slug(value: str | None) -> str | None:
-    if not value:
-        return None
-    clean = value.lower().strip()
-    clean = re.sub(r"[^a-z0-9äöüß]+", "-", clean)
-    return clean.strip("-") or None
-
-
 def _find_title_match(session: Session, visual_text: str, caption: str) -> Title | None:
     haystack = f"{visual_text}\n{caption}".lower()
     titles = list(session.exec(select(Title).where(Title.active == True)).all())  # noqa: E712
@@ -150,7 +142,7 @@ def _heuristic_analysis(asset: Asset, post: Post | None, title: Title | None) ->
             "kinetic_type": None,
             "kinetic_text": None,
             "asset_type": asset.asset_type,
-            "de_us_match_key": _slug(title.franchise or title.title_original) if title else None,
+            "de_us_match_key": slugify_match_key(title.franchise or title.title_original) if title else None,
             "visual_confidence_score": 0.0,
         }
 
@@ -174,7 +166,7 @@ def _heuristic_analysis(asset: Asset, post: Post | None, title: Title | None) ->
         "kinetic_type": "text_or_motion_cue" if has_kinetic else None,
         "kinetic_text": asset.ocr_text if has_kinetic else None,
         "asset_type": asset_type,
-        "de_us_match_key": _slug(title.franchise or title.title_original) if title else _slug(caption[:80]),
+        "de_us_match_key": slugify_match_key(title.franchise or title.title_original) if title else slugify_match_key(caption[:80]),
         "visual_confidence_score": 0.35,
     }
 
@@ -303,7 +295,7 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
     asset.has_kinetic = _as_bool(kinetics.get("has_kinetic", data.get("has_kinetic")))
     asset.kinetic_type = _as_text(kinetics.get("type"), _as_text(data.get("kinetic_type"), "")) or None
     asset.kinetic_text = _as_text(kinetics.get("text"), _as_text(data.get("kinetic_text"), "")) or None
-    asset.de_us_match_key = _as_text(data.get("de_us_match_key"), "") or _slug(asset.placement_title_text) or None
+    asset.de_us_match_key = _as_text(data.get("de_us_match_key"), "") or slugify_match_key(asset.placement_title_text) or None
     asset.visual_confidence_score = _as_float(data.get("confidence", data.get("visual_confidence_score")))
 
     asset_type = _as_text(data.get("asset_type"), "")
