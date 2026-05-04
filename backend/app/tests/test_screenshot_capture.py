@@ -10,12 +10,14 @@ from app.models.entities import Asset, AssetType, ReviewStatus
 from app.services import screenshot_capture
 from app.services.screenshot_capture import (
     VisualEvidenceResult,
+    _candidate_sources,
+    _youtube_thumbnail_candidates,
     capture_asset_screenshot,
 )
 
 
 def _asset(*, screenshot_url: str | None = None, thumbnail_url: str | None = None,
-           visual_source_url: str | None = None) -> Asset:
+           visual_source_url: str | None = None, asset_url: str | None = None) -> Asset:
     return Asset(
         id=uuid4(),
         post_id=uuid4(),
@@ -24,6 +26,7 @@ def _asset(*, screenshot_url: str | None = None, thumbnail_url: str | None = Non
         screenshot_url=screenshot_url,
         thumbnail_url=thumbnail_url,
         visual_source_url=visual_source_url,
+        asset_url=asset_url,
     )
 
 
@@ -81,6 +84,60 @@ def test_capture_returns_fetch_failed_when_all_sources_4xx() -> None:
 
     assert result.status == "fetch_failed"
     assert result.evidence_url is None
+
+
+def test_youtube_watch_url_returns_thumbnail_list() -> None:
+    urls = _youtube_thumbnail_candidates("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert urls == [
+        "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
+        "https://i.ytimg.com/vi/dQw4w9WgXcQ/sddefault.jpg",
+        "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+        "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
+    ]
+
+
+def test_youtube_shortlink_returns_thumbnails() -> None:
+    urls = _youtube_thumbnail_candidates("https://youtu.be/dQw4w9WgXcQ")
+    assert len(urls) == 4
+    assert urls[0] == "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
+
+
+def test_youtube_shorts_url_returns_thumbnails() -> None:
+    urls = _youtube_thumbnail_candidates("https://www.youtube.com/shorts/dQw4w9WgXcQ")
+    assert len(urls) == 4
+    assert all("dQw4w9WgXcQ" in u for u in urls)
+
+
+def test_youtube_watch_url_with_extra_query_params() -> None:
+    urls = _youtube_thumbnail_candidates(
+        "https://www.youtube.com/watch?feature=share&v=dQw4w9WgXcQ&t=30s"
+    )
+    assert len(urls) == 4
+    assert urls[0] == "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
+
+
+def test_non_youtube_url_returns_empty_list() -> None:
+    assert _youtube_thumbnail_candidates("https://www.instagram.com/p/ABC123") == []
+    assert _youtube_thumbnail_candidates("https://vimeo.com/123456789") == []
+    assert _youtube_thumbnail_candidates("") == []
+    assert _youtube_thumbnail_candidates(None) == []
+
+
+def test_candidate_sources_includes_youtube_thumbnails_from_asset_url() -> None:
+    asset = _asset(asset_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    sources = _candidate_sources(asset)
+    assert len(sources) == 4
+    assert sources[0] == "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
+
+
+def test_candidate_sources_keeps_explicit_fields_before_derived_youtube_urls() -> None:
+    asset = _asset(
+        screenshot_url="https://cdn.example/explicit.jpg",
+        asset_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    )
+    sources = _candidate_sources(asset)
+    assert sources[0] == "https://cdn.example/explicit.jpg"
+    assert any("ytimg.com" in u for u in sources[1:])
 
 
 def test_capture_returns_fetch_failed_when_storage_put_raises() -> None:
