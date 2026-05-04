@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -28,7 +29,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import engine, get_session
-from app.models.entities import CronRun
+from app.models.entities import Asset, CronRun
 from app.services.apify_connector import (
     is_apify_configured,
     is_tiktok_configured,
@@ -38,6 +39,7 @@ from app.services.apify_connector import (
     run_tiktok_profile_monitor,
 )
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
+from app.services.visual_analysis import analyze_asset_visual
 
 from app.api.monitor import _handle_from_url_or_value, _run_apify_sync_for_platform
 
@@ -45,6 +47,15 @@ router = APIRouter(prefix="/api/admin/cron", tags=["cron"])
 logger = logging.getLogger(__name__)
 
 CRON_RESULTS_LIMIT_PER_CHANNEL = 5
+
+# Approximate vision-call cost for cron summary reporting. Aligned with the
+# gpt-4o-mini Vision pricing ballpark used in the Sprint Beta plan; not a
+# precise per-call charge — token usage is logged separately by record_openai_call
+# (services/cost_log.py). Override via env if a different pricing model lands.
+_VISION_COST_USD_PER_CALL = 0.015
+
+_VISION_SUCCESS_STATUSES = frozenset({"analyzed", "done"})
+_VISION_FETCH_FAIL_STATUSES = frozenset({"fetch_failed", "no_source", "image_unreachable", "image_invalid"})
 
 
 def _run_timeout_minutes() -> int:
@@ -77,8 +88,13 @@ def _reap_stale_runs(session: Session) -> None:
     logger.warning("cron-sync reaped %d stale run(s)", len(stale))
 
 
-async def _execute_platform_sync(session: Session, run_index: int) -> dict:
+async def _execute_platform_sync(session: Session, run_index: int) -> tuple[dict, list[UUID]]:
+    """Run the per-platform Apify syncs and return both the summary block
+    and the list of newly-created Asset IDs in chronological insertion
+    order. Sprint Beta consumes that list to drive the auto-vision step.
+    """
     summary: dict = {"platforms": {}}
+    created_asset_ids: list[UUID] = []
 
     if not is_apify_configured():
         summary["platforms"]["instagram"] = {"skipped": True, "reason": "apify_not_configured"}
@@ -97,6 +113,7 @@ async def _execute_platform_sync(session: Session, run_index: int) -> dict:
                 normalize=normalize_public_item,
                 only_whitelist_matches=False,
             )
+            created_asset_ids.extend(a.id for a in sync.get("assets", []) if a.id is not None)
             summary["platforms"]["instagram"] = {
                 "channels_checked": len(ig_channels),
                 "raw_items": len(raw_items),
@@ -124,6 +141,7 @@ async def _execute_platform_sync(session: Session, run_index: int) -> dict:
                     normalize=normalize_tiktok_item,
                     only_whitelist_matches=False,
                 )
+                created_asset_ids.extend(a.id for a in sync.get("assets", []) if a.id is not None)
                 summary["platforms"]["tiktok"] = {
                     "channels_checked": len(tt_channels),
                     "raw_items": len(raw_items),
@@ -131,7 +149,74 @@ async def _execute_platform_sync(session: Session, run_index: int) -> dict:
                     "apify_actor_id": settings.apify_tiktok_actor_id,
                 }
 
-    return summary
+    return summary, created_asset_ids
+
+
+def _run_vision_after_sync(
+    session: Session,
+    asset_ids: list[UUID],
+    cap: int,
+) -> dict:
+    """Sprint Beta — run the OpenAI Vision pipeline for up to ``cap`` newly
+    created Assets in FIFO order (caller passes IDs in insertion order).
+    Per-asset failures are isolated; they bump the matching counter but do
+    not abort the loop.
+
+    Returns a Vision-Summary dict embedded under ``summary["vision"]`` in
+    the CronRun. Counters mirror the visual_analysis_status whitelist:
+
+    - ``succeeded``  -> status in {analyzed, done}
+    - ``text_fallback`` -> status == "text_fallback"
+    - ``fetch_failed`` -> status in {fetch_failed, no_source, image_unreachable, image_invalid}
+    - ``vision_error`` -> any other terminal status (vision_empty / _timeout
+      / _error) plus uncaught exceptions
+    """
+    total = len(asset_ids)
+    skipped_cap = max(0, total - cap) if cap > 0 else total
+    chosen = list(asset_ids[:cap]) if cap > 0 else []
+
+    started = time.monotonic()
+    counters = {
+        "attempted": 0,
+        "succeeded": 0,
+        "text_fallback": 0,
+        "fetch_failed": 0,
+        "vision_error": 0,
+    }
+
+    for asset_id in chosen:
+        asset = session.get(Asset, asset_id)
+        if asset is None:
+            # Asset disappeared between sync and vision. Should not happen
+            # in production (same session, same task), but treat as a soft
+            # skip rather than a hard failure.
+            continue
+        counters["attempted"] += 1
+        try:
+            updated = analyze_asset_visual(session, asset)
+        except Exception:  # noqa: BLE001 — top-level guard, see PC-4
+            logger.exception("cron-vision call failed for asset %s", asset_id)
+            counters["vision_error"] += 1
+            continue
+        status = updated.visual_analysis_status
+        if status in _VISION_SUCCESS_STATUSES:
+            counters["succeeded"] += 1
+        elif status == "text_fallback":
+            counters["text_fallback"] += 1
+        elif status in _VISION_FETCH_FAIL_STATUSES:
+            counters["fetch_failed"] += 1
+        else:
+            counters["vision_error"] += 1
+
+    duration_seconds = round(time.monotonic() - started, 2)
+    estimated_cost_usd = round(counters["attempted"] * _VISION_COST_USD_PER_CALL, 4)
+
+    return {
+        **counters,
+        "skipped_cap": skipped_cap,
+        "duration_seconds": duration_seconds,
+        "estimated_cost_usd": estimated_cost_usd,
+    }
 
 
 async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
@@ -143,7 +228,10 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             logger.error("cron run %s not found in background task", run_id)
             return
         try:
-            summary = await _execute_platform_sync(session, run_index)
+            summary, created_asset_ids = await _execute_platform_sync(session, run_index)
+            cap = settings.cron_vision_max_assets_per_run
+            if created_asset_ids:
+                summary["vision"] = _run_vision_after_sync(session, created_asset_ids, cap)
             run.summary_json = summary
             run.status = "completed"
             run.completed_at = datetime.now(timezone.utc)

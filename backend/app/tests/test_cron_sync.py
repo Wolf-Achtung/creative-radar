@@ -13,7 +13,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app.config import settings
 from app.database import get_session
 from app.main import app
-from app.models.entities import Channel, CronRun
+from app.models.entities import Asset, Channel, CronRun
 from app.services import asset_screenshot_persistence as persistence_mod
 from app.services.screenshot_capture import VisualEvidenceResult
 
@@ -190,6 +190,150 @@ def test_cron_sync_reaps_stale_run_and_starts_new(client_with_auth, db):
         assert stale_after.status == "failed"
         assert stale_after.error_message == "stale_run_timeout"
         assert stale_after.completed_at is not None
+
+
+# --------------------------------------------------------------------------
+# Sprint Beta — auto-vision after sync.
+#
+# These tests stub out analyze_asset_visual entirely; they verify the
+# cron-side wiring (skip-when-empty, FIFO ordering, cap enforcement,
+# summary block shape), not the vision call itself. Vision behaviour is
+# covered exhaustively by test_visual_analysis.py.
+# --------------------------------------------------------------------------
+
+
+def _ig_item(slug: str, owner: str = "netflixde") -> dict:
+    return {
+        "url": f"https://www.instagram.com/p/{slug}/",
+        "ownerUsername": owner,
+        "displayUrl": f"https://cdn.example/{slug}.jpg",
+        "caption": f"caption {slug}",
+        "timestamp": "2026-05-01T12:00:00Z",
+    }
+
+
+def _stub_capture(asset):
+    return VisualEvidenceResult(status="captured", evidence_url=f"evidence/{asset.id}.jpg")
+
+
+def _make_vision_stub(call_log: list):
+    """Returns a fake analyze_asset_visual that records every asset id and
+    flips status to 'analyzed', mirroring the real success path."""
+    def fake(session, asset):
+        call_log.append(asset.id)
+        asset.visual_analysis_status = "analyzed"
+        session.add(asset)
+        session.commit()
+        session.refresh(asset)
+        return asset
+    return fake
+
+
+def test_cron_run_with_no_new_assets_skips_vision(client_with_auth, db):
+    _seed_ig_channel(db, handle="netflixde")
+    call_log: list = []
+
+    with patch("app.api.cron.run_public_channel_monitor",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("app.api.cron.run_tiktok_profile_monitor",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("app.api.cron.analyze_asset_visual", side_effect=_make_vision_stub(call_log)):
+        response = client_with_auth.post(
+            "/api/admin/cron/sync-all",
+            headers={"Authorization": "Bearer TESTTOKEN"},
+        )
+
+    assert response.status_code == 202, response.text
+    assert call_log == []  # vision never fired
+
+    with Session(db) as session:
+        run = session.get(CronRun, uuid4().__class__(response.json()["run_id"]))
+        assert run.status == "completed"
+        # No assets created -> no vision block at all.
+        assert "vision" not in run.summary_json
+
+
+def test_cron_run_below_cap_analyzes_all_new_assets(client_with_auth, db, monkeypatch):
+    _seed_ig_channel(db, handle="netflixde")
+    monkeypatch.setattr(settings, "cron_vision_max_assets_per_run", 10, raising=False)
+    call_log: list = []
+
+    items = [_ig_item(f"below-cap-{i}") for i in range(3)]
+
+    with patch("app.api.cron.run_public_channel_monitor",
+               new_callable=AsyncMock, return_value=items), \
+         patch("app.api.cron.run_tiktok_profile_monitor",
+               new_callable=AsyncMock, return_value=[]), \
+         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=_stub_capture), \
+         patch("app.api.cron.analyze_asset_visual", side_effect=_make_vision_stub(call_log)):
+        response = client_with_auth.post(
+            "/api/admin/cron/sync-all",
+            headers={"Authorization": "Bearer TESTTOKEN"},
+        )
+
+    assert response.status_code == 202, response.text
+    assert len(call_log) == 3, "all 3 new assets should have been analyzed"
+
+    with Session(db) as session:
+        run = session.get(CronRun, uuid4().__class__(response.json()["run_id"]))
+        vision = run.summary_json["vision"]
+        assert vision["attempted"] == 3
+        assert vision["succeeded"] == 3
+        assert vision["skipped_cap"] == 0
+        assert vision["text_fallback"] == 0
+        assert vision["fetch_failed"] == 0
+        assert vision["vision_error"] == 0
+        assert vision["estimated_cost_usd"] == round(3 * 0.015, 4)
+        assert isinstance(vision["duration_seconds"], (int, float))
+
+
+def test_cron_run_above_cap_analyzes_fifo_and_leaves_rest(client_with_auth, db, monkeypatch):
+    _seed_ig_channel(db, handle="netflixde")
+    monkeypatch.setattr(settings, "cron_vision_max_assets_per_run", 2, raising=False)
+    call_log: list = []
+
+    # Five posts arriving in a deterministic order; the cron sync persists
+    # them in this order, and the FIFO cap should pick the first two.
+    items = [_ig_item(f"above-cap-{i}") for i in range(5)]
+
+    with patch("app.api.cron.run_public_channel_monitor",
+               new_callable=AsyncMock, return_value=items), \
+         patch("app.api.cron.run_tiktok_profile_monitor",
+               new_callable=AsyncMock, return_value=[]), \
+         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=_stub_capture), \
+         patch("app.api.cron.analyze_asset_visual", side_effect=_make_vision_stub(call_log)):
+        response = client_with_auth.post(
+            "/api/admin/cron/sync-all",
+            headers={"Authorization": "Bearer TESTTOKEN"},
+        )
+
+    assert response.status_code == 202, response.text
+    assert len(call_log) == 2, "exactly the cap should have been analyzed"
+
+    with Session(db) as session:
+        run = session.get(CronRun, uuid4().__class__(response.json()["run_id"]))
+        vision = run.summary_json["vision"]
+        assert vision["attempted"] == 2
+        assert vision["succeeded"] == 2
+        assert vision["skipped_cap"] == 3
+        # FIFO: the first two assets (in IG sync insertion order) match the
+        # call log. Cross-check via the Asset table — the two analyzed rows
+        # must be the two oldest by created_at.
+        analyzed = list(session.exec(
+            select(Asset).where(Asset.visual_analysis_status == "analyzed")
+            .order_by(Asset.created_at)
+        ).all())
+        pending = list(session.exec(
+            select(Asset).where(Asset.visual_analysis_status == "pending")
+            .order_by(Asset.created_at)
+        ).all())
+        assert len(analyzed) == 2
+        assert len(pending) == 3
+        analyzed_ids = [a.id for a in analyzed]
+        # The two analyzed must be older than every pending (FIFO guarantee).
+        assert max(a.created_at for a in analyzed) <= min(p.created_at for p in pending)
+        # Call log must contain exactly those two ids.
+        assert sorted(call_log, key=str) == sorted(analyzed_ids, key=str)
 
 
 def test_list_cron_runs_returns_newest_first_and_respects_limit(client_with_auth, db):
