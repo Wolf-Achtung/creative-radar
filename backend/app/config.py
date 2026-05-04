@@ -88,6 +88,12 @@ class Settings(BaseSettings):
     image_proxy_timeout_seconds: float = 8.0
     image_proxy_max_bytes: int = 8 * 1024 * 1024  # 8 MiB
 
+    # Sprint Beta — cap on the number of vision calls per cron run.
+    # 50 * ~$0.015 = ~$0.75 per run; ~10 runs/month = ~$7.50/month at the
+    # default 3-day cadence. Wolf raises this in Railway ENV once stability
+    # is verified. 0 disables the auto-vision step entirely.
+    cron_vision_max_assets_per_run: int = 50
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property
