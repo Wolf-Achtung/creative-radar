@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.models.entities import Asset, AssetType, Channel, Post, Title
+from app.prompts import visual_analysis as visual_analysis_prompt
 from app.services.cost_log import record_openai_call
 from app.services.screenshot_capture import capture_asset_screenshot
 from app.services.storage import resolve_url
@@ -215,36 +216,17 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
         # URL (presigned for S3, /storage/<key> for local) before sending to OpenAI.
         openai_image_url = resolve_url(image_url) or image_url
         client = OpenAI(api_key=settings.openai_api_key)
-        prompt = f"""
-Analysiere das Creative-Visual für ein Film-/Serien-/Game-Marketing-Monitoring.
-
-Kontext:
-Kanal: {channel.name if channel else 'Unbekannt'}
-Markt: {channel.market if channel else 'UNKNOWN'}
-Titel/Franchise-Vermutung: {title.title_original if title else 'kein Match'}
-Caption: {caption or 'nicht verfügbar'}
-
-Aufgaben:
-1. OCR / sichtbaren Text im Bild erfassen.
-2. Filmtitel-/Serientitel-/Game-Titel-Placement erkennen.
-3. Position grob bestimmen: top, center, bottom, full_frame, caption_only, unknown.
-4. Placement-Stärke: strong, medium, weak, none.
-5. Kinetic/Text-Motion-Hinweise erkennen. Wenn Standbild es nicht sicher zeigt, nur "possible" verwenden.
-6. DE/US-Match-Key als stabilen Franchise-/Titel-Key vorschlagen.
-7. Asset-Typ möglichst konkret klassifizieren.
-
-Antworte nur als JSON mit Strings/Booleans/Zahlen:
-ocr_text, visual_summary_de, title_placement, kinetics, creative_mechanic, cta_detected,
-brand_or_studio_visibility, format_observation, uncertainties,
-placement_title_text, placement_position, placement_strength,
-has_title_placement, has_kinetic, kinetic_type, kinetic_text, asset_type,
-de_us_match_key, visual_confidence_score, confidence
-"""
+        prompt = visual_analysis_prompt.build_user_message(
+            channel_name=channel.name if channel else "Unbekannt",
+            market=channel.market if channel else "UNKNOWN",
+            title_guess=title.title_original if title else "kein Match",
+            caption=caption or "nicht verfügbar",
+        )
         try:
             response = client.chat.completions.create(
             model=settings.openai_model,
             messages=[
-                {"role": "system", "content": "Du bist ein präziser Visual-Analyst für Entertainment-Marketing. Gib ausschließlich valides JSON zurück."},
+                {"role": "system", "content": visual_analysis_prompt.SYSTEM_PROMPT},
                 {"role": "user", "content": [
                     {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": openai_image_url}},
