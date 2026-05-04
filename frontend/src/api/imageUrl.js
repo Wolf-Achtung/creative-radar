@@ -25,6 +25,8 @@ export const PROXY_HOST_SUFFIXES = [
   'tiktokcdn.com',
   'tiktokcdn-us.com',
   'tiktokcdn-eu.com',
+  'ytimg.com',
+  'ggpht.com',
 ];
 
 function stripTrailingSlash(value) {
