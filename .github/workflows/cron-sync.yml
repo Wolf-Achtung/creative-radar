@@ -1,0 +1,41 @@
+name: Cron Sync
+
+# Triggers the Apify cron-sync endpoint every 3 days at 06:00 UTC.
+# Schedule expression: minute hour day-of-month month day-of-week
+#   "0 6 */3 * *"  — at 06:00 on every 3rd day-of-month
+# GitHub Actions schedule is best-effort and may drift by a few minutes
+# under load; for a 3-day frequency that's irrelevant.
+#
+# Setup once (Wolf-Aktion, see PR body):
+#   Settings -> Secrets and variables -> Actions
+#     CR_API_URL    = https://api.creative-radar.de
+#     CR_API_TOKEN  = <bearer token used for manual curl>
+
+on:
+  schedule:
+    - cron: '0 6 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  trigger-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger cron-sync endpoint
+        run: |
+          response=$(curl -sS -X POST "${{ secrets.CR_API_URL }}/api/admin/cron/sync-all" \
+            -H "Authorization: Bearer ${{ secrets.CR_API_TOKEN }}" \
+            -w "\n%{http_code}" \
+            --max-time 30)
+
+          http_code=$(echo "$response" | tail -n 1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "HTTP Status: $http_code"
+          echo "Response Body: $body"
+
+          if [ "$http_code" != "202" ]; then
+            echo "ERROR: Expected 202 Accepted, got $http_code"
+            exit 1
+          fi
+
+          echo "Cron sync triggered successfully."
