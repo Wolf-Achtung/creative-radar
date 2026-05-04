@@ -98,7 +98,12 @@ def test_roundtrip_up_down_up(sqlite_url, alembic_cfg):
     command.upgrade(alembic_cfg, "head")
     assert NEW_COLUMNS.issubset(_channel_columns(sqlite_url))
 
-    command.downgrade(alembic_cfg, "-1")
+    # Downgrade to the revision *before* channel_audit (= PRIOR_REVISION).
+    # Was ``-1`` originally, but later migrations get appended to the chain
+    # over time, so ``-1`` from head no longer points at this migration.
+    # The explicit revision keeps the test stable regardless of how many
+    # later migrations land on top.
+    command.downgrade(alembic_cfg, PRIOR_REVISION)
     after_down = _channel_columns(sqlite_url)
     leftover = NEW_COLUMNS & after_down
     assert not leftover, f"downgrade left columns behind: {leftover}"

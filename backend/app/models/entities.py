@@ -404,3 +404,22 @@ class CostLog(SQLModel, table=True):
     cost_usd_cents: int = 0
     cost_eur_cents: int = 0
     cost_meta: dict = Field(default_factory=dict, sa_column=Column(JSON))
+
+
+class CronRun(SQLModel, table=True):
+    """Sprint Cron-Background-Task — log row per cron-sync invocation.
+
+    Status transitions: ``running`` -> ``completed`` (normal finish) or
+    ``running`` -> ``failed`` (unexpected exception, with error_message).
+    A run that stays on ``running`` longer than ``CRON_RUN_TIMEOUT_MINUTES``
+    is treated as stale on the next trigger and force-marked ``failed``.
+    """
+    __tablename__ = "cron_run"
+    __table_args__ = _CR_TABLE_ARGS
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    started_at: datetime = Field(default_factory=utc_now, index=True)
+    completed_at: Optional[datetime] = None
+    status: str = Field(default="running", index=True)
+    run_index: int = 0
+    summary_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    error_message: Optional[str] = None
