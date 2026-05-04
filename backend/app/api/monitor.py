@@ -1,3 +1,5 @@
+from typing import Callable
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
@@ -135,6 +137,54 @@ def _create_asset_from_item(
     return asset, "created"
 
 
+def _run_apify_sync_for_platform(
+    *,
+    session: Session,
+    channels: list[Channel],
+    raw_items: list[dict],
+    platform: str,
+    normalize: Callable[[dict], dict],
+    only_whitelist_matches: bool,
+) -> dict:
+    """Sprint 5.3.5 — shared sync loop for Apify-driven platforms (IG, TikTok).
+
+    Returns the counter dict (``created_assets``, ``skipped_existing``,
+    ``skipped_no_whitelist_match``, ``skipped_other``, ``assets``). Endpoint
+    callers add platform-level metadata (channels_checked, raw_items,
+    apify_actor_id) on top.
+    """
+    created = skipped_existing = skipped_no_match = skipped_other = 0
+    assets: list[Asset] = []
+
+    for index, raw_item in enumerate(raw_items):
+        item = normalize(raw_item)
+        channel = _match_channel(channels, item.get("owner_username"), index)
+        asset, status = _create_asset_from_item(
+            session=session,
+            item=item,
+            channel=channel,
+            platform=platform,
+            only_whitelist_matches=only_whitelist_matches,
+        )
+        if status == "created" and asset:
+            created += 1
+            assets.append(asset)
+        elif status == "existing":
+            skipped_existing += 1
+        elif status == "no_match":
+            skipped_no_match += 1
+        else:
+            skipped_other += 1
+
+    return {
+        "created_assets": created,
+        "skipped_existing": skipped_existing,
+        "skipped_no_whitelist_match": skipped_no_match,
+        "skipped_other": skipped_other,
+        "assets": assets,
+    }
+
+
 @router.post("/apify-instagram")
 async def apify_instagram_monitor(payload: ApifyMonitorRequest, session: Session = Depends(get_session)):
     if not is_apify_configured():
@@ -150,39 +200,21 @@ async def apify_instagram_monitor(payload: ApifyMonitorRequest, session: Session
     channel_urls = [channel.url for channel in channels]
     raw_items = await run_public_channel_monitor(channel_urls, payload.results_limit_per_channel)
 
-    created = skipped_existing = skipped_no_match = skipped_other = 0
-    assets = []
-
-    for index, raw_item in enumerate(raw_items):
-        item = normalize_public_item(raw_item)
-        channel = _match_channel(channels, item.get("owner_username"), index)
-        asset, status = _create_asset_from_item(
-            session=session,
-            item=item,
-            channel=channel,
-            platform="instagram",
-            only_whitelist_matches=payload.only_whitelist_matches,
-        )
-        if status == "created" and asset:
-            created += 1
-            assets.append(asset)
-        elif status == "existing":
-            skipped_existing += 1
-        elif status == "no_match":
-            skipped_no_match += 1
-        else:
-            skipped_other += 1
+    summary = _run_apify_sync_for_platform(
+        session=session,
+        channels=channels,
+        raw_items=raw_items,
+        platform="instagram",
+        normalize=normalize_public_item,
+        only_whitelist_matches=payload.only_whitelist_matches,
+    )
 
     return {
         "platform": "instagram",
         "channels_checked": len(channels),
         "raw_items": len(raw_items),
-        "created_assets": created,
-        "skipped_existing": skipped_existing,
-        "skipped_no_whitelist_match": skipped_no_match,
-        "skipped_other": skipped_other,
+        **summary,
         "apify_actor_id": settings.apify_instagram_actor_id,
-        "assets": assets,
     }
 
 
@@ -224,37 +256,19 @@ async def apify_tiktok_monitor(payload: TikTokMonitorRequest, session: Session =
 
     raw_items = await run_tiktok_profile_monitor(usernames[: max(1, payload.max_channels)], payload.results_limit_per_channel)
 
-    created = skipped_existing = skipped_no_match = skipped_other = 0
-    assets = []
-
-    for index, raw_item in enumerate(raw_items):
-        item = normalize_tiktok_item(raw_item)
-        channel = _match_channel(channels, item.get("owner_username"), index)
-        asset, status = _create_asset_from_item(
-            session=session,
-            item=item,
-            channel=channel,
-            platform="tiktok",
-            only_whitelist_matches=payload.only_whitelist_matches,
-        )
-        if status == "created" and asset:
-            created += 1
-            assets.append(asset)
-        elif status == "existing":
-            skipped_existing += 1
-        elif status == "no_match":
-            skipped_no_match += 1
-        else:
-            skipped_other += 1
+    summary = _run_apify_sync_for_platform(
+        session=session,
+        channels=channels,
+        raw_items=raw_items,
+        platform="tiktok",
+        normalize=normalize_tiktok_item,
+        only_whitelist_matches=payload.only_whitelist_matches,
+    )
 
     return {
         "platform": "tiktok",
         "channels_checked": len(usernames),
         "raw_items": len(raw_items),
-        "created_assets": created,
-        "skipped_existing": skipped_existing,
-        "skipped_no_whitelist_match": skipped_no_match,
-        "skipped_other": skipped_other,
+        **summary,
         "apify_actor_id": settings.apify_tiktok_actor_id,
-        "assets": assets,
     }
