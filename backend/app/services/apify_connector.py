@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any
 
@@ -11,6 +12,13 @@ from app.services.cost_log import record_apify_run
 
 BASE_URL = "https://api.apify.com/v2"
 
+# Apify run lifecycle. Anything in TERMINAL_STATUSES ends the poll loop;
+# only SUCCESS_STATUS produces a dataset read. The "TIMED-OUT" form (with
+# hyphen) is what the Apify API actually returns; "TIMED_OUT" is accepted
+# defensively in case Apify normalises to the underscore form in the future.
+TERMINAL_STATUSES = frozenset({"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT", "TIMED_OUT"})
+SUCCESS_STATUS = "SUCCEEDED"
+
 
 def is_apify_configured() -> bool:
     return bool(settings.apify_api_token and settings.apify_instagram_actor_id)
@@ -20,15 +28,80 @@ def is_tiktok_configured() -> bool:
     return bool(settings.apify_api_token and settings.apify_tiktok_actor_id)
 
 
+async def _poll_until_terminal(client: httpx.AsyncClient, run_id: str, poll_interval: float) -> dict[str, Any]:
+    """Block until the Apify run reaches a terminal status, returning the
+    final run-data dict. Caller wraps this in ``asyncio.wait_for`` for the
+    total-timeout guarantee.
+    """
+    while True:
+        await asyncio.sleep(poll_interval)
+        response = await client.get(
+            f"{BASE_URL}/actor-runs/{run_id}",
+            params={"token": settings.apify_api_token},
+        )
+        response.raise_for_status()
+        data = response.json().get("data", {})
+        if data.get("status") in TERMINAL_STATUSES:
+            return data
+
+
 async def _run_actor(actor_id: str, actor_input: dict[str, Any], wait_seconds: int | None = None) -> list[dict[str, Any]]:
-    async with httpx.AsyncClient(timeout=(wait_seconds or settings.apify_wait_seconds) + 60) as client:
+    """Start an Apify actor run, poll until terminal, and read the dataset.
+
+    The Apify ``waitForFinish`` parameter caps at 60s server-side, so for
+    runs longer than a minute the previous synchronous flow read the
+    dataset before the run had finished and returned 0 items. This
+    refactor decouples start from finish: POST without waitForFinish, then
+    poll ``/actor-runs/{id}`` every ``apify_poll_interval_seconds`` until
+    one of the TERMINAL_STATUSES, capped by ``wait_seconds`` (or the
+    ``apify_wait_seconds`` setting) as a hard total-timeout via
+    ``asyncio.wait_for``.
+
+    ``wait_seconds`` keeps the original kwarg name and position for
+    backwards compatibility, but its semantics changed: it is now the
+    total run-completion budget in seconds, not the per-HTTP-request
+    timeout.
+    """
+    total_timeout = float(wait_seconds if wait_seconds is not None else settings.apify_wait_seconds)
+    poll_interval = float(settings.apify_poll_interval_seconds)
+    # Per-request httpx timeout: enough for one poll + buffer. The total
+    # run budget is enforced by asyncio.wait_for around the poll loop.
+    request_timeout = poll_interval + 30.0
+
+    async with httpx.AsyncClient(timeout=request_timeout) as client:
+        # Step 1: kick off the run. No waitForFinish — server-side cap of
+        # 60s would silently truncate the wait for long-running actors.
         run_response = await client.post(
             f"{BASE_URL}/acts/{actor_id}/runs",
-            params={"token": settings.apify_api_token, "waitForFinish": wait_seconds or settings.apify_wait_seconds},
+            params={"token": settings.apify_api_token},
             json=actor_input,
         )
         run_response.raise_for_status()
         run_data = run_response.json().get("data", {})
+        run_id = run_data.get("id")
+        if not run_id:
+            return []
+
+        # Step 2: poll until the run hits a terminal status, bounded by
+        # the total timeout. asyncio.TimeoutError → operational failure.
+        try:
+            run_data = await asyncio.wait_for(
+                _poll_until_terminal(client, run_id, poll_interval),
+                timeout=total_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError(
+                f"apify run {run_id} (actor={actor_id}) did not finish "
+                f"within {total_timeout:.0f}s"
+            ) from exc
+
+        status = run_data.get("status")
+        if status != SUCCESS_STATUS:
+            raise RuntimeError(
+                f"apify run {run_id} (actor={actor_id}) ended with status={status}"
+            )
+
+        # Step 3: dataset read — the run is now actually complete.
         dataset_id = run_data.get("defaultDatasetId")
         if not dataset_id:
             return []
