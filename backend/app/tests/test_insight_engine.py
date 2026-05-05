@@ -207,6 +207,38 @@ def test_cross_market_match_picks_up_shared_match_key():
         assert m.us_engagement > m.de_engagement
 
 
+def test_cross_market_excludes_unknown_match_key():
+    """The match-key builder writes 'unknown' as a sentinel when no
+    useful key can be derived. Joining on that would yield spurious
+    matches between unrelated posts; the aggregation must drop those.
+    Covers Sprint-1 polish 0g."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        # Seed two extra assets — both with match_key='unknown'. Without the
+        # filter, this would surface as an extra cross-market match alongside
+        # the legit mk2-trailer-1 one.
+        us_unknown_post = _make_post(
+            session, data["us_channel"],
+            caption="random unrelated #thing", likes=42,
+            days_ago=4, url_suffix="us-unknown",
+        )
+        de_unknown_post = _make_post(
+            session, data["de_channel"],
+            caption="random unrelated DE", likes=10,
+            days_ago=4, url_suffix="de-unknown",
+        )
+        session.add(Asset(post_id=us_unknown_post.id, de_us_match_key="unknown"))
+        # Mixed-case to verify the filter is case-insensitive
+        session.add(Asset(post_id=de_unknown_post.id, de_us_match_key="Unknown"))
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        keys = [m.match_key for m in agg.cross_market_matches]
+        assert "unknown" not in [k.lower() for k in keys]
+        # The legit match is still there
+        assert any(k == "mk2-trailer-1" for k in keys)
+
+
 def test_coverage_pct_reflects_assets_with_title():
     with _session() as session:
         _seed_warnerbros_pair(session)

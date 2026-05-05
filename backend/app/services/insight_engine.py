@@ -409,11 +409,18 @@ def _cross_market_matches(
     de_post_ids = list(session.exec(de_post_ids_stmt).all())
     us_post_ids = list(session.exec(us_post_ids_stmt).all())
 
+    # Filter out NULL and the literal "unknown" sentinel — the match-key
+    # builder writes "unknown" when neither title nor placement-text yields
+    # a useful key, and joining on that bucket would produce spurious
+    # cross-market "matches" between unrelated posts.
+    _MATCH_KEY_EXCLUDED = {"unknown", ""}
+
     de_assets = list(
         session.exec(
             select(Asset)
             .where(Asset.post_id.in_(de_post_ids))
             .where(Asset.de_us_match_key.is_not(None))
+            .where(sa.func.lower(Asset.de_us_match_key) != "unknown")
         ).all()
     ) if de_post_ids else []
     us_assets = list(
@@ -421,11 +428,20 @@ def _cross_market_matches(
             select(Asset)
             .where(Asset.post_id.in_(us_post_ids))
             .where(Asset.de_us_match_key.is_not(None))
+            .where(sa.func.lower(Asset.de_us_match_key) != "unknown")
         ).all()
     ) if us_post_ids else []
 
-    de_by_key: dict[str, Asset] = {a.de_us_match_key: a for a in de_assets if a.de_us_match_key}
-    us_by_key: dict[str, Asset] = {a.de_us_match_key: a for a in us_assets if a.de_us_match_key}
+    de_by_key: dict[str, Asset] = {
+        a.de_us_match_key: a
+        for a in de_assets
+        if a.de_us_match_key and a.de_us_match_key.strip().lower() not in _MATCH_KEY_EXCLUDED
+    }
+    us_by_key: dict[str, Asset] = {
+        a.de_us_match_key: a
+        for a in us_assets
+        if a.de_us_match_key and a.de_us_match_key.strip().lower() not in _MATCH_KEY_EXCLUDED
+    }
     shared_keys = sorted(set(de_by_key.keys()) & set(us_by_key.keys()))
 
     matches: list[CrossMarketMatch] = []
@@ -641,7 +657,7 @@ def generate_weekly_report(
     window_days: int = 30,
     dry_run: bool = False,
     model: str = OPUS_MODEL_ALIAS,
-    max_tokens: int = 2000,
+    max_tokens: int = 8000,
     now: Optional[datetime] = None,
 ) -> InsightReport:
     """Build the aggregation, call Opus 4.7 once, return the merged report.

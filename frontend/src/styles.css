@@ -366,3 +366,4 @@ a:hover { text-decoration: underline; }
   overflow: auto;
 }
 .insight-notes ul { margin: 6px 0 0; padding-left: 22px; }
+.insight-slow-hint { border: 1px solid #f2c489; background: #fff7e6; }

@@ -199,27 +199,42 @@ function LLMOutput({ output, raw }) {
   );
 }
 
+// 60s slow-marker — purely informational ("dauert länger als erwartet"),
+// the request itself is NOT aborted because Opus 4.7 can legitimately take
+// 30-90s on the largest reports and aborting would surface a misleading
+// "failed" state. Bump if Wolf raises max_tokens beyond 8k.
+const SLOW_THRESHOLD_MS = 60_000;
+
 export default function InsightWeekly({ pair }) {
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'slow' | 'done' | 'error'
   const [windowDays, setWindowDays] = useState(30);
   const [dryRun, setDryRun] = useState(false);
 
   async function load() {
-    setLoading(true);
+    setStatus('loading');
     setError(null);
+
+    // Slow-state-timer: switches the UI to a calmer "still working" message
+    // after SLOW_THRESHOLD_MS so the user knows the call hasn't silently
+    // wedged. Cleared in finally regardless of outcome.
+    let slowTimer = setTimeout(() => setStatus((s) => (s === 'loading' ? 'slow' : s)), SLOW_THRESHOLD_MS);
     try {
       const data = await endpoints.insightsWeekly(pair, { windowDays, dryRun });
       setReport(data);
+      setStatus('done');
     } catch (err) {
       setError(err.message || String(err));
+      setStatus('error');
     } finally {
-      setLoading(false);
+      clearTimeout(slowTimer);
     }
   }
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [pair]);
+
+  const loading = status === 'loading' || status === 'slow';
 
   const label = report?.pair_label || FALLBACK_LABEL[pair] || pair;
 
@@ -249,14 +264,27 @@ export default function InsightWeekly({ pair }) {
         </div>
       </header>
 
-      {error && (
-        <div className="card insight-error">
-          <p className="section-kicker">Fehler</p>
-          <pre>{error}</pre>
+      {status === 'slow' && (
+        <div className="card insight-slow-hint">
+          <p className="section-kicker">Dauert länger</p>
+          <p>Report dauert länger als erwartet, bitte warten — Opus 4.7 antwortet bei großen Aggregations gelegentlich erst nach 60-90s. Kein Abbruch nötig.</p>
         </div>
       )}
 
-      {report && (
+      {status === 'error' && (
+        <div className="card insight-error">
+          <p className="section-kicker">Fehler</p>
+          <pre>{error}</pre>
+          {report?.raw_llm_text && (
+            <>
+              <p className="section-kicker">Roh-Antwort des Modells (Fallback)</p>
+              <pre className="insight-raw">{report.raw_llm_text}</pre>
+            </>
+          )}
+        </div>
+      )}
+
+      {report && status !== 'error' && (
         <>
           <CoverageBanner report={report} />
 
@@ -278,7 +306,7 @@ export default function InsightWeekly({ pair }) {
         </>
       )}
 
-      {!report && !error && loading && (
+      {!report && status === 'loading' && (
         <div className="card"><p>Generiere Report …</p></div>
       )}
 
