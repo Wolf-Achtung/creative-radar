@@ -61,6 +61,7 @@ class Market(str, Enum):
     DE = "DE"
     US = "US"
     INT = "INT"
+    UK = "UK"
     MIXED = "MIXED"
     UNKNOWN = "UNKNOWN"
 
