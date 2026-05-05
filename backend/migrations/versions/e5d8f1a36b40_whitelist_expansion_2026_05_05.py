@@ -183,8 +183,35 @@ def upgrade() -> None:
         )
     )
 
-    # Step 2c: H6 — drop the '@netflix' US/UNKNOWN YouTube row but only
-    # when the canonical 'Netflix' row exists, so we never create a gap.
+    # Step 2c: H6 — re-assign posts from '@netflix' YT to canonical
+    # 'Netflix' YT, then delete '@netflix'. Re-assign protects scraped
+    # post data from FK cascade. Both steps guarded by EXISTS check that
+    # the canonical Netflix row exists, so we never create a gap or
+    # orphan posts.
+    bind.execute(
+        sa.text(
+            f"""
+            UPDATE {SCHEMA}.post
+            SET channel_id = (
+                SELECT id FROM {SCHEMA}.channel
+                WHERE handle = 'Netflix'
+                  AND platform = 'youtube'
+                  AND market IN ('US', 'INT')
+                LIMIT 1
+            )
+            WHERE channel_id IN (
+                SELECT id FROM {SCHEMA}.channel
+                WHERE handle = '@netflix' AND platform = 'youtube'
+            )
+            AND EXISTS (
+                SELECT 1 FROM {SCHEMA}.channel
+                WHERE handle = 'Netflix'
+                  AND platform = 'youtube'
+                  AND market IN ('US', 'INT')
+            )
+            """
+        )
+    )
     bind.execute(
         sa.text(
             f"""
