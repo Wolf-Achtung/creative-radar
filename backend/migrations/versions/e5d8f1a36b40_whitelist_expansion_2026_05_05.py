@@ -133,7 +133,7 @@ def upgrade() -> None:
     # same migration, so we exit the per-migration transaction here.
     with op.get_context().autocommit_block():
         op.execute(
-            f"ALTER TYPE {SCHEMA}.market ADD VALUE IF NOT EXISTS 'UK'"
+            f"ALTER TYPE public.market ADD VALUE IF NOT EXISTS 'UK'"
         )
 
     # Step 2a: H1 — delete the younger duplicate of warnerbros US/TikTok,
