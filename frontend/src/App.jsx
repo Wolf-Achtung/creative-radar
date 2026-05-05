@@ -1,7 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { endpoints, proxyImageUrl } from './api/client';
+import InsightWeekly from './InsightWeekly';
 import './styles.css';
+
+// Lightweight URL-based view-switch. The app has a single page today, so
+// pulling in react-router for one extra route is overkill; matching the
+// pathname directly keeps the bundle lean and the routing visible at a
+// glance. Sprint-2 swaps this for react-router once we have ≥3 routes.
+function Router() {
+  const path = (typeof window !== 'undefined' ? window.location.pathname : '') || '';
+  const weeklyMatch = path.match(/^\/insights\/weekly\/([\w.-]+)\/?$/);
+  if (weeklyMatch) {
+    return <InsightWeekly pair={weeklyMatch[1]} />;
+  }
+  return <App />;
+}
 
 const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
 const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'DE/US Vergleich', 'Quellen'];
@@ -966,4 +980,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(<Router />);
