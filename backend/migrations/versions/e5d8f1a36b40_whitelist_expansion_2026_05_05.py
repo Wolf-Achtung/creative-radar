@@ -242,9 +242,9 @@ def upgrade() -> None:
         )
         VALUES (
             CAST(:id AS uuid), :name, :platform, :url, :handle,
-            CAST(:market AS {SCHEMA}.market),
+            CAST(:market AS public.market),
             :channel_type,
-            CAST(:priority AS {SCHEMA}.priority),
+            CAST(:priority AS public.priority),
             true, false, :notes,
             CAST(:channel_role AS {SCHEMA}.channel_role),
             'P1', 'apify', true, :category, :import_source, NOW(), NOW()
