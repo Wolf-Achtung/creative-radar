@@ -99,6 +99,10 @@ export const endpoints = {
   runApifyMonitor: (payload) => api('/api/monitor/apify-instagram', { method: 'POST', body: JSON.stringify(payload) }),
   runTikTokMonitor: (payload) => api('/api/monitor/apify-tiktok', { method: 'POST', body: JSON.stringify(payload) }),
   insightsOverview: () => api('/api/insights/overview'),
+  insightsWeekly: (pair, { windowDays = 30, dryRun = false } = {}) => {
+    const params = new URLSearchParams({ pair, window_days: String(windowDays), dry_run: String(dryRun) });
+    return api(`/api/insights/weekly?${params.toString()}`);
+  },
   assets: () => api('/api/assets'),
   reviewAsset: (id, payload) => api(`/api/assets/${id}/review`, { method: 'PATCH', body: JSON.stringify(payload) }),
   analyzeAssetVisual: (id) => api(`/api/assets/${id}/analyze-visual`, { method: 'POST' }),

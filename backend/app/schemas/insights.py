@@ -1,0 +1,146 @@
+"""Pydantic schemas for the weekly insight report (Sprint 1 — Insight-Engine MVP).
+
+The ``InsightReport`` is what ``GET /api/insights/weekly`` returns. It is a
+union of three concerns:
+
+1. ``aggregation`` — the deterministic, audit-friendly view of the raw data
+   the LLM was given. Wolf reads this when a report feels off, to decide
+   whether the issue is a prompt issue or a data issue.
+2. ``llm_output`` — the strategist-facing narrative produced by Opus 4.7.
+   Set to ``None`` when the endpoint is called with ``dry_run=true``, so
+   the prompt + data can be QA'd without spending tokens.
+3. ``coverage_pct`` / ``model`` / ``cost_usd_estimate`` / ``generated_at`` —
+   meta the Frontend uses for the caveat banner above the report.
+
+Sprint-2 work (cron-cached reports, daily pulse, more pairs) reuses these
+schemas without changes; the only thing that grows is the lookup map in
+``services/insight_engine.PAIRS``.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, Field
+
+
+class TopPost(BaseModel):
+    post_url: str
+    caption_excerpt: str
+    duration_seconds: Optional[int]
+    engagement_sum: int
+    likes: Optional[int]
+    comments: Optional[int]
+    shares: Optional[int]
+    saves: Optional[int]
+    views: Optional[int]
+    asset_type: Optional[str] = None
+    title: Optional[str] = None
+    published_at: Optional[datetime] = None
+
+
+class HashtagFrequency(BaseModel):
+    tag: str
+    count: int
+
+
+class ChannelStats(BaseModel):
+    handle: str
+    market: str
+    channel_id: Optional[str]
+    channel_found: bool
+    posts_count: int
+    assets_count: int
+    coverage_pct: float
+    top_hashtags: list[HashtagFrequency]
+    avg_caption_length: float
+    avg_duration_seconds: Optional[float]
+    duration_buckets: dict[str, int]
+    top_posts: list[TopPost]
+    avg_engagement: float
+
+
+class CrossMarketMatch(BaseModel):
+    match_key: str
+    title: Optional[str]
+    de_engagement: int
+    us_engagement: int
+    de_duration_seconds: Optional[int]
+    us_duration_seconds: Optional[int]
+    de_post_url: Optional[str]
+    us_post_url: Optional[str]
+    de_caption_excerpt: Optional[str]
+    us_caption_excerpt: Optional[str]
+
+
+class TitleCoverage(BaseModel):
+    titles_in_both_markets: list[str]
+    de_only_titles: list[str]
+    us_only_titles: list[str]
+    de_assets_with_title: int
+    de_assets_total: int
+    us_assets_with_title: int
+    us_assets_total: int
+    overall_coverage_pct: float
+
+
+class PairAggregation(BaseModel):
+    pair_key: str
+    pair_label: str
+    platform: str
+    window_days: int
+    window_start: datetime
+    window_end: datetime
+    iso_week: int
+    iso_year: int
+    de_channel: Optional[ChannelStats]
+    us_channel: Optional[ChannelStats]
+    cross_market_matches: list[CrossMarketMatch]
+    title_coverage: TitleCoverage
+    notes: list[str]
+
+
+class Trend(BaseModel):
+    name: str
+    evidence: str
+    implication_for_creation: str
+
+
+class Action(BaseModel):
+    what: str
+    why: str
+    for_whom: str
+
+
+class CrossMarketInsight(BaseModel):
+    de_vs_us: str
+    transfer_opportunity: str
+
+
+class LLMReport(BaseModel):
+    headline: str
+    tldr: str
+    trends: list[Trend]
+    actions: list[Action]
+    cross_market_insight: CrossMarketInsight
+    risks: list[str]
+    data_caveats: list[str]
+
+
+class InsightReport(BaseModel):
+    pair_key: str
+    pair_label: str
+    iso_week: int
+    iso_year: int
+    window_days: int
+    coverage_pct: float
+    generated_at: datetime
+    model: str
+    dry_run: bool = False
+    llm_output: Optional[LLMReport] = None
+    aggregation: PairAggregation
+    cost_usd_estimate: Optional[float] = None
+    raw_llm_text: Optional[str] = Field(
+        default=None,
+        description="Raw assistant text — populated only when JSON parsing fails, to surface the failure in the response without losing the LLM's reply.",
+    )
