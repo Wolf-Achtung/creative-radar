@@ -25,7 +25,15 @@ class Settings(BaseSettings):
     apify_instagram_actor_id: str = "apify~instagram-scraper"
     apify_tiktok_actor_id: str = "clockworks~tiktok-scraper"
     apify_results_limit_per_channel: int = 5
-    apify_wait_seconds: int = 60
+    # Total budget for one Apify actor run, in seconds. Was 60 (the
+    # server-side ``waitForFinish`` cap) before the async-polling refactor;
+    # is now the timeout enforced via ``asyncio.wait_for`` around the poll
+    # loop, so it can safely be much larger than 60s. 1800s (30 min) covers
+    # the long IG runs that previously returned raw_items=0 because the
+    # dataset was read before the actor had finished.
+    apify_wait_seconds: int = 1800
+    # Interval between status polls of an in-flight Apify actor run.
+    apify_poll_interval_seconds: int = 10
 
     # YouTube Data API v3 (Sprint 5.2.3). Free tier is 10k quota units/day;
     # one channel sync = 3 units (channels.list + playlistItems.list +
