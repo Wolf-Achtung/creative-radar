@@ -265,6 +265,51 @@ def test_missing_channels_record_notes_but_dont_crash():
         assert any("US-Channel" in n for n in agg.notes)
 
 
+# ---------- Sprint-2: PAIRS-Registry-Konsistenz ----------------------------
+
+
+@pytest.mark.parametrize("pair_key", sorted(insight_engine.PAIRS.keys()))
+def test_pairs_registry_schema(pair_key: str):
+    """Jeder PAIRS-Eintrag muss das Sprint-2-Schema erfüllen: label, platform,
+    channels (DE+US), enabled, reason. Verhindert, dass eine neue Pair-PR
+    versehentlich einen Schlüssel vergisst und das Endpoint dann mit
+    KeyError stirbt."""
+    pair_def = insight_engine.PAIRS[pair_key]
+    assert isinstance(pair_def.get("label"), str) and pair_def["label"]
+    assert pair_def.get("platform") == "tiktok", "Tier-A-Scope ist TikTok-only"
+    assert isinstance(pair_def.get("enabled"), bool)
+    if not pair_def["enabled"]:
+        assert pair_def.get("reason"), "disabled pair muss reason haben"
+    channels = pair_def.get("channels") or []
+    assert len(channels) == 2, "Pair hat genau einen DE- und einen US-Channel"
+    markets = {c["market"] for c in channels}
+    assert markets == {"DE", "US"}
+    for c in channels:
+        assert isinstance(c.get("handle"), str) and c["handle"], (
+            f"Channel-Handle fehlt für {pair_key}/{c.get('market')}"
+        )
+
+
+@pytest.mark.parametrize(
+    "pair_key",
+    sorted(k for k, v in insight_engine.PAIRS.items() if v.get("enabled", True)),
+)
+def test_aggregate_pair_handles_missing_channels_for_all_enabled_pairs(pair_key: str):
+    """Pair-agnostische Sicherheit: aggregate_pair darf für JEDEN aktivierten
+    Pair gegen eine leere DB laufen und liefert eine valide Aggregation mit
+    Notes statt zu crashen. Schmale Garantie, aber sie greift, sobald eine
+    neue Pair-Konfig den Endpoint trifft, bevor die Channels onboarded sind."""
+    with _session() as session:
+        agg = insight_engine.aggregate_pair(session, pair_key, window_days=30)
+        assert agg.pair_key == pair_key
+        assert agg.platform == "tiktok"
+        assert agg.us_channel is not None and agg.de_channel is not None
+        assert agg.us_channel.channel_found is False
+        assert agg.de_channel.channel_found is False
+        assert any("DE-Channel" in n for n in agg.notes)
+        assert any("US-Channel" in n for n in agg.notes)
+
+
 def test_window_filters_old_posts():
     with _session() as session:
         data = _seed_warnerbros_pair(session)

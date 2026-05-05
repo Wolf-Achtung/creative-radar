@@ -51,10 +51,28 @@ logger = logging.getLogger(__name__)
 
 # ---------- Pair registry ---------------------------------------------------
 
-# Hardcoded for the MVP. Sprint-2 promotes this to a DB-backed config table
-# (see roadmap doc) once the 0d-Apify fix gives us reliable IG coverage for
-# the other Tier-A pairs. The platform field is locked to TikTok because the
-# Sprint-1 success criterion is specifically "TT-Coverage works for warnerbros".
+# Sprint-2: registry expanded to the seven Tier-A DE+US TikTok pairs from the
+# whitelist-expansion migration ``e5d8f1a36b40``. Six pairs are enabled today;
+# ``universalpictures`` ships as a disabled placeholder until both channels
+# clear the activation threshold (>=3 posts/30d on each side). Endpoint logic
+# in ``api/insights.py`` returns 503 with the structured ``reason`` so the
+# Frontend can render a "coming soon" state without a config push.
+#
+# Promotion to a DB-backed config table is still on the roadmap (Sprint-3+);
+# until then a new pair is a single PR touching this dict and the Frontend
+# fallback label map. ``aggregate_pair`` records missing channels in
+# ``notes`` rather than crashing, so a handle drift between this dict and
+# the production DB is observable in the report rather than fatal.
+#
+# Each entry must define:
+# - ``label``: human-readable, shown in the Frontend hero ("<key> DE+US").
+# - ``platform``: locked to TikTok for the Tier-A scope.
+# - ``channels``: list of {handle, market}. Order is irrelevant; lookups
+#   pick by market.
+# - ``enabled``: bool. When False, the endpoint short-circuits to 503 before
+#   touching the DB or the LLM.
+# - ``reason``: required when ``enabled=False``. Surfaced to the Frontend
+#   as the disable-explanation. May be None when ``enabled=True``.
 PAIRS: dict[str, dict[str, Any]] = {
     "warnerbros": {
         "label": "warnerbros DE+US",
@@ -67,6 +85,77 @@ PAIRS: dict[str, dict[str, Any]] = {
             # records that in ``notes`` rather than failing.
             {"handle": "warnerbrosdeutschland", "market": "DE"},
         ],
+        "enabled": True,
+        "reason": None,
+    },
+    "sonypictures": {
+        "label": "sonypictures DE+US",
+        "platform": "tiktok",
+        "channels": [
+            {"handle": "sonypictures", "market": "US"},
+            {"handle": "sonypicturesgermany", "market": "DE"},
+        ],
+        "enabled": True,
+        "reason": None,
+    },
+    "primevideo": {
+        "label": "primevideo DE+US",
+        "platform": "tiktok",
+        "channels": [
+            {"handle": "primevideo", "market": "US"},
+            {"handle": "primevideode", "market": "DE"},
+        ],
+        "enabled": True,
+        "reason": None,
+    },
+    "disney": {
+        "label": "disney DE+US",
+        "platform": "tiktok",
+        "channels": [
+            # Wolf-spec handle. The whitelist-expansion migration registers
+            # ``disneystudios`` and ``disneyanimation`` for US Disney; if
+            # ``disney`` is not the production handle for the US side,
+            # ``aggregate_pair`` will surface that in ``notes``.
+            {"handle": "disney", "market": "US"},
+            {"handle": "disneyde", "market": "DE"},
+        ],
+        "enabled": True,
+        "reason": None,
+    },
+    "netflix": {
+        "label": "netflix DE+US",
+        "platform": "tiktok",
+        "channels": [
+            {"handle": "netflix", "market": "US"},
+            {"handle": "netflixde", "market": "DE"},
+        ],
+        "enabled": True,
+        "reason": None,
+    },
+    "paramountpictures": {
+        "label": "paramountpictures DE+US",
+        "platform": "tiktok",
+        "channels": [
+            # US handle is ``paramountpics``, not ``paramountpictures``
+            # (per migration e5d8f1a36b40 + Wolf brief).
+            {"handle": "paramountpics", "market": "US"},
+            {"handle": "paramountpicturesgermany", "market": "DE"},
+        ],
+        "enabled": True,
+        "reason": None,
+    },
+    "universalpictures": {
+        "label": "universalpictures DE+US",
+        "platform": "tiktok",
+        "channels": [
+            {"handle": "universalpictures", "market": "US"},
+            {"handle": "universalpicturesde", "market": "DE"},
+        ],
+        "enabled": False,
+        "reason": (
+            "US-Channel @universalpictures has 0 posts/30d, "
+            "pair will activate when both channels have >=3 posts/30d"
+        ),
     },
 }
 
