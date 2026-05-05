@@ -1,9 +1,39 @@
 import React, { useEffect, useState } from 'react';
 import { endpoints } from './api/client';
 
+// Pre-fetch labels — used when the URL pair-key arrives before the API
+// response (or when the API errors). Mirrors ``PAIRS`` in
+// ``backend/app/services/insight_engine.py`` 1:1; keep in sync when adding
+// or renaming pairs. The Sprint-2 set covers all seven Tier-A DE+US TT
+// pairs from migration ``e5d8f1a36b40`` — six enabled today, plus
+// ``universalpictures`` shipped as a disabled placeholder.
 const FALLBACK_LABEL = {
   warnerbros: 'warnerbros DE+US',
+  sonypictures: 'sonypictures DE+US',
+  primevideo: 'primevideo DE+US',
+  disney: 'disney DE+US',
+  netflix: 'netflix DE+US',
+  paramountpictures: 'paramountpictures DE+US',
+  universalpictures: 'universalpictures DE+US',
 };
+
+// Try to recognise the structured 503 body the backend sends for disabled
+// pairs (``api/insights.py``). ``api/client.js`` throws ``new Error(body)``
+// for non-OK responses, so the JSON arrives stringified in ``err.message``.
+// Returns ``{reason}`` when matched, otherwise ``null``.
+function parsePairNotActivated(errorMessage) {
+  if (!errorMessage || typeof errorMessage !== 'string') return null;
+  try {
+    const parsed = JSON.parse(errorMessage);
+    const detail = parsed?.detail ?? parsed;
+    if (detail && detail.error === 'pair_not_activated') {
+      return { reason: detail.reason || 'Pair ist aktuell deaktiviert.' };
+    }
+  } catch (_) {
+    // Not JSON or doesn't match the structured body — fall through.
+  }
+  return null;
+}
 
 function formatNumber(value) {
   if (value === null || value === undefined || value === '') return '—';
@@ -271,18 +301,29 @@ export default function InsightWeekly({ pair }) {
         </div>
       )}
 
-      {status === 'error' && (
-        <div className="card insight-error">
-          <p className="section-kicker">Fehler</p>
-          <pre>{error}</pre>
-          {report?.raw_llm_text && (
-            <>
-              <p className="section-kicker">Roh-Antwort des Modells (Fallback)</p>
-              <pre className="insight-raw">{report.raw_llm_text}</pre>
-            </>
-          )}
-        </div>
-      )}
+      {status === 'error' && (() => {
+        const disabled = parsePairNotActivated(error);
+        if (disabled) {
+          return (
+            <div className="card insight-error">
+              <p className="section-kicker">Pair noch nicht aktiviert</p>
+              <p>Dieser Pair ist noch nicht aktiviert. Grund: {disabled.reason}</p>
+            </div>
+          );
+        }
+        return (
+          <div className="card insight-error">
+            <p className="section-kicker">Fehler</p>
+            <pre>{error}</pre>
+            {report?.raw_llm_text && (
+              <>
+                <p className="section-kicker">Roh-Antwort des Modells (Fallback)</p>
+                <pre className="insight-raw">{report.raw_llm_text}</pre>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {report && status !== 'error' && (
         <>
