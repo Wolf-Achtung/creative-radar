@@ -16,13 +16,14 @@ Each path is exercised twice:
 """
 from __future__ import annotations
 
+import os
+import tempfile
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.config import settings
@@ -102,19 +103,30 @@ def test_persist_helper_skips_and_logs_when_capture_raises(caplog):
 # ---------- Shared infra for sync-path integration tests --------------
 
 
-def _shared_test_engine():
+def _shared_test_engine_for_path(path: str):
+    # Block 2: file-backed SQLite (instead of StaticPool + in-memory) so the
+    # async asset-creation pipeline's per-task Sessions can each hold their
+    # own connection.
     return create_engine(
-        "sqlite://",
+        f"sqlite:///{path}",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
     )
 
 
 @pytest.fixture
 def db():
-    engine = _shared_test_engine()
+    fd, path = tempfile.mkstemp(prefix="cr_persist_", suffix=".db")
+    os.close(fd)
+    engine = _shared_test_engine_for_path(path)
     SQLModel.metadata.create_all(engine)
-    return engine
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 @pytest.fixture
@@ -191,9 +203,13 @@ def test_apify_instagram_monitor_persists_screenshot(client, db):
         captured.append(result.evidence_url)
         return result
 
+    async def fake_capture_async(asset):
+        return fake_capture(asset)
+
     with patch("app.api.monitor.run_public_channel_monitor",
                new_callable=AsyncMock, return_value=[_ig_raw_item()]), \
-         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=fake_capture):
+         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=fake_capture), \
+         patch.object(persistence_mod, "capture_asset_screenshot_async", side_effect=fake_capture_async):
         response = client.post(
             "/api/monitor/apify-instagram",
             json={"channel_ids": [str(channel.id)], "max_channels": 1,
@@ -217,9 +233,13 @@ def test_apify_instagram_monitor_skip_and_log_on_capture_failure(client, db, cap
     def failing_capture(_asset):
         raise RuntimeError("CDN unreachable")
 
+    async def failing_capture_async(_asset):
+        raise RuntimeError("CDN unreachable")
+
     with patch("app.api.monitor.run_public_channel_monitor",
                new_callable=AsyncMock, return_value=[_ig_raw_item()]), \
-         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=failing_capture):
+         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=failing_capture), \
+         patch.object(persistence_mod, "capture_asset_screenshot_async", side_effect=failing_capture_async):
         with caplog.at_level("WARNING", logger=persistence_mod.logger.name):
             response = client.post(
                 "/api/monitor/apify-instagram",
@@ -262,9 +282,13 @@ def test_apify_tiktok_monitor_persists_screenshot(client, db):
         captured.append(result.evidence_url)
         return result
 
+    async def fake_capture_async(asset):
+        return fake_capture(asset)
+
     with patch("app.api.monitor.run_tiktok_profile_monitor",
                new_callable=AsyncMock, return_value=[_tiktok_raw_item()]), \
-         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=fake_capture):
+         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=fake_capture), \
+         patch.object(persistence_mod, "capture_asset_screenshot_async", side_effect=fake_capture_async):
         response = client.post(
             "/api/monitor/apify-tiktok",
             json={"channel_ids": [str(channel.id)], "usernames": [],
@@ -287,9 +311,13 @@ def test_apify_tiktok_monitor_skip_and_log_on_capture_failure(client, db, caplog
     def failing_capture(_asset):
         raise RuntimeError("S3 timeout")
 
+    async def failing_capture_async(_asset):
+        raise RuntimeError("S3 timeout")
+
     with patch("app.api.monitor.run_tiktok_profile_monitor",
                new_callable=AsyncMock, return_value=[_tiktok_raw_item()]), \
-         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=failing_capture):
+         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=failing_capture), \
+         patch.object(persistence_mod, "capture_asset_screenshot_async", side_effect=failing_capture_async):
         with caplog.at_level("WARNING", logger=persistence_mod.logger.name):
             response = client.post(
                 "/api/monitor/apify-tiktok",
