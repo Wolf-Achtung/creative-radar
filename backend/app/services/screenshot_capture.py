@@ -63,39 +63,80 @@ def _safe_extension(content_type: str) -> str:
     return extension
 
 
+def _process_response(
+    asset: Asset,
+    source: str,
+    response: httpx.Response,
+) -> VisualEvidenceResult | None:
+    """Validate one HTTP response; on success upload to storage and return
+    a captured result. Returns None to signal "skip this source, try next"
+    (HTTP 4xx/5xx, non-image content-type, payload too small). Returns a
+    ``fetch_failed`` result when storage.put raises — that one is terminal
+    because the bytes were already downloaded."""
+    if response.status_code >= 400:
+        return None
+    content_type = (response.headers.get("content-type") or "").lower().split(";")[0].strip() or "image/jpeg"
+    if not content_type.startswith("image/"):
+        return None
+    payload = response.content or b""
+    if len(payload) < 1024:
+        return None
+    storage = get_storage()
+    key = f"evidence/{asset.id}_{uuid4().hex}.{_safe_extension(content_type)}"
+    try:
+        storage.put(key, payload, content_type)
+    except Exception:
+        return VisualEvidenceResult(status="fetch_failed")
+    captured_at = datetime.now(timezone.utc).isoformat()
+    return VisualEvidenceResult(
+        status="captured",
+        evidence_url=key,
+        source_url=source,
+        thumbnail_url=asset.thumbnail_url,
+        captured_at=captured_at,
+    )
+
+
 def capture_asset_screenshot(asset: Asset) -> VisualEvidenceResult:
     sources = _candidate_sources(asset)
     if not sources:
         return VisualEvidenceResult(status="no_source")
 
-    storage = get_storage()
-
     with httpx.Client(timeout=12, follow_redirects=True) as client:
         for source in sources:
             try:
                 response = client.get(source)
-                if response.status_code >= 400:
-                    continue
-                content_type = (response.headers.get("content-type") or "").lower().split(";")[0].strip() or "image/jpeg"
-                if not content_type.startswith("image/"):
-                    continue
-                payload = response.content or b""
-                if len(payload) < 1024:
-                    continue
-                key = f"evidence/{asset.id}_{uuid4().hex}.{_safe_extension(content_type)}"
-                try:
-                    storage.put(key, payload, content_type)
-                except Exception:
-                    return VisualEvidenceResult(status="fetch_failed")
-                captured_at = datetime.now(timezone.utc).isoformat()
-                return VisualEvidenceResult(
-                    status="captured",
-                    evidence_url=key,
-                    source_url=source,
-                    thumbnail_url=asset.thumbnail_url,
-                    captured_at=captured_at,
-                )
             except Exception:
                 continue
+            result = _process_response(asset, source, response)
+            if result is not None:
+                return result
+
+    return VisualEvidenceResult(status="fetch_failed")
+
+
+async def capture_asset_screenshot_async(asset: Asset) -> VisualEvidenceResult:
+    """Async sibling of ``capture_asset_screenshot`` (Block 2 / async refactor).
+
+    Identical fallback ladder, identical storage write. The only behavioural
+    difference is that the per-source GET runs on ``httpx.AsyncClient`` so
+    the call can be awaited concurrently with siblings under a Semaphore.
+
+    ``storage.put`` (S3 / R2) is still synchronous, but it runs after the
+    GET — so under per-call concurrency=10 it doesn't bottleneck the event
+    loop more than the sync version did under sequential calls."""
+    sources = _candidate_sources(asset)
+    if not sources:
+        return VisualEvidenceResult(status="no_source")
+
+    async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+        for source in sources:
+            try:
+                response = await client.get(source)
+            except Exception:
+                continue
+            result = _process_response(asset, source, response)
+            if result is not None:
+                return result
 
     return VisualEvidenceResult(status="fetch_failed")
