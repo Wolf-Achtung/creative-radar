@@ -58,6 +58,11 @@ class ChannelStats(BaseModel):
     duration_buckets: dict[str, int]
     top_posts: list[TopPost]
     avg_engagement: float
+    # Sprint-Trailerhaus-Prompt-v1: top historical posts from BEFORE the
+    # current window. The LLM uses these as ground truth for the
+    # ``vergleichbare_posts`` section. Default empty so existing fixtures
+    # and old reports remain valid.
+    historical_top_posts: list[TopPost] = []
 
 
 class CrossMarketMatch(BaseModel):
@@ -117,7 +122,65 @@ class CrossMarketInsight(BaseModel):
     transfer_opportunity: str
 
 
+class Tonalitaet(BaseModel):
+    """A single Tonalitäts-Adjektiv with a one-sentence Trailerhaus-Begründung
+    rooted in the data. The pool is fixed in the system prompt; the LLM picks
+    3-5 adjectives that match the week's evidence."""
+    adjektiv: str
+    begruendung: str
+
+
+class WatchOut(BaseModel):
+    """Replacement for the unstructured ``risks`` list. ``watch_out`` is the
+    observation, ``konsequenz`` is what it changes for the cut. ``risks``
+    stays on ``LLMReport`` as a string-list alias for backwards-compat."""
+    watch_out: str
+    konsequenz: str
+
+
+class FuerCutter(BaseModel):
+    schnitt_pace: Optional[str] = None
+    hook_strategie: Optional[str] = None
+    empfohlene_laengen: Optional[str] = None
+    must_show: list[str] = []
+    no_go: list[str] = []
+
+
+class FuerMotionDesigner(BaseModel):
+    caption_style: Optional[str] = None
+    text_overlay: Optional[str] = None
+    branding_einsatz: Optional[str] = None
+
+
+class FuerCreativeProducer(BaseModel):
+    strategische_pattern: Optional[str] = None
+    cross_market_chancen: Optional[str] = None
+    format_empfehlungen: Optional[str] = None
+
+
+class VergleichbarerPost(BaseModel):
+    """A historical post the LLM picked as a reference for the cutter.
+    All fields optional so the model can degrade gracefully when the data
+    package is thin (e.g. missing post_id on older rows)."""
+    post_id: Optional[str] = None
+    handle: Optional[str] = None
+    performance_kpi: Optional[str] = None
+    relevanz_grund: Optional[str] = None
+
+
 class LLMReport(BaseModel):
+    """Strategist-facing narrative produced by Opus 4.7.
+
+    Sprint-Trailerhaus-Prompt-v1 extends the schema additively:
+    - Original Sprint-1 fields (headline … data_caveats) remain required so
+      existing reports still validate.
+    - New role-oriented sections (tonalitaet, watch_outs, fuer_cutter,
+      fuer_motion_designer, fuer_creative_producer, vergleichbare_posts)
+      are Optional so older saved reports and a defensive parse-fallback
+      both still load.
+    - ``watch_outs`` is the structured replacement for ``risks``; keep both
+      until the Frontend has migrated.
+    """
     headline: str
     tldr: str
     trends: list[Trend]
@@ -125,6 +188,13 @@ class LLMReport(BaseModel):
     cross_market_insight: CrossMarketInsight
     risks: list[str]
     data_caveats: list[str]
+    # --- New (Trailerhaus-Prompt-v1, all optional for backwards-compat) ---
+    tonalitaet: Optional[list[Tonalitaet]] = None
+    watch_outs: Optional[list[WatchOut]] = None
+    fuer_cutter: Optional[FuerCutter] = None
+    fuer_motion_designer: Optional[FuerMotionDesigner] = None
+    fuer_creative_producer: Optional[FuerCreativeProducer] = None
+    vergleichbare_posts: Optional[list[VergleichbarerPost]] = None
 
 
 class InsightReport(BaseModel):
