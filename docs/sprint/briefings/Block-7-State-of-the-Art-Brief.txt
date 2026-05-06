@@ -1,0 +1,204 @@
+BRIEFING — Block 7: State-of-the-Art-Brief (horizontaler Branchen-Brief)
+
+Operating-Modus: Master-Plan, Diagnose-First, Code-Sprint
+Branch: claude/state-of-the-art-brief-block-7
+Vorbedingung: Block 1 v2 (Trailerhaus-Voice + Konkurrenz-Sektion) gemerged ✓
+
+==============================================================
+1 — KONTEXT
+==============================================================
+Aktuell liefert Creative Radar 6 Pair-Briefe (warnerbros, sony, prime,
+disney, netflix, paramount). Das ist taktisch wertvoll, aber Cutter und
+Producer haben Wolf am 06.05. zurückgemeldet: "Was machen die anderen
+generell?" — eine horizontale Schicht über alle Pairs hinweg fehlt.
+
+Der konkurrenz-Block, der in Block 1 v2 hinzugefügt wurde, ist nur ein
+Patch innerhalb jedes Pair-Briefs — sechsmal redundant, je vom LLM aus
+Pair-Sicht geschrieben. Block 7 baut den eigenständigen Branchen-Brief.
+
+==============================================================
+2 — ZIEL
+==============================================================
+Ein zusätzlicher Brief-Typ, der nicht ein Studio analysiert, sondern alle
+6 Pairs zusammen aggregiert. Ein Cutter öffnet ihn und weiß sofort:
+- Was musst du diese Woche gesehen haben? (Top 5 Posts über alle Studios)
+- Was machen alle gerade? (Plattform- und Genre-übergreifende Pattern)
+- Was sollst du beim nächsten Schnitt im Hinterkopf haben?
+
+Der Brief ist projektübergreifend gedacht — Inspiration und Niveau-Anker.
+
+==============================================================
+3 — KONZEPT
+==============================================================
+Ein neuer Pair-Slug "creative_radar" oder ähnlich, der nicht für ein
+Studio steht, sondern den 7. Brief produziert. Im Frontend taucht er
+auf gleicher Hierarchie-Ebene auf wie die anderen 6.
+
+URL: app.creative-radar.de/insights/weekly/creative_radar
+Cron: gleicher Zeitplan wie die anderen 6, am Ende der Run-Sequenz
+LLM: gleicher Opus-Call, eigener System-Prompt, eigener User-Prompt mit
+     aggregierten Daten über alle Channels
+
+==============================================================
+4 — PRE-COMMITMENTS
+==============================================================
+1. Read-First:
+   - backend/app/services/insight_engine.py — wie wird der aktuelle
+     Brief gebaut? Wo ist der Übergang vom Daten-Sammeln zum LLM-Call?
+   - backend/app/api/insights.py — wie kommt pair=warnerbros in den
+     Service? Pair-Resolver-Logik verstehen, bevor wir einen "creative_radar"-
+     Pair-Slug erfinden.
+   - backend/app/schemas/insights.py — LLMReport-Schema. Reicht das, oder
+     brauchen wir ein eigenes State-of-the-Art-Schema?
+
+2. Eigener System-Prompt — NICHT den Trailerhaus-Voice-Prompt von Block
+   1 v2 wiederverwenden. Persona ist gleich (älterer Creative Producer,
+   Cutter-Sprache), aber der Output-Schema ist anders: keine DE-vs-US-
+   Sektion, keine fuer_motion_designer-Sektion, dafür eine "top_5_posts"-
+   Sektion mit Begründung pro Post.
+
+3. Aggregator-Funktion: Daten aller 6 Pairs mergen. NICHT 6 LLM-Calls
+   plus Meta-LLM, sondern ein einziger LLM-Call mit aggregierten Posts
+   im User-Message. Cost-Awareness.
+
+4. Backwards-Compatible: Bestehende 6 Pair-Briefe unverändert, kein
+   Schema-Bruch in LLMReport. State-of-the-Art-Brief ist additiv mit
+   eigenem Pydantic-Modell StateOfTheArtReport.
+
+5. Tests: 4 neue Tests:
+   - Aggregator liefert deduplizierte Posts über 6 Pairs
+   - Top-5-Auswahl ist nach Reaktionen sortiert (nicht alphabetisch)
+   - LLM-Call schickt aggregierte Daten, nicht pair-spezifische
+   - Pydantic-Schema validiert State-of-the-Art-Output
+
+6. Cost-Awareness: aggregierte User-Message ist größer als pro-Pair.
+   max_tokens prüfen, ggf. Daten-Slim-Down (nur Top-N Posts pro Channel).
+
+==============================================================
+5 — IMPLEMENTIERUNGS-SCHRITTE
+==============================================================
+
+Schritt 1 — Diagnose (30 Min):
+- insight_engine.py vollständig lesen, Pair-Pfad verstehen
+- api/insights.py: wie wird pair=warnerbros in Channels resolved?
+- schemas/insights.py: LLMReport vs. neue StateOfTheArtReport-Klasse?
+
+Schritt 2 — Pair-Resolver erweitern (30 Min):
+- Pair-Slug "creative_radar" einführen
+- Resolver: wenn pair=creative_radar, dann channels=alle aktiven Channels
+  über alle 6 Pairs (deduplizieren)
+
+Schritt 3 — Schema StateOfTheArtReport (45 Min):
+backend/app/schemas/insights.py:
+
+  class TopPostMitBegruendung(BaseModel):
+      post_id: str          # URL oder Slug
+      handle: str           # z.B. warnerbros
+      pair_key: str         # zur Herkunft-Anzeige
+      performance_kpi: str  # z.B. "267.000 Reaktionen, 20s"
+      relevanz_grund: str   # warum dieser Post diese Woche zählt
+
+  class BranchenMuster(BaseModel):
+      muster: str           # kurze Bezeichnung
+      belegt_durch: str     # konkrete Zahlen / Posts
+      konsequenz: str       # was Cutter daraus mitnimmt
+
+  class StateOfTheArtReport(BaseModel):
+      headline: str
+      tldr: str
+      top_5_posts: list[TopPostMitBegruendung]
+      branchen_muster: list[BranchenMuster]   # 3-5 Pattern
+      genre_bewegung: list[str]                # 2-3 Beobachtungen
+      format_trend: str                        # was steigt
+      neu_diese_woche: str                     # was vor 4 Wochen nicht da war
+      take_away_fuer_cutter: str               # 1-2 Sätze, projektübergreifend
+      data_caveats: list[str]
+
+Schritt 4 — System-Prompt für Branchen-Brief (45 Min):
+backend/app/services/insight_engine.py:
+
+  STATE_OF_THE_ART_SYSTEM_PROMPT = """\\
+  Du bist ein älterer Creative Producer bei Trailerhaus, einem Münchner
+  Studio für Trailer und Spots. Diesmal sprichst du nicht über ein
+  einzelnes Studio, sondern über die ganze Woche in der Branche —
+  Disney, Netflix, Warner, Sony, Prime und Paramount in einem Bild.
+
+  Stell dir vor, dein Cutter kommt Montag früh in den Schnittraum und
+  fragt: 'Was muss ich diese Woche gesehen haben?' — du antwortest mit
+  diesem Brief.
+
+  VOICE: identisch zu Block 1 v2 (Cutter-Sprache, Rhythmus statt Pace,
+  knallt/sitzt/trägt, keine Marketing-Floskeln, siehe SYSTEM_PROMPT
+  in dieser Datei für die volle Liste der Anti-Pattern).
+
+  AUFGABE:
+  - Picke die 5 stärksten Posts der Woche über alle 6 Studios
+  - Erkläre pro Post: warum ist der diese Woche gesetzt?
+  - Identifiziere 3-5 plattformübergreifende Muster (BTS, Cold-Open,
+    Cast-Reactions, Datums-Anker, etc.)
+  - Beschreibe die Genre-Bewegung (Horror knallt, Comedy verhalten)
+  - Sag was Format-Trend ist (was steigt, was fällt)
+  - Sag was neu ist gegenüber den letzten 4 Wochen
+  - Schreib einen projektübergreifenden Take-Away für Cutter
+
+  Daten kommen im User-Message. Wenn die Daten zu dünn sind, sag das
+  ehrlich in data_caveats.
+
+  OUTPUT: JSON nach dem StateOfTheArtReport-Schema, nichts anderes.
+  """
+
+  Plus Few-Shot-Beispiel mit synthetischen Daten in derselben Voice.
+
+Schritt 5 — Aggregator-Funktion (60 Min):
+backend/app/services/insight_engine.py: build_state_of_the_art_aggregation()
+- Input: alle Channels über alle 6 Pairs
+- Output: aggregierte Daten-Struktur fürs User-Message
+  - Top 30 Posts über alle Pairs (nach Reaktionen sortiert)
+  - Pro Channel: avg_reactions, avg_duration, top_3_hashtags
+  - Plattform-Verteilung (IG vs. TT)
+  - Genre-Annotation falls verfügbar (aus Title-Metadata)
+  - Letzte 4 Wochen vs. aktuelle Woche (für "neu seit"-Diagnose)
+
+Schritt 6 — API-Endpoint anpassen (30 Min):
+- /api/insights/weekly?pair=creative_radar erkennt den Spezial-Pair
+- Routet zu generate_state_of_the_art() statt generate_pair_report()
+- Frontend-Tab/Link für /insights/weekly/creative_radar
+
+Schritt 7 — Tests (45 Min):
+- 4 neue Tests wie unter Pre-Commitments §5
+- pytest-Smoke gegen sqlite
+
+Schritt 8 — Lokaler Smoke gegen Railway-DB (30 Min):
+- backend/scripts/smoke_state_of_the_art.py — analog zu
+  smoke_test_async_pool.py, generiert einen State-of-the-Art-Brief
+  gegen die echte DB, prüft Cost und Schema-Validierung
+
+Schritt 9 — PR mit Wolf-Quality-Gate (15 Min):
+PR-Body enthält:
+- Beispiel-Output (gekürzt) für Wolf-Sichtprüfung
+- Cost-Schätzung pro Brief
+- Frontend-TODO als Folge-Sprint markiert
+
+==============================================================
+6 — DEFINITION OF DONE
+==============================================================
+[ ] Pair-Slug "creative_radar" wird im Pair-Resolver erkannt
+[ ] StateOfTheArtReport-Schema mit 4 Sub-Klassen
+[ ] STATE_OF_THE_ART_SYSTEM_PROMPT mit Few-Shot
+[ ] Aggregator-Funktion über 6 Pairs, deduplizierte Top-Posts
+[ ] /api/insights/weekly?pair=creative_radar liefert State-of-the-Art-JSON
+[ ] 4 neue Tests grün
+[ ] Smoke-Test gegen Railway-DB grün, Cost dokumentiert
+[ ] PR-Body mit Beispiel-Output und Wolf-Quality-Gate
+
+==============================================================
+7 — EINSCHRÄNKUNGEN
+==============================================================
+- Frontend-Render des State-of-the-Art-Briefs ist OUT OF SCOPE. JSON
+  wird produziert, Frontend zeigt fallback-View bis dedicated Komponente
+  in einem Folge-Sprint kommt.
+- Kein Multi-Pass / Reasoning-Loop. Single-Shot Opus-Call wie bisher.
+- Cost-Budget: max $1.50 pro State-of-the-Art-Brief. Wenn aggregierte
+  User-Message darüber treibt, Daten-Slim-Down (Top-20 statt Top-30).
+- Cron-Integration ist OUT OF SCOPE. Brief wird vorerst on-demand via
+  GET-API generiert. Cron-Slot kommt in Folge-Sprint.
