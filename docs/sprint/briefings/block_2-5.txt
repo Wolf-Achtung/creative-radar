@@ -1,0 +1,184 @@
+BRIEFING — Block 2.5: Async-Refactor mit Pool-Tuning (Hotfix)
+
+Operating-Modus: Master-Plan, Diagnose-First, Code-Sprint
+Branch: claude/async-refactor-pool-tuning-2026-05-06
+Aufwand: 2-3h
+Vorbedingung: PR #79 wurde reverted (Commit 7f71845 auf main)
+
+==============================================================
+1 — KONTEXT
+==============================================================
+PR #79 wurde gemerged und auf Production deployed um 9:20 UTC 
+am 2026-05-06. Der erste Cron-Run mit dem neuen Async-Code 
+hat einen Connection-Pool-Storm ausgelöst:
+
+- Postgres-Logs zeigen mehrfach "Connection reset by peer", 
+  "unexpected EOF on client connection with an open 
+  transaction" zwischen 9:24 und 9:31 UTC
+- Run 4196eab4-46b4-43e4-8c91-ca8fe8c63dee hing 2h+ in 
+  status=running, completed_at=null (manuell als failed 
+  geflagged)
+- Folge-Cron-Trigger warfen psycopg2.OperationalError: 
+  connection timed out und InvalidatePoolError
+
+URSACHE (Diagnose):
+Der neue Per-Task-Session-Pattern in 
+_create_asset_from_item_async öffnet pro asyncio-Task 
+mehrere kurze Sessions (Phase 1, 4 + 2 implizite). Bei 
+261 IG-Items × 4 Phasen = bis zu 1044 kurze 
+Connection-Open/Close-Zyklen in kurzer Zeit. 
+Railway-Postgres + Standard-SQLAlchemy-Pool (default 
+pool_size=5, max_overflow=10) kommen damit nicht klar.
+
+PR #79 wurde 11:38 UTC reverted (Revert-Commit 7f71845). 
+Production läuft seit Revert auf altem synchronen Code 
+stabil. Diese Iteration korrigiert das Pool-Verhalten und 
+limitiert die Concurrency.
+
+==============================================================
+2 — ZIEL
+==============================================================
+1. Async-Refactor-Code aus PR #79 wiederherstellen (Tests, 
+   Architektur). PR #79-Commit referenzieren: 9066b58
+2. SQLAlchemy-Engine mit explizitem Connection-Pool-Config:
+   - pool_size=10
+   - max_overflow=10
+   - pool_pre_ping=True
+   - pool_recycle=300
+3. Concurrency-Limits reduzieren:
+   - OpenAI-Semaphore: 5 → 3
+   - HTTPX-Semaphore: 10 → 5
+4. Per-Task-Sessions konsolidieren: max 2 kurze Sessions 
+   pro Task statt 4 Phasen-Sessions
+5. Lokaler Smoke-Test gegen Railway-DB BEVOR Production-Merge
+
+==============================================================
+3 — PRE-COMMITMENTS
+==============================================================
+1. Read-First: PR #79-Diff aus git history holen 
+   (git show 9066b58). Verstehe das ursprüngliche 4-Phasen-
+   Pattern, bevor du es zu 2-Phasen umbaust.
+2. Read-First: backend/app/database.py — wie ist das 
+   Engine-Setup aktuell? pool_size irgendwo gesetzt?
+3. Pool-Config zentral in database.py mit klar 
+   dokumentierten Werten und Begründung als Comment.
+4. Concurrency-Konstanten als top-of-file MODULE_CONSTANTS 
+   in monitor.py, nicht inline magic numbers.
+5. Backwards-Compatible: API-Schema bleibt gleich. Nur 
+   Verhalten und Pool-Config ändern.
+6. Tests:
+   - Bestehende 5 PR79-Tests müssen grün sein (kopieren 
+     aus 9066b58)
+   - 1 neuer Test: pool_pre_ping=True ist gesetzt
+   - 1 neuer Test: Concurrency-Konstanten <= pool_size + 
+     max_overflow (Pool-Budget-Check)
+7. Lokaler Smoke-Test:
+   - backend/scripts/smoke_test_async_pool.py erstellen
+   - 50 Mock-Items, Concurrency=3, gegen Railway-DB
+   - Misst max-concurrent-connections via pg_stat_activity
+   - Erwartet: max-concurrent <= 15, errors=0
+8. PR-Body enthält klaren Rollback-Plan:
+   "Im Notfall: git revert <merge-sha> --no-edit -m 1 
+    && git push origin main"
+
+==============================================================
+4 — IMPLEMENTIERUNGS-SCHRITTE
+==============================================================
+
+Schritt 1 — Diagnose (20 Min):
+- git show 9066b58 -- backend/app/api/monitor.py | head -200
+- backend/app/database.py vollständig lesen
+- Notiz: aktuelle pool_size, max_overflow (default), 
+  pool_recycle (default 0 = nie)
+
+Schritt 2 — Engine-Config umbauen (20 Min):
+backend/app/database.py erweitern:
+
+  engine = create_engine(
+      DATABASE_URL,
+      pool_size=10,
+      max_overflow=10,
+      pool_pre_ping=True,
+      pool_recycle=300,
+      pool_use_lifo=True,
+      echo_pool=False,
+  )
+  
+Mit Comment-Block über Begründung (siehe Briefing).
+
+Schritt 3 — Concurrency-Konstanten (10 Min):
+backend/app/api/monitor.py top-of-file:
+
+  ASSET_CREATION_OPENAI_CONCURRENCY = 3  # PR79: 5
+  ASSET_CREATION_HTTPX_CONCURRENCY = 5   # PR79: 10
+
+Schritt 4 — Code aus PR #79 zurückholen + Per-Task-Session 
+konsolidieren (60 Min):
+- git show 9066b58 als Referenz
+- _create_asset_from_item_async neu schreiben mit:
+  - Phase A: schnelle DB-Phase (existing-check + Post-Insert) 
+    in einer kurzen Session
+  - Phase B: OpenAI async + HTTPX async (außerhalb DB-Session)
+  - Phase C: Asset-Insert in zweiter kurzer Session
+- _with_session(fn, engine) Helper für saubere Session-
+  Lifecycle-Management
+- _run_apify_sync_for_platform_async wie in PR #79
+
+Schritt 5 — Tests aus PR #79 wiederherstellen + 2 neue (30 Min):
+- Kopiere test_async_refactor_per_channel.py aus 9066b58
+- Adaptiere falls nötig (Per-Task-Session-Konsolidierung)
+- 2 neue Tests:
+  - test_engine_pool_pre_ping_enabled
+  - test_concurrency_constants_within_pool_budget
+
+Schritt 6 — Smoke-Test-Script (30 Min):
+backend/scripts/smoke_test_async_pool.py:
+
+  import asyncio
+  from app.database import engine
+  from sqlalchemy import text
+  
+  async def main():
+      # Ruft 50× _create_asset_from_item_async mit Mock-Items
+      # Misst pg_stat_activity während der Ausführung
+      # Erwartet: max_concurrent <= 15, errors == 0
+      pass
+  
+  if __name__ == "__main__":
+      asyncio.run(main())
+
+Schritt 7 — PR-Body schreiben + Wolf-Quality-Gate (15 Min):
+- Diagnose-Befunde aus 9:20-Run referenzieren
+- Code-Diff-Highlights vs PR #79
+- Lokal-Smoke-Test-Output in PR-Body
+- Wolf-Ping mit Frage: "Lokaler Smoke-Test grün — 
+  ready to merge? Production-Cron-Test nach Merge?"
+
+==============================================================
+5 — DEFINITION OF DONE
+==============================================================
+[ ] Engine in database.py mit Pool-Config + Comments
+[ ] Concurrency-Konstanten reduziert + dokumentiert (3/5)
+[ ] Per-Task-Session konsolidiert (max 2 Sessions pro Task)
+[ ] PR79-Tests wiederhergestellt + grün (5 Tests)
+[ ] 2 neue Tests grün (Pool-Pre-Ping + Pool-Budget)
+[ ] Smoke-Test-Script erstellt
+[ ] Lokaler Smoke gegen Railway-DB grün (50 Items, 0 Errors)
+[ ] PR-Body mit Rollback-Commands
+[ ] Tagesbericht
+
+==============================================================
+6 — EINSCHRÄNKUNGEN
+==============================================================
+- Falls lokal-gegen-Railway-DB Smoke-Test scheitert: STOP. 
+  Wolf-Ping mit Befund. Nicht spekulativ weitercodern.
+- Falls Pool-Tuning allein nicht reicht: Fallback ist 
+  Sequential-Pro-Channel statt Parallel-Pro-Item. Eigenes 
+  Briefing nötig.
+- Vision-Pipeline-Async OUT OF SCOPE.
+- Kein Force-Merge ohne Wolf-Quality-Gate. PR muss erst 
+  smoke-tested sein.
+
+
+
+

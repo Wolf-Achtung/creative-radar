@@ -1,0 +1,124 @@
+BRIEFING — Block 2: Async-Refactor + Per-Channel-Error-Isolation
+
+Operating-Modus: Master-Plan, Diagnose-First, Code-Sprint
+Branch: claude/async-refactor-per-channel-isolation-2026-05-06
+Aufwand: 3-4h
+Vorbedingung: PR #78 gemerged (Block 1 Trailerhaus-Prompt 
+               auf main)
+
+==============================================================
+1 — KONTEXT
+==============================================================
+Diagnose-PR #76 hat eine latente Sync-Latenz im Cron-Pfad 
+identifiziert:
+
+backend/app/api/monitor.py:_create_asset_from_item führt pro 
+NEUEM Asset SYNCHRON aus:
+- 1× OpenAI-Text-Analyse-Call (~1-3s)
+- 1× httpx-Bilddownload (~1-2s)
+
+Bei 261 IG-Items × ~3s = ~13 Min reine Sync-Asset-Creation-
+Loop, die den Single-Worker-uvicorn-Event-Loop blockiert. 
+Folge: TT-Phase startet erst nach 13+ Min.
+
+ZWEITES PROBLEM: Per-Channel-Error-Isolation fehlt komplett.
+Ein einzelner defekter Channel kippt den ganzen Plattform-
+Sync (Blast-Radius 14 TT + 30 IG Channels).
+
+==============================================================
+2 — ZIEL
+==============================================================
+1. Asset-Creation async via asyncio.gather + Semaphore
+2. Per-Channel-Try/Except in _run_apify_sync_for_platform
+3. Failed-Channels in cron_run.summary_json["platforms"][p]
+   ["failed_channels"] persistieren
+
+==============================================================
+3 — PRE-COMMITMENTS
+==============================================================
+1. Diagnose-First: Erst monitor.py + cron.py-Aufrufer-Pfad 
+   + apify_connector.py vollständig lesen, dann Architektur.
+2. Async-Strategie: asyncio.gather mit Semaphore — 
+   Concurrency=5 für OpenAI, =10 für httpx
+3. Per-Channel-Isolation: pro Channel try/except, 
+   failed_channels-Liste in summary_json
+4. Cost-Awareness: Async-Refactor erhöht NICHT die OpenAI-
+   Cost (gleiche Calls), erlaubt aber Parallelisierung
+5. Backwards-Compatible: cron_run.summary_json bleibt 
+   schema-kompatibel, failed_channels ist additiv
+6. Tests: 4 neue Tests:
+   - 1 Channel von 3 wirft → andere succeeden, 
+     failed_channels[1]
+   - Alle 3 werfen → status="completed", failed_channels[3]
+   - Async-Asset-Creation: 10 Items parallel, kein deadlock
+   - Semaphore-Limit: 50 Items mit Limit=5 → max 5 parallel
+7. Tagesbericht statt Zwischenpings
+
+==============================================================
+4 — IMPLEMENTIERUNGS-SCHRITTE
+==============================================================
+
+Schritt 1 — Diagnose-Mini-Run (30 Min):
+- backend/app/api/monitor.py:_run_apify_sync_for_platform 
+- _create_asset_from_item Zeilen 85-150
+- backend/app/services/apify_connector.py vollständig
+- backend/app/services/cron.py:91-152 (Aufrufer)
+- backend/app/services/visual_analysis.py: sync oder async?
+
+Schritt 2 — Async _create_asset_from_item (60-90 Min):
+- Async def, async OpenAI-Client, httpx.AsyncClient
+- asyncio.gather mit Semaphore-Limit:
+
+  semaphore = asyncio.Semaphore(5)
+  async def bounded_create(item):
+      async with semaphore:
+          return await _create_asset_from_item(item)
+  results = await asyncio.gather(
+      *[bounded_create(item) for item in items],
+      return_exceptions=True
+  )
+
+Schritt 3 — Per-Channel-Try/Except (45-60 Min):
+- _run_apify_sync_for_platform refactor:
+  
+  failed_channels: list[dict] = []
+  for channel in channels:
+      try:
+          result = await run_apify_for_channel(channel)
+      except (RuntimeError, httpx.HTTPError, Exception) as e:
+          failed_channels.append({
+              "handle": channel.handle,
+              "market": channel.market,
+              "error_class": type(e).__name__,
+              "error_message": str(e)[:200],
+          })
+          logger.warning(f"Channel {channel.handle} failed: {e}")
+          continue
+  
+- summary_json["platforms"][platform]["failed_channels"] = 
+  failed_channels
+
+Schritt 4 — Tests + Smoke-Test (30-45 Min):
+- 4 neue Tests grün
+- Existing-Tests regressions-frei
+- Smoke-Test: Production-Trigger + 15 Min warten + 
+  cron_run.summary_json prüfen
+- Erwartet: duration <8 Min, failed_channels=[] bei normalem 
+  Lauf
+
+==============================================================
+5 — DEFINITION OF DONE
+==============================================================
+[ ] _create_asset_from_item async + asyncio.gather + Semaphore
+[ ] _run_apify_sync_for_platform mit Per-Channel-try/except
+[ ] cron_run.summary_json["platforms"][p]["failed_channels"]
+[ ] 4 neue Tests grün, existing regressions-frei
+[ ] Smoke-Test Production: duration <8 Min, status=completed
+[ ] PR-Body mit Diagnose-Befunden + Cost-Hebel-Kommentar
+[ ] Tagesbericht
+
+==============================================================
+6 — EINSCHRÄNKUNGEN
+==============================================================
+- Vision-Pipeline-Async OUT OF SCOPE
+- Apify-Per-Channel-Concurrency OUT OF SCOPE (sequenziell ok)

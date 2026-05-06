@@ -1,0 +1,105 @@
+Block 3 — Producer-Quality-Pass (Wolf-aktive Lese-Session)
+Block 3 ist kein Claude-Code-Sprint. Du machst das selbst — strukturierte Lese-Session über alle 6 Briefe mit dem neuen Trailerhaus-Prompt aus Block 1. Output ist eine Markdown-Notiz im Repo, die als Input für Block 4 dient.
+Schritt 1 — 6 frische Briefe triggern (1 Min)
+Direkt nach erfolgreichem Smoke-Test, oder jetzt parallel falls du Zeit hast:
+bashcd /Users/wolf/creative-radar
+for pair in warnerbros sonypictures primevideo disney netflix paramountpictures; do
+    echo "=== Triggering $pair ==="
+    curl -s -X POST "https://api.creative-radar.de/api/insights/weekly?pair=$pair" \
+      -H "Authorization: Bearer $API_TOKEN" \
+      | python3 -c "import sys, json; d=json.load(sys.stdin); print(f'  → status: {d.get(\"status\", \"?\")}, brief_id: {d.get(\"brief_id\", d.get(\"id\", \"?\"))}')"
+done
+Das triggert alle 6 parallel. Cost ~$2-3 (6 × ~$0.40 mit dem neuen Prompt).
+Schritt 2 — 3-4 Min warten
+Die Briefe brauchen jeweils ~30-60s. Nach 3-4 Min sind alle 6 fertig.
+Schritt 3 — Im Frontend lesen (45 Min)
+Öffne im Browser:
+
+https://app.creative-radar.de/insights/weekly/warnerbros
+https://app.creative-radar.de/insights/weekly/sonypictures
+https://app.creative-radar.de/insights/weekly/primevideo
+https://app.creative-radar.de/insights/weekly/disney
+https://app.creative-radar.de/insights/weekly/netflix
+https://app.creative-radar.de/insights/weekly/paramountpictures
+
+Falls die URLs leicht anders sind (z.B. /briefs/... oder /insights/...), nimm die richtigen — du kennst dein Frontend.
+Pro Brief 7-8 Min lesen, 5 Fragen beantworten:
+#FrageNotiz-Format1Headline: nutzbar (J/N)? Wenn N: warum?"J" / "N — zu generisch, kein Daten-Anker"2Stärkster Trend/Finding: welcher? Warum?"Trend 2 (Pace-Hebel) — konkrete Zahlen"3Schwächster Trend/Finding: welcher? Warum?"Trend 4 — generisch, kein Beleg"4Rollen-Sektionen: welche ist am wertvollsten? Welche fehlt oder ist überflüssig?"Cutter A+, Motion-Designer überflüssig (zu wenig Substanz)"5Vergleichbare Posts: hilfreich (J/N)? Konkret genug?"J — 4 echte URLs, alle relevant"
+Schritt 4 — Markdown-Notiz im Repo (10 Min)
+bashcd /Users/wolf/creative-radar
+mkdir -p docs/feedback
+cat > docs/feedback/PRODUCER_QUALITY_PASS_2026-05-06.md << 'EOF'
+# Producer-Quality-Pass — 2026-05-06
+
+Pass nach Block 1 (Trailerhaus-Voice-Prompt) auf 6 Tier-A-Pairs.
+
+## warnerbros
+1. Headline: 
+2. Stärkster Trend: 
+3. Schwächster Trend: 
+4. Rollen-Sektionen: 
+5. Vergleichbare Posts: 
+
+## sonypictures
+1. Headline: 
+2. Stärkster Trend: 
+3. Schwächster Trend: 
+4. Rollen-Sektionen: 
+5. Vergleichbare Posts: 
+
+## primevideo
+1. Headline: 
+2. Stärkster Trend: 
+3. Schwächster Trend: 
+4. Rollen-Sektionen: 
+5. Vergleichbare Posts: 
+
+## disney
+1. Headline: 
+2. Stärkster Trend: 
+3. Schwächster Trend: 
+4. Rollen-Sektionen: 
+5. Vergleichbare Posts: 
+
+## netflix
+1. Headline: 
+2. Stärkster Trend: 
+3. Schwächster Trend: 
+4. Rollen-Sektionen: 
+5. Vergleichbare Posts: 
+
+## paramountpictures
+1. Headline: 
+2. Stärkster Trend: 
+3. Schwächster Trend: 
+4. Rollen-Sektionen: 
+5. Vergleichbare Posts: 
+
+## Aggregierte Erkenntnisse
+
+### Sektionen, die in allen 6 Briefen stark sind
+- 
+
+### Sektionen, die in mehreren Briefen schwach sind
+- 
+
+### Pair-spezifische Probleme
+- 
+
+## Sofort-Anpassungen für Block 4 (Briefing-Templating)
+- Welche Sektionen sind Default in welchem View-Mode?
+- Welche Sektionen nur in "ganz genau" sichtbar?
+- Welche Sektionen ggf. aus Output entfernen?
+
+## Backlog für Prompt-Iteration #2 (Folge-Sprint)
+- 
+EOF
+
+# In Editor öffnen, ausfüllen, dann committen
+code docs/feedback/PRODUCER_QUALITY_PASS_2026-05-06.md  # oder nano/vim/...
+Nach Ausfüllen:
+bashgit add docs/feedback/PRODUCER_QUALITY_PASS_2026-05-06.md
+git commit -m "docs: producer quality pass 2026-05-06 — feedback over 6 Tier-A pairs"
+git push
+Schritt 5 — Optional: Trailerhaus-Mitarbeiter dazuholen
+Falls möglich (Cutter oder PM), 30 Min gemeinsam 2-3 der 6 Briefe lesen lassen. Notiere Abweichungen zur Producer-Perspektive in einer extra Sektion am Ende der Markdown-Notiz.

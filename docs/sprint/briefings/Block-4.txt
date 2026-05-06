@@ -1,0 +1,299 @@
+BRIEFING — Block 4: Briefing-Templating-Feature 
+                    + Längen-Modi (Multi-View)
+
+Operating-Modus: Master-Plan, Frontend + leichte Backend-
+                 Anpassung
+Branch: claude/briefing-templating-2026-05-06
+Aufwand: 2-4h
+Vorbedingung: 
+- Block 1 (Trailerhaus-Prompt) gemerged ✓
+- Block 2 (Async-Refactor) gemerged ✓
+- Block 3 (Producer-Quality-Pass) Output verfügbar unter
+  docs/feedback/PRODUCER_QUALITY_PASS_2026-05-06.md
+- 5 Kunden-Briefings unter docs/reference/client-briefings/
+  als Referenz für View-Mode-Strukturen
+
+==============================================================
+1 — KONZEPT
+==============================================================
+Trailerhaus-Producer öffnet einen Insight-Brief 
+(z.B. /insights/weekly/disney) und sieht oben ZWEI 
+Selektoren:
+
+Selektor 1 — Format (View-Mode):
+[Insight-Standard] [Disney+-Format] [Marvel-Format] 
+[LEONINE-B2B-Format] [Universum-Kinoformat] [ndF-Showreel-Format]
+
+Selektor 2 — Detailtiefe:
+[Kurz] [Normal] [Ganz genau]
+
+Backend produziert IMMER den vollständigen Output 
+("ganz genau"-Modus aus Block 1, ~1500-2000 Wörter). 
+Frontend filtert pro View-Mode + Detailtiefe-Kombi.
+
+Beispiel: 
+- "Disney+-Format / Normal" zeigt Content Overview, 
+  Tonalität-Grid, Marketing Recommendations, Watch Outs
+- "Marvel-Format / Ganz genau" zeigt alle Sprach-Direktiven, 
+  Tabu-Listen, Tonalitäts-Vorgaben, Längen-Specs
+
+Strategischer Kontext: Producer kann den GLEICHEN Insight-
+Output in 6 verschiedenen Briefing-Vorlagen anschauen und 
+die relevante als Antwort-Briefing-Vorlage nutzen — Trailer-
+haus' eigene Beobachtungen aus Creative Radar werden zum 
+direkten Input für die Auftrags-Bearbeitung.
+
+==============================================================
+2 — PRE-COMMITMENTS
+==============================================================
+1. Read-First: docs/feedback/PRODUCER_QUALITY_PASS_2026-05-06.md 
+   lesen vor Implementation. Die "Sofort-Anpassungen für 
+   Block 4"-Sektion ist verbindlich für die View-Mode-
+   Sektion-Reihenfolgen.
+2. Read-First: 5 PDFs unter docs/reference/client-briefings/ 
+   durchlesen (pdftotext) als Referenz für die View-Mode-
+   Strukturen. Die View-Modes sollen die Original-Briefing-
+   Strukturen dieser 5 Archetypen wiedergeben.
+3. Backend bleibt UNVERÄNDERT — Block 1 hat schon alle 
+   Sektionen geliefert.
+4. Frontend-Schema-Mapping ist die einzige Implementierung. 
+   Pro View-Mode + Detailtiefe ein Filter.
+5. Default: View-Mode "Insight-Standard", Detailtiefe 
+   "Normal". Bestehende User sehen den vertrauten Brief.
+6. Browser-State-Persistence: User-Wahl in localStorage UND 
+   URL-Param. Teilbar via 
+   /insights/weekly/disney?view=disney_plus&depth=detailed
+7. Print-/Export-Vorbereitung: jedes View-Mode-Template ist 
+   druck-freundlich strukturiert. PDF-Export selbst ist nicht 
+   in Scope, aber Architektur dafür bereit.
+8. Sektion-Wiederverwendung: gleiche Section-Komponente 
+   (z.B. WatchOuts.jsx) wird in mehreren View-Modes genutzt.
+9. Tagesbericht statt Zwischenpings; Wolf-Ping nur am Ende 
+   für Quality-Gate.
+
+==============================================================
+3 — IMPLEMENTIERUNGS-SCHRITTE
+==============================================================
+
+Schritt 1 — Read-First (15 Min):
+- docs/feedback/PRODUCER_QUALITY_PASS_2026-05-06.md lesen
+- 5 PDFs unter docs/reference/client-briefings/ via 
+  pdftotext lesen
+- frontend/src/components/insights/InsightWeekly.jsx 
+  bestehende Struktur analysieren
+- Notizen-Schritt: Welche Section-Komponenten existieren 
+  bereits? Welche sind neu?
+
+Schritt 2 — viewModes.js definieren (20 Min):
+frontend/src/components/insights/viewModes.js
+
+const VIEW_MODES = {
+  insight_standard: {
+    label: "Insight-Standard",
+    locale: "de",
+    sections: {
+      kurz: ["Headline", "TLDR", "TopFindings"],
+      normal: ["Headline", "TLDR", "Tonalitaet", "Findings", 
+               "WatchOuts", "FuerCutter"],
+      detailed: ["Headline", "TLDR", "Tonalitaet", "Findings", 
+                 "WatchOuts", "FuerCutter", "FuerMotionDesigner", 
+                 "FuerCreativeProducer", "VergleichbarePosts", 
+                 "DataCaveats"]
+    }
+  },
+  disney_plus: {
+    label: "Disney+ Format",
+    locale: "de",
+    sections: {
+      kurz: ["ContentOverview", "TonalitaetGrid", "TopFindings"],
+      normal: ["ContentOverview", "TonalitaetGrid", 
+               "ResearchInsights", "MarketingRecommendations", 
+               "WatchOuts"],
+      detailed: ["ContentOverview", "TonalitaetGrid", 
+                 "ResearchInsights", "MarketingRecommendations", 
+                 "WatchOuts", "FuerCutter", "FuerMotionDesigner", 
+                 "TechSpecs"]
+    }
+  },
+  marvel_pitch: {
+    label: "Marvel-Format (Pitch-Spot)",
+    locale: "de",
+    sections: {
+      kurz: ["Headline", "SprachDirektiven", "TabuListe"],
+      normal: ["Headline", "TonalitaetVorgabe", "SprachDirektiven", 
+               "TabuListe", "LaengenSpec"],
+      detailed: ["Headline", "TonalitaetVorgabe", "SprachDirektiven", 
+                 "TabuListe", "LaengenSpec", "FuerCutter", 
+                 "VergleichbarePosts"]
+    }
+  },
+  leonine_b2b: {
+    label: "LEONINE-B2B-Format",
+    locale: "en",  // englisches Output
+    sections: {
+      kurz: ["Tagline", "USPs", "Synopsis"],
+      normal: ["Tagline", "USPs", "TargetGroup", "ToneAndContents", 
+               "Synopsis"],
+      detailed: ["Tagline", "USPs", "TargetGroup", "ToneAndContents", 
+                 "Synopsis", "FuerCutter", "FuerMotionDesigner", 
+                 "TechSpecs"]
+    }
+  },
+  universum_kino: {
+    label: "Universum-Kinoformat",
+    locale: "de",
+    sections: {
+      kurz: ["BasicFacts", "Logline", "USP"],
+      normal: ["BasicFacts", "Logline", "USP", "Zielgruppe", 
+               "KeySellingPoints"],
+      detailed: ["BasicFacts", "Logline", "USP", "Zielgruppe", 
+                 "KeySellingPoints", "Vergleichsfilme", 
+                 "Positionierung", "FuerCutter"]
+    }
+  },
+  ndf_showreel: {
+    label: "ndF-Showreel-Format",
+    locale: "de",
+    sections: {
+      kurz: ["Logline", "MustNoGo"],
+      normal: ["Logline", "MustNoGo", "Tonalitaet", "TechSpecs"],
+      detailed: ["Logline", "MustNoGo", "Tonalitaet", "TechSpecs", 
+                 "FuerCutter", "VergleichbarePosts"]
+    }
+  }
+};
+
+Schritt 3 — Section-Komponenten (60-90 Min):
+frontend/src/components/insights/sections/
+
+Wiederverwendbare Sections (existieren teils schon):
+- Headline.jsx
+- TLDR.jsx
+- TopFindings.jsx (zeigt nur top-3 aus key_findings)
+- Findings.jsx (alle key_findings)
+- WatchOuts.jsx (mit Warning-Symbol)
+- FuerCutter.jsx
+- FuerMotionDesigner.jsx
+- FuerCreativeProducer.jsx
+- VergleichbarePosts.jsx
+- DataCaveats.jsx
+
+View-Mode-spezifische Sections (neu):
+- ContentOverview.jsx (Disney+-Style: Format, Genre, Cast, 
+  Release als Icon-Grid mit pair-Metadaten)
+- TonalitaetGrid.jsx (4-Spalten-Layout wie Disney+ Briefing 
+  Slide 3 — siehe Deutsches_Haus.pdf Slide 3)
+- ResearchInsights.jsx (3-Spalten: Strengths, Audience Fit, 
+  Watchouts — siehe Deutsches_Haus.pdf Slide 11)
+- MarketingRecommendations.jsx (nummerierte Liste mit 
+  Bullet-Points — siehe Deutsches_Haus.pdf Slide 12)
+- TechSpecs.jsx (technische Anlieferungs-Specs)
+- SprachDirektiven.jsx (Marvel-Style: Wort-Level-Vorgaben — 
+  siehe DustBunny.pdf "Beginn einer neuen Dynastie" etc.)
+- TabuListe.jsx (Marvel-Style: explizite No-Gos)
+- TonalitaetVorgabe.jsx (Marvel-Style: vorher/nachher)
+- LaengenSpec.jsx
+- Tagline.jsx (LEONINE-Style)
+- USPs.jsx
+- TargetGroup.jsx
+- ToneAndContents.jsx
+- Synopsis.jsx
+- BasicFacts.jsx (Universum-Style: Cast, Buchvorlage etc.)
+- Logline.jsx
+- USP.jsx
+- Zielgruppe.jsx (qualitativ + quantitativ)
+- KeySellingPoints.jsx
+- Vergleichsfilme.jsx (Universum-Style: Tabelle — siehe 
+  Schule_der_magischen_Tiere.pdf Slides 13-14)
+- Positionierung.jsx
+- MustNoGo.jsx (ndF-Style: Frage-Antwort-Format)
+
+Pro Section-Komponente:
+- Single-Responsibility: 1 Komponente, 1 Section
+- Props: { report, locale }
+- Default-Empty-Handling: wenn Daten fehlen, render null 
+  (nicht "(none)")
+- Storybook-fähig (falls ihr Storybook nutzt — sonst 
+  ignorieren)
+
+Schritt 4 — Selektoren (20 Min):
+- ViewModeSelector.jsx (Dropdown mit 6 Optionen, primary 
+  Tailwind-Style)
+- DepthSelector.jsx (Tab-Group: Kurz / Normal / Ganz genau)
+- localStorage-Sync (key: insights_view_mode + insights_depth)
+- URL-Param-Sync (?view=marvel_pitch&depth=normal)
+- Bei Mount: zuerst URL prüfen, dann localStorage, dann 
+  Default
+
+Schritt 5 — InsightWeekly.jsx-Integration (30 Min):
+- selectedViewMode + selectedDepth State (useState)
+- useEffect: bei Änderung URL-Param + localStorage syncen
+- Renderer: 
+  const sectionsToRender = VIEW_MODES[selectedViewMode]
+                            .sections[selectedDepth];
+  return sectionsToRender.map(name => {
+    const Component = SECTION_COMPONENTS[name];
+    return <Component key={name} report={report} 
+                      locale={VIEW_MODES[selectedViewMode].locale} />;
+  });
+- Bei Insight-Standard mit Detailtiefe "ganz genau": 
+  sollte ähnlich aussehen wie heute (kein Regress für 
+  bestehende User)
+
+Schritt 6 — Tests (20-30 Min):
+- viewModes.js: 1 Test pro View-Mode, dass Sections-Liste 
+  korrekt definiert ist und keine ungültigen Section-Namen 
+  enthält
+- ViewModeSelector: 1 Test, dass Wahl in localStorage 
+  gespeichert wird
+- DepthSelector: 1 Test, dass Wahl in URL-Param landet
+- InsightWeekly: 1 Test pro View-Mode-Detailtiefe-Kombo 
+  (= 18 Tests), dass die richtigen Sections rendern 
+  (Mock-Output)
+
+Schritt 7 — Smoke-Test + Screenshots (15 Min):
+- Lokal: 6 Pairs × 6 View-Modes × 3 Detailtiefen = 108 
+  Kombinationen
+- Smoke-Test: 6 Pairs × 3 zufällige Kombinationen = 18 
+  visuelle Checks
+- Screenshots im PR-Body für jeden View-Mode in "Normal"-
+  Detailtiefe (6 Screenshots gesamt)
+
+==============================================================
+4 — DEFINITION OF DONE
+==============================================================
+[ ] viewModes.js mit 6 Konfigurationen × 3 Detailtiefen
+[ ] 25-30 Section-Komponenten implementiert (manche 
+    wiederverwendet)
+[ ] ViewModeSelector + DepthSelector mit URL + localStorage
+[ ] InsightWeekly.jsx renderiert dynamisch
+[ ] Tests grün
+[ ] Smoke-Test auf Production-Pair 6 × Standard-Mode 
+    durchgespielt
+[ ] PR mit 6 Screenshots der View-Modes
+[ ] Wolf-Quality-Gate-Ping mit 3 Fragen:
+    1. Welcher View-Mode fühlt sich am natürlichsten an?
+    2. Welche Section fehlt oder ist falsch eingeordnet?
+    3. Sind die Default-Detailtiefen pro View-Mode richtig?
+
+==============================================================
+5 — EINSCHRÄNKUNGEN
+==============================================================
+- Kein PDF-Export (Sprint 6+).
+- Kein Edit-Mode (Sprint 6+).
+- Kein Brand-CI-Styling (kein echtes Disney-Logo, kein 
+  Marvel-Branding) — generische "Format X-Style"-Sektionen 
+  mit klarer visueller Differenzierung, aber keine 
+  Markenfarben oder Logos der echten Studios.
+- LEONINE-B2B ist das einzige Format mit englischem Locale. 
+  Frontend-i18n minimal halten (Section-Labels + Hinweis 
+  "This brief is in English") — Output-Inhalt selbst 
+  bleibt deutsch (Backend hat keine englische Variante).
+- Falls Block 3 (Producer-Quality-Pass) Output Anpassungen 
+  zu Section-Reihenfolgen ergeben hat: diese in viewModes.js 
+  einarbeiten vor PR-Erstellung.
+- DustBunny.pdf (Quantumania) ist Marvel-vertraulich. 
+  Marvel-Format-Komponenten dürfen das STIL nachahmen 
+  (Sprach-Direktiven, Tabu-Listen, Längen-Spec), aber 
+  KEINE konkreten Inhalte aus dem PDF (keine "Thanos", 
+  keine "Beginn einer neuen Dynastie" o.ä.).
