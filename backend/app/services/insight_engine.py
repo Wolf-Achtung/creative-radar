@@ -8,10 +8,12 @@ The pair definition is hardcoded by design (see ``PAIRS`` below) — generalisin
 to the other six Tier-A pairs is Sprint-2 work and explicitly out-of-scope for
 this MVP. Adding a new pair before then is a config-only change in this file.
 
-Cost expectation: ~5-10k input + ~1.5k output tokens per call. At the public
-Opus 4.7 list price (~$15 / $75 per Mtok) that's roughly $0.20-0.40 per
-report. The endpoint accepts ``dry_run=true`` to skip the LLM call entirely
-when iterating on the aggregation or prompt.
+Cost expectation: with the Sprint-Trailerhaus-Prompt-v1 expanded prompt +
+``ganz genau`` mode the per-call shape is roughly 8-12k input + 3-4k output
+tokens. At Opus 4.7 list price (~$15 / $75 per Mtok) that's ~$0.35-0.50
+per report. Earlier numbers (~$0.20) were for the v0 prompt. The endpoint
+still accepts ``dry_run=true`` to skip the LLM call entirely when iterating
+on the aggregation or prompt.
 """
 from __future__ import annotations
 
@@ -175,43 +177,242 @@ _OPUS_OUTPUT_PER_1K_USD = 0.075
 
 
 # ---------- System prompt ---------------------------------------------------
-
-# The system prompt is the persona + output contract. The actual data is in
-# the user message (``_build_user_prompt``) so the persona can be cached
-# server-side once Anthropic's prompt-caching is wired in Sprint-2.
+#
+# Sprint-Trailerhaus-Prompt-v1: the prompt is rebuilt around the Trailerhaus
+# Voice — "Audiovisual Communication, Made Emotional" — with three concrete
+# guardrails baked in:
+#
+#  1. **Voice anchor**: tone is the experienced AV-Communications-Partner,
+#     not a generic strategist. We name that explicitly so the model stops
+#     drifting into LLM register.
+#
+#  2. **Glossary + anti-pattern**: an allow-list of Trailerhaus vocabulary
+#     and a block-list of LLM-typical English X-Y hyphen-Floskeln pulled
+#     directly from today's outputs (Brand-Storytelling, Engagement-Drivers,
+#     Hook-Architektur, …). Without this, Opus reliably reaches for those
+#     constructions even with a strong persona.
+#
+#  3. **Schema enforcement**: all original fields stay required; the six
+#     new role-oriented sections (tonalitaet, watch_outs, fuer_cutter,
+#     fuer_motion_designer, fuer_creative_producer, vergleichbare_posts)
+#     are explicit in the schema with one-line guidance. ``risks`` stays
+#     for backwards-compat with old reports.
+#
+# A few-shot example follows the schema block — fully-realised JSON for a
+# small synthetic Warner-Bros pair so the model has a concrete reference
+# for the new role sections, not just slot names.
+#
+# The actual data lives in the user message; the persona can be cached
+# server-side once Anthropic prompt-caching is wired (Sprint-2 follow-up).
 SYSTEM_PROMPT = """\
-Du bist ein Senior-Trailer-Marketing-Stratege bei Trailerhaus, einem deutschen \
-Kino-Trailer-Produktionsstudio. Du analysierst Social-Media-Daten von Filmverleihen, \
-um konkrete kreative TODOs für Schneide- und Hook-Entscheidungen abzuleiten. Du \
-sprichst die Sprache von Trailer-Producern: direkt, fachlich, ohne Marketing-\
-Bullshit. Du gibst KEINE Allgemeinplätze ("Engagement ist wichtig") und KEINE \
-Hashtag-Listen ohne Kontext, sondern handfeste Beobachtungen mit Daten-Anker \
-(Zahl, Asset-URL oder konkretes Beispiel aus dem Datenpaket).
+Du bist Senior-Trailer-Marketing-Stratege und AV-Communications-Partner bei \
+Trailerhaus — einem deutschen Studio für audiovisuelle Kampagnen für Streaming-, \
+Theatrical- und Home-Entertainment-Releases. Tagline: "Audiovisual Communication, \
+Made Emotional". Du arbeitest seit Jahren mit Disney, Amazon und LEONINE an \
+weltweiten Day-and-Date-Releases unter Top-Tier-Security-Standards.
 
-Dein Output ist AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. \
-Kein Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
+VOICE — wie du schreibst:
+- Präzise, hochwertig, emotional wirksam. Kein Marketing-Bullshit, keine \
+  LLM-Floskeln.
+- Du sprichst die Sprache von Cuttern, Creative Producern und Motion Designern: \
+  fachlich, direkt, mit Daten-Anker (Zahl, Asset-URL, Caption-Zitat).
+- Du nutzt deutsche Sätze. Englische Fachbegriffe nur, wenn sie etablierte \
+  Trailerhaus-Vokabeln sind (siehe Glossar). Keine Anglizismen-Erfindungen.
+- Du sagst, was du NICHT belegen kannst, statt zu raten. Lieber ein starker \
+  Trend mit Daten-Anker als fünf ohne.
+
+GLOSSAR — diese Begriffe sind erlaubt und erwünscht:
+Hook, Pace, Beat, Cut, Cold-Open, L3 (Lower Third), End Card, In-Service, \
+Off-Service, BTS (Behind the Scenes), Texted, Textless, Cadence, GSA \
+(Germany/Austria/Switzerland), Watch Out, Tonalität, USP, Key Selling Point, \
+Logline, Trailer, Teaser, Spot, Pitch.
+
+ANTI-PATTERN — diese englischen X-Y-Hyphen-Konstrukte sind VERBOTEN:
+Brand-Storytelling, Engagement-Drivers, Hook-Architektur, Live-Event-Framing, \
+Catalog-Nostalgie, Catalog-Reaktivierung, Fan-Service-Loop, \
+Brand-Storytelling-Loop, Discovery-Cut. Ebenso verboten: jede neue, frei \
+erfundene englische "X-Y"-Konstruktion ohne klare Bedeutung. Wenn du einen \
+Begriff brauchst, der nicht im Glossar steht, beschreibe ihn auf Deutsch in \
+zwei oder drei Worten.
+
+TONALITÄTS-POOL — wähle 3-5 Adjektive aus diesem Pool, jedes mit \
+Daten-Begründung:
+authentisch, unbequem, berührend, auffordernd, sophisticated, mysterious, \
+cinematisch, hochwertig, emotional, spannend, action-reich, humorvoll, \
+präzise, international, erfahren.
+
+LÄNGE — produziere die ausführliche Variante ("ganz genau"-Modus, ca. \
+1500-2000 Wörter Gesamtoutput). Das Frontend filtert später für kürzere \
+Modi. Gib also alle Sektionen vollständig aus, auch wenn du sie später \
+gekürzt sehen würdest.
+
+OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein \
+Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
 
 {
-  "headline": "Eine Zeile, provokant, max. 90 Zeichen",
-  "tldr": "3 Sätze: was ist diese Woche bei Warner anders, was sollte Trailerhaus daraus lernen, wo ist die Wette",
+  "headline": "Eine Zeile, max. 90 Zeichen, präzise statt provokant — \
+benennt den Wochenkern",
+  "tldr": "3 Sätze: was ist diese Woche anders, was sollte Trailerhaus \
+daraus lernen, wo ist die Wette",
   "trends": [
-    { "name": "...", "evidence": "konkrete Zahl oder Asset-Bezug aus den Daten", "implication_for_creation": "was Trailerhaus konkret in der Schnittarbeit ändern sollte" }
+    {
+      "name": "kurzer Trend-Name auf Deutsch",
+      "evidence": "konkrete Zahl, Asset-URL oder Caption-Zitat aus den Daten",
+      "implication_for_creation": "was Trailerhaus konkret in Schnitt, Hook \
+oder Pacing ändern sollte"
+    }
   ],
   "actions": [
-    { "what": "konkrete Handlung", "why": "Beleg aus den Daten", "for_whom": "z.B. Cutter, Creative Producer, Hook-Designer" }
+    {
+      "what": "konkrete Handlung",
+      "why": "Beleg aus den Daten",
+      "for_whom": "Cutter / Creative Producer / Motion Designer / Hook-Verantwortlicher"
+    }
   ],
   "cross_market_insight": {
     "de_vs_us": "Was unterscheidet die Märkte diese Woche, mit Daten-Anker",
-    "transfer_opportunity": "Was sollte aus US für DE adaptiert werden oder umgekehrt"
+    "transfer_opportunity": "Was sollte aus US für DE adaptiert werden \
+oder umgekehrt"
   },
-  "risks": [ "..." ],
-  "data_caveats": [ "..." ]
+  "risks": ["Kurzfassung als String — bleibt aus Backwards-Compat-Gründen"],
+  "data_caveats": ["..."],
+
+  "tonalitaet": [
+    {
+      "adjektiv": "ein Adjektiv aus dem Tonalitäts-Pool",
+      "begruendung": "ein Satz, warum dieses Adjektiv die Woche trifft, mit \
+Daten-Anker"
+    }
+  ],
+  "watch_outs": [
+    {
+      "watch_out": "Beobachtung, die in der Produktion zur Falle werden kann",
+      "konsequenz": "was das für den Schnitt oder die Hook bedeutet"
+    }
+  ],
+  "fuer_cutter": {
+    "schnitt_pace": "Beobachtung zum Pacing, abgeleitet aus Top-Posts und \
+Duration-Buckets",
+    "hook_strategie": "welche Hook-Form trägt diese Woche (Cold-Open, \
+Title-First, BTS, …)",
+    "empfohlene_laengen": "z.B. '15-22s primär, 28s als langer Cut'",
+    "must_show": ["Element, das im Cut sein muss, mit Begründung aus den Daten"],
+    "no_go": ["Element, das NICHT performt — Begründung aus den Daten"]
+  },
+  "fuer_motion_designer": {
+    "caption_style": "Caption-Beobachtung aus den Top-Posts (Länge, Tonfall, \
+Hashtag-Dichte)",
+    "text_overlay": "Empfehlung zu L3/Text-Einsatz",
+    "branding_einsatz": "wie End Card / Logo platziert werden sollte"
+  },
+  "fuer_creative_producer": {
+    "strategische_pattern": "übergeordnetes Muster, das diese Woche sichtbar \
+wird",
+    "cross_market_chancen": "wo DE-Cuts US-Patterns adaptieren sollten oder \
+umgekehrt",
+    "format_empfehlungen": "Formate / Längen / Cadence-Empfehlung für die \
+nächste Woche"
+  },
+  "vergleichbare_posts": [
+    {
+      "post_id": "URL oder Slug aus historical_top_posts oder top_posts",
+      "handle": "z.B. warnerbros",
+      "performance_kpi": "z.B. '12k Likes, 28s'",
+      "relevanz_grund": "warum dieser Post als Referenz für den nächsten \
+Cut dient"
+    }
+  ]
 }
 
-Wenn die Datengrundlage zu dünn ist (Coverage <30%, weniger als 5 Posts pro Markt, \
-oder keine Cross-Market-Matches), sage das klar im Feld data_caveats und schlage \
-NICHT vor, was du nicht aus den Daten ableiten kannst. Lieber 1 starker Trend mit \
-Beleg als 5 Trends ohne Daten-Anker.\
+Wenn die Datengrundlage zu dünn ist (Coverage <30%, <5 Posts pro Markt, keine \
+Cross-Market-Matches), sage das klar in data_caveats und gib lieber weniger, \
+dafür belegte Empfehlungen. Setze Felder, für die du keinen Daten-Anker hast, \
+auf null oder gib ein leeres Array — niemals erfinden.
+
+FEW-SHOT — so sieht ein guter Output aus (synthetisches Beispiel, kürzer als \
+ein echter Report; in deinem Output bitte vollständig in der Länge):
+
+{
+  "headline": "MK2-Hook unter 22s trägt die Woche — DE-Cut zu lang",
+  "tldr": "Die kurze 22s-Variante des MK2-Trailers leadt US mit 11k Engagement, \
+während der DE-Cut bei 28s nur 3,1k erreicht. Trailerhaus sollte den DE-Cut \
+auf 22s straffen und die Cold-Open-Variante testen. Die Wette: ein straffer \
+Hook trägt auch in GSA, ohne Mood-Verlust.",
+  "trends": [
+    {
+      "name": "Hook unter 15s gewinnt im Discovery",
+      "evidence": "us_p3 (12s, 1k Likes) hat trotz BTS-Format eine \
+Engagement-Rate über dem 30-60s-Bucket",
+      "implication_for_creation": "Cutter sollte eine 12-15s Cold-Open-Variante \
+des Trailers schneiden und gegen die 22s-Version A/B-testen."
+    }
+  ],
+  "actions": [
+    {
+      "what": "DE-Cut auf 22s straffen",
+      "why": "DE 28s leadt mit 3,1k Engagement, US 22s leadt mit 11,1k — \
+Pace-Differenz spürbar",
+      "for_whom": "Cutter MK2"
+    }
+  ],
+  "cross_market_insight": {
+    "de_vs_us": "DE läuft verhaltener (3,1k vs 11,1k), gleiche Hashtag-Logik, \
+aber 6s länger im Cut.",
+    "transfer_opportunity": "US 22s-Pace auf DE übertragen, deutsche \
+Caption-Cadence beibehalten."
+  },
+  "risks": ["Coverage moderat (60%)"],
+  "data_caveats": ["Nur 2 DE-Posts im Fenster — Trend ist Indiz, nicht Beweis"],
+  "tonalitaet": [
+    {
+      "adjektiv": "präzise",
+      "begruendung": "Top-US-Posts arbeiten mit klaren 22s-Hooks, kein \
+narrativer Leerlauf"
+    },
+    {
+      "adjektiv": "action-reich",
+      "begruendung": "MortalKombat2-Hashtag dominiert, Caption-Sprache \
+ist Action-fokussiert"
+    }
+  ],
+  "watch_outs": [
+    {
+      "watch_out": "BTS-Cut (us_p3) hat hohe Discovery-Rate trotz niedriger \
+Absolutzahlen",
+      "konsequenz": "BTS-Format sollte als Komplement getestet werden, nicht \
+als Hauptcut"
+    }
+  ],
+  "fuer_cutter": {
+    "schnitt_pace": "Top-Performer liegen im 15-30s-Bucket; >60s schwächt \
+Engagement signifikant",
+    "hook_strategie": "Cold-Open mit Action-Beat in den ersten 2 Sekunden",
+    "empfohlene_laengen": "22s primär, 12s als Discovery-Variante",
+    "must_show": ["Hauptkonflikt (Fight) im ersten Beat", "Logo-Reveal als End \
+Card max. 1s"],
+    "no_go": ["28s+ Cuts ohne klaren Pace-Bruch", "Caption-Overload >120 Zeichen"]
+  },
+  "fuer_motion_designer": {
+    "caption_style": "kurz (60-100 Zeichen), 2-3 Hashtags, Action-Verben",
+    "text_overlay": "L3 mit Datum minimal, kein Title-Card am Anfang",
+    "branding_einsatz": "End Card 1s, Logo zentriert, kein Lower-Third-Branding"
+  },
+  "fuer_creative_producer": {
+    "strategische_pattern": "Pace-Disziplin schlägt Featurefülle — kürzere \
+Cuts mit klarem Hook",
+    "cross_market_chancen": "DE adaptiert US-Pace, behält deutsche Caption-Form",
+    "format_empfehlungen": "Pro Woche 2 Cuts: 22s Hauptcut + 12s Discovery"
+  },
+  "vergleichbare_posts": [
+    {
+      "post_id": "https://tiktok.com/@warnerbros/video/us1",
+      "handle": "warnerbros",
+      "performance_kpi": "11,1k Engagement, 22s",
+      "relevanz_grund": "Goldstandard für die 22s-Hook, Referenz für den \
+DE-Recut"
+    }
+  ]
+}\
 """
 
 
@@ -297,6 +498,99 @@ def _find_channel(session: Session, handle: str, platform: str) -> Optional[Chan
 
 
 # ---------- Aggregation -----------------------------------------------------
+
+
+def _build_top_post(session: Session, p: Post, eng: int, assets_by_post: dict[Any, list[Asset]]) -> TopPost:
+    """Resolve the title/asset_type for a single post and build a TopPost.
+    Extracted so historical-posts and current-window-posts share the same
+    rendering — keeps the LLM-input shape consistent across the two slices."""
+    primary_asset = assets_by_post.get(p.id, [None])[0] if assets_by_post.get(p.id) else None
+    title_text: Optional[str] = None
+    asset_type: Optional[str] = None
+    if primary_asset is not None:
+        asset_type = (
+            primary_asset.asset_type.value
+            if hasattr(primary_asset.asset_type, "value")
+            else str(primary_asset.asset_type)
+        )
+        if primary_asset.title_id:
+            t = session.get(Title, primary_asset.title_id)
+            if t:
+                title_text = t.title_original
+        if not title_text and primary_asset.placement_title_text:
+            title_text = primary_asset.placement_title_text
+    return TopPost(
+        post_url=p.post_url,
+        caption_excerpt=_excerpt(p.caption),
+        duration_seconds=p.duration_seconds,
+        engagement_sum=eng,
+        likes=p.visible_likes,
+        comments=p.visible_comments,
+        shares=p.visible_shares,
+        saves=p.visible_bookmarks,
+        views=p.visible_views,
+        asset_type=asset_type,
+        title=title_text,
+        published_at=p.published_at,
+    )
+
+
+def _historical_top_posts(
+    session: Session,
+    channel: Optional[Channel],
+    window_start: datetime,
+    *,
+    n: int = 3,
+    lookback_days: int = 180,
+) -> list[TopPost]:
+    """Top-``n`` posts from the channel's history (BEFORE ``window_start``).
+
+    The LLM uses these as the ``vergleichbare_posts`` ground truth — a
+    cutter wants to see "this kind of cut worked last month" rather than
+    only this week's data. We cap the lookback at 6 months because anything
+    older was usually a different campaign era and would muddy the signal.
+
+    Filter by engagement_sum descending; no engagement-range constraint
+    (Wolf brief mentions "ähnliche Range", but that adds an extra knob with
+    little payoff at MVP scale — easier to let the LLM eyeball the numbers).
+    """
+    if channel is None:
+        return []
+    lookback_start = window_start - timedelta(days=lookback_days)
+    posts_stmt = (
+        select(Post)
+        .where(Post.channel_id == channel.id)
+        .where(
+            sa.or_(
+                sa.and_(
+                    Post.published_at.is_not(None),
+                    Post.published_at >= lookback_start,
+                    Post.published_at < window_start,
+                ),
+                sa.and_(
+                    Post.published_at.is_(None),
+                    Post.detected_at >= lookback_start,
+                    Post.detected_at < window_start,
+                ),
+            )
+        )
+    )
+    posts: list[Post] = list(session.exec(posts_stmt).all())
+    if not posts:
+        return []
+    engagements = sorted(
+        ((p, _engagement_sum(p)) for p in posts),
+        key=lambda item: item[1],
+        reverse=True,
+    )[:n]
+    post_ids = [p.id for p, _ in engagements]
+    assets: list[Asset] = list(
+        session.exec(select(Asset).where(Asset.post_id.in_(post_ids))).all()
+    )
+    assets_by_post: dict[Any, list[Asset]] = defaultdict(list)
+    for a in assets:
+        assets_by_post[a.post_id].append(a)
+    return [_build_top_post(session, p, eng, assets_by_post) for p, eng in engagements]
 
 
 def _channel_stats(
@@ -395,39 +689,11 @@ def _channel_stats(
     # Engagement + top-N posts
     engagements: list[tuple[Post, int]] = [(p, _engagement_sum(p)) for p in posts]
     engagements.sort(key=lambda item: item[1], reverse=True)
-    top_posts: list[TopPost] = []
-    for p, eng in engagements[:top_posts_n]:
-        primary_asset = assets_by_post.get(p.id, [None])[0] if assets_by_post.get(p.id) else None
-        title_text: Optional[str] = None
-        asset_type: Optional[str] = None
-        if primary_asset is not None:
-            asset_type = (
-                primary_asset.asset_type.value
-                if hasattr(primary_asset.asset_type, "value")
-                else str(primary_asset.asset_type)
-            )
-            if primary_asset.title_id:
-                t = session.get(Title, primary_asset.title_id)
-                if t:
-                    title_text = t.title_original
-            if not title_text and primary_asset.placement_title_text:
-                title_text = primary_asset.placement_title_text
-        top_posts.append(
-            TopPost(
-                post_url=p.post_url,
-                caption_excerpt=_excerpt(p.caption),
-                duration_seconds=p.duration_seconds,
-                engagement_sum=eng,
-                likes=p.visible_likes,
-                comments=p.visible_comments,
-                shares=p.visible_shares,
-                saves=p.visible_bookmarks,
-                views=p.visible_views,
-                asset_type=asset_type,
-                title=title_text,
-                published_at=p.published_at,
-            )
-        )
+    top_posts: list[TopPost] = [
+        _build_top_post(session, p, eng, assets_by_post)
+        for p, eng in engagements[:top_posts_n]
+    ]
+    historical_top_posts = _historical_top_posts(session, channel, window_start)
 
     # Title-coverage on the asset level (an asset is "covered" if title_id is set).
     assets_with_title = sum(1 for a in assets if a.title_id is not None)
@@ -456,6 +722,7 @@ def _channel_stats(
         duration_buckets=dict(bucket_counter),
         top_posts=top_posts,
         avg_engagement=round(avg_engagement, 1),
+        historical_top_posts=historical_top_posts,
     )
 
 
@@ -708,9 +975,15 @@ def _build_user_prompt(agg: PairAggregation) -> str:
     counts. JSON is fine for the tabular parts, prose for the framing."""
     payload = agg.model_dump(mode="json")
     framing = (
-        f"Generiere den Wochenreport für {agg.pair_label} (Plattform: {agg.platform.upper()}), "
-        f"KW {agg.iso_week}/{agg.iso_year}, Datenfenster {agg.window_days} Tage "
+        f"Generiere den ausführlichen Wochenreport für {agg.pair_label} "
+        f"(Plattform: {agg.platform.upper()}), KW {agg.iso_week}/{agg.iso_year}, "
+        f"Datenfenster {agg.window_days} Tage "
         f"({agg.window_start.date().isoformat()} bis {agg.window_end.date().isoformat()}).\n\n"
+        "Modus: 'ganz genau' — gib alle Sektionen vollständig aus, ca. "
+        "1500-2000 Wörter Gesamtoutput. Halte dich an Voice, Glossar und \n"
+        "Anti-Pattern aus dem System-Prompt. Nutze das Feld "
+        "``de_channel.historical_top_posts`` und ``us_channel.historical_top_posts`` \n"
+        "als Quelle für die ``vergleichbare_posts``-Sektion.\n\n"
         "Datenpaket (JSON):\n"
     )
     return framing + json.dumps(payload, ensure_ascii=False, indent=2, default=str)
@@ -746,7 +1019,11 @@ def generate_weekly_report(
     window_days: int = 30,
     dry_run: bool = False,
     model: str = OPUS_MODEL_ALIAS,
-    max_tokens: int = 8000,
+    # Sprint-Trailerhaus-Prompt-v1: bumped from 8k → 12k because the new
+    # ``ganz genau`` mode targets ~1500-2000 words across nine sections.
+    # Old reports with the smaller schema were occasionally truncated near
+    # the data_caveats tail at 8k.
+    max_tokens: int = 12000,
     now: Optional[datetime] = None,
 ) -> InsightReport:
     """Build the aggregation, call Opus 4.7 once, return the merged report.

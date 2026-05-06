@@ -414,6 +414,198 @@ def test_generate_handles_codefence_wrap(monkeypatch):
         assert report.llm_output.headline == "H"
 
 
+# ---------- Sprint-Trailerhaus-Prompt-v1 -----------------------------------
+
+
+def test_historical_top_posts_returns_pre_window_posts():
+    """``aggregate_pair`` must surface up to 3 historical top-posts per
+    channel from BEFORE the window so the LLM has reference material for
+    the ``vergleichbare_posts`` section."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        # add three older US posts at 60/90/120 days ago — outside the 30d window
+        old_a = _make_post(
+            session, data["us_channel"],
+            caption="ancient hit", likes=50_000, days_ago=60, url_suffix="oldA",
+        )
+        _make_post(
+            session, data["us_channel"],
+            caption="middle hit", likes=20_000, days_ago=90, url_suffix="oldB",
+        )
+        _make_post(
+            session, data["us_channel"],
+            caption="early hit", likes=5_000, days_ago=120, url_suffix="oldC",
+        )
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        hist = agg.us_channel.historical_top_posts
+        assert len(hist) == 3
+        # sorted by engagement desc — the 50k post must lead
+        assert hist[0].post_url == old_a.post_url
+        assert hist[0].engagement_sum >= hist[1].engagement_sum >= hist[2].engagement_sum
+
+
+def test_historical_top_posts_empty_when_no_pre_window_history():
+    """Channel with only in-window posts has no historical reference —
+    return an empty list, not an error."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        # All seeded posts are inside the window (days_ago<=15)
+        assert agg.us_channel.historical_top_posts == []
+        assert agg.de_channel.historical_top_posts == []
+
+
+def test_historical_top_posts_ignores_lookback_too_old():
+    """Posts older than the 6-month lookback are dropped — keeps the
+    reference window aligned with current campaign era."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        _make_post(
+            session, data["us_channel"],
+            caption="prehistoric", likes=999_999, days_ago=400, url_suffix="prehist",
+        )
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        urls = [p.post_url for p in agg.us_channel.historical_top_posts]
+        assert not any("prehist" in u for u in urls)
+
+
+def test_llm_report_parses_new_sections_when_present(monkeypatch):
+    """The expanded LLMReport schema parses the six new role-oriented
+    sections without dropping the old ones. Verifies backwards-compat
+    AND forward-fit."""
+    sample = {
+        "headline": "H",
+        "tldr": "x.",
+        "trends": [],
+        "actions": [],
+        "cross_market_insight": {"de_vs_us": "a", "transfer_opportunity": "b"},
+        "risks": [],
+        "data_caveats": [],
+        "tonalitaet": [
+            {"adjektiv": "präzise", "begruendung": "Top-Post mit klarer Hook"}
+        ],
+        "watch_outs": [
+            {"watch_out": "BTS performt", "konsequenz": "als Komplement testen"}
+        ],
+        "fuer_cutter": {
+            "schnitt_pace": "15-30s",
+            "hook_strategie": "Cold-Open",
+            "empfohlene_laengen": "22s",
+            "must_show": ["Hauptkonflikt"],
+            "no_go": ["Caption-Overload"],
+        },
+        "fuer_motion_designer": {
+            "caption_style": "kurz",
+            "text_overlay": "L3 minimal",
+            "branding_einsatz": "End Card 1s",
+        },
+        "fuer_creative_producer": {
+            "strategische_pattern": "Pace-Disziplin",
+            "cross_market_chancen": "DE adaptiert US",
+            "format_empfehlungen": "22s + 12s",
+        },
+        "vergleichbare_posts": [
+            {
+                "post_id": "https://tiktok.com/@warnerbros/video/us1",
+                "handle": "warnerbros",
+                "performance_kpi": "11k Engagement",
+                "relevanz_grund": "Goldstandard 22s-Hook",
+            }
+        ],
+    }
+    import json as _json
+
+    fake_message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=_json.dumps(sample))],
+        usage=SimpleNamespace(input_tokens=1000, output_tokens=2000),
+    )
+    monkeypatch.setattr(insight_engine, "messages_create_text", lambda **k: fake_message)
+    monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
+
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        report = insight_engine.generate_weekly_report(session, "warnerbros")
+        assert report.llm_output is not None
+        out = report.llm_output
+        assert out.tonalitaet and out.tonalitaet[0].adjektiv == "präzise"
+        assert out.watch_outs and out.watch_outs[0].konsequenz == "als Komplement testen"
+        assert out.fuer_cutter and out.fuer_cutter.empfohlene_laengen == "22s"
+        assert out.fuer_motion_designer and out.fuer_motion_designer.caption_style == "kurz"
+        assert out.fuer_creative_producer and out.fuer_creative_producer.strategische_pattern == "Pace-Disziplin"
+        assert out.vergleichbare_posts and out.vergleichbare_posts[0].handle == "warnerbros"
+
+
+def test_llm_report_parses_old_schema_for_backwards_compat(monkeypatch):
+    """A response missing all six new sections must still parse — old
+    saved reports and any rare LLM regression must not 500."""
+    sample_old = {
+        "headline": "H",
+        "tldr": "x.",
+        "trends": [],
+        "actions": [],
+        "cross_market_insight": {"de_vs_us": "a", "transfer_opportunity": "b"},
+        "risks": ["R"],
+        "data_caveats": ["C"],
+    }
+    import json as _json
+
+    fake_message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=_json.dumps(sample_old))],
+        usage=SimpleNamespace(input_tokens=10, output_tokens=10),
+    )
+    monkeypatch.setattr(insight_engine, "messages_create_text", lambda **k: fake_message)
+    monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
+
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        report = insight_engine.generate_weekly_report(session, "warnerbros")
+        assert report.llm_output is not None
+        # all new fields are None (not crashes)
+        assert report.llm_output.tonalitaet is None
+        assert report.llm_output.watch_outs is None
+        assert report.llm_output.fuer_cutter is None
+
+
+def test_system_prompt_blocks_known_anti_patterns():
+    """Sanity guard: the system prompt explicitly names the LLM-typical
+    English X-Y-Floskeln we want to block. If someone weakens the
+    anti-pattern block in a future refactor, this test catches it."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    for forbidden in (
+        "Brand-Storytelling",
+        "Engagement-Drivers",
+        "Hook-Architektur",
+        "Live-Event-Framing",
+        "Catalog-Nostalgie",
+    ):
+        assert forbidden in prompt, (
+            f"Anti-pattern guard removed for {forbidden!r} — re-add to "
+            "system prompt or remove from this test consciously."
+        )
+    # The voice anchor must stay
+    assert "Audiovisual Communication" in prompt or "Trailerhaus" in prompt
+
+
+def test_system_prompt_includes_glossary_and_voice_markers():
+    prompt = insight_engine.SYSTEM_PROMPT
+    for vocab in ("Hook", "Pace", "Cold-Open", "L3", "End Card", "GSA"):
+        assert vocab in prompt, f"Glossary entry {vocab!r} missing from system prompt"
+    # Tonalitäts-Pool sample
+    assert "authentisch" in prompt
+    assert "sophisticated" in prompt
+
+
+def test_user_prompt_mentions_ganz_genau_mode():
+    """The framing must tell the model to produce the long-form output —
+    otherwise the model defaults to ~500 words."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        prompt = insight_engine._build_user_prompt(agg)
+        assert "ganz genau" in prompt
+        assert "historical_top_posts" in prompt
+
+
 def test_generate_surfaces_raw_text_on_parse_failure(monkeypatch):
     """If the model returns non-JSON, the report still resolves but
     ``llm_output`` is None and ``raw_llm_text`` carries the model's
