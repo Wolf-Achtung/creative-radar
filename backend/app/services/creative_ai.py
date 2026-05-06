@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from app.config import settings
 from app.models.entities import AssetType, ReviewStatus
@@ -138,30 +138,18 @@ def _confidence(value: Any) -> float:
     return number
 
 
-def analyze_creative_text(
-    *,
-    post_url: str,
-    channel_name: str,
-    market: str,
-    title_name: str | None,
-    caption: str | None,
-    ocr_text: str | None,
-    asset_type_hint: AssetType = AssetType.UNKNOWN,
-) -> dict[str, Any]:
-    if not settings.openai_api_key:
-        return {
-            'asset_type': asset_type_hint,
-            'language': 'unknown',
-            'ai_summary_de': 'OpenAI ist noch nicht konfiguriert. Der Treffer wurde angelegt und sollte manuell geprüft werden.',
-            'ai_summary_en': 'OpenAI is not configured yet. Manual review required.',
-            'ai_trend_notes': 'Nach Setzen von OPENAI_API_KEY in Railway wird diese Zusammenfassung automatisch erzeugt.',
-            'confidence_score': 0.2,
-            'review_status': ReviewStatus.NEEDS_REVIEW,
-        }
+_SYSTEM_MSG = (
+    'Du bist ein präziser Creative-Analyst für Film-, Serien- und Game-Marketing. '
+    'Du gibst valides JSON zurück. Textfelder sind immer Strings.'
+)
 
-    client = OpenAI(api_key=settings.openai_api_key)
+
+def _build_prompt(
+    *, post_url: str, channel_name: str, market: str, title_name: str | None,
+    caption: str | None, ocr_text: str | None, asset_type_hint: AssetType,
+) -> str:
     asset_types = ', '.join(item.value for item in AssetType)
-    prompt = f"""
+    return f"""
 Analysiere diesen Social-Media-Creative-Treffer aus Film-, Serien- oder Game-Marketing.
 
 Post-Link: {post_url}
@@ -184,10 +172,56 @@ Liefere:
 Keine Klickzahlen, keine Erfolgsbehauptungen, keine harten Bewertungen.
 Antworte nur als JSON. Alle Textfelder müssen Strings sein, keine Arrays.
 """
+
+
+def _unconfigured_response(asset_type_hint: AssetType) -> dict[str, Any]:
+    return {
+        'asset_type': asset_type_hint,
+        'language': 'unknown',
+        'ai_summary_de': 'OpenAI ist noch nicht konfiguriert. Der Treffer wurde angelegt und sollte manuell geprüft werden.',
+        'ai_summary_en': 'OpenAI is not configured yet. Manual review required.',
+        'ai_trend_notes': 'Nach Setzen von OPENAI_API_KEY in Railway wird diese Zusammenfassung automatisch erzeugt.',
+        'confidence_score': 0.2,
+        'review_status': ReviewStatus.NEEDS_REVIEW,
+    }
+
+
+def _shape_response(raw: str) -> dict[str, Any]:
+    data = _safe_json(raw)
+    return {
+        'asset_type': _asset_type(data.get('asset_type')),
+        'language': _normalize_language(data.get('language')),
+        'ai_summary_de': _as_text(data.get('ai_summary_de'), 'Keine belastbare Zusammenfassung erzeugt.'),
+        'ai_summary_en': _as_text(data.get('ai_summary_en'), ''),
+        'ai_trend_notes': _as_text(data.get('ai_trend_notes'), ''),
+        'confidence_score': _confidence(data.get('confidence_score')),
+        'review_status': ReviewStatus.NEW,
+    }
+
+
+def analyze_creative_text(
+    *,
+    post_url: str,
+    channel_name: str,
+    market: str,
+    title_name: str | None,
+    caption: str | None,
+    ocr_text: str | None,
+    asset_type_hint: AssetType = AssetType.UNKNOWN,
+) -> dict[str, Any]:
+    if not settings.openai_api_key:
+        return _unconfigured_response(asset_type_hint)
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    prompt = _build_prompt(
+        post_url=post_url, channel_name=channel_name, market=market,
+        title_name=title_name, caption=caption, ocr_text=ocr_text,
+        asset_type_hint=asset_type_hint,
+    )
     response = client.chat.completions.create(
         model=settings.openai_model,
         messages=[
-            {'role': 'system', 'content': 'Du bist ein präziser Creative-Analyst für Film-, Serien- und Game-Marketing. Du gibst valides JSON zurück. Textfelder sind immer Strings.'},
+            {'role': 'system', 'content': _SYSTEM_MSG},
             {'role': 'user', 'content': prompt},
         ],
         temperature=0.2,
@@ -199,13 +233,49 @@ Antworte nur als JSON. Alle Textfelder müssen Strings sein, keine Arrays.
         operation="chat_completion",
         meta={"channel": channel_name, "model": settings.openai_model},
     )
-    data = _safe_json(raw)
-    return {
-        'asset_type': _asset_type(data.get('asset_type')),
-        'language': _normalize_language(data.get('language')),
-        'ai_summary_de': _as_text(data.get('ai_summary_de'), 'Keine belastbare Zusammenfassung erzeugt.'),
-        'ai_summary_en': _as_text(data.get('ai_summary_en'), ''),
-        'ai_trend_notes': _as_text(data.get('ai_trend_notes'), ''),
-        'confidence_score': _confidence(data.get('confidence_score')),
-        'review_status': ReviewStatus.NEW,
-    }
+    return _shape_response(raw)
+
+
+async def analyze_creative_text_async(
+    *,
+    post_url: str,
+    channel_name: str,
+    market: str,
+    title_name: str | None,
+    caption: str | None,
+    ocr_text: str | None,
+    asset_type_hint: AssetType = AssetType.UNKNOWN,
+) -> dict[str, Any]:
+    """Async sibling of ``analyze_creative_text`` (Block 2 / async refactor).
+
+    Same prompt + same response shape; uses ``AsyncOpenAI`` so the call can
+    be awaited without blocking the event loop. The cron items-loop runs
+    these concurrently under a Semaphore — see
+    ``api/monitor._create_asset_from_item_async``.
+
+    The unconfigured-fallback path stays sync; no awaits needed.
+    """
+    if not settings.openai_api_key:
+        return _unconfigured_response(asset_type_hint)
+
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    prompt = _build_prompt(
+        post_url=post_url, channel_name=channel_name, market=market,
+        title_name=title_name, caption=caption, ocr_text=ocr_text,
+        asset_type_hint=asset_type_hint,
+    )
+    response = await client.chat.completions.create(
+        model=settings.openai_model,
+        messages=[
+            {'role': 'system', 'content': _SYSTEM_MSG},
+            {'role': 'user', 'content': prompt},
+        ],
+        temperature=0.2,
+    )
+    raw = response.choices[0].message.content or '{}'
+    record_openai_call(
+        getattr(response, "usage", None),
+        operation="chat_completion",
+        meta={"channel": channel_name, "model": settings.openai_model},
+    )
+    return _shape_response(raw)
