@@ -117,6 +117,17 @@ class Action(BaseModel):
     for_whom: str
 
 
+class Konkurrenz(BaseModel):
+    """Branchen-Sicht: was machen die anderen großen Studios und Plattformen
+    diese Woche, unabhängig vom DE/US-Vergleich des aktuellen Pairs.
+    Sprint-Trailerhaus-Prompt-v2: ergänzt das DE/US-Bild um eine
+    plattform- und genre-übergreifende Beobachtung."""
+    was_alle_machen: Optional[str] = None
+    format_trend: Optional[str] = None
+    genre_beobachtung: Optional[str] = None
+    neu_seit_letzten_wochen: Optional[str] = None
+
+
 class CrossMarketInsight(BaseModel):
     de_vs_us: str
     transfer_opportunity: str
@@ -189,6 +200,7 @@ class LLMReport(BaseModel):
     risks: list[str]
     data_caveats: list[str]
     # --- New (Trailerhaus-Prompt-v1, all optional for backwards-compat) ---
+    konkurrenz: Optional[Konkurrenz] = None
     tonalitaet: Optional[list[Tonalitaet]] = None
     watch_outs: Optional[list[WatchOut]] = None
     fuer_cutter: Optional[FuerCutter] = None
