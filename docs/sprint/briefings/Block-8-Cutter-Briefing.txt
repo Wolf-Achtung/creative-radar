@@ -1,0 +1,187 @@
+BRIEFING — Block 8: Personalisiertes Cutter-Briefing
+
+Operating-Modus: Master-Plan, Frontend + Backend, mehrtägiger Sprint
+Branch: claude/cutter-briefing-block-8
+Vorbedingung:
+- Block 7 (State-of-the-Art-Brief) gemerged ✓
+- Block 4 (Briefing-Templating) idealerweise gemerged, sonst parallel
+
+==============================================================
+1 — KONTEXT
+==============================================================
+Wolf am 06.05.: "Was mir generell fehlt: ein Learning aus den Analysen
+für die Kreativen, damit sie immer wissen, was die anderen jetzt tun und
+daraus einen Weg erhalten, was für ihre Projekte 'state of the art' ist."
+
+Block 7 liefert eine horizontale Übersicht. Block 8 geht einen Schritt
+weiter: der Cutter selbst gibt sein Projekt-Profil ein und bekommt ein
+maßgeschneidertes Briefing zurück — die 5 Referenzen, die für genau sein
+Projekt zählen.
+
+UX-Prämisse (Wolf 06.05.): "eher der Cutter selbst" — er trägt sein
+Profil ein, ohne Producer-Zwischenschritt.
+
+==============================================================
+2 — ZIEL
+==============================================================
+Cutter öffnet eine neue Seite app.creative-radar.de/cutter, trägt ein:
+- Projekt-Format (Trailer / Teaser / Spot / TV / Theatrical)
+- Genre (Action / Horror / Comedy / Drama / Doku / Kids)
+- Ziel-Länge (10s, 15s, 22s, 30s, 60s, 90s, 120s)
+- Markt (DE / US / GSA / international)
+- Plattform-Fokus (IG / TT / YT / TV / Kino)
+- Optional: spezifischer Titel oder Vergleichs-Filme
+
+Tool gibt zurück:
+- 5 Referenz-Posts mit Begründung pro Post
+- Pattern-Analyse: was machen die Besten in deinem Genre/Längen-Bucket
+- Konkrete Hook-Empfehlungen für die ersten 2 Sekunden
+- Was du vermeiden solltest (No-Gos aus den Daten)
+
+==============================================================
+3 — KONZEPT
+==============================================================
+On-demand-LLM-Call, kein Cron. Cutter füllt Form, klickt "Briefing
+generieren", wartet 30-60s, bekommt Output.
+
+Backend:
+- Neuer Endpoint POST /api/cutter/briefing
+- Input: Projekt-Profil als JSON
+- Filter-Logik: Posts aus DB filtern nach Genre/Längen-Bucket/Markt
+- LLM-Call mit gefilterten Posts plus Profil
+- Output: BriefingForCutter-Schema
+
+Frontend:
+- Neue Route /cutter mit React-Form
+- Submission-State (Loading / Success / Error)
+- Output-Komponente, die das Briefing rendert
+- "Speichern" und "Teilen"-Optionen
+
+==============================================================
+4 — PRE-COMMITMENTS
+==============================================================
+1. Read-First: Block 7 ist Vorbedingung — Aggregator-Logik
+   wiederverwendbar machen für die Cutter-Filterung. NICHT zwei Mal
+   denselben Aggregator schreiben.
+
+2. Form-Struktur: alle Felder Pflicht außer "spezifischer Titel". Das
+   Profil ist klar definiert, kein Freitext-Wirrwarr.
+
+3. Filter-Logik: Posts mit Längen-Toleranz +/-25% am Ziel-Length, Genre
+   strikt, Markt strikt, Plattform strikt. Wenn weniger als 10 Posts
+   übrigbleiben, Toleranz schrittweise lockern. Mindest-Pool von 20
+   Posts für sinnvolle LLM-Auswahl.
+
+4. Schema BriefingForCutter analog zu StateOfTheArtReport, aber mit
+   profilbezogenen Feldern (referenz_posts, hook_empfehlung, no_gos,
+   pattern_im_genre).
+
+5. Tests: 5 neue Tests:
+   - Form-Validation lehnt unvollständige Profile ab
+   - Filter-Logik mit Toleranz-Lockerung greift bei dünnen Daten
+   - LLM-Output validiert gegen Schema
+   - Cost bleibt unter Budget (siehe Sektion 7)
+   - Frontend-Form sendet korrekten POST-Body
+
+6. UX-Prämisse: keine Producer-Zwischenschritte, kein Approval-Flow.
+   Cutter trägt ein, kriegt sofort Output. Authentifizierung läuft
+   über bestehenden Auth-Flow.
+
+7. Cost-Awareness: jedes Cutter-Briefing kostet ca. $0.50-$1.00.
+   Rate-Limit pro User: max 5 Briefings pro Tag. Nicht zur Spielerei
+   verkommen lassen.
+
+==============================================================
+5 — IMPLEMENTIERUNGS-SCHRITTE
+==============================================================
+
+Schritt 1 — Diagnose:
+- Block 7 Aggregator und Filter-Funktionen lesen
+- Auth-Flow im bestehenden Backend verstehen — wie wird User-ID abgeleitet?
+- Bestehende Form-Komponenten im Frontend (für Style-Konsistenz)
+
+Schritt 2 — Schema BriefingForCutter:
+backend/app/schemas/insights.py:
+
+  class CutterProjektProfil(BaseModel):
+      format: str
+      genre: str
+      ziel_laenge_seconds: int
+      markt: str
+      plattform_fokus: str
+      spezifischer_titel: Optional[str] = None
+      vergleichs_filme: Optional[list[str]] = None
+
+  class HookEmpfehlung(BaseModel):
+      sekunden: str
+      empfehlung: str
+      belegt_durch: str
+
+  class BriefingForCutter(BaseModel):
+      headline: str
+      profile_summary: str
+      referenz_posts: list[TopPostMitBegruendung]
+      pattern_im_genre: list[BranchenMuster]
+      hook_empfehlungen: list[HookEmpfehlung]
+      must_show: list[str]
+      no_gos: list[str]
+      take_away: str
+      data_caveats: list[str]
+
+Schritt 3 — Filter-Funktion:
+backend/app/services/cutter_briefing.py:
+
+  def filter_posts_for_profile(profile: CutterProjektProfil) -> list[Post]:
+      # 1. Genre strikt
+      # 2. Markt strikt
+      # 3. Plattform strikt
+      # 4. Längen-Bucket +/-25% um ziel_laenge_seconds
+      # 5. Falls < 20 Posts: Längen-Toleranz auf +/-50%
+      # 6. Falls weiter < 20: Markt-Filter lockern auf "international"
+      # 7. Min-Schwelle 10 Posts, sonst Fehler-Response
+
+Schritt 4 — System-Prompt CUTTER_BRIEFING_PROMPT:
+- Persona: gleicher älterer Creative Producer wie Block 1 v2
+- Aufgabe: nimm Profil + gefilterte Posts, schreib personalisiertes Briefing
+- Few-Shot-Beispiel mit synthetischem Profil
+
+Schritt 5 — POST /api/cutter/briefing Endpoint:
+backend/app/api/cutter.py mit Rate-Limit-Decorator (max 5 pro User pro Tag).
+
+Schritt 6 — Frontend-Form:
+frontend/src/pages/CutterBriefing.tsx mit React-Hook-Form.
+
+Schritt 7 — Tests:
+5 neue Tests wie unter Pre-Commitments Sektion 5.
+
+Schritt 8 — Smoke gegen Production:
+- Manuell 3 verschiedene Profile durchspielen
+- Cost pro Briefing dokumentieren
+- Edge-Cases: leeres Genre, exotische Längen
+
+Schritt 9 — PR mit Wolf-Quality-Gate:
+PR-Body enthält 3 Beispiel-Outputs für verschiedene Profile.
+
+==============================================================
+6 — DEFINITION OF DONE
+==============================================================
+[ ] Schema BriefingForCutter mit Sub-Klassen
+[ ] Filter-Funktion mit Toleranz-Lockerung
+[ ] CUTTER_BRIEFING_PROMPT mit Few-Shot
+[ ] POST /api/cutter/briefing mit Rate-Limit
+[ ] Frontend-Route /cutter mit Form + Result-View
+[ ] 5 Tests grün
+[ ] Smoke gegen Production grün, Cost dokumentiert
+[ ] PR-Body mit 3 Beispiel-Outputs
+
+==============================================================
+7 — EINSCHRÄNKUNGEN
+==============================================================
+- Cost-Budget: $1.00 pro Briefing maximal. Rate-Limit 5 pro User pro Tag.
+- Authentication: bestehender Auth-Flow, kein neuer Login.
+- Speichern/Sharing-Funktion ist OUT OF SCOPE. Cutter kann Output kopieren.
+- Multi-Turn-Verfeinerung ("zeig mir mehr Action-Beispiele") ist OUT OF
+  SCOPE — Single-Shot, neuer Form-Submit für neues Briefing.
+- Genre-Annotation in der DB ist Voraussetzung. Wenn Posts noch nicht
+  zuverlässig getaggt sind, eigener Vorab-Sprint zur Genre-Annotation
+  (möglicherweise als Block 5 — Title-Tagging).
