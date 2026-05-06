@@ -1,0 +1,170 @@
+BRIEFING — Block 9: Hall of Fame Dashboard
+
+Operating-Modus: Master-Plan, Frontend + Backend, mittlerer Sprint
+Branch: claude/hall-of-fame-block-9
+Vorbedingung: Block 7 (State-of-the-Art-Brief) gemerged ✓
+
+==============================================================
+1 — KONTEXT
+==============================================================
+Wolf am 06.05.: ein dauerhaft sichtbarer Maßstab — was sind die Posts,
+die einen Cutter zum Niveau bringen, das sie sehen müssen, bevor sie
+schneiden. Nicht wöchentlich, sondern rollend, kuratiert.
+
+Kuratierungs-Ansatz Wolf-Vorgabe: hybrid (Algorithmus schlägt vor, Wolf
+approved). Plus zwei separate Sektionen: "Currently Trending"
+(algorithmisch, letzte 7 Tage) und "Hall of Fame" (kuratiert, letzte
+6 Monate).
+
+==============================================================
+2 — ZIEL
+==============================================================
+Eine Dashboard-Seite app.creative-radar.de/hall-of-fame mit zwei
+Sektionen:
+
+A) "Currently Trending" (algorithmisch, letzte 7 Tage)
+   - Top 10 Posts über alle 6 Pairs nach Reaktionen
+   - Auto-Update täglich
+   - Keine manuelle Kuratierung
+
+B) "Hall of Fame" (hybrid, rolling 6 Monate)
+   - 20 kuratierte Posts
+   - Algorithmus schlägt Kandidaten vor (nach Reaktionen +
+     Reaktionsquote normalisiert)
+   - Wolf approved im Admin-View
+   - Posts haben Begründung "warum HoF" (von Wolf oder
+     LLM-vorgeneriert)
+
+==============================================================
+3 — KONZEPT
+==============================================================
+Currently Trending:
+- Reine Backend-Aggregation, kein LLM
+- Materialized View oder gecachter Endpoint, refresh täglich
+- Frontend-Komponente mit Card-Grid
+
+Hall of Fame:
+- Neue DB-Tabelle hall_of_fame mit post_id, begruendung, approved_at,
+  approved_by
+- Admin-View für Wolf (filterbar, 1-Click-Approve, Begründung editieren)
+- Algorithmus-Vorschlag: Posts mit Reaktionsquote > 90. Perzentil über
+  6 Monate UND nicht schon in HoF
+- LLM generiert Begründungs-Vorschlag, Wolf editiert oder bestätigt
+
+==============================================================
+4 — PRE-COMMITMENTS
+==============================================================
+1. Read-First: Block 7 Aggregator und Schema wiederverwenden — Top-Posts-
+   Selektion ist überlappende Logik.
+
+2. DB-Migration: neue Tabelle hall_of_fame mit eigener Alembic-Migration.
+   FK auf post.id mit ON DELETE CASCADE.
+
+3. Algorithmus-Schwelle für HoF-Vorschläge muss über UI verstellbar sein,
+   nicht hardgekodet. Wolf will tunen können.
+
+4. LLM-Begründungen: ein Hilfs-Endpoint POST /api/hof/suggest-rationale,
+   der für einen Post-ID einen Begründungs-Vorschlag generiert. Wolf
+   editiert oder ersetzt.
+
+5. Tests: 5 neue Tests:
+   - Currently-Trending sortiert korrekt nach Reaktionen
+   - HoF-Algorithmus-Vorschläge respektieren Schwellwert
+   - HoF-Approve fügt Eintrag zur Tabelle hinzu
+   - HoF-Reject entfernt Vorschlag-Status
+   - Public-View zeigt nur approved HoF-Einträge
+
+6. Currently-Trending hat keine Wolf-Approve-Flow, ist rein
+   algorithmisch. Risk: peinliche Posts könnten landen. Mitigation:
+   Hide-Funktion in Admin-View, hide-Liste wird ausgefiltert.
+
+==============================================================
+5 — IMPLEMENTIERUNGS-SCHRITTE
+==============================================================
+
+Schritt 1 — Diagnose:
+- Bestehende Admin-Endpoints anschauen (haben wir Auth dafür?)
+- Block 7 Aggregator-Reuse-Möglichkeiten prüfen
+- Frontend-Komponenten für Card-Grids vorhanden?
+
+Schritt 2 — DB-Migration:
+backend/app/migrations: neue Alembic-Migration:
+
+  class HallOfFame(SQLModel, table=True):
+      __table_args__ = _CR_TABLE_ARGS
+      id: UUID = Field(default_factory=uuid4, primary_key=True)
+      post_id: UUID = Field(foreign_key=_fk("post.id"))
+      begruendung: str
+      approved_at: datetime
+      approved_by: str
+      hidden_from_public: bool = False
+      created_at: datetime = Field(default_factory=utc_now)
+
+Schritt 3 — Currently-Trending Backend:
+backend/app/api/hall_of_fame.py:
+
+  @router.get("/currently-trending", response_model=list[TrendingPost])
+  async def get_currently_trending():
+      # SQL-Aggregation: Posts der letzten 7 Tage über alle 6 Pairs
+      # Sortiert nach Reaktionen DESC, limit 10
+      # Filter: nicht in hidden_from_trending Liste
+
+Schritt 4 — Hall-of-Fame Backend:
+- GET /api/hall-of-fame — public view, nur approved Einträge
+- POST /api/admin/hof/suggest — algorithmische Vorschläge generieren
+- POST /api/admin/hof/approve — Wolf approved
+- DELETE /api/admin/hof/{id} — entfernen
+- POST /api/admin/hof/{id}/edit — Begründung editieren
+
+Schritt 5 — LLM-Begründungs-Helper:
+- POST /api/admin/hof/suggest-rationale?post_id=...
+- LLM-Call mit Post-Daten + Performance-Kontext
+- Output: 2-3 Sätze Begründung
+
+Schritt 6 — Frontend Public View:
+frontend/src/pages/HallOfFame.tsx:
+- Zwei Sektionen mit Card-Grid
+- "Currently Trending" oben, "Hall of Fame" darunter
+- Pro Card: Thumbnail, Performance-KPI, Begründung (HoF nur)
+- Click öffnet Originalpost
+
+Schritt 7 — Frontend Admin View:
+frontend/src/pages/admin/HallOfFameAdmin.tsx:
+- Drei Tabs: "Vorschläge", "Approved", "Hidden Trending"
+- Vorschläge: Liste mit 1-Click-Approve, Begründung-Editor mit
+  "LLM-Vorschlag holen"-Button
+- Approved: Liste mit Edit/Remove
+- Hidden Trending: Posts vom Trending ausblenden
+
+Schritt 8 — Tests:
+5 neue Tests wie unter Pre-Commitments Sektion 5.
+
+Schritt 9 — Smoke + PR:
+- Manuell 5 HoF-Einträge approven
+- Trending live ansehen
+- PR-Body mit Screenshots
+
+==============================================================
+6 — DEFINITION OF DONE
+==============================================================
+[ ] DB-Migration HallOfFame-Tabelle
+[ ] GET /api/currently-trending mit Hide-Filter
+[ ] GET /api/hall-of-fame public view
+[ ] Admin-Endpoints (suggest, approve, reject, edit)
+[ ] LLM-Begründungs-Helper
+[ ] Frontend public /hall-of-fame Seite
+[ ] Frontend admin /admin/hall-of-fame Seite
+[ ] 5 Tests grün
+[ ] PR-Body mit Screenshots
+
+==============================================================
+7 — EINSCHRÄNKUNGEN
+==============================================================
+- Currently-Trending hat keine Auto-Hide-Logik für problematische
+  Inhalte. Wenn was peinliches landet, manueller Hide via Admin-View.
+- HoF-Algorithmus-Schwelle ist Wolf-tunebar, aber kein A/B-Testing.
+- Posts werden nicht permanent gespeichert (Thumbnails). Wenn
+  Apify-URL stirbt, ist HoF-Post tot. Mitigation für später: eigene
+  Thumbnail-Persistierung bei Approve.
+- Cross-Pair-Deduplizierung ist nice-to-have, nicht required (gleicher
+  Trailer kann in 2 Pairs auftauchen).
