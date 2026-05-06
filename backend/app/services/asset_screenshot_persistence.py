@@ -16,26 +16,9 @@ from __future__ import annotations
 import logging
 
 from app.models.entities import Asset
-from app.services.screenshot_capture import (
-    capture_asset_screenshot,
-    capture_asset_screenshot_async,
-)
+from app.services.screenshot_capture import capture_asset_screenshot
 
 logger = logging.getLogger(__name__)
-
-
-def _apply_result(asset: Asset, result) -> None:
-    asset.visual_evidence_status = result.status
-    if result.evidence_url:
-        asset.visual_evidence_url = result.evidence_url
-        if result.source_url:
-            asset.visual_source_url = result.source_url
-        return
-    logger.warning(
-        "capture failed for asset %s: status=%s",
-        asset.id,
-        result.status,
-    )
 
 
 def persist_asset_screenshot(asset: Asset) -> None:
@@ -44,14 +27,16 @@ def persist_asset_screenshot(asset: Asset) -> None:
     except Exception as exc:  # noqa: BLE001 — we want PC-1 skip-and-log here
         logger.warning("capture failed for asset %s: %s", asset.id, exc)
         return
-    _apply_result(asset, result)
 
-
-async def persist_asset_screenshot_async(asset: Asset) -> None:
-    """Async sibling — same skip-and-log policy, awaits the AsyncClient."""
-    try:
-        result = await capture_asset_screenshot_async(asset)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("capture failed for asset %s: %s", asset.id, exc)
+    asset.visual_evidence_status = result.status
+    if result.evidence_url:
+        asset.visual_evidence_url = result.evidence_url
+        if result.source_url:
+            asset.visual_source_url = result.source_url
         return
-    _apply_result(asset, result)
+
+    logger.warning(
+        "capture failed for asset %s: status=%s",
+        asset.id,
+        result.status,
+    )

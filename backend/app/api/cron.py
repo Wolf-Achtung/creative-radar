@@ -41,7 +41,7 @@ from app.services.apify_connector import (
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
 from app.services.visual_analysis import analyze_asset_visual
 
-from app.api.monitor import _handle_from_url_or_value, _run_apify_sync_for_platform_async
+from app.api.monitor import _handle_from_url_or_value, _run_apify_sync_for_platform
 
 router = APIRouter(prefix="/api/admin/cron", tags=["cron"])
 logger = logging.getLogger(__name__)
@@ -67,10 +67,8 @@ def _run_timeout_minutes() -> int:
 
 
 def _summarize(summary: dict) -> dict:
-    """Strip the heavy in-memory artefacts (asset_ids stay sized; the
-    grouped-channel ORM list, if present, is dropped) — counters and the
-    Block-2 ``failed_channels`` block are kept for the persisted log."""
-    return {k: v for k, v in summary.items() if k not in {"assets", "asset_ids"}}
+    """Strip the heavy ``assets`` list — counters only for the persisted log."""
+    return {k: v for k, v in summary.items() if k != "assets"}
 
 
 def _reap_stale_runs(session: Session) -> None:
@@ -107,15 +105,15 @@ async def _execute_platform_sync(session: Session, run_index: int) -> tuple[dict
         else:
             channel_urls = [c.url for c in ig_channels if c.url]
             raw_items = await run_public_channel_monitor(channel_urls, CRON_RESULTS_LIMIT_PER_CHANNEL)
-            sync = await _run_apify_sync_for_platform_async(
-                engine=engine,
+            sync = _run_apify_sync_for_platform(
+                session=session,
                 channels=ig_channels,
                 raw_items=raw_items,
                 platform="instagram",
                 normalize=normalize_public_item,
                 only_whitelist_matches=False,
             )
-            created_asset_ids.extend(aid for aid in sync.get("asset_ids", []) if aid is not None)
+            created_asset_ids.extend(a.id for a in sync.get("assets", []) if a.id is not None)
             summary["platforms"]["instagram"] = {
                 "channels_checked": len(ig_channels),
                 "raw_items": len(raw_items),
@@ -135,15 +133,15 @@ async def _execute_platform_sync(session: Session, run_index: int) -> tuple[dict
                 summary["platforms"]["tiktok"] = {"skipped": True, "reason": "no_usernames", "channels_checked": len(tt_channels)}
             else:
                 raw_items = await run_tiktok_profile_monitor(usernames, CRON_RESULTS_LIMIT_PER_CHANNEL)
-                sync = await _run_apify_sync_for_platform_async(
-                    engine=engine,
+                sync = _run_apify_sync_for_platform(
+                    session=session,
                     channels=tt_channels,
                     raw_items=raw_items,
                     platform="tiktok",
                     normalize=normalize_tiktok_item,
                     only_whitelist_matches=False,
                 )
-                created_asset_ids.extend(aid for aid in sync.get("asset_ids", []) if aid is not None)
+                created_asset_ids.extend(a.id for a in sync.get("assets", []) if a.id is not None)
                 summary["platforms"]["tiktok"] = {
                     "channels_checked": len(tt_channels),
                     "raw_items": len(raw_items),

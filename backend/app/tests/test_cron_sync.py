@@ -1,14 +1,13 @@
 """Tests for the cron sync endpoint (Sprint 5.3.5 + background-task hotfix)."""
 from __future__ import annotations
 
-import os
-import tempfile
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.config import settings
@@ -19,33 +18,17 @@ from app.services import asset_screenshot_persistence as persistence_mod
 from app.services.screenshot_capture import VisualEvidenceResult
 
 
-def _engine_for_path(path: str):
-    # Block 2: switched from in-memory + StaticPool to a file-backed SQLite
-    # so multiple SQLAlchemy Sessions can hold their own connections. The
-    # async asset-creation path opens a fresh ``Session(engine)`` per task
-    # and runs them via ``asyncio.gather``; under StaticPool all tasks
-    # would have shared one connection and serialised at the SQLite mutex
-    # in ways that lost commits.
+def _engine():
     return create_engine(
-        f"sqlite:///{path}",
-        connect_args={"check_same_thread": False},
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
 
 
 @pytest.fixture
 def db():
-    fd, path = tempfile.mkstemp(prefix="cr_cron_", suffix=".db")
-    os.close(fd)
-    engine = _engine_for_path(path)
+    engine = _engine()
     SQLModel.metadata.create_all(engine)
-    try:
-        yield engine
-    finally:
-        engine.dispose()
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+    return engine
 
 
 @pytest.fixture
@@ -138,15 +121,11 @@ def test_cron_sync_background_completes_run(client_with_auth, db):
     def fake_capture(asset):
         return VisualEvidenceResult(status="captured", evidence_url=f"evidence/{asset.id}.jpg")
 
-    async def fake_capture_async(asset):
-        return fake_capture(asset)
-
     with patch("app.api.cron.run_public_channel_monitor",
                new_callable=AsyncMock, return_value=[fake_ig_item]), \
          patch("app.api.cron.run_tiktok_profile_monitor",
                new_callable=AsyncMock, return_value=[]), \
-         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=fake_capture), \
-         patch.object(persistence_mod, "capture_asset_screenshot_async", side_effect=fake_capture_async):
+         patch.object(persistence_mod, "capture_asset_screenshot", side_effect=fake_capture):
         response = client_with_auth.post(
             "/api/admin/cron/sync-all",
             headers={"Authorization": "Bearer TESTTOKEN"},
@@ -237,10 +216,6 @@ def _stub_capture(asset):
     return VisualEvidenceResult(status="captured", evidence_url=f"evidence/{asset.id}.jpg")
 
 
-async def _stub_capture_async(asset):
-    return _stub_capture(asset)
-
-
 def _make_vision_stub(call_log: list):
     """Returns a fake analyze_asset_visual that records every asset id and
     flips status to 'analyzed', mirroring the real success path."""
@@ -290,7 +265,6 @@ def test_cron_run_below_cap_analyzes_all_new_assets(client_with_auth, db, monkey
          patch("app.api.cron.run_tiktok_profile_monitor",
                new_callable=AsyncMock, return_value=[]), \
          patch.object(persistence_mod, "capture_asset_screenshot", side_effect=_stub_capture), \
-         patch.object(persistence_mod, "capture_asset_screenshot_async", side_effect=_stub_capture_async), \
          patch("app.api.cron.analyze_asset_visual", side_effect=_make_vision_stub(call_log)):
         response = client_with_auth.post(
             "/api/admin/cron/sync-all",
@@ -327,7 +301,6 @@ def test_cron_run_above_cap_analyzes_fifo_and_leaves_rest(client_with_auth, db, 
          patch("app.api.cron.run_tiktok_profile_monitor",
                new_callable=AsyncMock, return_value=[]), \
          patch.object(persistence_mod, "capture_asset_screenshot", side_effect=_stub_capture), \
-         patch.object(persistence_mod, "capture_asset_screenshot_async", side_effect=_stub_capture_async), \
          patch("app.api.cron.analyze_asset_visual", side_effect=_make_vision_stub(call_log)):
         response = client_with_auth.post(
             "/api/admin/cron/sync-all",
@@ -338,38 +311,27 @@ def test_cron_run_above_cap_analyzes_fifo_and_leaves_rest(client_with_auth, db, 
     assert len(call_log) == 2, "exactly the cap should have been analyzed"
 
     with Session(db) as session:
-        from app.models.entities import Post  # local import: no need at module top
-
         run = session.get(CronRun, uuid4().__class__(response.json()["run_id"]))
         vision = run.summary_json["vision"]
         assert vision["attempted"] == 2
         assert vision["succeeded"] == 2
         assert vision["skipped_cap"] == 3
-
+        # FIFO: the first two assets (in IG sync insertion order) match the
+        # call log. Cross-check via the Asset table — the two analyzed rows
+        # must be the two oldest by created_at.
         analyzed = list(session.exec(
             select(Asset).where(Asset.visual_analysis_status == "analyzed")
+            .order_by(Asset.created_at)
         ).all())
         pending = list(session.exec(
             select(Asset).where(Asset.visual_analysis_status == "pending")
+            .order_by(Asset.created_at)
         ).all())
         assert len(analyzed) == 2
         assert len(pending) == 3
-
-        # FIFO guarantee under Block-2 async refactor: the asset_ids list the
-        # cron driver hands to the vision step preserves item-input order
-        # (asyncio.gather returns in submission order). We can no longer
-        # assert on created_at because parallel commits race on timestamps;
-        # verify the semantic directly via post_url -> input-slug mapping.
         analyzed_ids = [a.id for a in analyzed]
-        analyzed_post_urls = [
-            session.get(Post, a.post_id).post_url for a in analyzed
-        ]
-        analyzed_slugs = sorted(
-            url.rstrip("/").rsplit("/", 1)[-1] for url in analyzed_post_urls
-        )
-        assert analyzed_slugs == ["above-cap-0", "above-cap-1"], (
-            f"FIFO broken: analyzed slugs {analyzed_slugs} are not the first two inputs"
-        )
+        # The two analyzed must be older than every pending (FIFO guarantee).
+        assert max(a.created_at for a in analyzed) <= min(p.created_at for p in pending)
         # Call log must contain exactly those two ids.
         assert sorted(call_log, key=str) == sorted(analyzed_ids, key=str)
 
