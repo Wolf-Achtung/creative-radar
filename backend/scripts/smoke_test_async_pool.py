@@ -40,8 +40,11 @@ import time
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlmodel import Session, select
+
+
+SMOKE_APPLICATION_NAME = 'smoke_async_pool'
 
 
 def _now_tag() -> str:
@@ -126,8 +129,7 @@ async def _sample_active_connections(stop_event: asyncio.Event, samples: list[in
                 row = conn.execute(
                     text(
                         "SELECT count(*) FROM pg_stat_activity "
-                        "WHERE application_name = current_setting('application_name', true) "
-                        "OR usename = current_user"
+                        f"WHERE application_name = '{SMOKE_APPLICATION_NAME}'"
                     )
                 ).scalar() or 0
             samples.append(int(row))
@@ -148,6 +150,16 @@ async def _run(items_count: int, owner: str, delete_after: bool) -> int:
     from app.services.apify_connector import normalize_public_item
 
     is_postgres = not str(engine.url).startswith("sqlite")
+
+    # Tag every connection from this script with a unique application_name
+    # so the pg_stat_activity sampler can distinguish smoke-test connections
+    # from production-backend connections sharing the same DB user.
+    @event.listens_for(engine, "connect")
+    def _set_app_name(dbapi_connection, connection_record):
+        with dbapi_connection.cursor() as cur:
+            cur.execute(f"SET application_name = '{SMOKE_APPLICATION_NAME}'")
+    engine.dispose()  # discard any pre-listener connections from the pool
+
     print(f"# Block 2.5 smoke test")
     print(f"# DB:                {engine.url.render_as_string(hide_password=True)}")
     print(f"# DB_POOL_TOTAL_BUDGET: {DB_POOL_TOTAL_BUDGET}")
@@ -225,27 +237,32 @@ async def _run(items_count: int, owner: str, delete_after: bool) -> int:
         print(f"  → only {summary.get('created_assets', 0)}/{items_count} items created")
 
     if delete_after:
-        from app.models.entities import Asset as _Asset
-        with Session(engine) as session:
-            posts = list(session.exec(
-                select(Post).where(Post.post_url.like(f"%{slug_prefix}%"))  # type: ignore[attr-defined]
-            ).all())
-            post_ids = [p.id for p in posts]
-            # Delete child Assets first to avoid the FK nullification path
-            # (Asset.post_id is NOT NULL, which the default ORM cascade
-            # tries to set to None before deleting the Post — the smoke
-            # script wants the rows gone, not nulled).
-            if post_ids:
-                assets = list(session.exec(
-                    select(_Asset).where(_Asset.post_id.in_(post_ids))  # type: ignore[attr-defined]
-                ).all())
-                for a in assets:
-                    session.delete(a)
-                session.commit()
-            for p in posts:
-                session.delete(p)
-            session.commit()
-            print(f"  → cleaned up {len(posts)} smoke-test Post rows + their Assets")
+        # FK chain: titlecandidate.asset_id -> asset.id -> post.id -> channel.id
+        # Use raw SQL DELETEs in correct order; the ORM-cascade path was fragile
+        # because TitleCandidate is not always a registered relationship on Asset.
+        from sqlalchemy import text as _sql_text
+        with engine.begin() as conn:
+            tc = conn.execute(_sql_text("""
+                DELETE FROM creative_radar.titlecandidate
+                WHERE asset_id IN (
+                    SELECT a.id FROM creative_radar.asset a
+                    JOIN creative_radar.post p ON a.post_id = p.id
+                    WHERE p.post_url LIKE :prefix
+                )
+            """), {"prefix": f"%{slug_prefix}%"}).rowcount
+            ast = conn.execute(_sql_text("""
+                DELETE FROM creative_radar.asset
+                WHERE post_id IN (
+                    SELECT id FROM creative_radar.post WHERE post_url LIKE :prefix
+                )
+            """), {"prefix": f"%{slug_prefix}%"}).rowcount
+            pst = conn.execute(_sql_text("""
+                DELETE FROM creative_radar.post WHERE post_url LIKE :prefix
+            """), {"prefix": f"%{slug_prefix}%"}).rowcount
+            ch = conn.execute(_sql_text("""
+                DELETE FROM creative_radar.channel WHERE handle = :handle
+            """), {"handle": owner}).rowcount
+        print(f"  → cleaned up: titlecandidate={tc} asset={ast} post={pst} channel={ch}")
 
     return 0 if healthy else 1
 
