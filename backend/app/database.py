@@ -48,9 +48,66 @@ def resolve_database_url() -> str:
 
 
 DATABASE_URL = resolve_database_url()
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+connect_args = {"check_same_thread": False} if _is_sqlite else {}
+
+# Block 2.5 — Connection-Pool tuning.
+#
+# PR #79 (Block 2 async refactor) deployed at 2026-05-06 09:20 UTC and
+# triggered a Postgres connection-pool storm during the first cron run:
+# 261 IG items × per-task short Sessions in 4 phases = up to ~1044
+# connection open/close cycles in a few minutes against the default
+# SQLAlchemy pool (pool_size=5, max_overflow=10). Postgres logged
+# "Connection reset by peer" and "unexpected EOF on client connection";
+# the run hung in status=running for 2h+. The PR was reverted at 11:38 UTC.
+#
+# This config is the corrective stance for Block 2.5:
+# - pool_size=10:        baseline; covers the synchronous request handlers
+#                        and cron's foreground work.
+# - max_overflow=10:     burst headroom for the async Phase A/C bursts
+#                        under concurrency=3 (OpenAI) + 5 (httpx). Even
+#                        worst-case the pool ceiling stays at 20 — well
+#                        below Railway's per-DB connection cap.
+# - pool_pre_ping=True:  validate connections before checkout. Cheap
+#                        (one ``SELECT 1``) and prevents the "connection
+#                        was invalidated" stalls observed in the
+#                        post-revert window when Railway briefly reset
+#                        the upstream Postgres.
+# - pool_recycle=300:    recycle connections older than 5 min. Railway's
+#                        Postgres has a server-side idle timeout that
+#                        previously surfaced as random InvalidatePoolError
+#                        on the next checkout; recycle keeps us under that.
+# - pool_use_lifo=True:  return the most-recently-used connection first.
+#                        Keeps the working set small (idle connections
+#                        get to time out and recycle) instead of round-
+#                        robining all pool slots equally.
+#
+# SQLite test/CI runs ignore these knobs because SQLAlchemy uses a
+# different pool class for sqlite:/// URLs; the ``_pg_pool_kwargs`` dict
+# stays empty for sqlite so ``create_engine`` doesn't reject them.
+_pg_pool_kwargs: dict = {} if _is_sqlite else {
+    "pool_size": 10,
+    "max_overflow": 10,
+    "pool_recycle": 300,
+    "pool_use_lifo": True,
+}
+
+# Block-2.5 budget contract: the asset-creation pipeline's per-task
+# semaphores (api/monitor.ASSET_CREATION_*_CONCURRENCY) must stay below
+# the pool ceiling so a saturated cron run can't outrun the pool.
+# A test enforces ``concurrency_total <= DB_POOL_TOTAL_BUDGET``.
+DB_POOL_SIZE = _pg_pool_kwargs.get("pool_size", 0)
+DB_POOL_MAX_OVERFLOW = _pg_pool_kwargs.get("max_overflow", 0)
+DB_POOL_TOTAL_BUDGET = DB_POOL_SIZE + DB_POOL_MAX_OVERFLOW
+
 try:
-    engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args, pool_pre_ping=True)
+    engine = create_engine(
+        DATABASE_URL,
+        echo=False,
+        connect_args=connect_args,
+        pool_pre_ping=True,
+        **_pg_pool_kwargs,
+    )
 except ArgumentError as exc:
     if settings.allow_sqlite_fallback:
         DATABASE_URL = "sqlite:///./creative_radar.db"
