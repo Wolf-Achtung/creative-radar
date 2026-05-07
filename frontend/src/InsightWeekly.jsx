@@ -460,9 +460,7 @@ export default function InsightWeekly({ pair }) {
         <p className="eyebrow">STUDIO-REVIEW</p>
         <h1>{label}</h1>
         <p>Was diese Woche funktioniert, was nicht und wie wir's nutzen.</p>
-        <div className="hero-actions">
-          <button onClick={load} disabled={loading} style={{ background: '#F26B5E', color: 'white', borderColor: '#F26B5E' }}>{loading ? 'Lädt …' : 'Neu generieren'}</button>
-        </div>
+
       </header>
 
       {status === 'slow' && (

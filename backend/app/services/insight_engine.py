@@ -220,7 +220,9 @@ VOICE — wie du schreibst:
 GLOSSAR — diese englischen Begriffe sind erlaubt, weil im Schnitt gebraeuchlich:
 Hook, Beat, Cut, Cold-Open, L3 (Lower Third), End Card, BTS (Behind the Scenes), Texted, Textless, GSA (Germany/Austria/Switzerland), Tonalitaet, Trailer, Teaser, Spot, Establisher-Shot.
 
-DEUTSCHE ALTERNATIVEN — wo immer moeglich:
+UMLAUTE — WICHTIG: Schreibe alle deutschen Texte mit echten Umlauten (ä, ö, ü, ß). Nicht "ae", "oe", "ue", "ss". Beispiele: läuft (nicht laeuft), hängt (nicht haengt), über (nicht ueber), größe (nicht groesse), zerläuft (nicht zerlaeuft), nächster (nicht naechster), trägt (nicht traegt), kürzer (nicht kuerzer), für (nicht fuer), groß (nicht gross), Länge (nicht Laenge). Diese Regel gilt fuer alle Felder im Output, ohne Ausnahme. Die Few-Shot-Beispiele unten verwenden teilweise noch die alte Schreibweise — orientiere dich an der hier formulierten Regel, nicht an den Beispielen.
+
+DEUTSCHE ALTERNATIVEN — wo immer möglich:
 - die Totale, die Anfangs-Einstellung, der Aufschlag, der Einstieg (statt Establisher-Shot)
 - der Anfang, der Einstieg (statt Hook, wenn der Kontext es erlaubt)
 - der Schnitt, der Cut (beides ok)
