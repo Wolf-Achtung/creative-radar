@@ -132,10 +132,16 @@ class SchnittAufgabe(BaseModel):
     """Eine konkrete Schnitt-Aufgabe fuer die naechsten 7 Tage. 
     Beobachtung statt Ansage: was liegt auf dem Tisch, warum diese Aufgabe?
     Sprint-Trailerhaus-Prompt-v2.1: gibt Junior-Cuttern eine klare Liste,
-    was operativ ansteht — abgeleitet aus den Daten dieses Briefs."""
+    was operativ ansteht — abgeleitet aus den Daten dieses Briefs.
+    
+    bezug (v2.3): Tag-String oben in der Card. Verweist entweder auf
+    einen Titel aus aktuell_im_fokus oder auf einen der erlaubten
+    strukturellen Werte (Format-Strategie, Posting-Rhythmus,
+    Caption-Disziplin, Hashtag-Klammer)."""
     nummer: int
     aufgabe: str
     warum: str
+    bezug: Optional[str] = None
 
 
 class TitelImFokus(BaseModel):

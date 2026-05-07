@@ -201,6 +201,17 @@ function LLMOutput({ output, raw }) {
           <ol className="insight-list">
             {output.ganz_konkret.map((item, i) => (
               <li key={i}>
+                {item.bezug && (
+                  <div style={{
+                    fontSize: '0.75em',
+                    color: '#888',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    marginBottom: '0.25rem',
+                  }}>
+                    {item.bezug}
+                  </div>
+                )}
                 <strong>{item.aufgabe}</strong>
                 <div className="insight-evidence">Warum: {item.warum}</div>
               </li>
