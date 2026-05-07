@@ -259,7 +259,8 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
       "format_typ": "Kino-Reminder",
       "kennzahl": "drei Cuts in 36h, alle ueber 30s, alle unter 1.600 Reaktionen",
       "release_datum": "20. Mai",
-      "verdict": "zerlaeuft"
+      "verdict": "zerlaeuft",
+      "post_url": "Exakte URL aus top_posts oder historical_top_posts, falls vorhanden. Niemals erfinden, lieber null."
     }
   ],
   "ganz_konkret": [
@@ -343,6 +344,7 @@ AKTUELL_IM_FOKUS-SEKTION — Hinweise zur Befuellung:
 - kennzahl: eine konkrete Zahl, die den Block charakterisiert (z.B. "33.323 Reaktionen, 113s" oder "drei Cuts, alle unter 1.600 Reaktionen")
 - release_datum: nur wenn fuer den Block relevant (Kinostart, Streaming-Release). Sonst null.
 - verdict: optionales Adjektiv aus: traegt / zerlaeuft / sitzt / ausbaufaehig / zweischneidig. Nur wenn die Daten klar sind, sonst null.
+- post_url: optionale URL des Referenz-Posts. Wenn der Eintrag aus den top_posts oder historical_top_posts ableitbar ist und dort eine post_url existiert, uebernimm exakt diese URL. Niemals URLs erfinden oder raten — lieber null als eine falsche URL.
 - Diese Sektion ist die Eintrittsstelle in den Brief: ein Cutter scannt sie in 10 Sekunden und weiss, welche Titel in den Schnitt-Aufgaben weiter unten gemeint sind.
 
 
@@ -371,7 +373,8 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kuerzer als ein
       "format_typ": "Kino-Reminder",
       "kennzahl": "ein 56s-Fakten-Cut, 1.052 Reaktionen bei 224k Aufrufen",
       "release_datum": "7. Mai",
-      "verdict": "zerlaeuft"
+      "verdict": "zerlaeuft",
+      "post_url": "https://tiktok.com/@warnerbrosdeutschland/video/de1"
     },
     {
       "titel": "Mortal Kombat II",
@@ -379,7 +382,8 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kuerzer als ein
       "format_typ": "Round-2-Cut",
       "kennzahl": "22s, 233 Reaktionen — kuerzer als DE, hoehere Reaktionsquote",
       "release_datum": "7. Mai",
-      "verdict": "ausbaufaehig"
+      "verdict": "ausbaufaehig",
+      "post_url": "https://tiktok.com/@warnerbros/video/us2"
     },
     {
       "titel": "Miss Congeniality",
@@ -387,7 +391,8 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kuerzer als ein
       "format_typ": "Backkatalog-Anriss",
       "kennzahl": "20s, 267.388 Reaktionen, 2 Mio Aufrufe",
       "release_datum": null,
-      "verdict": "traegt"
+      "verdict": "traegt",
+      "post_url": "https://tiktok.com/@warnerbros/video/us3"
     },
     {
       "titel": "Evil Dead Burn",
@@ -395,7 +400,8 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kuerzer als ein
       "format_typ": "Horror-Hook",
       "kennzahl": "zwei Cuts (25s, 18s), 6.352 und 5.870 Reaktionen, 8 Posts mit dem Tag",
       "release_datum": "10. Juli",
-      "verdict": "sitzt"
+      "verdict": "sitzt",
+      "post_url": "https://tiktok.com/@warnerbros/video/us4"
     }
   ],
   "ganz_konkret": [

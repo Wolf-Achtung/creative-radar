@@ -182,7 +182,18 @@ function LLMOutput({ output, raw }) {
           <ul className="insight-list">
             {output.aktuell_im_fokus.map((item, i) => (
               <li key={i}>
-                <strong>{item.titel}</strong>
+                {item.post_url ? (
+                  <a
+                    href={item.post_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'inherit', textDecoration: 'underline' }}
+                  >
+                    <strong>{item.titel}</strong>
+                  </a>
+                ) : (
+                  <strong>{item.titel}</strong>
+                )}
                 <span style={{ color: '#888', marginLeft: '0.5rem', fontSize: '0.9em' }}>
                   · {item.markt} · {item.format_typ}
                   {item.release_datum && ` · ${item.release_datum}`}

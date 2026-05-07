@@ -149,13 +149,18 @@ class TitelImFokus(BaseModel):
     sichtbar im Material auftaucht. Sektion 'Worum geht's diese Woche'
     gibt einem Cutter in 10 Sekunden Ueberblick, welche konkreten Titel
     in den Aufgaben weiter unten gemeint sind.
-    Sprint-Trailerhaus-Prompt-v2.2."""
+    Sprint-Trailerhaus-Prompt-v2.2.
+    
+    post_url (v2.4): URL des Referenz-Posts, falls vorhanden. Macht den
+    Titel im Frontend klickbar — Cutter kann den Spot direkt ansehen.
+    Nur exakte URLs aus dem Input verwenden, niemals erfinden."""
     titel: str
     markt: str
     format_typ: str
     kennzahl: str
     release_datum: Optional[str] = None
     verdict: Optional[str] = None
+    post_url: Optional[str] = None
 
 
 
