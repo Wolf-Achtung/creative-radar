@@ -163,7 +163,7 @@ function LLMOutput({ output, raw }) {
             <pre className="insight-raw">{raw}</pre>
           </>
         ) : (
-          <p>Dry-Run aktiv — Opus 4.7 wurde nicht aufgerufen. Aggregation oben prüfen.</p>
+          <p>Dry-Run aktiv — kein LLM-Call. Aggregation oben prüfen.</p>
         )}
       </div>
     );
@@ -465,8 +465,8 @@ export default function InsightWeekly({ pair }) {
 
       {status === 'slow' && (
         <div className="card insight-slow-hint">
-          <p className="section-kicker">Dauert länger</p>
-          <p>Report dauert länger als erwartet, bitte warten — Opus 4.7 antwortet bei großen Aggregations gelegentlich erst nach 60-90s. Kein Abbruch nötig.</p>
+          <p className="section-kicker">Einen Moment bitte</p>
+          <p>Der Report wird gerade erstellt — das kann einen Moment dauern.</p>
         </div>
       )}
 
