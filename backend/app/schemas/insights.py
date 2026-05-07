@@ -128,6 +128,17 @@ class Konkurrenz(BaseModel):
     neu_seit_letzten_wochen: Optional[str] = None
 
 
+class SchnittAufgabe(BaseModel):
+    """Eine konkrete Schnitt-Aufgabe fuer die naechsten 7 Tage. 
+    Beobachtung statt Ansage: was liegt auf dem Tisch, warum diese Aufgabe?
+    Sprint-Trailerhaus-Prompt-v2.1: gibt Junior-Cuttern eine klare Liste,
+    was operativ ansteht — abgeleitet aus den Daten dieses Briefs."""
+    nummer: int
+    aufgabe: str
+    warum: str
+
+
+
 class CrossMarketInsight(BaseModel):
     de_vs_us: str
     transfer_opportunity: str
@@ -200,6 +211,7 @@ class LLMReport(BaseModel):
     risks: list[str]
     data_caveats: list[str]
     # --- New (Trailerhaus-Prompt-v1, all optional for backwards-compat) ---
+    ganz_konkret: Optional[list[SchnittAufgabe]] = None
     konkurrenz: Optional[Konkurrenz] = None
     tonalitaet: Optional[list[Tonalitaet]] = None
     watch_outs: Optional[list[WatchOut]] = None
