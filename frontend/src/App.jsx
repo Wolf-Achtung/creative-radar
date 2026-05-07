@@ -908,6 +908,46 @@ function App() {
         </div>
       </header>
 
+      <section className="card" style={{ marginBottom: '1.5rem' }}>
+        <p className="section-kicker">Diese Woche im Schnitt</p>
+        <h2 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Studio-Briefings</h2>
+        <p className="muted small" style={{ marginTop: 0, marginBottom: '1rem' }}>
+          Cutter-Briefe der sechs Tier-A-Studios mit konkreten Schnitt-Aufgaben für die nächsten Tage.
+        </p>
+        <div className="pair-briefs-grid" style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '0.75rem',
+        }}>
+          {[
+            { slug: 'warnerbros', label: 'Warner Bros' },
+            { slug: 'sonypictures', label: 'Sony Pictures' },
+            { slug: 'primevideo', label: 'Prime Video' },
+            { slug: 'disney', label: 'Disney' },
+            { slug: 'netflix', label: 'Netflix' },
+            { slug: 'paramountpictures', label: 'Paramount' },
+          ].map((pair) => (
+            <a
+              key={pair.slug}
+              href={`/insights/weekly/${pair.slug}`}
+              className="card"
+              style={{
+                display: 'block',
+                padding: '1rem',
+                margin: 0,
+                textDecoration: 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+              }}
+            >
+              <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.label}</strong>
+              <span className="muted small">DE + US, wöchentlich</span>
+            </a>
+          ))}
+        </div>
+      </section>
+
+
       {error && <div className="error">{error}</div>}
       {message && <div className="success">{message}</div>}
       {busy && <div className="info">Arbeite gerade …</div>}
