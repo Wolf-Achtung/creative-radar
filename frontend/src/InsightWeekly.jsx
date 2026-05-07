@@ -496,7 +496,6 @@ export default function InsightWeekly({ pair }) {
 
       {report && status !== 'error' && (
         <>
-          <CoverageBanner report={report} />
 
           {report.aggregation?.notes?.length > 0 && (
             <div className="card insight-notes">
