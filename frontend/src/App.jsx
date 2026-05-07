@@ -900,19 +900,15 @@ function App() {
         <div>
           <p className="eyebrow">Creative Intelligence Workspace</p>
           <h1>Creative Radar</h1>
-          <p>Report-Typ wählen, Vorschlag prüfen und Report erzeugen – ohne jeden Treffer manuell freizugeben.</p>
-        </div>
-        <div className="hero-actions">
-          <button className="primary" onClick={() => setActiveTab('Report erstellen')} disabled={busy}>Report erstellen</button>
-          <button className="secondary" onClick={() => setActiveTab('Treffer prüfen')} disabled={busy}>Treffer prüfen</button>
+          <p>Wöchentliche Cutter-Briefings zu den sechs großen Verleihern — was funktioniert gut, was nicht, mit konkreten Spot-Links.</p>
         </div>
       </header>
 
-      <section className="card" style={{ marginBottom: '1.5rem' }}>
-        <p className="section-kicker">Diese Woche im Schnitt</p>
-        <h2 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Studio-Briefings</h2>
-        <p className="muted small" style={{ marginTop: 0, marginBottom: '1rem' }}>
-          Cutter-Briefe der sechs Tier-A-Studios mit konkreten Schnitt-Aufgaben für die nächsten Tage.
+      <section style={{ background: '#1a1d2e', padding: '0 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: '-1.5rem' }}>
+        <p style={{ color: '#888', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', paddingTop: '0.5rem' }}>Diese Woche im Schnitt</p>
+        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Studio-Briefings</h2>
+        <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
+          Cutter-Briefe der sechs Tier-A-Studios — was funktioniert gut, was nicht, mit konkreten Spot-Links.
         </p>
         <div className="pair-briefs-grid" style={{
           display: 'grid',
@@ -957,6 +953,7 @@ function App() {
         </div>
       )}
 
+      <p style={{ color: '#888', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '2rem 0 0.5rem 0' }}>Werkzeuge</p>
       <nav className="tabs">
         {NAV_ITEMS.map((tab) => (
           <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>{tab}</button>
