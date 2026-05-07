@@ -8,13 +8,13 @@ import { endpoints } from './api/client';
 // pairs from migration ``e5d8f1a36b40`` — six enabled today, plus
 // ``universalpictures`` shipped as a disabled placeholder.
 const FALLBACK_LABEL = {
-  warnerbros: 'warnerbros DE+US',
-  sonypictures: 'sonypictures DE+US',
-  primevideo: 'primevideo DE+US',
-  disney: 'disney DE+US',
-  netflix: 'netflix DE+US',
-  paramountpictures: 'paramountpictures DE+US',
-  universalpictures: 'universalpictures DE+US',
+  warnerbros: 'Warner Bros · DE + US',
+  sonypictures: 'Sony Pictures · DE + US',
+  primevideo: 'Prime Video · DE + US',
+  disney: 'Disney · DE + US',
+  netflix: 'Netflix · DE + US',
+  paramountpictures: 'Paramount · DE + US',
+  universalpictures: 'Universal Pictures · DE + US',
 };
 
 // Try to recognise the structured 503 body the backend sends for disabled
@@ -452,31 +452,16 @@ export default function InsightWeekly({ pair }) {
 
   const loading = status === 'loading' || status === 'slow';
 
-  const label = report?.pair_label || FALLBACK_LABEL[pair] || pair;
+  const label = FALLBACK_LABEL[pair] || report?.pair_label || pair;
 
   return (
     <main className="page insight-page">
       <header className="hero">
-        <p className="eyebrow">Weekly Insight Brief</p>
+        <p className="eyebrow">STUDIO-REVIEW</p>
         <h1>{label}</h1>
-        <p>Wochenreport für Trailerhaus-Creatives — Hooks, Schnitt, Format und Cross-Market-Transfer.</p>
+        <p>Was diese Woche funktioniert, was nicht und wie wir's nutzen.</p>
         <div className="hero-actions">
-          <label>
-            Datenfenster (Tage)
-            <input
-              type="number"
-              min={7}
-              max={90}
-              value={windowDays}
-              onChange={(e) => setWindowDays(Number(e.target.value) || 30)}
-              style={{ marginLeft: 8, width: 70 }}
-            />
-          </label>
-          <label>
-            <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
-            {' '}Dry-Run (kein LLM-Call)
-          </label>
-          <button onClick={load} disabled={loading}>{loading ? 'Lädt …' : 'Neu generieren'}</button>
+          <button onClick={load} disabled={loading} style={{ background: '#F26B5E', color: 'white', borderColor: '#F26B5E' }}>{loading ? 'Lädt …' : 'Neu generieren'}</button>
         </div>
       </header>
 
