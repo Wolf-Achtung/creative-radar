@@ -677,7 +677,7 @@ function App() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState('Report erstellen');
+  const [activeTab, setActiveTab] = useState(null);
   const [channelFile, setChannelFile] = useState(null);
   const [monitorForm, setMonitorForm] = useState({ max_channels: 5, results_limit_per_channel: 5, only_whitelist_matches: true });
   const [tiktokForm, setTiktokForm] = useState({ username: 'warnerbros', max_channels: 1, results_limit_per_channel: 5, only_whitelist_matches: false });
@@ -896,7 +896,7 @@ function App() {
 
   return (
     <main>
-      <header className="hero">
+      <header className="hero" style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}>
         <div>
           <p className="eyebrow">Creative Intelligence Workspace</p>
           <h1>Creative Radar</h1>
@@ -904,8 +904,8 @@ function App() {
         </div>
       </header>
 
-      <section style={{ background: '#1a1d2e', padding: '0 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: '-1.5rem' }}>
-        <p style={{ color: '#888', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', paddingTop: '0.5rem' }}>Diese Woche im Schnitt</p>
+      <section style={{ background: '#1a1d2e', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
+        <p style={{ color: '#888', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Diese Woche im Schnitt</p>
         <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Studio-Briefings</h2>
         <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
           Cutter-Briefe der sechs Tier-A-Studios — was funktioniert gut, was nicht, mit konkreten Spot-Links.
@@ -1007,6 +1007,12 @@ function App() {
           onSyncTitleSources={syncTitleSources}
           onRematchAssets={rematchAssets}
         />
+      )}
+
+      {!activeTab && (
+        <p style={{ color: '#888', fontSize: '0.95em', textAlign: 'center', padding: '2rem', margin: 0 }}>
+          Wähle ein Werkzeug, um zu starten.
+        </p>
       )}
 
       <footer className="footer-status">
