@@ -59,7 +59,7 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
   border: 1px solid #ece4d8;
 }
 .card h2 { margin: 0 0 14px; font-size: 30px; letter-spacing: -0.02em; }
-.section-kicker { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #7c7468; font-weight: 700; }
+.section-kicker { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #F26B5E; font-weight: 700; }
 
 .workflow-steps {
   display: grid;

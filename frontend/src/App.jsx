@@ -900,7 +900,7 @@ function App() {
         <div>
           <p className="eyebrow">Creative Intelligence Workspace</p>
           <h1>Creative Radar</h1>
-          <p>Wöchentliche Cutter-Briefings zu den sechs großen Verleihern — was funktioniert gut, was nicht, mit konkreten Spot-Links.</p>
+          <p>Diese Woche neu bei den Majors und Streamern — was funktioniert, was nicht und wie wir's nutzen.</p>
         </div>
       </header>
 
@@ -908,7 +908,7 @@ function App() {
         <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Diese Woche im Schnitt</p>
         <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Studio-Briefings</h2>
         <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
-          Cutter-Briefe der sechs Tier-A-Studios — was funktioniert gut, was nicht, mit konkreten Spot-Links.
+          Sechs Studio-Reviews pro Woche.
         </p>
         <div className="pair-briefs-grid" style={{
           display: 'grid',
