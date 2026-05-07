@@ -108,7 +108,7 @@ function ChannelStatsCard({ stats }) {
           <ol>
             {stats.top_posts.map((p) => (
               <li key={p.post_url}>
-                <a href={p.post_url} target="_blank" rel="noreferrer">{p.title || 'Ohne Titel'}</a>
+                <a href={p.post_url} target="_blank" rel="noreferrer">{p.title || (p.caption_excerpt ? (p.caption_excerpt.length > 60 ? p.caption_excerpt.slice(0, 60).trim() + '…' : p.caption_excerpt) : 'Ohne Titel')}</a>
                 {' · '}{formatNumber(p.engagement_sum)} Engagement
                 {p.duration_seconds != null && ` · ${p.duration_seconds}s`}
                 {p.caption_excerpt && <div className="insight-caption-excerpt">{p.caption_excerpt}</div>}
@@ -208,7 +208,7 @@ function LLMOutput({ output, raw }) {
 
       {output.ganz_konkret?.length > 0 && (
         <div className="card">
-          <p className="section-kicker">Ganz konkret für die nächsten Tage</p>
+          <p className="section-kicker">Diese Woche: was funktioniert gut, was nicht</p>
           <ol className="insight-list">
             {output.ganz_konkret.map((item, i) => (
               <li key={i}>
@@ -223,8 +223,13 @@ function LLMOutput({ output, raw }) {
                     {item.bezug}
                   </div>
                 )}
-                <strong>{item.aufgabe}</strong>
-                <div className="insight-evidence">Warum: {item.warum}</div>
+                <strong>{item.pattern}</strong>
+                <div className="insight-evidence">Lern-Take: {item.lern_take}</div>
+                {item.frage && (
+                  <div className="insight-evidence" style={{ fontStyle: 'italic', marginTop: '0.25rem' }}>
+                    Frage: {item.frage}
+                  </div>
+                )}
               </li>
             ))}
           </ol>

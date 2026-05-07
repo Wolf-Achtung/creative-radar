@@ -129,18 +129,28 @@ class Konkurrenz(BaseModel):
 
 
 class SchnittAufgabe(BaseModel):
-    """Eine konkrete Schnitt-Aufgabe fuer die naechsten 7 Tage. 
-    Beobachtung statt Ansage: was liegt auf dem Tisch, warum diese Aufgabe?
-    Sprint-Trailerhaus-Prompt-v2.1: gibt Junior-Cuttern eine klare Liste,
-    was operativ ansteht — abgeleitet aus den Daten dieses Briefs.
+    """Beobachtung mit Lern-Take und offener Frage fuer Trailerhaus.
+    Sprint-Trailerhaus-Prompt-v3.0 (Lern-Modus statt Anweisungs-Modus):
+    
+    Trailerhaus arbeitet nicht inhouse fuer die beobachteten Studios,
+    sondern lernt aus deren Posts fuer eigene Projekte und Pitches.
+    Daher keine Anweisungen mehr, sondern Beobachtung + Lehre + offene
+    Frage.
+    
+    Felder (v3.0):
+    - pattern: Was ist beobachtbar? (Daten-Anker, konkrete Zahlen)
+    - lern_take: Was lernen wir daraus? (Ein-Satz-Take)
+    - frage: Welche Frage stellt sich Trailerhaus? (Anwendung, Pitch,
+      eigenes Projekt — optional, lieber null als Floskel)
     
     bezug (v2.3): Tag-String oben in der Card. Verweist entweder auf
     einen Titel aus aktuell_im_fokus oder auf einen der erlaubten
     strukturellen Werte (Format-Strategie, Posting-Rhythmus,
     Caption-Disziplin, Hashtag-Klammer)."""
     nummer: int
-    aufgabe: str
-    warum: str
+    pattern: str
+    lern_take: str
+    frage: Optional[str] = None
     bezug: Optional[str] = None
 
 

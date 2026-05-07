@@ -578,7 +578,7 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
                     evidenceQuality={asset.evidence_quality}
                   />
                   <div>
-                    <p className="find-title">{asset.title || 'Ohne Titel'}</p>
+                    <p className="find-title">{asset.title || (asset.caption ? (asset.caption.length > 60 ? asset.caption.slice(0, 60).trim() + '…' : asset.caption) : 'Ohne Titel')}</p>
                     <p className="muted small">{asset.channel} · {asset.market} · Eignung: {asset.suitability}</p>
                     <p className="small">{asset.reason}</p>
                     <p className="small muted">Belege: {beleg}</p>

@@ -266,8 +266,9 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
   "ganz_konkret": [
     {
       "nummer": 1,
-      "aufgabe": "Eine konkrete Schnitt-Aufgabe fuer die naechsten 7 Tage. Beobachtung statt Ansage. Beispiel: Naechster MK2-Cut: 22 Sekunden. Erste 2 Sekunden Fight-Beat aus dem Trailer, kein Logo, kein Title-Card. Auf Sekunde 18 ein harter Cut zur End-Card mit Datum.",
-      "warum": "Ein Satz, abgeleitet aus den Daten dieses Briefs. Beispiel: Der 56s-Fakten-Cut hatte 1.052 Reaktionen, der US-Vergleich mit 22s liegt bei 11.100. Die Reichweite war da, nur der lange Cut hat nicht durchgehalten.",
+      "pattern": "Was ist diese Woche beobachtbar — mit konkreten Zahlen-Ankern. Beispiel: Der MK2-DE-Cut laeuft 56 Sekunden bei 1.052 Reaktionen, der vergleichbare US-Cut nur 22 Sekunden bei 11.100 Reaktionen. Faktor 10, gleicher Titel, gleiche Kampagne.",
+      "lern_take": "Was lernen wir daraus — in einem Satz. Beispiel: Bei Fight-Material zieht der kurze Cut die Reaktion, die lange Variante traegt sie nicht.",
+      "frage": "Welche Frage stellt sich daraus fuer Trailerhaus — Anwendung, Pitch-Argument, eigenes Projekt. Beispiel: Wie kurz schneiden wir Fight-Material in unseren eigenen Action-Trailern? Lohnt das als Argument im naechsten Warner-Pitch?",
       "bezug": "Exakt ein Titel aus aktuell_im_fokus oder einer dieser Strings: Format-Strategie / Posting-Rhythmus / Caption-Disziplin / Hashtag-Klammer"
     }
   ],
@@ -348,16 +349,24 @@ AKTUELL_IM_FOKUS-SEKTION — Hinweise zur Befuellung:
 - Diese Sektion ist die Eintrittsstelle in den Brief: ein Cutter scannt sie in 10 Sekunden und weiss, welche Titel in den Schnitt-Aufgaben weiter unten gemeint sind.
 
 
-GANZ_KONKRET-SEKTION — Hinweise zur Befuellung:
-- 6 bis 10 Aufgaben, in einer logischen Reihenfolge nummeriert (1, 2, 3, ...)
-- Jede Aufgabe ist eine Schnitt-Beobachtung: was liegt auf dem Tisch fuer die naechsten 7 Tage
-- Tonfall: ruhiger Producer, der neben dem Cutter steht und beschreibt, was als naechstes geschnitten wird. Keine Ansagen mit Ausrufezeichen, keine Pitch-Sprache.
-- Konkrete Specs nennen: Sekunden, Anzahl Cuts, ob Title-Card oder nicht, ob Caption-Laenge, etc.
-- Jede Aufgabe muss aus den vorgelegten Daten ableitbar sein. Wenn du nicht sicher bist: lass die Aufgabe weg, statt zu raten.
-- bezug: Tag-String oben in der Card, der die Aufgabe einem Titel oder einer Strategie zuordnet. Erlaubte Werte:
-    (a) Exakt einer der titel-Strings aus aktuell_im_fokus (z.B. "The Mandalorian and Grogu", "Cinderella", "Make-A-Wish: Drawn to You")
-    (b) Einer dieser strukturellen Strings: "Format-Strategie", "Posting-Rhythmus", "Caption-Disziplin", "Hashtag-Klammer"
-  Jede Aufgabe MUSS einen bezug haben. Wenn keine direkte Titel-Bindung passt, waehle den passenden strukturellen String.
+GANZ_KONKRET-SEKTION — Hinweise zur Befuellung (v3.0 Lern-Modus):
+
+WICHTIG — Adressat: Trailerhaus ist KEIN Inhouse-Studio fuer die beobachteten Verleiher. Trailerhaus pitcht und produziert eigene Trailer/Spots. Diese Sektion liefert daher KEINE Anweisungen ('schneide den MK2-Cut auf 22s'), sondern Beobachtungen mit Lern-Take und offenen Fragen — fuer eigene Projekte und Pitch-Vorbereitung.
+
+Sektion-Titel im Frontend: 'Diese Woche: was funktioniert gut, was nicht'.
+
+- 6 bis 10 Eintraege, in logischer Reihenfolge nummeriert (1, 2, 3, ...)
+- Jeder Eintrag hat drei Felder:
+    (a) pattern: Was ist diese Woche beobachtbar? Konkrete Zahlen-Anker (Reaktionen, Sekunden, Hashtag-Anzahl). Keine Anweisung, sondern Befund.
+    (b) lern_take: Was lernen wir daraus? Ein Satz, klare Lehre.
+    (c) frage: Welche Frage stellt sich Trailerhaus? Anwendung im eigenen Workflow, Pitch-Argument, oder Test-Idee. Optional — wenn keine sinnvolle Frage abfaellt, lieber null als Floskel.
+- Tonfall: ruhiger Producer, der einem Kollegen erzaehlt was bei der Konkurrenz auffaellt. Beobachtend, nicht anweisend. Keine 'Du-Ansagen', keine Pitch-Sprache, keine Ausrufezeichen.
+- Konkrete Daten nennen: Sekunden, Reaktionszahlen, Aufrufe, Caption-Laengen — alles aus dem Datenpaket ableitbar.
+- Jeder Eintrag muss aus den vorgelegten Daten ableitbar sein. Wenn du nicht sicher bist: lass den Eintrag weg, statt zu raten.
+- bezug: Tag-String oben in der Card. Erlaubte Werte:
+    (a) Exakt einer der titel-Strings aus aktuell_im_fokus (z.B. 'The Mandalorian and Grogu', 'Cinderella')
+    (b) Einer dieser strukturellen Strings: 'Format-Strategie', 'Posting-Rhythmus', 'Caption-Disziplin', 'Hashtag-Klammer'
+  Jeder Eintrag MUSS einen bezug haben.
 
 Wenn die Datengrundlage zu duenn ist (Coverage <30%, <5 Posts pro Markt, keine Cross-Market-Matches), sag das klar in data_caveats und gib lieber weniger, dafuer belegte Empfehlungen. Setze Felder, fuer die du keinen Daten-Anker hast, auf null oder gib ein leeres Array — niemals erfinden.
 
@@ -407,44 +416,51 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kuerzer als ein
   "ganz_konkret": [
     {
       "nummer": 1,
-      "aufgabe": "Naechster MK2-DE-Cut: 22 Sekunden. Erste 2 Sekunden Fight-Beat aus dem Trailer, kein Logo, kein Title-Card. Auf Sekunde 18 harter Cut zur End-Card mit Kinodatum.",
-      "warum": "Der 56s-Fakten-Cut von MK2 DE hatte 1.052 Reaktionen, der US-Vergleich (Round 2 MK2) liegt bei 233 mit 22s. Reichweite war da, der lange Cut hat nicht durchgehalten.",
+      "pattern": "Der 56s-Fakten-Cut von MK2 DE hatte 1.052 Reaktionen, der US-Vergleich (Round 2 MK2) liegt bei 233 Reaktionen mit 22s. Trotz hoher Reichweite traegt der lange Cut die Reaktion nicht.",
+      "lern_take": "Bei Fight-Material zieht der kurze Cut, die lange Variante zerlaeuft im Feed.",
+      "frage": "Wie kurz schneiden wir Fight-Material in eigenen Action-Trailern? Bauen wir 22s-Varianten als Standard?",
       "bezug": "Mortal Kombat II"
     },
     {
       "nummer": 2,
-      "aufgabe": "Backkatalog-Test fuer einen aelteren WB-Titel: 18-20 Sekunden, kein Trailer-Beat, nur Bild plus Datum-Anker als Caption. Format wie Miss Congeniality.",
-      "warum": "Miss Congeniality hat in den USA 267.388 Reaktionen mit genau diesem Format. Format ist billig zu produzieren, der Backkatalog ist da.",
+      "pattern": "Miss Congeniality (US) zieht 267.388 Reaktionen mit einem 20s-Format: kein Trailer-Beat, nur ein Bild-Moment plus Datum-Anker als Caption.",
+      "lern_take": "Backkatalog-Anrisse unter 25s mit einem einzigen Bild-Moment koennen massive Reaktion holen.",
+      "frage": "Bauen wir solche Backkatalog-Slots fuer eigene Streaming-Pitches? Lohnt das fuer Disney+ DE oder Prime Video DE als wiederkehrendes Format?",
       "bezug": "Miss Congeniality"
     },
     {
       "nummer": 3,
-      "aufgabe": "Caption fuer naechsten DE-Post auf 70-90 Zeichen kuerzen, max. 3 Hashtags. Keine Erklaer-Saetze.",
-      "warum": "Top-DE-Post (MK2 Fakten) hatte 134 Zeichen plus 4 Hashtags, Top-US-Post (Miss Congeniality) hatte 65 Zeichen plus 1 Hashtag. Lange Captions verschwinden im Feed.",
+      "pattern": "Top-DE-Post (MK2 Fakten) hatte 134 Zeichen Caption plus 4 Hashtags und 1.052 Reaktionen. Top-US-Post (Miss Congeniality) hatte 65 Zeichen plus 1 Hashtag und 267.388 Reaktionen — kuerzere Caption, hoehere Reaktion.",
+      "lern_take": "Lange Captions mit Hashtag-Stapel verschwinden im Feed, kurze klare Captions traegen.",
+      "frage": "Wie diszipliniert sind unsere eigenen Captions? Setzen wir intern eine 90-Zeichen-Regel als Standard?",
       "bezug": "Caption-Disziplin"
     },
     {
       "nummer": 4,
-      "aufgabe": "Cold-Open-Variante fuer einen DE-Action-Post: erste 2 Sekunden Action-Beat ohne Title-Card, Title kommt erst bei Sekunde 8.",
-      "warum": "DE Batman-Post (17s Kinetic, 467 Reaktionen bei 8k Views) zeigt: kurz funktioniert, aber Reichweite fehlt. Ein Cold-Open ohne Title-Card koennte im Feed besser laufen.",
+      "pattern": "DE-Batman-Post laeuft 17s mit Kinetic-Format und holt 467 Reaktionen bei nur 8.000 Aufrufen — die Reaktionsquote ist hoch, aber die Reichweite zerlaeuft. Title-Card sitzt direkt am Anfang.",
+      "lern_take": "Bei kurzen Action-Cuts kostet die Title-Card am Anfang Reichweite, Cold-Open ohne Logo holt mehr.",
+      "frage": "Bauen wir bei eigenen Action-Trailern Cold-Open-Varianten ohne Title-Card als A/B-Test?",
       "bezug": "Format-Strategie"
     },
     {
       "nummer": 5,
-      "aufgabe": "Bei Veranstaltungs-Mitschnitten (Berlin Screening etc.) auf 22 Sekunden straffen. Fight-Moment muss in den ersten 3 Sekunden, Cast-Erwaehnung ans Ende, nicht in die Caption-Mitte.",
-      "warum": "DE MK2-Screening Berlin (62s, 381 Reaktionen bei 173k Views) — Reichweite okay, Reaktion laeuft. Der lange Cut zerlaeuft, kuerzere Variante koennte mehr Reaktionen ziehen.",
+      "pattern": "MK2-Screening Berlin laeuft 62 Sekunden und holt 381 Reaktionen bei 173.000 Aufrufen. Reichweite passt, aber die Reaktionsquote bleibt unter 0,3 Prozent — der Cut zerlaeuft.",
+      "lern_take": "Veranstaltungs-Mitschnitte ueber 60s zerlaeuft im Feed, der Cast-Beat geht im Sammel-Cut verloren.",
+      "frage": "Wenn wir selbst Premieren-Material fuer Trailerhaus-Kunden bauen — wie kurz packen wir den Cast-Beat? Sammel-Cut oder Einzel-Schnipsel?",
       "bezug": "Mortal Kombat II"
     },
     {
       "nummer": 6,
-      "aufgabe": "Wenn ein Horror-Titel im Slate ist: 18-25 Sekunden, knapper Schreckmoment, End Card mit Kinodatum. Keine Erklaer-Cuts.",
-      "warum": "Evil Dead Burn USA: 25s und 18s landen bei 6.352 und 5.870 Reaktionen, acht Posts mit dem Tag im Fenster — dominantestes Tag drueben.",
+      "pattern": "Evil Dead Burn (US) faehrt zwei Cuts mit 25s und 18s, beide ueber 5.800 Reaktionen, acht Posts mit dem Tag im Fenster — dominantestes Hashtag im US-Kanal.",
+      "lern_take": "Horror-Material unter 25s mit knappem Schreckmoment und konsequenter Hashtag-Klammer traegt durch eine Kampagnen-Woche.",
+      "frage": "Wenn wir fuer Horror-Verleiher pitchen — koennen wir das 18-25s-Format plus Klammer-Hashtag als Vorlage anbieten?",
       "bezug": "Evil Dead Burn"
     },
     {
       "nummer": 7,
-      "aufgabe": "Pro Woche zwei Cuts pro Titel: 22s als Hauptcut, 12-15s als kurze Variante zum Reinzeigen. Beide gleichzeitig posten.",
-      "warum": "US-Top-Performer liegen bei 15-30s. Mehr Cuts pro Titel im Feed, weniger Abhaengigkeit von einer Variante.",
+      "pattern": "US-Top-Performer liegen konsistent in 15-30s, pro Titel meist mehrere Cuts in unterschiedlichen Laengen. DE liegt fast komplett im 30-60s-Korridor mit nur einer Variante pro Titel.",
+      "lern_take": "Eine einzige Cut-Laenge pro Titel ist ein Reichweiten-Risiko, der Feed strafft sich auf wenige Beats.",
+      "frage": "Wie lassen sich kurze Zweit-Varianten in eigene Trailerhaus-Workflows einbauen, ohne dass die Schnittzeit verdoppelt wird?",
       "bezug": "Posting-Rhythmus"
     }
   ],
