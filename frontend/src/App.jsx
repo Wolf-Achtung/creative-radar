@@ -896,7 +896,7 @@ function App() {
 
   return (
     <main>
-      <header className="hero" style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}>
+      <header className="hero" style={{ background: '#1f4d4d', borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}>
         <div>
           <p className="eyebrow">Creative Intelligence Workspace</p>
           <h1>Creative Radar</h1>
@@ -904,8 +904,8 @@ function App() {
         </div>
       </header>
 
-      <section style={{ background: '#1a1d2e', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
-        <p style={{ color: '#888', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Diese Woche im Schnitt</p>
+      <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
+        <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Diese Woche im Schnitt</p>
         <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Studio-Briefings</h2>
         <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
           Cutter-Briefe der sechs Tier-A-Studios — was funktioniert gut, was nicht, mit konkreten Spot-Links.
@@ -953,10 +953,10 @@ function App() {
         </div>
       )}
 
-      <p style={{ color: '#888', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '2rem 0 0.5rem 0' }}>Werkzeuge</p>
+      <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '2rem 0 0.5rem 0', fontWeight: 600 }}>Weitere Werkzeuge / noch nicht final</p>
       <nav className="tabs">
         {NAV_ITEMS.map((tab) => (
-          <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>{tab}</button>
+          <button key={tab} className={activeTab === tab ? 'active' : ''} style={activeTab === tab ? { background: '#F26B5E', color: 'white', borderColor: '#F26B5E' } : {}} onClick={() => setActiveTab(activeTab === tab ? null : tab)}>{tab}</button>
         ))}
       </nav>
 
