@@ -176,6 +176,20 @@ function LLMOutput({ output, raw }) {
         <p className="insight-tldr">{output.tldr}</p>
       </div>
 
+      {output.ganz_konkret?.length > 0 && (
+        <div className="card">
+          <p className="section-kicker">Ganz konkret für die nächsten Tage</p>
+          <ol className="insight-list">
+            {output.ganz_konkret.map((item, i) => (
+              <li key={i}>
+                <strong>{item.aufgabe}</strong>
+                <div className="insight-evidence">Warum: {item.warum}</div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
       <div className="insight-grid-two">
         <div className="card">
           <p className="section-kicker">Trends</p>
@@ -208,6 +222,132 @@ function LLMOutput({ output, raw }) {
         <p><strong>DE vs US:</strong> {output.cross_market_insight.de_vs_us}</p>
         <p><strong>Transfer-Opportunity:</strong> {output.cross_market_insight.transfer_opportunity}</p>
       </div>
+
+      {output.konkurrenz && (
+        <div className="card">
+          <p className="section-kicker">Was machen die anderen?</p>
+          {output.konkurrenz.was_alle_machen && (
+            <p><strong>Was alle machen:</strong> {output.konkurrenz.was_alle_machen}</p>
+          )}
+          {output.konkurrenz.format_trend && (
+            <p><strong>Format-Trend:</strong> {output.konkurrenz.format_trend}</p>
+          )}
+          {output.konkurrenz.genre_beobachtung && (
+            <p><strong>Genre-Beobachtung:</strong> {output.konkurrenz.genre_beobachtung}</p>
+          )}
+          {output.konkurrenz.neu_seit_letzten_wochen && (
+            <p><strong>Neu seit letzten Wochen:</strong> {output.konkurrenz.neu_seit_letzten_wochen}</p>
+          )}
+        </div>
+      )}
+
+      {output.fuer_cutter && (
+        <div className="card">
+          <p className="section-kicker">Für den Cutter</p>
+          {output.fuer_cutter.schnitt_pace && (
+            <p><strong>Rhythmus:</strong> {output.fuer_cutter.schnitt_pace}</p>
+          )}
+          {output.fuer_cutter.hook_strategie && (
+            <p><strong>Hook-Strategie:</strong> {output.fuer_cutter.hook_strategie}</p>
+          )}
+          {output.fuer_cutter.empfohlene_laengen && (
+            <p><strong>Empfohlene Längen:</strong> {output.fuer_cutter.empfohlene_laengen}</p>
+          )}
+          {output.fuer_cutter.must_show?.length > 0 && (
+            <>
+              <p><strong>Must Show:</strong></p>
+              <ul className="insight-list">
+                {output.fuer_cutter.must_show.map((m, i) => <li key={i}>{m}</li>)}
+              </ul>
+            </>
+          )}
+          {output.fuer_cutter.no_go?.length > 0 && (
+            <>
+              <p><strong>No-Go:</strong></p>
+              <ul className="insight-list">
+                {output.fuer_cutter.no_go.map((n, i) => <li key={i}>{n}</li>)}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+
+      {output.fuer_motion_designer && (
+        <div className="card">
+          <p className="section-kicker">Für den Motion-Designer</p>
+          {output.fuer_motion_designer.caption_style && (
+            <p><strong>Caption-Stil:</strong> {output.fuer_motion_designer.caption_style}</p>
+          )}
+          {output.fuer_motion_designer.text_overlay && (
+            <p><strong>Text-Overlay:</strong> {output.fuer_motion_designer.text_overlay}</p>
+          )}
+          {output.fuer_motion_designer.branding_einsatz && (
+            <p><strong>Branding-Einsatz:</strong> {output.fuer_motion_designer.branding_einsatz}</p>
+          )}
+        </div>
+      )}
+
+      {output.fuer_creative_producer && (
+        <div className="card">
+          <p className="section-kicker">Für den Creative Producer</p>
+          {output.fuer_creative_producer.strategische_pattern && (
+            <p><strong>Strategische Pattern:</strong> {output.fuer_creative_producer.strategische_pattern}</p>
+          )}
+          {output.fuer_creative_producer.cross_market_chancen && (
+            <p><strong>Cross-Market-Chancen:</strong> {output.fuer_creative_producer.cross_market_chancen}</p>
+          )}
+          {output.fuer_creative_producer.format_empfehlungen && (
+            <p><strong>Format-Empfehlungen:</strong> {output.fuer_creative_producer.format_empfehlungen}</p>
+          )}
+        </div>
+      )}
+
+      {output.tonalitaet?.length > 0 && (
+        <div className="card">
+          <p className="section-kicker">Tonalität</p>
+          <ul className="insight-list">
+            {output.tonalitaet.map((t, i) => (
+              <li key={i}>
+                <strong>{t.adjektiv}</strong>
+                <div className="insight-evidence">{t.begruendung}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {output.watch_outs?.length > 0 && (
+        <div className="card">
+          <p className="section-kicker">Watch-Outs</p>
+          <ul className="insight-list">
+            {output.watch_outs.map((w, i) => (
+              <li key={i}>
+                <strong>{w.watch_out}</strong>
+                <div className="insight-evidence">Konsequenz: {w.konsequenz}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {output.vergleichbare_posts?.length > 0 && (
+        <div className="card">
+          <p className="section-kicker">Vergleichbare Posts</p>
+          <ul className="insight-list">
+            {output.vergleichbare_posts.map((p, i) => (
+              <li key={i}>
+                <strong>@{p.handle}</strong> · {p.performance_kpi}
+                <div className="insight-evidence">{p.relevanz_grund}</div>
+                {p.post_id && p.post_id.startsWith('http') && (
+                  <div className="insight-evidence">
+                    <a href={p.post_id} target="_blank" rel="noopener noreferrer">Post öffnen</a>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {(output.risks?.length > 0 || output.data_caveats?.length > 0) && (
         <div className="card insight-meta">
