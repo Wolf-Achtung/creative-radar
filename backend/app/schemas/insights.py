@@ -138,6 +138,21 @@ class SchnittAufgabe(BaseModel):
     warum: str
 
 
+class TitelImFokus(BaseModel):
+    """Ein Titel, eine Kampagne oder ein Format-Block, der diese Woche
+    sichtbar im Material auftaucht. Sektion 'Worum geht's diese Woche'
+    gibt einem Cutter in 10 Sekunden Ueberblick, welche konkreten Titel
+    in den Aufgaben weiter unten gemeint sind.
+    Sprint-Trailerhaus-Prompt-v2.2."""
+    titel: str
+    markt: str
+    format_typ: str
+    kennzahl: str
+    release_datum: Optional[str] = None
+    verdict: Optional[str] = None
+
+
+
 
 class CrossMarketInsight(BaseModel):
     de_vs_us: str
@@ -211,6 +226,7 @@ class LLMReport(BaseModel):
     risks: list[str]
     data_caveats: list[str]
     # --- New (Trailerhaus-Prompt-v1, all optional for backwards-compat) ---
+    aktuell_im_fokus: Optional[list[TitelImFokus]] = None
     ganz_konkret: Optional[list[SchnittAufgabe]] = None
     konkurrenz: Optional[Konkurrenz] = None
     tonalitaet: Optional[list[Tonalitaet]] = None

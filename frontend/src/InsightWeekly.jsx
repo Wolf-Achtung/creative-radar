@@ -176,6 +176,25 @@ function LLMOutput({ output, raw }) {
         <p className="insight-tldr">{output.tldr}</p>
       </div>
 
+      {output.aktuell_im_fokus?.length > 0 && (
+        <div className="card">
+          <p className="section-kicker">Worum geht's diese Woche</p>
+          <ul className="insight-list">
+            {output.aktuell_im_fokus.map((item, i) => (
+              <li key={i}>
+                <strong>{item.titel}</strong>
+                <span style={{ color: '#888', marginLeft: '0.5rem', fontSize: '0.9em' }}>
+                  · {item.markt} · {item.format_typ}
+                  {item.release_datum && ` · ${item.release_datum}`}
+                  {item.verdict && ` · ${item.verdict}`}
+                </span>
+                <div className="insight-evidence">{item.kennzahl}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {output.ganz_konkret?.length > 0 && (
         <div className="card">
           <p className="section-kicker">Ganz konkret für die nächsten Tage</p>

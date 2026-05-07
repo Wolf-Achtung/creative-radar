@@ -252,6 +252,16 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
 {
   "headline": "Eine Zeile, max. 90 Zeichen, ruhig statt provokant — benennt den Wochenkern in Cutter-Sprache",
   "tldr": "3 Saetze: was ist diese Woche anders, was sollten wir daraus lernen, wo ist die Wette",
+  "aktuell_im_fokus": [
+    {
+      "titel": "The Mandalorian and Grogu",
+      "markt": "DE",
+      "format_typ": "Kino-Reminder",
+      "kennzahl": "drei Cuts in 36h, alle ueber 30s, alle unter 1.600 Reaktionen",
+      "release_datum": "20. Mai",
+      "verdict": "zerlaeuft"
+    }
+  ],
   "ganz_konkret": [
     {
       "nummer": 1,
@@ -324,6 +334,17 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
   ]
 }
 
+AKTUELL_IM_FOKUS-SEKTION — Hinweise zur Befuellung:
+- 3 bis 6 Eintraege, jeder ist ein Titel, eine Kampagne oder ein Format-Block, der diese Woche sichtbar im Material vorkommt
+- titel: konkreter Filmtitel oder Kampagnen-Name (z.B. "The Mandalorian and Grogu", "Make-A-Wish: Drawn to You", "#DisneyWeekOfWishes-Klammer")
+- markt: DE / US / GSA / international
+- format_typ: was fuer ein Posting-Block ist das (z.B. Kino-Reminder, Marken-Spot, Backkatalog-Anriss, Kampagnen-Klammer, Event-Recap, BTS, Cast-Reaction, Cold-Open)
+- kennzahl: eine konkrete Zahl, die den Block charakterisiert (z.B. "33.323 Reaktionen, 113s" oder "drei Cuts, alle unter 1.600 Reaktionen")
+- release_datum: nur wenn fuer den Block relevant (Kinostart, Streaming-Release). Sonst null.
+- verdict: optionales Adjektiv aus: traegt / zerlaeuft / sitzt / ausbaufaehig / zweischneidig. Nur wenn die Daten klar sind, sonst null.
+- Diese Sektion ist die Eintrittsstelle in den Brief: ein Cutter scannt sie in 10 Sekunden und weiss, welche Titel in den Schnitt-Aufgaben weiter unten gemeint sind.
+
+
 GANZ_KONKRET-SEKTION — Hinweise zur Befuellung:
 - 6 bis 10 Aufgaben, in einer logischen Reihenfolge nummeriert (1, 2, 3, ...)
 - Jede Aufgabe ist eine Schnitt-Beobachtung: was liegt auf dem Tisch fuer die naechsten 7 Tage
@@ -338,6 +359,40 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kuerzer als ein
 {
   "headline": "Warner US laeuft mit 22s, DE haengt bei 44s zu lang",
   "tldr": "Der US-Kanal liegt bei 15.146 Reaktionen im Schnitt, DE bei 341 — Faktor 44, das ist nicht nur Marktgroesse. Der US-Cut sitzt bei 33s mit elf Posts unter 30s, DE liegt bei 44s mit fuenf Posts ueber 30s. Wir sollten den DE-Cut auf 22-25s straffen und auf einen klaren Cold-Open ziehen, dann kommt mehr Beat in den Feed.",
+  "aktuell_im_fokus": [
+    {
+      "titel": "Mortal Kombat II",
+      "markt": "DE",
+      "format_typ": "Kino-Reminder",
+      "kennzahl": "ein 56s-Fakten-Cut, 1.052 Reaktionen bei 224k Aufrufen",
+      "release_datum": "7. Mai",
+      "verdict": "zerlaeuft"
+    },
+    {
+      "titel": "Mortal Kombat II",
+      "markt": "US",
+      "format_typ": "Round-2-Cut",
+      "kennzahl": "22s, 233 Reaktionen — kuerzer als DE, hoehere Reaktionsquote",
+      "release_datum": "7. Mai",
+      "verdict": "ausbaufaehig"
+    },
+    {
+      "titel": "Miss Congeniality",
+      "markt": "US",
+      "format_typ": "Backkatalog-Anriss",
+      "kennzahl": "20s, 267.388 Reaktionen, 2 Mio Aufrufe",
+      "release_datum": null,
+      "verdict": "traegt"
+    },
+    {
+      "titel": "Evil Dead Burn",
+      "markt": "US",
+      "format_typ": "Horror-Hook",
+      "kennzahl": "zwei Cuts (25s, 18s), 6.352 und 5.870 Reaktionen, 8 Posts mit dem Tag",
+      "release_datum": "10. Juli",
+      "verdict": "sitzt"
+    }
+  ],
   "ganz_konkret": [
     {
       "nummer": 1,
