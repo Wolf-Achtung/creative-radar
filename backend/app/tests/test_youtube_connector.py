@@ -313,3 +313,94 @@ def test_fetch_channel_videos_requires_api_key(monkeypatch):
     monkeypatch.setattr(settings, "youtube_api_key", None)
     with pytest.raises(YouTubeAuthError):
         fetch_channel_videos("@netflix")
+
+
+# ---------- Sprint 4.5: channel_id_hint resolver -----------------------------
+
+
+def test_resolver_uses_channel_id_hint_first(yt_api_key):
+    """When a UCxxx hint is supplied, the resolver MUST issue an
+    ``id=...`` lookup first — not a ``forHandle=`` one. This is the
+    Sprint-4.5 bug-1 fix: legacy custom-URL channels (NetflixDE etc.)
+    have no modern @handle, so forHandle returns 0 items and the sync
+    fails. The id-based lookup is the robust path."""
+    captured_params: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_params.append(dict(request.url.params))
+        if request.url.path.endswith("/channels"):
+            return httpx.Response(200, json=_channel_payload())
+        if request.url.path.endswith("/playlistItems"):
+            return httpx.Response(200, json=_playlist_items_payload([]))
+        return httpx.Response(500)
+
+    with patch.object(yt_mod, "record_youtube_api_call"), \
+         patch.object(yt_mod.httpx, "Client", _patched_client_factory(handler)):
+        fetch_channel_videos(
+            "NetflixDE",  # legacy custom-URL slug, would fail forHandle
+            channel_id_hint="UC123456789012345678901",
+        )
+
+    # First call: channels.list with id=..., not forHandle=.
+    assert captured_params, "expected at least one channels.list call"
+    first = captured_params[0]
+    assert first.get("id") == "UC123456789012345678901"
+    assert "forHandle" not in first
+
+
+def test_resolver_falls_back_to_handle_when_id_hint_empty(yt_api_key):
+    """Without ``channel_id_hint`` the resolver behaves exactly as
+    before — handle-based ``forHandle=`` lookup. Guards Sprint-4 happy-
+    path channels (Netflix, primevideo, ...) from regression."""
+    captured_params: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_params.append(dict(request.url.params))
+        if request.url.path.endswith("/channels"):
+            return httpx.Response(200, json=_channel_payload())
+        if request.url.path.endswith("/playlistItems"):
+            return httpx.Response(200, json=_playlist_items_payload([]))
+        return httpx.Response(500)
+
+    with patch.object(yt_mod, "record_youtube_api_call"), \
+         patch.object(yt_mod.httpx, "Client", _patched_client_factory(handler)):
+        fetch_channel_videos("@netflix")  # no channel_id_hint
+
+    first = captured_params[0]
+    assert first.get("forHandle") == "netflix"
+    assert "id" not in first
+
+
+def test_resolver_id_hint_falls_through_when_lookup_returns_empty(yt_api_key):
+    """A stale or malformed channel_id_hint must NOT take down a channel
+    that still resolves via @handle. If the id-based lookup returns 0
+    items, the resolver falls through to the handle-based strategy
+    instead of raising YouTubeNotFoundError immediately."""
+    request_log: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = dict(request.url.params)
+        request_log.append(params)
+        if request.url.path.endswith("/channels"):
+            # First call (with id=...) returns empty items — simulating a
+            # stale hint. Second call (with forHandle=) returns a
+            # channel; the resolver must reach this fallback.
+            if "id" in params:
+                return httpx.Response(200, json={"items": []})
+            return httpx.Response(200, json=_channel_payload())
+        if request.url.path.endswith("/playlistItems"):
+            return httpx.Response(200, json=_playlist_items_payload([]))
+        return httpx.Response(500)
+
+    with patch.object(yt_mod, "record_youtube_api_call"), \
+         patch.object(yt_mod.httpx, "Client", _patched_client_factory(handler)):
+        fetch_channel_videos(
+            "@netflix",
+            channel_id_hint="UCSTALEHINT00000000000",
+        )
+
+    # Two channels.list calls: first with id (empty), second with forHandle.
+    channels_calls = [p for p in request_log if "id" in p or "forHandle" in p]
+    assert len(channels_calls) == 2
+    assert channels_calls[0].get("id") == "UCSTALEHINT00000000000"
+    assert channels_calls[1].get("forHandle") == "netflix"

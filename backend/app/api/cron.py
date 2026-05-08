@@ -69,6 +69,20 @@ _VISION_COST_USD_PER_CALL = 0.015
 _VISION_SUCCESS_STATUSES = frozenset({"analyzed", "done"})
 _VISION_FETCH_FAIL_STATUSES = frozenset({"fetch_failed", "no_source", "image_unreachable", "image_invalid"})
 
+# Sprint 4.5 — bug 2: ``_run_apify_sync_for_platform_async`` returns its
+# counters under historical (Sprint-5.3.5-era) keys that differ from the
+# internal counter names. The cron YT aggregator must translate, otherwise
+# ``created`` and ``skipped_no_match`` silently stay 0 even when items
+# were persisted. ``skipped_existing``/``skipped_other`` happen to share
+# names; they're listed for completeness so the mapping is the single
+# source of truth.
+_HELPER_COUNTER_KEY_MAP: dict[str, str] = {
+    "created": "created_assets",
+    "skipped_existing": "skipped_existing",
+    "skipped_no_match": "skipped_no_whitelist_match",
+    "skipped_other": "skipped_other",
+}
+
 
 def _run_timeout_minutes() -> int:
     raw = os.environ.get("CRON_RUN_TIMEOUT_MINUTES", "30")
@@ -219,13 +233,20 @@ async def _execute_youtube_sync(
             })
             continue
 
+        # Sprint 4.5 — bug 1 fix. Forward the stored UCxxx-ID (when
+        # populated) so the connector resolves legacy custom-URL channels
+        # in one quota unit instead of failing 404 on ``forHandle``.
+        channel_id_hint = getattr(channel, "platform_channel_id", None)
         try:
             # Sync function from app.services.youtube_connector — wrapped in
             # asyncio.to_thread so the cron event loop isn't blocked during
             # the three sequential GET requests (channels.list +
             # playlistItems.list + videos.list).
             _channel_meta, raw_videos = await asyncio.to_thread(
-                fetch_channel_videos, handle, CRON_RESULTS_LIMIT_PER_CHANNEL,
+                fetch_channel_videos,
+                handle,
+                CRON_RESULTS_LIMIT_PER_CHANNEL,
+                channel_id_hint=channel_id_hint,
             )
             quota_units_used += 3  # YT-Quota-Verbrauch (siehe youtube_connector docstring).
         except YouTubeAuthError as exc:
@@ -272,8 +293,16 @@ async def _execute_youtube_sync(
             normalize=normalize_youtube_video,
             only_whitelist_matches=False,
         )
-        for key in aggregated_counters:
-            aggregated_counters[key] += int(sync.get(key, 0) or 0)
+        # Sprint 4.5 — bug 2: ``_run_apify_sync_for_platform_async`` returns
+        # the counters under renamed keys (``created_assets`` and
+        # ``skipped_no_whitelist_match``) compared to the internal counter
+        # names. The Sprint-4 YT aggregator naively read ``sync.get(key)``
+        # for the internal names and silently dropped the renamed counters
+        # to 0 — so 75 actually-persisted videos appeared as ``created=0``
+        # in the cron summary. Live-verified: 85 youtube posts in DB at
+        # the time, so the Phase-A/Phase-C path was working all along.
+        for our_key, helper_key in _HELPER_COUNTER_KEY_MAP.items():
+            aggregated_counters[our_key] += int(sync.get(helper_key, 0) or 0)
         for failed in sync.get("failed_channels", []) or []:
             failed_channels.append(failed)
         created_asset_ids.extend(aid for aid in sync.get("asset_ids", []) if aid is not None)

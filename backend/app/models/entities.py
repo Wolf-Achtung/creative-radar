@@ -206,6 +206,16 @@ class Channel(SQLModel, table=True):
     # angibt, aus welchem Recherche-Batch ein Channel stammt.
     category: Optional[str] = None
     import_source: Optional[str] = None
+    # Sprint 4.5 — bug 1 fix. Platform-native channel ID (e.g. YouTube
+    # ``UCxxx``). Stored separately from ``handle`` because the YouTube
+    # channels.list API cannot resolve legacy custom-URL slugs (``c/<slug>``)
+    # via ``forHandle`` — only modern @handles or the UCxxx-ID. Four
+    # production YT channels (NetflixDE, SonyPicturesEntertainment,
+    # WaltDisneyStudios, WarnerBrosPictures) failed Sprint-4 sync because
+    # of this. The Sprint-4.5 resolver prefers this column when populated.
+    # Optional / unindexed: only the YT path consumes it today; IG/TT
+    # don't need a separate platform-side ID.
+    platform_channel_id: Optional[str] = Field(default=None, max_length=64)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
