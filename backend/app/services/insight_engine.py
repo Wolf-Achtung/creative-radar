@@ -27,7 +27,7 @@ from typing import Any, Iterable, Optional
 import sqlalchemy as sa
 from sqlmodel import Session, select
 
-from app.models.entities import Asset, Channel, Post, Title
+from app.models.entities import Asset, Channel, InsightReport as InsightReportRow, Post, Title
 from app.schemas.insights import (
     Action,
     ChannelStats,
@@ -41,6 +41,10 @@ from app.schemas.insights import (
     TopPost,
     Trend,
 )
+
+# Module-internal alias for the SQLModel persistence row (re-export the
+# Pydantic ``InsightReport`` from app.schemas.insights). The two share a
+# name; we disambiguate with the import alias above.
 from app.services.anthropic_client import (
     AnthropicAPIError,
     AnthropicAuthError,
@@ -1237,8 +1241,151 @@ def generate_weekly_report(
         llm_output=llm_output,
         aggregation=agg,
         cost_usd_estimate=cost,
+        input_tokens=input_tokens or None,
+        output_tokens=output_tokens or None,
         raw_llm_text=raw_for_response,
     )
+
+
+def _hydrate_from_persisted(row: InsightReportRow, *, window_days: int) -> InsightReport:
+    """Rebuild a Pydantic ``InsightReport`` from a stored ``insight_report``
+    row. Used by the cache hit path of ``generate_and_persist_report`` —
+    the JSONB-serialised aggregation/llm_output blobs round-trip through
+    ``model_validate`` so consumers see the same shape they would from a
+    fresh generate call. ``cost_usd_estimate`` is reconstructed from the
+    ``cost_usd_cents`` integer that the persistence layer stores.
+    """
+    aggregation = PairAggregation.model_validate(row.aggregation)
+    llm_output = LLMReport.model_validate(row.llm_output) if row.llm_output else None
+    cost_usd_estimate: Optional[float] = (
+        round(row.cost_usd_cents / 100.0, 4) if row.cost_usd_cents is not None else None
+    )
+    return InsightReport(
+        pair_key=row.pair_key,
+        pair_label=aggregation.pair_label,
+        iso_week=row.iso_week,
+        iso_year=row.iso_year,
+        window_days=window_days,
+        coverage_pct=aggregation.title_coverage.overall_coverage_pct,
+        generated_at=row.generated_at,
+        model=row.model,
+        dry_run=False,
+        llm_output=llm_output,
+        aggregation=aggregation,
+        cost_usd_estimate=cost_usd_estimate,
+    )
+
+
+def _persist_report(session: Session, report: InsightReport) -> None:
+    """Upsert one ``insight_report`` row keyed by (pair_key, iso_year, iso_week).
+
+    Last-Write-Wins semantics — a ``force=true`` regeneration overwrites
+    the previously persisted brief. We delete-then-insert because SQLite
+    (used by the test suite) doesn't have a portable composite-key UPSERT
+    that matches Postgres ``ON CONFLICT (pair_key, iso_year, iso_week)
+    DO UPDATE``; the delete + insert in the same session/transaction is
+    equivalent for our concurrency model (single FastAPI worker per
+    request, no parallel writes for the same composite key).
+
+    Persisting requires an ``llm_output`` — dry-run reports never reach
+    this function (the caller guards on ``dry_run``).
+    """
+    if report.llm_output is None:
+        # Defensive — the GET endpoint guards on dry_run before calling
+        # this, but a JSON-parse-failure path could theoretically slip
+        # through. Skip persistence rather than write an empty row.
+        logger.warning(
+            "insight-report-persist-skipped: pair=%s week=%d/%d (no llm_output)",
+            report.pair_key, report.iso_year, report.iso_week,
+        )
+        return
+
+    cost_cents: Optional[int] = (
+        int(round(report.cost_usd_estimate * 100)) if report.cost_usd_estimate else None
+    )
+
+    existing = session.get(
+        InsightReportRow,
+        (report.pair_key, report.iso_year, report.iso_week),
+    )
+    if existing is not None:
+        session.delete(existing)
+        session.flush()
+
+    row = InsightReportRow(
+        pair_key=report.pair_key,
+        iso_year=report.iso_year,
+        iso_week=report.iso_week,
+        aggregation=report.aggregation.model_dump(mode="json"),
+        llm_output=report.llm_output.model_dump(mode="json"),
+        generated_at=report.generated_at,
+        model=report.model,
+        cost_usd_cents=cost_cents,
+        input_tokens=report.input_tokens,
+        output_tokens=report.output_tokens,
+    )
+    session.add(row)
+    session.commit()
+
+
+def generate_and_persist_report(
+    session: Session,
+    pair_key: str,
+    *,
+    window_days: int = 30,
+    force: bool = False,
+    model: str = OPUS_MODEL_ALIAS,
+    max_tokens: int = 12000,
+    now: Optional[datetime] = None,
+) -> InsightReport:
+    """Cache-aware variant of ``generate_weekly_report`` for the
+    Sprint-1 persistence path.
+
+    Behaviour:
+    - Run ``aggregate_pair`` first (cheap, DB-only) so the ISO week
+      lookup uses the same ``iso_year``/``iso_week`` the report would
+      eventually carry. Computing them separately from
+      ``datetime.now().isocalendar()`` would risk a mismatch around
+      week-boundary calls.
+    - If ``force=False`` and a row exists for this (pair_key, iso_year,
+      iso_week), hydrate and return it without an LLM call.
+    - Otherwise call Opus, build the report, persist it (Last-Write-Wins
+      on the composite PK), return the fresh report.
+
+    ``dry_run`` is intentionally not a parameter — the dry-run path stays
+    on the original ``generate_weekly_report`` and bypasses persistence
+    entirely. Callers (the GET endpoint) branch on ``dry_run`` before
+    invoking either function.
+    """
+    agg = aggregate_pair(session, pair_key, window_days=window_days, now=now)
+
+    if not force:
+        existing = session.get(
+            InsightReportRow,
+            (pair_key, agg.iso_year, agg.iso_week),
+        )
+        if existing is not None:
+            return _hydrate_from_persisted(existing, window_days=window_days)
+
+    # Cache miss (or force) → run the LLM. We re-call ``generate_weekly_report``
+    # which re-runs ``aggregate_pair`` internally. The duplicate aggregation
+    # is cheap (DB-only, fast), and keeping a single LLM-call code path
+    # simplifies maintenance over wiring a precomputed-aggregation kwarg
+    # through the call site. If aggregation cost ever becomes hot, this
+    # is a one-line refactor.
+    report = generate_weekly_report(
+        session,
+        pair_key,
+        window_days=window_days,
+        dry_run=False,
+        model=model,
+        max_tokens=max_tokens,
+        now=now,
+    )
+
+    _persist_report(session, report)
+
+    return report
 
 
 __all__ = [
@@ -1247,4 +1394,5 @@ __all__ = [
     "SYSTEM_PROMPT",
     "aggregate_pair",
     "generate_weekly_report",
+    "generate_and_persist_report",
 ]

@@ -271,6 +271,12 @@ class InsightReport(BaseModel):
     llm_output: Optional[LLMReport] = None
     aggregation: PairAggregation
     cost_usd_estimate: Optional[float] = None
+    # Sprint 1 (Persistenz): token counters are surfaced so the
+    # persistence layer can store them on the ``insight_report`` row.
+    # Optional because the dry-run path and the parse-failure path
+    # don't carry usage metadata. Frontend ignores them today.
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
     raw_llm_text: Optional[str] = Field(
         default=None,
         description="Raw assistant text — populated only when JSON parsing fails, to surface the failure in the response without losing the LLM's reply.",
