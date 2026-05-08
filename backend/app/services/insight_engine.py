@@ -290,7 +290,7 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
     {
       "name": "kurzer Trend-Name auf Deutsch",
       "evidence": "konkrete Zahl, Asset-URL oder Caption-Zitat aus den Daten",
-      "implication_for_creation": "was wir konkret in Schnitt, Hook oder Rhythmus aendern sollten"
+      "implication_for_creation": "was wir konkret in Schnitt, Hook oder Rhythmus ändern sollten"
     }
   ],
   "actions": [
