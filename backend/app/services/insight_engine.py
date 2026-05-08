@@ -37,6 +37,7 @@ from app.schemas.insights import (
     InsightReport,
     LLMReport,
     PairAggregation,
+    PlatformAggregation,
     RankedPost,
     TitleCoverage,
     TopPost,
@@ -83,13 +84,36 @@ logger = logging.getLogger(__name__)
 PAIRS: dict[str, dict[str, Any]] = {
     "warnerbros": {
         "label": "warnerbros DE+US",
+        # Sprint-4 multi-platform v2a: ``platforms`` is the source of truth
+        # going forward. Each key is a platform with a list of {handle, market}
+        # specs. ``platform`` and ``channels`` mirror the first platform
+        # (always TikTok in this sprint) so backwards-compat code paths
+        # — including the LLM ``_build_user_prompt`` and any test fixtures
+        # that still read ``pair_def["channels"]`` directly — keep working
+        # without an audit. Sprint-5 voice refactor will start consuming
+        # ``platforms`` directly and let the legacy mirror fields wither.
+        "platforms": {
+            "tiktok": [
+                # Production-confirmed handle (channels_perplexity_2026_05_03.csv).
+                {"handle": "warnerbros", "market": "US"},
+                # DE handle per Wolf brief; aliasing handled by the case-insensitive
+                # lookup. If the actual stored handle differs, ``aggregate_pair``
+                # records that in ``notes`` rather than failing.
+                {"handle": "warnerbrosdeutschland", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "warnerbros", "market": "US"},
+                {"handle": "warnerbrosde", "market": "DE"},
+            ],
+            "youtube": [
+                {"handle": "WarnerBrosPictures", "market": "US"},
+                {"handle": "WarnerBrosDE", "market": "DE"},
+            ],
+        },
+        # Backwards-Compat mirror — TikTok = first platform.
         "platform": "tiktok",
         "channels": [
-            # Production-confirmed handle (channels_perplexity_2026_05_03.csv).
             {"handle": "warnerbros", "market": "US"},
-            # DE handle per Wolf brief; aliasing handled by the case-insensitive
-            # lookup. If the actual stored handle differs, ``aggregate_pair``
-            # records that in ``notes`` rather than failing.
             {"handle": "warnerbrosdeutschland", "market": "DE"},
         ],
         "enabled": True,
@@ -97,6 +121,20 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "sonypictures": {
         "label": "sonypictures DE+US",
+        "platforms": {
+            "tiktok": [
+                {"handle": "sonypictures", "market": "US"},
+                {"handle": "sonypicturesgermany", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "sonypictures", "market": "US"},
+                {"handle": "sonypicturesde", "market": "DE"},
+            ],
+            "youtube": [
+                {"handle": "SonyPicturesEntertainment", "market": "US"},
+                {"handle": "SonyPicturesGermany", "market": "DE"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
             {"handle": "sonypictures", "market": "US"},
@@ -107,6 +145,22 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "primevideo": {
         "label": "primevideo DE+US",
+        "platforms": {
+            "tiktok": [
+                {"handle": "primevideo", "market": "US"},
+                {"handle": "primevideode", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "primevideo", "market": "US"},
+                {"handle": "primevideode", "market": "DE"},
+            ],
+            # No DE-side YouTube channel for Prime — single-channel platform
+            # entry. ``_aggregate_platform`` handles the missing-market case
+            # by leaving ``de_channel`` None.
+            "youtube": [
+                {"handle": "PrimeVideo", "market": "US"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
             {"handle": "primevideo", "market": "US"},
@@ -117,12 +171,28 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "disney": {
         "label": "disney DE+US",
+        "platforms": {
+            "tiktok": [
+                # Wolf-spec handle. The whitelist-expansion migration registers
+                # ``disneystudios`` and ``disneyanimation`` for US Disney; if
+                # ``disney`` is not the production handle for the US side,
+                # ``aggregate_pair`` will surface that in ``notes``.
+                {"handle": "disney", "market": "US"},
+                {"handle": "disneyde", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "disney", "market": "US"},
+                # IG-DE handle differs from TikTok (``disneyde``) — Disney runs
+                # ``disneydeutschland`` on Instagram.
+                {"handle": "disneydeutschland", "market": "DE"},
+            ],
+            # No DE-side YouTube channel for Disney's main studios feed.
+            "youtube": [
+                {"handle": "WaltDisneyStudios", "market": "US"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
-            # Wolf-spec handle. The whitelist-expansion migration registers
-            # ``disneystudios`` and ``disneyanimation`` for US Disney; if
-            # ``disney`` is not the production handle for the US side,
-            # ``aggregate_pair`` will surface that in ``notes``.
             {"handle": "disney", "market": "US"},
             {"handle": "disneyde", "market": "DE"},
         ],
@@ -131,6 +201,20 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "netflix": {
         "label": "netflix DE+US",
+        "platforms": {
+            "tiktok": [
+                {"handle": "netflix", "market": "US"},
+                {"handle": "netflixde", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "netflix", "market": "US"},
+                {"handle": "netflixde", "market": "DE"},
+            ],
+            "youtube": [
+                {"handle": "Netflix", "market": "US"},
+                {"handle": "NetflixDE", "market": "DE"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
             {"handle": "netflix", "market": "US"},
@@ -141,10 +225,25 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "paramountpictures": {
         "label": "paramountpictures DE+US",
+        "platforms": {
+            "tiktok": [
+                # US handle is ``paramountpics``, not ``paramountpictures``
+                # (per migration e5d8f1a36b40 + Wolf brief).
+                {"handle": "paramountpics", "market": "US"},
+                {"handle": "paramountpicturesgermany", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "paramountpics", "market": "US"},
+                # IG-DE uses underscores: ``paramount_pictures_germany``.
+                {"handle": "paramount_pictures_germany", "market": "DE"},
+            ],
+            # No DE-side YouTube channel for Paramount Pictures.
+            "youtube": [
+                {"handle": "ParamountPictures", "market": "US"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
-            # US handle is ``paramountpics``, not ``paramountpictures``
-            # (per migration e5d8f1a36b40 + Wolf brief).
             {"handle": "paramountpics", "market": "US"},
             {"handle": "paramountpicturesgermany", "market": "DE"},
         ],
@@ -153,6 +252,8 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "universalpictures": {
         "label": "universalpictures DE+US",
+        # Universal stays disabled — no platforms-dict yet. When the pair
+        # activates, fill in TT/IG/YT entries analogously to the others.
         "platform": "tiktok",
         "channels": [
             {"handle": "universalpictures", "market": "US"},
@@ -1121,10 +1222,114 @@ def _title_coverage(
     )
 
 
+_PLATFORM_LABELS = {"tiktok": "TikTok", "instagram": "Instagram", "youtube": "YouTube"}
+
+
+def _aggregate_platform(
+    session: Session,
+    platform: str,
+    channel_specs: list[dict],
+    window_start: datetime,
+    window_end: datetime,
+    *,
+    window_days: int,
+) -> PlatformAggregation:
+    """Sprint-4 — aggregate one platform inside a pair.
+
+    Mirrors the old single-platform path: lookup DE + US channels by
+    handle, compute ChannelStats, compute cross-market matches and title
+    coverage. Pairs that only ship a US channel for a given platform
+    (Disney/Prime/Paramount YouTube) leave ``de_channel=None`` — every
+    downstream consumer must tolerate that. ``_cross_market_matches``
+    naturally returns an empty list when one side is missing.
+
+    The "Datenbasis schwach"-note keeps the < 5-posts gate from Sprint-1
+    so the LLM caveat banner still fires — but per platform now, with
+    the platform label in the message so a thin IG window can be
+    distinguished from a thin TT window.
+    """
+    label = _PLATFORM_LABELS.get(platform, platform.capitalize())
+    de_spec = next((c for c in channel_specs if c["market"] == "DE"), None)
+    us_spec = next((c for c in channel_specs if c["market"] == "US"), None)
+    de_channel = _find_channel(session, de_spec["handle"], platform) if de_spec else None
+    us_channel = _find_channel(session, us_spec["handle"], platform) if us_spec else None
+
+    notes: list[str] = []
+    if de_spec and de_channel is None:
+        notes.append(
+            f"DE-Channel @{de_spec['handle']} ({label}) wurde nicht in der DB gefunden — "
+            "Onboarding/Whitelist-Eintrag prüfen."
+        )
+    if us_spec and us_channel is None:
+        notes.append(
+            f"US-Channel @{us_spec['handle']} ({label}) wurde nicht in der DB gefunden — "
+            "Onboarding/Whitelist-Eintrag prüfen."
+        )
+
+    de_stats = (
+        _channel_stats(
+            session, de_channel,
+            de_spec["handle"] if de_spec else "",
+            "DE", window_start, window_end, platform=platform,
+        ) if de_spec else None
+    )
+    us_stats = (
+        _channel_stats(
+            session, us_channel,
+            us_spec["handle"] if us_spec else "",
+            "US", window_start, window_end, platform=platform,
+        ) if us_spec else None
+    )
+    matches = _cross_market_matches(session, de_channel, us_channel, window_start, window_end)
+    coverage = _title_coverage(de_stats, us_stats, session, de_channel, us_channel, window_start, window_end)
+
+    if de_stats and de_stats.posts_count < 5:
+        notes.append(
+            f"Datenbasis DE schwach ({label}): nur {de_stats.posts_count} Posts "
+            f"in den letzten {window_days} Tagen."
+        )
+    if us_stats and us_stats.posts_count < 5:
+        notes.append(
+            f"Datenbasis US schwach ({label}): nur {us_stats.posts_count} Posts "
+            f"in den letzten {window_days} Tagen."
+        )
+    if (de_channel is not None and us_channel is not None) and not matches:
+        notes.append(
+            f"Keine de_us_match_key-Treffer im {label}-Fenster — Cross-Market-Insight basiert "
+            "auf indirekten Signalen."
+        )
+
+    return PlatformAggregation(
+        platform=platform,
+        de_channel=de_stats,
+        us_channel=us_stats,
+        cross_market_matches=matches,
+        title_coverage=coverage,
+        notes=notes,
+    )
+
+
+def _platforms_dict_for(pair_def: dict) -> dict[str, list[dict]]:
+    """Return the ``platforms`` dict for a pair, falling back to a synthetic
+    single-platform entry built from the legacy ``platform``/``channels``
+    fields. Lets disabled pairs (universalpictures) and any future pair
+    that hasn't been migrated to the new structure still aggregate."""
+    if "platforms" in pair_def and pair_def["platforms"]:
+        return pair_def["platforms"]
+    return {pair_def["platform"]: pair_def["channels"]}
+
+
 def aggregate_pair(
     session: Session, pair_key: str, window_days: int = 30, *, now: Optional[datetime] = None
 ) -> PairAggregation:
     """Build the deterministic pair aggregation for a window ending at ``now``.
+
+    Sprint-4: iterates over ``pair_def["platforms"]`` and produces one
+    PlatformAggregation per platform. The legacy fields (``platform``,
+    ``de_channel``, ``us_channel``, ``cross_market_matches``,
+    ``title_coverage``) mirror the first platform — TikTok by convention
+    in the current PAIRS layout — so the LLM ``_build_user_prompt`` and
+    the Frontend backwards-compat render path keep working unchanged.
 
     Raises ``ValueError`` for unknown pairs — the caller (the API endpoint)
     maps that to a 404.
@@ -1138,49 +1343,54 @@ def aggregate_pair(
     window_start = now - timedelta(days=window_days)
     iso_year, iso_week, _ = now.isocalendar()
 
-    notes: list[str] = []
-    de_spec = next((c for c in pair_def["channels"] if c["market"] == "DE"), None)
-    us_spec = next((c for c in pair_def["channels"] if c["market"] == "US"), None)
-    de_channel = _find_channel(session, de_spec["handle"], pair_def["platform"]) if de_spec else None
-    us_channel = _find_channel(session, us_spec["handle"], pair_def["platform"]) if us_spec else None
-
-    if de_spec and de_channel is None:
-        notes.append(
-            f"DE-Channel @{de_spec['handle']} (TikTok) wurde nicht in der DB gefunden — "
-            "Onboarding/Whitelist-Eintrag prüfen."
+    platforms = _platforms_dict_for(pair_def)
+    per_platform: list[PlatformAggregation] = [
+        _aggregate_platform(
+            session, platform, specs, window_start, window_end,
+            window_days=window_days,
         )
-    if us_spec and us_channel is None:
-        notes.append(
-            f"US-Channel @{us_spec['handle']} (TikTok) wurde nicht in der DB gefunden — "
-            "Onboarding/Whitelist-Eintrag prüfen."
-        )
+        for platform, specs in platforms.items()
+    ]
 
-    de_stats = _channel_stats(session, de_channel, de_spec["handle"] if de_spec else "", "DE", window_start, window_end, platform=pair_def["platform"]) if de_spec else None
-    us_stats = _channel_stats(session, us_channel, us_spec["handle"] if us_spec else "", "US", window_start, window_end, platform=pair_def["platform"]) if us_spec else None
-    matches = _cross_market_matches(session, de_channel, us_channel, window_start, window_end)
-    coverage = _title_coverage(de_stats, us_stats, session, de_channel, us_channel, window_start, window_end)
-
-    if de_stats and de_stats.posts_count < 5:
-        notes.append(f"Datenbasis DE schwach: nur {de_stats.posts_count} Posts in den letzten {window_days} Tagen.")
-    if us_stats and us_stats.posts_count < 5:
-        notes.append(f"Datenbasis US schwach: nur {us_stats.posts_count} Posts in den letzten {window_days} Tagen.")
-    if not matches:
-        notes.append("Keine de_us_match_key-Treffer im Fenster — Cross-Market-Insight basiert auf indirekten Signalen.")
+    # Backwards-Compat mirror: the legacy fields reflect the first platform
+    # (= TikTok in the current PAIRS layout). Same data, different shape —
+    # downstream consumers that haven't been multi-platform-aware yet
+    # (LLM user prompt, old Frontend render path) keep their existing
+    # access pattern.
+    first = per_platform[0] if per_platform else None
+    notes = [n for p in per_platform for n in p.notes]
 
     return PairAggregation(
         pair_key=pair_key,
         pair_label=pair_def["label"],
-        platform=pair_def["platform"],
+        platform=first.platform if first else pair_def.get("platform", ""),
         window_days=window_days,
         window_start=window_start,
         window_end=window_end,
         iso_week=iso_week,
         iso_year=iso_year,
-        de_channel=de_stats,
-        us_channel=us_stats,
-        cross_market_matches=matches,
-        title_coverage=coverage,
+        de_channel=first.de_channel if first else None,
+        us_channel=first.us_channel if first else None,
+        cross_market_matches=first.cross_market_matches if first else [],
+        title_coverage=first.title_coverage if first else _empty_title_coverage(),
         notes=notes,
+        per_platform=per_platform,
+    )
+
+
+def _empty_title_coverage() -> TitleCoverage:
+    """Zero-valued TitleCoverage. Used as the fallback when a pair has no
+    platforms configured at all (defensive — every enabled pair has at
+    least one platform after Sprint-4)."""
+    return TitleCoverage(
+        titles_in_both_markets=[],
+        de_only_titles=[],
+        us_only_titles=[],
+        de_assets_with_title=0,
+        de_assets_total=0,
+        us_assets_with_title=0,
+        us_assets_total=0,
+        overall_coverage_pct=0.0,
     )
 
 

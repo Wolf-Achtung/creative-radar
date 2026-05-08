@@ -140,6 +140,24 @@ class TitleCoverage(BaseModel):
     overall_coverage_pct: float
 
 
+class PlatformAggregation(BaseModel):
+    """Sprint-4 — per-platform slice of a PairAggregation. One platform's
+    DE+US channel stats, cross-market matches, and title coverage live
+    here so the LLM and Frontend can inspect each platform independently.
+
+    ``de_channel`` / ``us_channel`` are Optional because some pairs only
+    have a US channel on a given platform (Disney/Prime/Paramount
+    YouTube). ``_aggregate_platform`` handles the missing-market case
+    by leaving the side at None; the Frontend hides empty halves.
+    """
+    platform: str  # tiktok | instagram | youtube
+    de_channel: Optional[ChannelStats] = None
+    us_channel: Optional[ChannelStats] = None
+    cross_market_matches: list[CrossMarketMatch] = []
+    title_coverage: TitleCoverage
+    notes: list[str] = []
+
+
 class PairAggregation(BaseModel):
     pair_key: str
     pair_label: str
@@ -154,6 +172,12 @@ class PairAggregation(BaseModel):
     cross_market_matches: list[CrossMarketMatch]
     title_coverage: TitleCoverage
     notes: list[str]
+    # Sprint-4 multi-platform v2a: per-platform aggregations live here.
+    # Default empty so persisted briefs from before Sprint-4 still parse
+    # via ``model_validate`` on cache-hit re-hydrate (Sprint-1 persistence
+    # contract). Old briefs render with the legacy mirror fields above
+    # until they are force-regenerated; new briefs populate both.
+    per_platform: list[PlatformAggregation] = []
 
 
 class Trend(BaseModel):

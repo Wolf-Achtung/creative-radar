@@ -402,3 +402,131 @@ def test_list_cron_runs_returns_newest_first_and_respects_limit(client_with_auth
     assert runs[0]["duration_seconds"] is None
     assert runs[1]["duration_seconds"] is not None
     assert runs[1]["duration_seconds"] == 600.0
+
+
+# ---------- Sprint 4: YouTube cron leg --------------------------------------
+
+
+def _seed_yt_channel(db, *, handle: str = "Netflix") -> Channel:
+    with Session(db) as session:
+        ch = Channel(
+            id=uuid4(),
+            name=handle,
+            handle=handle,
+            url=f"https://www.youtube.com/@{handle}",
+            platform="youtube",
+            active=True,
+            mvp=True,
+        )
+        session.add(ch)
+        session.commit()
+        session.refresh(ch)
+        return ch
+
+
+def test_cron_sync_youtube_skips_when_not_configured(db, monkeypatch):
+    """Sprint 4 — without YOUTUBE_API_KEY the YT leg returns a structured
+    skip-summary instead of crashing the cron run. Wolf can verify
+    deployment readiness by reading summary['platforms']['youtube'] in
+    the cron_run row."""
+    import asyncio
+    from app.api.cron import _execute_youtube_sync
+    monkeypatch.setattr("app.api.cron.is_youtube_configured", lambda: False)
+
+    with Session(db) as session:
+        result = asyncio.run(_execute_youtube_sync(session, run_index=0, created_asset_ids=[]))
+
+    assert result == {"skipped": True, "reason": "youtube_not_configured"}
+
+
+def test_cron_sync_youtube_runs_when_configured(db, monkeypatch):
+    """Configured YT path: select_channels_for_cron returns the seeded
+    YT channel, fetch_channel_videos is mocked to return one raw video,
+    _run_apify_sync_for_platform_async is mocked to assert the per-channel
+    contract (channels=[ch], platform='youtube'). Counters propagate into
+    the summary block."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from app.api import cron as cron_module
+
+    ch = _seed_yt_channel(db, handle="NetflixDE")
+    monkeypatch.setattr(cron_module, "is_youtube_configured", lambda: True)
+
+    fake_video = {"id": "vid-123", "snippet": {"title": "trailer", "channelTitle": "NetflixDE"}, "_creative_radar_channel_id": "UCxxx"}
+    monkeypatch.setattr(
+        cron_module, "fetch_channel_videos",
+        lambda handle, limit: ({"id": "UCxxx"}, [fake_video]),
+    )
+
+    captured_calls: list[dict] = []
+
+    async def fake_sync(*, engine, channels, raw_items, platform, normalize, only_whitelist_matches):
+        captured_calls.append({"platform": platform, "n_channels": len(channels), "n_items": len(raw_items)})
+        return {
+            "created": 1, "skipped_existing": 0, "skipped_no_match": 0, "skipped_other": 0,
+            "asset_ids": [uuid4()], "failed_channels": [],
+        }
+    monkeypatch.setattr(cron_module, "_run_apify_sync_for_platform_async", AsyncMock(side_effect=fake_sync))
+
+    with Session(db) as session:
+        result = asyncio.run(cron_module._execute_youtube_sync(session, run_index=0, created_asset_ids=[]))
+
+    assert result["channels_checked"] == 1
+    assert result["raw_items"] == 1
+    assert result["created"] == 1
+    assert result["quota_units_used"] == 3
+    assert result["failed_channels"] == []
+    # Per-channel contract: one helper call per YT channel.
+    assert captured_calls == [{"platform": "youtube", "n_channels": 1, "n_items": 1}]
+
+
+def test_cron_sync_youtube_isolates_per_channel_errors(db, monkeypatch):
+    """One bad handle (NotFound or generic API error) must not stop the
+    others. Quota error breaks the loop early — quota is account-wide,
+    further calls only burn the rest of the day's allowance."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from app.api import cron as cron_module
+    from app.services.youtube_connector import (
+        YouTubeNotFoundError, YouTubeQuotaExceededError,
+    )
+
+    ch_a = _seed_yt_channel(db, handle="GoodChannel")
+    ch_b = _seed_yt_channel(db, handle="BadChannel")
+    ch_c = _seed_yt_channel(db, handle="QuotaChannel")
+    ch_d = _seed_yt_channel(db, handle="ShouldNotRun")
+
+    monkeypatch.setattr(cron_module, "is_youtube_configured", lambda: True)
+    # Bypass the A/B-Class rotation logic — at run_index=0 with 4
+    # B-Class channels the third-slicing would only return the first
+    # 2, hiding the loop-break we want to test. The selection logic
+    # itself has its own coverage in test_cron_channel_selection.py.
+    monkeypatch.setattr(
+        cron_module, "select_channels_for_cron",
+        lambda session, platform, run_index: [ch_a, ch_b, ch_c, ch_d],
+    )
+
+    def fake_fetch(handle, limit):
+        if handle == "GoodChannel":
+            return ({"id": "UC1"}, [{"id": "v1", "snippet": {"channelTitle": handle}}])
+        if handle == "BadChannel":
+            raise YouTubeNotFoundError(f"404 channelNotFound: {handle}")
+        if handle == "QuotaChannel":
+            raise YouTubeQuotaExceededError("quotaExceeded")
+        # ShouldNotRun must never be reached because Quota breaks the loop.
+        raise AssertionError(f"loop should have broken before reaching {handle}")
+    monkeypatch.setattr(cron_module, "fetch_channel_videos", fake_fetch)
+
+    async def fake_sync(*, channels, raw_items, **kw):
+        return {"created": 1, "skipped_existing": 0, "skipped_no_match": 0, "skipped_other": 0, "asset_ids": [], "failed_channels": []}
+    monkeypatch.setattr(cron_module, "_run_apify_sync_for_platform_async", AsyncMock(side_effect=fake_sync))
+
+    with Session(db) as session:
+        result = asyncio.run(cron_module._execute_youtube_sync(session, run_index=0, created_asset_ids=[]))
+
+    error_classes = [f["error_class"] for f in result["failed_channels"]]
+    assert "not_found" in error_classes
+    assert "quota_exceeded" in error_classes
+    # Two errors recorded — Good succeeded, ShouldNotRun never reached.
+    assert len(result["failed_channels"]) == 2
+    assert result["created"] == 1  # GoodChannel went through
