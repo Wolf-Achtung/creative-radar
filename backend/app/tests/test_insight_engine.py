@@ -708,3 +708,89 @@ def test_avg_activation_rate_in_channel_stats():
         assert us_stats.avg_activation_rate == 0.0
         assert isinstance(us_stats.avg_activation_rate, float)
         assert len(us_stats.ranked_posts) == 3
+
+
+# ---------- Sprint 3: Voice-Korrektur (Headline/TLDR rules + Few-Shot) -----
+
+
+def _extract_headline_spec(prompt: str) -> str:
+    """Snip from the OUTPUT-Schema-Block: the line describing the headline
+    field. We anchor on the JSON-style key and read until the next key —
+    the schema block uses one description per line so this is enough."""
+    import re
+    m = re.search(r'"headline":\s*"(.+?)",\s*\n', prompt, re.DOTALL)
+    return m.group(1) if m else ""
+
+
+def _extract_tldr_spec(prompt: str) -> str:
+    import re
+    m = re.search(r'"tldr":\s*"(.+?)",\s*\n', prompt, re.DOTALL)
+    return m.group(1) if m else ""
+
+
+def _extract_few_shot(prompt: str) -> str:
+    """Everything after the FEW-SHOT marker until the closing of the
+    triple-quoted SYSTEM_PROMPT. The block is the realised JSON example."""
+    marker = "FEW-SHOT"
+    idx = prompt.find(marker)
+    return prompt[idx:] if idx != -1 else ""
+
+
+def _extract_few_shot_headline(prompt: str) -> str:
+    """The first ``"headline"`` value AFTER the FEW-SHOT marker — the
+    realised example, not the schema description."""
+    import re
+    fs = _extract_few_shot(prompt)
+    m = re.search(r'"headline":\s*"(.+?)",\s*\n', fs)
+    return m.group(1) if m else ""
+
+
+def _extract_few_shot_tldr(prompt: str) -> str:
+    import re
+    fs = _extract_few_shot(prompt)
+    m = re.search(r'"tldr":\s*"(.+?)",\s*\n', fs)
+    return m.group(1) if m else ""
+
+
+def test_anti_pattern_block_includes_headline_tldr_extension():
+    """Sprint 3 — the headline+tldr-only anti-pattern carve-out must
+    name the four aggregation terms that belong to detail sections, not
+    to the GF/CD-facing headline/tldr."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    # The anti-pattern sub-block exists
+    assert "ANTI-PATTERN HEADLINE/TLDR" in prompt, \
+        "Headline/TLDR-only anti-pattern sub-block missing"
+    # And it lists the four forbidden aggregation terms
+    for forbidden in ("Coverage", "Cross-Market Match", "Längen-Bucket", "Engagement-Sum"):
+        assert forbidden in prompt, \
+            f"Anti-pattern term {forbidden!r} missing from prompt"
+
+
+def test_few_shot_uses_real_umlauts():
+    """No ae/oe/ue/ss pseudo-umlauts left in the few-shot's German
+    prose. JSON keys (fuer_cutter, tonalitaet, etc.) are exempt — those
+    are the ASCII-key contract from Sprint 1."""
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT).lower()
+    forbidden_pseudo = ("aendern", "fuer ", " ueber", "groesser", "muessen", "haette", "naechst")
+    for token in forbidden_pseudo:
+        assert token not in few_shot, \
+            f"Pseudo-umlaut {token!r} found in few-shot prose"
+
+
+def test_few_shot_headline_under_90_chars():
+    """The realised few-shot headline obeys the 90-char rule — if the
+    teaching example exceeds the rule the model gets a mixed signal."""
+    headline = _extract_few_shot_headline(insight_engine.SYSTEM_PROMPT)
+    assert headline, "few-shot headline not found"
+    assert len(headline) <= 90, \
+        f"few-shot headline {len(headline)} chars (> 90): {headline!r}"
+
+
+def test_few_shot_tldr_max_three_sentences():
+    """The realised few-shot tldr stays at <= 3 sentences (period-counted,
+    em-dash and comma OK)."""
+    tldr = _extract_few_shot_tldr(insight_engine.SYSTEM_PROMPT)
+    assert tldr, "few-shot tldr not found"
+    sentences = [s for s in tldr.split(".") if s.strip()]
+    assert len(sentences) <= 3, \
+        f"few-shot tldr has {len(sentences)} sentences (> 3): {tldr!r}"
