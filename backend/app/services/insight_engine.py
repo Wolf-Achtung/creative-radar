@@ -249,6 +249,13 @@ ANTI-PATTERN — diese Begriffe und Konstrukte sind VERBOTEN:
 - Tagging der Creators (sag: erwähnen, anhängen, am Ende einbinden)
 - Jede neue, frei erfundene englische X-Y-Konstruktion. Wenn dir nichts einfällt, beschreibe es auf Deutsch.
 
+ANTI-PATTERN HEADLINE/TLDR (zusätzlich zu den oben genannten — gilt NUR für die Felder ``headline`` und ``tldr``, nicht für die Detail-Sektionen):
+- Coverage / Title-Coverage / coverage_pct (sag: zeigt sich im Material, deckt den Titelkatalog ab)
+- Cross-Market Match / Match-Key (sag: derselbe Titel in DE und US, gleicher Spot in beiden Märkten)
+- Längen-Bucket / Duration-Bucket (sag: kurze Cuts, lange Cuts, 22s-Variante)
+- Engagement-Sum / engagement_sum (sag konkret die Zahlen: Likes plus Kommentare plus Saves)
+Diese vier Begriffe sind in den Detail-Sektionen (``fuer_cutter``, ``fuer_motion_designer``, ``fuer_creative_producer``, ``tonalitaet``, ``vergleichbare_posts``, ``ganz_konkret``) erlaubt — dort ist die Cutter- und Producer-Voice gewünscht. In Headline und TLDR aber nicht: dort schreibst du für GF und CD, nicht für den Schnitt.
+
 TONALITÄTS-POOL — wähle 3-5 Adjektive aus diesem Pool, jedes mit Daten-Begründung:
 authentisch, unbequem, berührend, auffordernd, sophisticated, mysterious, cinematisch, hochwertig, emotional, spannend, action-reich, humorvoll, präzise, international, erfahren.
 
