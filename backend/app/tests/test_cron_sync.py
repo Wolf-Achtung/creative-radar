@@ -462,8 +462,15 @@ def test_cron_sync_youtube_runs_when_configured(db, monkeypatch):
 
     async def fake_sync(*, engine, channels, raw_items, platform, normalize, only_whitelist_matches):
         captured_calls.append({"platform": platform, "n_channels": len(channels), "n_items": len(raw_items)})
+        # Mirror the real helper's return shape: ``created_assets`` /
+        # ``skipped_no_whitelist_match`` are the historical Sprint-5.3.5
+        # keys; the YT aggregator translates them back via the
+        # _HELPER_COUNTER_KEY_MAP. Sprint-4.5 bug-2 fix.
         return {
-            "created": 1, "skipped_existing": 0, "skipped_no_match": 0, "skipped_other": 0,
+            "created_assets": 1,
+            "skipped_existing": 0,
+            "skipped_no_whitelist_match": 0,
+            "skipped_other": 0,
             "asset_ids": [uuid4()], "failed_channels": [],
         }
     monkeypatch.setattr(cron_module, "_run_apify_sync_for_platform_async", AsyncMock(side_effect=fake_sync))
@@ -518,7 +525,8 @@ def test_cron_sync_youtube_isolates_per_channel_errors(db, monkeypatch):
     monkeypatch.setattr(cron_module, "fetch_channel_videos", fake_fetch)
 
     async def fake_sync(*, channels, raw_items, **kw):
-        return {"created": 1, "skipped_existing": 0, "skipped_no_match": 0, "skipped_other": 0, "asset_ids": [], "failed_channels": []}
+        # Helper-Format mit historischen Keys (siehe Sprint-4.5 bug 2).
+        return {"created_assets": 1, "skipped_existing": 0, "skipped_no_whitelist_match": 0, "skipped_other": 0, "asset_ids": [], "failed_channels": []}
     monkeypatch.setattr(cron_module, "_run_apify_sync_for_platform_async", AsyncMock(side_effect=fake_sync))
 
     with Session(db) as session:
@@ -530,3 +538,50 @@ def test_cron_sync_youtube_isolates_per_channel_errors(db, monkeypatch):
     # Two errors recorded — Good succeeded, ShouldNotRun never reached.
     assert len(result["failed_channels"]) == 2
     assert result["created"] == 1  # GoodChannel went through
+
+
+def test_youtube_aggregator_translates_helper_counter_keys(db, monkeypatch):
+    """Sprint 4.5 bug 2 regression test — _run_apify_sync_for_platform_async
+    returns counters under historical key names (created_assets,
+    skipped_no_whitelist_match) that differ from the YT aggregator's
+    internal names. The aggregator must translate via
+    _HELPER_COUNTER_KEY_MAP, otherwise persisted videos appear as
+    created=0 in the cron summary even when Phase A/C ran fine.
+
+    Before the fix, this test would have asserted created==0 (the bug)
+    even though the helper ran 7 created + 2 existing items through. After
+    the fix, the YT summary correctly reflects 7 created and 2 existing."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from app.api import cron as cron_module
+
+    ch = _seed_yt_channel(db, handle="MappingTest")
+    monkeypatch.setattr(cron_module, "is_youtube_configured", lambda: True)
+    monkeypatch.setattr(
+        cron_module, "select_channels_for_cron",
+        lambda session, platform, run_index: [ch],
+    )
+    monkeypatch.setattr(
+        cron_module, "fetch_channel_videos",
+        lambda handle, limit: ({"id": "UCx"}, [{"id": f"v{i}"} for i in range(9)]),
+    )
+
+    async def fake_sync(*, channels, raw_items, **kw):
+        return {
+            "created_assets": 7,
+            "skipped_existing": 2,
+            "skipped_no_whitelist_match": 0,
+            "skipped_other": 0,
+            "asset_ids": [uuid4() for _ in range(7)],
+            "failed_channels": [],
+            "processed_channels": 1,
+        }
+    monkeypatch.setattr(cron_module, "_run_apify_sync_for_platform_async", AsyncMock(side_effect=fake_sync))
+
+    with Session(db) as session:
+        result = asyncio.run(cron_module._execute_youtube_sync(session, run_index=0, created_asset_ids=[]))
+
+    assert result["created"] == 7, "created counter must aggregate from helper's created_assets key"
+    assert result["skipped_existing"] == 2
+    assert result["skipped_no_match"] == 0
+    assert result["skipped_other"] == 0
