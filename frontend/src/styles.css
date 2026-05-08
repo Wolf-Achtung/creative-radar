@@ -296,6 +296,12 @@ a:hover { text-decoration: underline; }
 /* ---- Insight-Engine MVP (Sprint 1) ---- */
 .insight-page { display: flex; flex-direction: column; gap: 18px; }
 .insight-page .hero h1 { font-style: italic; }
+.insight-meta-stand {
+  margin-top: 8px !important;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 0.02em;
+}
 .coverage-banner {
   display: flex;
   flex-wrap: wrap;

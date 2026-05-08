@@ -50,6 +50,21 @@ function formatDateISO(value) {
   try { return new Date(value).toLocaleDateString('de-DE'); } catch (_) { return String(value); }
 }
 
+// Sprint 1 (Persistenz): "Stand: 08.05.2026, 14:30" im Studio-Brief-Header.
+// Macht für den GF sichtbar, ob er einen frischen oder einen aus dem Cache
+// geladenen Brief liest. Format: dd.mm.yyyy, hh:mm in lokaler Zeit.
+function formatStand(value) {
+  if (!value) return '';
+  try {
+    const d = new Date(value);
+    const date = d.toLocaleDateString('de-DE');
+    const time = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    return `${date}, ${time}`;
+  } catch (_) {
+    return String(value);
+  }
+}
+
 function CoverageBanner({ report }) {
   const cov = report?.coverage_pct ?? 0;
   const tone = cov >= 70 ? 'good' : cov >= 30 ? 'warn' : 'bad';
@@ -460,7 +475,9 @@ export default function InsightWeekly({ pair }) {
         <p className="eyebrow">STUDIO-REVIEW</p>
         <h1>{label}</h1>
         <p>Was diese Woche funktioniert, was nicht und wie wir's nutzen.</p>
-
+        {report?.generated_at && (
+          <p className="insight-meta-stand">Stand: {formatStand(report.generated_at)}</p>
+        )}
       </header>
 
       {status === 'slow' && (
