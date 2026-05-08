@@ -170,7 +170,10 @@ function ChannelStatsCard({ stats }) {
       <p className="section-kicker">{stats.market} · @{stats.handle}</p>
       <h3>{formatNumber(stats.posts_count)} Posts · {formatNumber(stats.assets_count)} Assets</h3>
       <div className="insight-kpi-row">
-        <div><strong>{formatPct(stats.coverage_pct)}</strong><span>Coverage</span></div>
+        <div>
+          <strong>{formatPct(stats.coverage_pct)}</strong>
+          <span>Coverage<HelpTooltip text={TOOLTIP_TEXTS.coverage} label="Was bedeutet Coverage?" /></span>
+        </div>
         <div><strong>{stats.avg_duration_seconds != null ? `${stats.avg_duration_seconds}s` : '—'}</strong><span>Ø Duration</span></div>
         <div><strong>{formatNumber(Math.round(stats.avg_engagement))}</strong><span>Ø Engagement</span></div>
         <div><strong>{Math.round(stats.avg_caption_length || 0)}</strong><span>Ø Caption-Länge</span></div>
@@ -211,7 +214,10 @@ function CrossMarketCard({ matches }) {
   if (!matches || matches.length === 0) {
     return (
       <div className="card">
-        <p className="section-kicker">Cross-Market Matches</p>
+        <p className="section-kicker">
+          Cross-Market Matches
+          <HelpTooltip text={TOOLTIP_TEXTS.crossMarketMatch} label="Was sind Cross-Market Matches?" />
+        </p>
         <p>Keine de_us_match_key-Treffer im Fenster.</p>
       </div>
     );
@@ -637,18 +643,21 @@ function TopRankingSection({ deRanked, usRanked, pairKey }) {
     <section className="ranking-section card">
       <div className="ranking-header">
         <h3>Top-Posts</h3>
-        <select
-          value={sortKey}
-          onChange={(e) => setSortKey(e.target.value)}
-          className="ranking-sort-select"
-          aria-label="Sortierung"
-        >
-          <option value="views">Aufrufe</option>
-          <option value="likes">Reactions</option>
-          <option value="activation_rate">Aktivierungs-Rate</option>
-          <option value="comments">Kommentare</option>
-          <option value="saves">Saves</option>
-        </select>
+        <div className="ranking-controls">
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value)}
+            className="ranking-sort-select"
+            aria-label="Sortierung"
+          >
+            <option value="views">Aufrufe</option>
+            <option value="likes">Reactions</option>
+            <option value="activation_rate">Aktivierungs-Rate</option>
+            <option value="comments">Kommentare</option>
+            <option value="saves">Saves</option>
+          </select>
+          <HelpTooltip text={TOOLTIP_TEXTS.activationRate} label="Was bedeutet Aktivierungs-Rate?" />
+        </div>
       </div>
 
       <div className="ranking-grid">
