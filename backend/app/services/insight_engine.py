@@ -27,7 +27,7 @@ from typing import Any, Iterable, Optional
 import sqlalchemy as sa
 from sqlmodel import Session, select
 
-from app.models.entities import Asset, Channel, Post, Title
+from app.models.entities import Asset, Channel, InsightReport as InsightReportRow, Post, Title
 from app.schemas.insights import (
     Action,
     ChannelStats,
@@ -41,6 +41,10 @@ from app.schemas.insights import (
     TopPost,
     Trend,
 )
+
+# Module-internal alias for the SQLModel persistence row (re-export the
+# Pydantic ``InsightReport`` from app.schemas.insights). The two share a
+# name; we disambiguate with the import alias above.
 from app.services.anthropic_client import (
     AnthropicAPIError,
     AnthropicAuthError,
@@ -193,8 +197,8 @@ _OPUS_OUTPUT_PER_1K_USD = 0.075
 #     constructions even with a strong persona.
 #
 #  3. **Schema enforcement**: all original fields stay required; the six
-#     new role-oriented sections (tonalität, watch_outs, für_cutter,
-#     für_motion_designer, für_creative_producer, vergleichbare_posts)
+#     new role-oriented sections (tonalitaet, watch_outs, fuer_cutter,
+#     fuer_motion_designer, fuer_creative_producer, vergleichbare_posts)
 #     are explicit in the schema with one-line guidance. ``risks`` stays
 #     for backwards-compat with old reports.
 #
@@ -220,7 +224,7 @@ VOICE — wie du schreibst:
 GLOSSAR — diese englischen Begriffe sind erlaubt, weil im Schnitt gebräuchlich:
 Hook, Beat, Cut, Cold-Open, L3 (Lower Third), End Card, BTS (Behind the Scenes), Texted, Textless, GSA (Germany/Austria/Switzerland), Tonalität, Trailer, Teaser, Spot, Establisher-Shot.
 
-UMLAUTE — WICHTIG: Schreibe alle deutschen Texte mit echten Umlauten (ä, ö, ü, ß). Nicht "ae", "oe", "ue", "ss". Beispiele: läuft (nicht läuft), hängt (nicht hängt), über (nicht über), größe (nicht größe), zerläuft (nicht zerläuft), nächster (nicht nächster), trägt (nicht trägt), kürzer (nicht kürzer), für (nicht für), groß (nicht groß), Länge (nicht Länge). Diese Regel gilt für alle Felder im Output, ohne Ausnahme. Die Few-Shot-Beispiele unten verwenden teilweise noch die alte Schreibweise — orientiere dich an der hier formulierten Regel, nicht an den Beispielen.
+UMLAUTE — WICHTIG: Schreibe alle deutschen Fließtext-Inhalte mit echten Umlauten (ä, ö, ü, ß). Nicht "ae", "oe", "ue", "ss". Beispiele: läuft (nicht läuft), hängt (nicht hängt), über (nicht über), größe (nicht größe), zerläuft (nicht zerläuft), nächster (nicht nächster), trägt (nicht trägt), kürzer (nicht kürzer), für (nicht für), groß (nicht groß), Länge (nicht Länge). Diese Regel gilt für alle Fließtext-Werte im Output. JSON-Keys hingegen bleiben ASCII (`fuer_cutter`, `fuer_motion_designer`, `fuer_creative_producer`, `tonalitaet`, `begruendung`) — JSON-Robustheit hat Priorität. Die Few-Shot-Beispiele unten verwenden teilweise noch die alte Pseudo-Umlaut-Schreibweise im Fließtext — orientiere dich an der hier formulierten Fließtext-Regel, nicht an den Beispielen.
 
 DEUTSCHE ALTERNATIVEN — wo immer möglich:
 - die Totale, die Anfangs-Einstellung, der Aufschlag, der Einstieg (statt Establisher-Shot)
@@ -300,10 +304,10 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
   },
   "risks": ["Kurzfassung als String — bleibt aus Backwards-Compat-Gründen"],
   "data_caveats": ["..."],
-  "tonalität": [
+  "tonalitaet": [
     {
       "adjektiv": "ein Adjektiv aus dem Tonalitäts-Pool",
-      "begründung": "ein Satz, warum dieses Adjektiv die Woche trifft, mit Daten-Anker"
+      "begruendung": "ein Satz, warum dieses Adjektiv die Woche trifft, mit Daten-Anker"
     }
   ],
   "watch_outs": [
@@ -312,19 +316,19 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
       "konsequenz": "was das für den Schnitt oder die Hook bedeutet"
     }
   ],
-  "für_cutter": {
+  "fuer_cutter": {
     "schnitt_pace": "Beobachtung zum Rhythmus, abgeleitet aus Top-Posts und Längen-Buckets — in Cutter-Sprache (kurze Cuts funktionieren, lange laufen zu lang, etc.)",
     "hook_strategie": "welche Hook-Form trägt diese Woche (Cold-Open, Title-First, BTS, Cast-Reaction, ...)",
-    "empfohlene_längen": "z.B. 15-22s primär, 28s als langer Cut",
+    "empfohlene_laengen": "z.B. 15-22s primär, 28s als langer Cut",
     "must_show": ["Element, das im Cut sein muss, mit Begründung aus den Daten"],
     "no_go": ["Element, das NICHT trägt — Begründung aus den Daten"]
   },
-  "für_motion_designer": {
+  "fuer_motion_designer": {
     "caption_style": "Caption-Beobachtung aus den Top-Posts (Länge, Tonfall, Hashtag-Dichte)",
     "text_overlay": "Empfehlung zu L3 und Text-Einsatz",
     "branding_einsatz": "wie End Card und Logo platziert werden sollten"
   },
-  "für_creative_producer": {
+  "fuer_creative_producer": {
     "strategische_pattern": "übergeordnetes Muster, das diese Woche sichtbar wird",
     "cross_market_chancen": "wo DE-Cuts US-Patterns adaptieren sollten oder umgekehrt",
     "format_empfehlungen": "Formate, Längen, Posting-Rhythmus für die nächste Woche"
@@ -492,14 +496,14 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   },
   "risks": ["Coverage moderat (60%)"],
   "data_caveats": ["Nur 2 DE-Posts im Fenster — Trend ist Indiz, nicht Beweis"],
-  "tonalität": [
+  "tonalitaet": [
     {
       "adjektiv": "präzise",
-      "begründung": "Top-US-Posts arbeiten mit klaren 22s-Hooks, kein narrativer Leerlauf"
+      "begruendung": "Top-US-Posts arbeiten mit klaren 22s-Hooks, kein narrativer Leerlauf"
     },
     {
       "adjektiv": "action-reich",
-      "begründung": "MortalKombat2-Hashtag dominiert, Caption-Sprache ist Action-fokussiert"
+      "begruendung": "MortalKombat2-Hashtag dominiert, Caption-Sprache ist Action-fokussiert"
     }
   ],
   "watch_outs": [
@@ -508,19 +512,19 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
       "konsequenz": "BTS-Format als Komplement testen, nicht als Hauptcut"
     }
   ],
-  "für_cutter": {
+  "fuer_cutter": {
     "schnitt_pace": "Top-Performer liegen bei 15-30s; >60s läuft im Feed zu lang",
     "hook_strategie": "Cold-Open mit Action-Beat in den ersten 2 Sekunden",
-    "empfohlene_längen": "22s primär, 12s als kurze Variante zum Reinzeigen",
+    "empfohlene_laengen": "22s primär, 12s als kurze Variante zum Reinzeigen",
     "must_show": ["Hauptkonflikt (Fight) im ersten Beat", "Logo-Reveal als End Card max. 1s"],
     "no_go": ["28s+ Cuts ohne klaren Bruch", "Captions über 120 Zeichen"]
   },
-  "für_motion_designer": {
+  "fuer_motion_designer": {
     "caption_style": "kurz (60-100 Zeichen), 2-3 Hashtags, Action-Verben",
     "text_overlay": "L3 mit Cast-Name + Datum am Ende, kein narrativer Text-Einsatz",
     "branding_einsatz": "End Card 1s, Logo zentriert, kein Lower-Third-Branding"
   },
-  "für_creative_producer": {
+  "fuer_creative_producer": {
     "strategische_pattern": "Ein klarer Beat funktioniert besser als vollgepackte Cuts — kürzere Cuts mit klarer Hook tragen besser",
     "cross_market_chancen": "DE übernimmt US-Rhythmus, behält deutsche Caption-Form",
     "format_empfehlungen": "Pro Woche 2 Cuts: 22s Hauptcut + 12s kurze Variante"
@@ -1237,8 +1241,151 @@ def generate_weekly_report(
         llm_output=llm_output,
         aggregation=agg,
         cost_usd_estimate=cost,
+        input_tokens=input_tokens or None,
+        output_tokens=output_tokens or None,
         raw_llm_text=raw_for_response,
     )
+
+
+def _hydrate_from_persisted(row: InsightReportRow, *, window_days: int) -> InsightReport:
+    """Rebuild a Pydantic ``InsightReport`` from a stored ``insight_report``
+    row. Used by the cache hit path of ``generate_and_persist_report`` —
+    the JSONB-serialised aggregation/llm_output blobs round-trip through
+    ``model_validate`` so consumers see the same shape they would from a
+    fresh generate call. ``cost_usd_estimate`` is reconstructed from the
+    ``cost_usd_cents`` integer that the persistence layer stores.
+    """
+    aggregation = PairAggregation.model_validate(row.aggregation)
+    llm_output = LLMReport.model_validate(row.llm_output) if row.llm_output else None
+    cost_usd_estimate: Optional[float] = (
+        round(row.cost_usd_cents / 100.0, 4) if row.cost_usd_cents is not None else None
+    )
+    return InsightReport(
+        pair_key=row.pair_key,
+        pair_label=aggregation.pair_label,
+        iso_week=row.iso_week,
+        iso_year=row.iso_year,
+        window_days=window_days,
+        coverage_pct=aggregation.title_coverage.overall_coverage_pct,
+        generated_at=row.generated_at,
+        model=row.model,
+        dry_run=False,
+        llm_output=llm_output,
+        aggregation=aggregation,
+        cost_usd_estimate=cost_usd_estimate,
+    )
+
+
+def _persist_report(session: Session, report: InsightReport) -> None:
+    """Upsert one ``insight_report`` row keyed by (pair_key, iso_year, iso_week).
+
+    Last-Write-Wins semantics — a ``force=true`` regeneration overwrites
+    the previously persisted brief. We delete-then-insert because SQLite
+    (used by the test suite) doesn't have a portable composite-key UPSERT
+    that matches Postgres ``ON CONFLICT (pair_key, iso_year, iso_week)
+    DO UPDATE``; the delete + insert in the same session/transaction is
+    equivalent for our concurrency model (single FastAPI worker per
+    request, no parallel writes for the same composite key).
+
+    Persisting requires an ``llm_output`` — dry-run reports never reach
+    this function (the caller guards on ``dry_run``).
+    """
+    if report.llm_output is None:
+        # Defensive — the GET endpoint guards on dry_run before calling
+        # this, but a JSON-parse-failure path could theoretically slip
+        # through. Skip persistence rather than write an empty row.
+        logger.warning(
+            "insight-report-persist-skipped: pair=%s week=%d/%d (no llm_output)",
+            report.pair_key, report.iso_year, report.iso_week,
+        )
+        return
+
+    cost_cents: Optional[int] = (
+        int(round(report.cost_usd_estimate * 100)) if report.cost_usd_estimate else None
+    )
+
+    existing = session.get(
+        InsightReportRow,
+        (report.pair_key, report.iso_year, report.iso_week),
+    )
+    if existing is not None:
+        session.delete(existing)
+        session.flush()
+
+    row = InsightReportRow(
+        pair_key=report.pair_key,
+        iso_year=report.iso_year,
+        iso_week=report.iso_week,
+        aggregation=report.aggregation.model_dump(mode="json"),
+        llm_output=report.llm_output.model_dump(mode="json"),
+        generated_at=report.generated_at,
+        model=report.model,
+        cost_usd_cents=cost_cents,
+        input_tokens=report.input_tokens,
+        output_tokens=report.output_tokens,
+    )
+    session.add(row)
+    session.commit()
+
+
+def generate_and_persist_report(
+    session: Session,
+    pair_key: str,
+    *,
+    window_days: int = 30,
+    force: bool = False,
+    model: str = OPUS_MODEL_ALIAS,
+    max_tokens: int = 12000,
+    now: Optional[datetime] = None,
+) -> InsightReport:
+    """Cache-aware variant of ``generate_weekly_report`` for the
+    Sprint-1 persistence path.
+
+    Behaviour:
+    - Run ``aggregate_pair`` first (cheap, DB-only) so the ISO week
+      lookup uses the same ``iso_year``/``iso_week`` the report would
+      eventually carry. Computing them separately from
+      ``datetime.now().isocalendar()`` would risk a mismatch around
+      week-boundary calls.
+    - If ``force=False`` and a row exists for this (pair_key, iso_year,
+      iso_week), hydrate and return it without an LLM call.
+    - Otherwise call Opus, build the report, persist it (Last-Write-Wins
+      on the composite PK), return the fresh report.
+
+    ``dry_run`` is intentionally not a parameter — the dry-run path stays
+    on the original ``generate_weekly_report`` and bypasses persistence
+    entirely. Callers (the GET endpoint) branch on ``dry_run`` before
+    invoking either function.
+    """
+    agg = aggregate_pair(session, pair_key, window_days=window_days, now=now)
+
+    if not force:
+        existing = session.get(
+            InsightReportRow,
+            (pair_key, agg.iso_year, agg.iso_week),
+        )
+        if existing is not None:
+            return _hydrate_from_persisted(existing, window_days=window_days)
+
+    # Cache miss (or force) → run the LLM. We re-call ``generate_weekly_report``
+    # which re-runs ``aggregate_pair`` internally. The duplicate aggregation
+    # is cheap (DB-only, fast), and keeping a single LLM-call code path
+    # simplifies maintenance over wiring a precomputed-aggregation kwarg
+    # through the call site. If aggregation cost ever becomes hot, this
+    # is a one-line refactor.
+    report = generate_weekly_report(
+        session,
+        pair_key,
+        window_days=window_days,
+        dry_run=False,
+        model=model,
+        max_tokens=max_tokens,
+        now=now,
+    )
+
+    _persist_report(session, report)
+
+    return report
 
 
 __all__ = [
@@ -1247,4 +1394,5 @@ __all__ = [
     "SYSTEM_PROMPT",
     "aggregate_pair",
     "generate_weekly_report",
+    "generate_and_persist_report",
 ]

@@ -10,7 +10,11 @@ from app.services.anthropic_client import (
     AnthropicAuthError,
     AnthropicRateLimitError,
 )
-from app.services.insight_engine import PAIRS, generate_weekly_report
+from app.services.insight_engine import (
+    PAIRS,
+    generate_and_persist_report,
+    generate_weekly_report,
+)
 from app.services.insights import build_overview
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
@@ -37,13 +41,26 @@ def weekly(
         False,
         description="True = nur Aggregation, kein LLM-Call (für Quality-Gate ohne Cost).",
     ),
+    force: bool = Query(
+        False,
+        description=(
+            "True = Cache-Lookup überspringen und neuen LLM-Call ausführen. "
+            "Der frisch generierte Brief wird trotzdem persistiert "
+            "(Last-Write-Wins). Hat keine Wirkung bei dry_run=true."
+        ),
+    ),
     session: Session = Depends(get_session),
 ) -> InsightReport:
-    """Generiere den Trailerhaus-Wochenreport für einen Pair.
+    """Generiere bzw. lade den Trailerhaus-Wochenreport für einen Pair.
 
-    Beim Dry-Run wird ausschließlich die deterministische Aggregation
-    zurückgegeben — nützlich, um vor dem ersten echten LLM-Call zu prüfen,
-    welche Daten an Opus 4.7 gehen.
+    Sprint 1 (Persistenz):
+    - Default-Verhalten: Wenn für die aktuelle ISO-Woche bereits ein Brief
+      persistiert ist, wird er ohne LLM-Call zurückgegeben (Cost = 0,
+      Latenz < 100 ms). Sonst frischer Opus-Call + Persistenz.
+    - ``force=true``: Cache-Lookup überspringen, LLM-Call durchführen, Brief
+      persistieren (Last-Write-Wins auf der Composite-PK).
+    - ``dry_run=true``: weder LLM-Call noch Persistenz — nur die
+      deterministische Aggregation. Für Prompt-/Datenanalyse ohne Cost.
 
     Sprint-2: Pairs können in ``services/insight_engine.PAIRS`` mit
     ``enabled=False`` registriert sein, um sie als „coming soon" anzukündigen
@@ -70,11 +87,20 @@ def weekly(
             },
         )
     try:
-        return generate_weekly_report(
+        if dry_run:
+            # Dry-Run-Pfad ist unverändert — weder Cache-Lookup noch
+            # Persistenz. Nützlich für Prompt-Iteration.
+            return generate_weekly_report(
+                session,
+                pair,
+                window_days=window_days,
+                dry_run=True,
+            )
+        return generate_and_persist_report(
             session,
             pair,
             window_days=window_days,
-            dry_run=dry_run,
+            force=force,
         )
     except AnthropicAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc

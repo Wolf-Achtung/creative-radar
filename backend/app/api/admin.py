@@ -37,6 +37,12 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.database import get_session
 from app.models.entities import Channel, CostLog, Post
+from app.services.anthropic_client import (
+    AnthropicAPIError,
+    AnthropicAuthError,
+    AnthropicRateLimitError,
+)
+from app.services.insight_engine import PAIRS, generate_and_persist_report
 
 logger = logging.getLogger(__name__)
 
@@ -413,3 +419,89 @@ def analyze_channel(
         "errors": errors,
         "anthropic_calls": calls_total,
     }
+
+
+@router.post("/insights/regenerate")
+def regenerate_insights(
+    pair: str = Query(
+        "all",
+        description=(
+            "Pair-Key (z.B. 'netflix') oder 'all' für alle aktivierten Pairs. "
+            "Disabled Pairs (z.B. universalpictures) werden mit "
+            "status='skipped' übersprungen."
+        ),
+    ),
+    window_days: int = Query(30, ge=7, le=90),
+    session: Session = Depends(get_session),
+):
+    """Sprint 1 (Persistenz) — manueller Regenerate-Trigger.
+
+    Kostet pro generiertem Brief ~$0.40 (Opus 4.7). Ein ``pair=all``-Lauf
+    über die sechs aktiven Tier-A-Pairs liegt bei ~$2.40. Auto-Trigger im
+    Cron-Lauf folgt im Cadence-Sprint; bis dahin füllt Wolf den Cache
+    manuell über diesen Endpoint.
+
+    Pro Pair wird ``generate_and_persist_report(force=True)`` aufgerufen
+    — Last-Write-Wins auf der Composite-PK. Per-Pair-Fehler werden im
+    ``results``-Array isoliert reportet, der Loop läuft weiter (ein
+    einzelner Anthropic-401 für einen Pair stoppt die anderen fünf
+    nicht).
+    """
+    if pair == "all":
+        pairs_to_run = [k for k, v in PAIRS.items() if v.get("enabled", False)]
+    elif pair in PAIRS:
+        if not PAIRS[pair].get("enabled", False):
+            return {
+                "results": [
+                    {
+                        "pair": pair,
+                        "status": "skipped",
+                        "reason": PAIRS[pair].get("reason") or "disabled",
+                    }
+                ],
+                "total_cost_cents": 0,
+            }
+        pairs_to_run = [pair]
+    else:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unbekannter Pair-Key: {pair!r}",
+        )
+
+    results: list[dict] = []
+    total_cost_cents = 0
+    for p in pairs_to_run:
+        try:
+            report = generate_and_persist_report(
+                session,
+                p,
+                window_days=window_days,
+                force=True,
+            )
+        except (AnthropicAuthError, AnthropicRateLimitError, AnthropicAPIError) as exc:
+            logger.warning("regenerate-insight failed for pair=%s: %s", p, exc)
+            results.append({"pair": p, "status": "error", "message": str(exc)})
+            continue
+        except Exception as exc:  # noqa: BLE001 — keep the loop alive
+            logger.exception("regenerate-insight unexpected failure for pair=%s", p)
+            results.append({
+                "pair": p,
+                "status": "error",
+                "message": f"{type(exc).__name__}: {exc}",
+            })
+            continue
+
+        cost_cents = (
+            int(round(report.cost_usd_estimate * 100))
+            if report.cost_usd_estimate else 0
+        )
+        total_cost_cents += cost_cents
+        results.append({
+            "pair": p,
+            "status": "ok",
+            "iso_year": report.iso_year,
+            "iso_week": report.iso_week,
+            "cost_cents": cost_cents,
+        })
+
+    return {"results": results, "total_cost_cents": total_cost_cents}
