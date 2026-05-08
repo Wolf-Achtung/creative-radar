@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { endpoints } from './api/client';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
@@ -64,6 +64,77 @@ function formatStand(value) {
     return String(value);
   }
 }
+
+// ---- Sprint 3: HelpTooltip --------------------------------------------
+//
+// Inline question-mark trigger that exposes a short explanation on hover
+// (Desktop) and on tap (Mobile). Escape and click-outside close the
+// open tooltip. The trigger is a real <button> for keyboard accessibility;
+// the popup carries `role="tooltip"` and the trigger references it via
+// `aria-describedby` while open.
+//
+// We don't use `title=` because that limits styling, can't carry rich
+// content, and behaves inconsistently on touch devices.
+
+function HelpTooltip({ text, label = 'Erklärung anzeigen' }) {
+  const [open, setOpen] = useState(false);
+  const tooltipId = useId();
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function handlePointerDown(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    function handleKey(e) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
+
+  return (
+    <span className="help-tooltip-wrapper" ref={wrapperRef}>
+      <button
+        type="button"
+        className="help-tooltip-trigger"
+        aria-label={label}
+        aria-describedby={open ? tooltipId : undefined}
+        aria-expanded={open}
+        onClick={(e) => { e.preventDefault(); setOpen((o) => !o); }}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        tabIndex={0}
+      >
+        ?
+      </button>
+      {open && (
+        <span className="help-tooltip-content" id={tooltipId} role="tooltip">
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
+const TOOLTIP_TEXTS = {
+  coverage:
+    'Coverage: Anteil der Posts, die einem konkreten Filmtitel zugeordnet werden konnten. Zeigt, wie zielgerichtet ein Channel kommuniziert.',
+  crossMarketMatch:
+    'Cross-Market Matches: Posts, die in DE und US denselben Filmtitel bewerben — ermöglicht den direkten Performance-Vergleich beider Märkte.',
+  activationRate:
+    'Aktivierungs-Rate: Wie viele der Zuschauer reagiert haben (Like, Kommentar, Save). 5–10 % sind auf TikTok normal, darüber stark.',
+};
 
 function CoverageBanner({ report }) {
   const cov = report?.coverage_pct ?? 0;
