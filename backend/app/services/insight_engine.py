@@ -387,88 +387,88 @@ Wenn die Datengrundlage zu dünn ist (Coverage <30%, <5 Posts pro Markt, keine C
 FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein echter Report; in deinem Output bitte vollständig in der Länge):
 
 {
-  "headline": "Warner US läuft mit 22s, DE hängt bei 44s zu lang",
-  "tldr": "Der US-Kanal liegt bei 15.146 Reaktionen im Schnitt, DE bei 341 — Faktor 44, das ist nicht nur Marktgröße. Der US-Cut sitzt bei 33s mit elf Posts unter 30s, DE liegt bei 44s mit fünf Posts über 30s. Wir sollten den DE-Cut auf 22-25s straffen und auf einen klaren Cold-Open ziehen, dann kommt mehr Beat in den Feed.",
+  "headline": "Disney US zieht 10% Aktivierung, DE bleibt bei knapp 7%",
+  "tldr": "Disney US erreicht eine Aktivierungs-Rate von 10,3% — ein Spitzenwert, der nicht allein aus der größeren US-Reichweite erklärt ist. Die DE-Posts bleiben bei knapp 7%, obwohl das Material aus denselben Kampagnen stammt. Die Lücke liegt vermutlich in der Hook-Strategie der ersten drei Sekunden, nicht im Format-Mix.",
   "aktuell_im_fokus": [
     {
-      "titel": "Mortal Kombat II",
+      "titel": "The Mandalorian and Grogu",
       "markt": "DE",
       "format_typ": "Kino-Reminder",
       "kennzahl": "ein 56s-Fakten-Cut, 1.052 Reaktionen bei 224k Aufrufen",
-      "release_datum": "7. Mai",
+      "release_datum": "20. Mai",
       "verdict": "zerläuft",
-      "post_url": "https://tiktok.com/@warnerbrosdeutschland/video/de1"
+      "post_url": "https://tiktok.com/@disneyde/video/de1"
     },
     {
-      "titel": "Mortal Kombat II",
+      "titel": "The Mandalorian and Grogu",
       "markt": "US",
-      "format_typ": "Round-2-Cut",
-      "kennzahl": "22s, 233 Reaktionen — kürzer als DE, höhere Reaktionsquote",
-      "release_datum": "7. Mai",
-      "verdict": "ausbaufähig",
-      "post_url": "https://tiktok.com/@warnerbros/video/us2"
-    },
-    {
-      "titel": "Miss Congeniality",
-      "markt": "US",
-      "format_typ": "Backkatalog-Anriss",
-      "kennzahl": "20s, 267.388 Reaktionen, 2 Mio Aufrufe",
-      "release_datum": null,
+      "format_typ": "Cast-Reaction-Cut",
+      "kennzahl": "22s, 11.200 Reaktionen bei 108k Aufrufen — 10,4% Aktivierung",
+      "release_datum": "20. Mai",
       "verdict": "trägt",
-      "post_url": "https://tiktok.com/@warnerbros/video/us3"
+      "post_url": "https://tiktok.com/@disney/video/us2"
     },
     {
-      "titel": "Evil Dead Burn",
+      "titel": "Lilo & Stitch",
       "markt": "US",
-      "format_typ": "Horror-Hook",
+      "format_typ": "Live-Action-Hook",
+      "kennzahl": "20s, 267.388 Reaktionen, 2 Mio Aufrufe",
+      "release_datum": "23. Mai",
+      "verdict": "trägt",
+      "post_url": "https://tiktok.com/@disney/video/us3"
+    },
+    {
+      "titel": "Tron: Ares",
+      "markt": "US",
+      "format_typ": "Visuelle Hook",
       "kennzahl": "zwei Cuts (25s, 18s), 6.352 und 5.870 Reaktionen, 8 Posts mit dem Tag",
-      "release_datum": "10. Juli",
+      "release_datum": "10. Oktober",
       "verdict": "sitzt",
-      "post_url": "https://tiktok.com/@warnerbros/video/us4"
+      "post_url": "https://tiktok.com/@disney/video/us4"
     }
   ],
   "ganz_konkret": [
     {
       "nummer": 1,
-      "pattern": "Der 56s-Fakten-Cut von MK2 DE hatte 1.052 Reaktionen, der US-Vergleich (Round 2 MK2) liegt bei 233 Reaktionen mit 22s. Trotz hoher Reichweite trägt der lange Cut die Reaktion nicht.",
-      "lern_take": "Bei Fight-Material zieht der kurze Cut, die lange Variante zerläuft im Feed.",
-      "frage": "Wie kurz schneiden wir Fight-Material in eigenen Action-Trailern? Bauen wir 22s-Varianten als Standard?",
-      "bezug": "Mortal Kombat II"
+      "pattern": "Der 56s-Fakten-Cut von Mandalorian DE hatte 1.052 Reaktionen, der US-Vergleich (Cast-Reaction) liegt bei 11.200 Reaktionen mit 22s — bei nur halb so vielen Aufrufen. Die kurze Variante hat zehnmal die Aktivierung pro Aufruf.",
+      "lern_take": "Bei Franchise-Material trägt der kurze Cast-Cut, die lange Faktenform zerläuft im Feed.",
+      "frage": "Wie kurz schneiden wir Franchise-Material in eigenen Action-Trailern? Bauen wir 22s-Varianten als Standard?",
+      "bezug": "The Mandalorian and Grogu"
     },
     {
       "nummer": 2,
-      "pattern": "Miss Congeniality (US) zieht 267.388 Reaktionen mit einem 20s-Format: kein Trailer-Beat, nur ein Bild-Moment plus Datum-Anker als Caption.",
-      "lern_take": "Backkatalog-Anrisse unter 25s mit einem einzigen Bild-Moment können massive Reaktion holen.",
-      "frage": "Bauen wir solche Backkatalog-Slots für eigene Streaming-Pitches? Lohnt das für Disney+ DE oder Prime Video DE als wiederkehrendes Format?",
-      "bezug": "Miss Congeniality"
+      "pattern": "Lilo & Stitch (US) zieht 267.388 Reaktionen mit einem 20s-Format: kein Trailer-Beat, nur ein Bild-Moment plus Datum-Anker als Caption.",
+      "lern_take": "Live-Action-Hooks unter 25s mit einem einzigen Bild-Moment können massive Reaktion holen.",
+      "frage": "Bauen wir solche Hook-Slots für eigene Streaming-Pitches? Lohnt das für Disney+ DE oder Prime Video DE als wiederkehrendes Format?",
+      "bezug": "Lilo & Stitch"
     },
     {
       "nummer": 3,
-      "pattern": "Top-DE-Post (MK2 Fakten) hatte 134 Zeichen Caption plus 4 Hashtags und 1.052 Reaktionen. Top-US-Post (Miss Congeniality) hatte 65 Zeichen plus 1 Hashtag und 267.388 Reaktionen — kürzere Caption, höhere Reaktion.",
-      "lern_take": "Lange Captions mit Hashtag-Stapel verschwinden im Feed, kurze klare Captions trägen.",
+      "pattern": "Top-DE-Post (Mandalorian Fakten) hatte 134 Zeichen Caption plus 4 Hashtags und 1.052 Reaktionen. Top-US-Post (Lilo & Stitch) hatte 65 Zeichen plus 1 Hashtag und 267.388 Reaktionen — kürzere Caption, höhere Reaktion.",
+      "lern_take": "Lange Captions mit Hashtag-Stapel verschwinden im Feed, kurze klare Captions tragen.",
       "frage": "Wie diszipliniert sind unsere eigenen Captions? Setzen wir intern eine 90-Zeichen-Regel als Standard?",
       "bezug": "Caption-Disziplin"
     },
     {
       "nummer": 4,
-      "pattern": "DE-Batman-Post läuft 17s mit Kinetic-Format und holt 467 Reaktionen bei nur 8.000 Aufrufen — die Reaktionsquote ist hoch, aber die Reichweite zerläuft. Title-Card sitzt direkt am Anfang.",
+      "pattern": "DE-Marvel-Post läuft 17s mit Kinetic-Format und holt 467 Reaktionen bei nur 8.000 Aufrufen — die Reaktionsquote ist hoch, aber die Reichweite zerläuft. Title-Card sitzt direkt am Anfang.",
       "lern_take": "Bei kurzen Action-Cuts kostet die Title-Card am Anfang Reichweite, Cold-Open ohne Logo holt mehr.",
       "frage": "Bauen wir bei eigenen Action-Trailern Cold-Open-Varianten ohne Title-Card als A/B-Test?",
       "bezug": "Format-Strategie"
     },
     {
       "nummer": 5,
-      "pattern": "MK2-Screening Berlin läuft 62 Sekunden und holt 381 Reaktionen bei 173.000 Aufrufen. Reichweite passt, aber die Reaktionsquote bleibt unter 0,3 Prozent — der Cut zerläuft.",
+      "pattern": "Mandalorian-Premiere Berlin läuft 62 Sekunden und holt 381 Reaktionen bei 173.000 Aufrufen. Reichweite passt, aber die Reaktionsquote bleibt unter 0,3 Prozent — der Cut zerläuft.",
       "lern_take": "Veranstaltungs-Mitschnitte über 60s zerläuft im Feed, der Cast-Beat geht im Sammel-Cut verloren.",
       "frage": "Wenn wir selbst Premieren-Material für Trailerhaus-Kunden bauen — wie kurz packen wir den Cast-Beat? Sammel-Cut oder Einzel-Schnipsel?",
-      "bezug": "Mortal Kombat II"
+      "bezug": "The Mandalorian and Grogu"
     },
     {
       "nummer": 6,
-      "pattern": "Evil Dead Burn (US) fährt zwei Cuts mit 25s und 18s, beide über 5.800 Reaktionen, acht Posts mit dem Tag im Fenster — dominantestes Hashtag im US-Kanal.",
-      "lern_take": "Horror-Material unter 25s mit knappem Schreckmoment und konsequenter Hashtag-Klammer trägt durch eine Kampagnen-Woche.",
-      "frage": "Wenn wir für Horror-Verleiher pitchen — können wir das 18-25s-Format plus Klammer-Hashtag als Vorlage anbieten?",
-      "bezug": "Evil Dead Burn"
+      "pattern": "Tron: Ares (US) fährt zwei Cuts mit 25s und 18s, beide über 5.800 Reaktionen, acht Posts mit dem Tag im Fenster — dominantestes Hashtag im US-Kanal.",
+      "lern_take": "Visuell-getriebenes Material unter 25s mit konsequenter Hashtag-Klammer trägt durch eine Kampagnen-Woche.",
+      "frage": "Wenn wir für Sci-Fi-Verleiher pitchen — können wir das 18-25s-Format plus Klammer-Hashtag als Vorlage anbieten?",
+      "bezug": "Tron: Ares"
     },
     {
       "nummer": 7,
@@ -481,25 +481,25 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   "trends": [
     {
       "name": "Kurze Anfänge unter 15s ziehen rein",
-      "evidence": "us_p3 (12s, 1.000 Reaktionen) hat trotz BTS-Format eine bessere Reaktionsquote als die 30-60s-Cuts",
+      "evidence": "Lilo & Stitch (20s, 267k Reaktionen) zeigt: ein einziger Bild-Moment in den ersten Sekunden trägt mehr als ein 30-60s-Cut",
       "implication_for_creation": "Wir sollten eine 12-15s Cold-Open-Variante schneiden und gegen die 22s-Version testen."
     }
   ],
   "actions": [
     {
       "what": "DE-Cut auf 22s straffen",
-      "why": "DE 28s liegt mit 3.100 Reaktionen, US 22s bei 11.100 — der US-Cut hat Beat, der DE-Cut läuft zu lang",
-      "for_whom": "Cutter MK2"
+      "why": "DE 56s liegt mit 1.052 Reaktionen, US 22s bei 11.200 — der US-Cut hat Beat, der DE-Cut läuft zu lang",
+      "for_whom": "Cutter Mandalorian"
     }
   ],
   "konkurrenz": {
-    "was_alle_machen": "Diese Woche steigen drei der sechs großen Studios auf kurze Cast-Reactions ein — Sony, Universal und Paramount. Disney bleibt bei langen Marken-Spots. Es ist klar zweigeteilt: kurze Anfänge oder emotionale Langformate, dazwischen passiert wenig.",
+    "was_alle_machen": "Diese Woche steigen drei der sechs großen Studios auf kurze Cast-Reactions ein — Sony, Universal und Paramount. Warner bleibt bei langen Marken-Spots. Es ist klar zweigeteilt: kurze Anfänge oder emotionale Langformate, dazwischen passiert wenig.",
     "format_trend": "BTS-Material in 12-18s steigt — fünf von zehn Top-Posts über alle Pairs sind BTS-Schnipsel mit Cast. Vor vier Wochen waren es zwei.",
-    "genre_beobachtung": "Horror trägt: Evil Dead Burn (8 US-Posts) und ein Sony-Resident-Evil-Teaser tragen ihre Wochen. Comedy bleibt verhalten — selbst Sony Glennkill kommt nur auf 25.000 Reaktionen.",
-    "neu_seit_letzten_wochen": "Cold-Opens mit Datums-Anker (kein Trailer-Beat, nur Datum plus Bild) sind neu — Warner Miss Congeniality liegt bei 267.000 Reaktionen. Vor vier Wochen war das Format nicht da."
+    "genre_beobachtung": "Sci-Fi trägt: Tron: Ares (8 US-Posts) und ein Sony-Project-Hail-Mary-Teaser tragen ihre Wochen. Comedy bleibt verhalten — selbst Sony Glennkill kommt nur auf 25.000 Reaktionen.",
+    "neu_seit_letzten_wochen": "Cold-Opens mit Datums-Anker (kein Trailer-Beat, nur Datum plus Bild) sind neu — Disney Lilo & Stitch liegt bei 267.000 Reaktionen. Vor vier Wochen war das Format nicht da."
   },
   "cross_market_insight": {
-    "de_vs_us": "DE läuft verhaltener (3.100 vs 11.100), gleiche Hashtag-Logik, aber 6s länger im Cut.",
+    "de_vs_us": "DE läuft verhaltener (1.052 vs 11.200), gleiche Hashtag-Logik, aber 34s länger im Cut.",
     "transfer_opportunity": "US-Rhythmus auf DE übertragen, deutsche Caption-Form behalten."
   },
   "risks": ["Coverage moderat (60%)"],
@@ -510,21 +510,21 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
       "begruendung": "Top-US-Posts arbeiten mit klaren 22s-Hooks, kein narrativer Leerlauf"
     },
     {
-      "adjektiv": "action-reich",
-      "begruendung": "MortalKombat2-Hashtag dominiert, Caption-Sprache ist Action-fokussiert"
+      "adjektiv": "emotional",
+      "begruendung": "Mandalorian-Hashtag dominiert, Caption-Sprache ist Familie-fokussiert"
     }
   ],
   "watch_outs": [
     {
-      "watch_out": "BTS-Cut (us_p3) hat hohe Reaktionsquote trotz niedriger Absolutzahlen",
-      "konsequenz": "BTS-Format als Komplement testen, nicht als Hauptcut"
+      "watch_out": "Tron-Cut (US, 18s) hat hohe Reaktionsquote trotz niedriger Absolutzahlen",
+      "konsequenz": "Visual-Hook-Format als Komplement testen, nicht als Hauptcut"
     }
   ],
   "fuer_cutter": {
     "schnitt_pace": "Top-Performer liegen bei 15-30s; >60s läuft im Feed zu lang",
-    "hook_strategie": "Cold-Open mit Action-Beat in den ersten 2 Sekunden",
+    "hook_strategie": "Cold-Open mit Cast-Beat in den ersten 2 Sekunden",
     "empfohlene_laengen": "22s primär, 12s als kurze Variante zum Reinzeigen",
-    "must_show": ["Hauptkonflikt (Fight) im ersten Beat", "Logo-Reveal als End Card max. 1s"],
+    "must_show": ["Hauptkonflikt (Cast-Reaction) im ersten Beat", "Logo-Reveal als End Card max. 1s"],
     "no_go": ["28s+ Cuts ohne klaren Bruch", "Captions über 120 Zeichen"]
   },
   "fuer_motion_designer": {
@@ -539,9 +539,9 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   },
   "vergleichbare_posts": [
     {
-      "post_id": "https://tiktok.com/@warnerbros/video/us1",
-      "handle": "warnerbros",
-      "performance_kpi": "11.100 Reaktionen, 22s",
+      "post_id": "https://tiktok.com/@disney/video/us1",
+      "handle": "disney",
+      "performance_kpi": "11.200 Reaktionen, 22s, 10,4% Aktivierung",
       "relevanz_grund": "Goldstandard für die 22s-Hook, Referenz für den DE-Recut"
     }
   ]
