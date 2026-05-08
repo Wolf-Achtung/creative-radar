@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { endpoints } from './api/client';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
@@ -65,6 +65,77 @@ function formatStand(value) {
   }
 }
 
+// ---- Sprint 3: HelpTooltip --------------------------------------------
+//
+// Inline question-mark trigger that exposes a short explanation on hover
+// (Desktop) and on tap (Mobile). Escape and click-outside close the
+// open tooltip. The trigger is a real <button> for keyboard accessibility;
+// the popup carries `role="tooltip"` and the trigger references it via
+// `aria-describedby` while open.
+//
+// We don't use `title=` because that limits styling, can't carry rich
+// content, and behaves inconsistently on touch devices.
+
+function HelpTooltip({ text, label = 'Erklärung anzeigen' }) {
+  const [open, setOpen] = useState(false);
+  const tooltipId = useId();
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function handlePointerDown(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    function handleKey(e) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
+
+  return (
+    <span className="help-tooltip-wrapper" ref={wrapperRef}>
+      <button
+        type="button"
+        className="help-tooltip-trigger"
+        aria-label={label}
+        aria-describedby={open ? tooltipId : undefined}
+        aria-expanded={open}
+        onClick={(e) => { e.preventDefault(); setOpen((o) => !o); }}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        tabIndex={0}
+      >
+        ?
+      </button>
+      {open && (
+        <span className="help-tooltip-content" id={tooltipId} role="tooltip">
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
+const TOOLTIP_TEXTS = {
+  coverage:
+    'Coverage: Anteil der Posts, die einem konkreten Filmtitel zugeordnet werden konnten. Zeigt, wie zielgerichtet ein Channel kommuniziert.',
+  crossMarketMatch:
+    'Cross-Market Matches: Posts, die in DE und US denselben Filmtitel bewerben — ermöglicht den direkten Performance-Vergleich beider Märkte.',
+  activationRate:
+    'Aktivierungs-Rate: Wie viele der Zuschauer reagiert haben (Like, Kommentar, Save). 5–10 % sind auf TikTok normal, darüber stark.',
+};
+
 function CoverageBanner({ report }) {
   const cov = report?.coverage_pct ?? 0;
   const tone = cov >= 70 ? 'good' : cov >= 30 ? 'warn' : 'bad';
@@ -99,7 +170,10 @@ function ChannelStatsCard({ stats }) {
       <p className="section-kicker">{stats.market} · @{stats.handle}</p>
       <h3>{formatNumber(stats.posts_count)} Posts · {formatNumber(stats.assets_count)} Assets</h3>
       <div className="insight-kpi-row">
-        <div><strong>{formatPct(stats.coverage_pct)}</strong><span>Coverage</span></div>
+        <div>
+          <strong>{formatPct(stats.coverage_pct)}</strong>
+          <span>Coverage<HelpTooltip text={TOOLTIP_TEXTS.coverage} label="Was bedeutet Coverage?" /></span>
+        </div>
         <div><strong>{stats.avg_duration_seconds != null ? `${stats.avg_duration_seconds}s` : '—'}</strong><span>Ø Duration</span></div>
         <div><strong>{formatNumber(Math.round(stats.avg_engagement))}</strong><span>Ø Engagement</span></div>
         <div><strong>{Math.round(stats.avg_caption_length || 0)}</strong><span>Ø Caption-Länge</span></div>
@@ -140,7 +214,10 @@ function CrossMarketCard({ matches }) {
   if (!matches || matches.length === 0) {
     return (
       <div className="card">
-        <p className="section-kicker">Cross-Market Matches</p>
+        <p className="section-kicker">
+          Cross-Market Matches
+          <HelpTooltip text={TOOLTIP_TEXTS.crossMarketMatch} label="Was sind Cross-Market Matches?" />
+        </p>
         <p>Keine de_us_match_key-Treffer im Fenster.</p>
       </div>
     );
@@ -566,18 +643,21 @@ function TopRankingSection({ deRanked, usRanked, pairKey }) {
     <section className="ranking-section card">
       <div className="ranking-header">
         <h3>Top-Posts</h3>
-        <select
-          value={sortKey}
-          onChange={(e) => setSortKey(e.target.value)}
-          className="ranking-sort-select"
-          aria-label="Sortierung"
-        >
-          <option value="views">Aufrufe</option>
-          <option value="likes">Reactions</option>
-          <option value="activation_rate">Aktivierungs-Rate</option>
-          <option value="comments">Kommentare</option>
-          <option value="saves">Saves</option>
-        </select>
+        <div className="ranking-controls">
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value)}
+            className="ranking-sort-select"
+            aria-label="Sortierung"
+          >
+            <option value="views">Aufrufe</option>
+            <option value="likes">Reactions</option>
+            <option value="activation_rate">Aktivierungs-Rate</option>
+            <option value="comments">Kommentare</option>
+            <option value="saves">Saves</option>
+          </select>
+          <HelpTooltip text={TOOLTIP_TEXTS.activationRate} label="Was bedeutet Aktivierungs-Rate?" />
+        </div>
       </div>
 
       <div className="ranking-grid">
