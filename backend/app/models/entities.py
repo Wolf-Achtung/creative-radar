@@ -424,3 +424,35 @@ class CronRun(SQLModel, table=True):
     run_index: int = 0
     summary_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     error_message: Optional[str] = None
+
+
+class InsightReport(SQLModel, table=True):
+    """Persisted weekly briefing — one row per (pair_key, iso_year, iso_week).
+
+    Sprint 1 (Persistenz). Composite PK matches the natural cache-lookup
+    used by ``GET /api/insights/weekly`` and ``POST /api/admin/insights/regenerate``:
+    a frontend reload of the same pair in the same ISO week serves the
+    persisted row instead of triggering a fresh ~$0.40 Opus call. The
+    ``force=true`` query param skips the cache lookup but still upserts
+    the result (Last-Write-Wins on the composite PK), so regenerating a
+    brief overwrites the stored one rather than producing duplicates.
+
+    The ``aggregation`` and ``llm_output`` JSON blobs are the same shapes
+    as the ``PairAggregation`` and ``LLMReport`` Pydantic models in
+    ``app.schemas.insights`` — we store them serialised so the persisted
+    payload survives schema additions on the Pydantic side without a
+    migration (older rows just lack the new fields, which the Optional[]
+    annotations on ``LLMReport`` already tolerate).
+    """
+    __tablename__ = "insight_report"
+    __table_args__ = _CR_TABLE_ARGS
+    pair_key: str = Field(primary_key=True, max_length=64)
+    iso_year: int = Field(primary_key=True)
+    iso_week: int = Field(primary_key=True)
+    aggregation: dict = Field(sa_column=Column(JSON, nullable=False))
+    llm_output: dict = Field(sa_column=Column(JSON, nullable=False))
+    generated_at: datetime = Field(default_factory=utc_now, index=True)
+    model: str = Field(max_length=64)
+    cost_usd_cents: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
