@@ -19,3 +19,8 @@ dist/
 # Local env
 .env
 .env.local
+
+# Local SQLite test artefacts (created when ALLOW_SQLITE_FALLBACK=true)
+*.db
+*.sqlite
+*.sqlite3
