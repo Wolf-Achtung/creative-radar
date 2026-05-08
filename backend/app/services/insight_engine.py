@@ -83,13 +83,36 @@ logger = logging.getLogger(__name__)
 PAIRS: dict[str, dict[str, Any]] = {
     "warnerbros": {
         "label": "warnerbros DE+US",
+        # Sprint-4 multi-platform v2a: ``platforms`` is the source of truth
+        # going forward. Each key is a platform with a list of {handle, market}
+        # specs. ``platform`` and ``channels`` mirror the first platform
+        # (always TikTok in this sprint) so backwards-compat code paths
+        # — including the LLM ``_build_user_prompt`` and any test fixtures
+        # that still read ``pair_def["channels"]`` directly — keep working
+        # without an audit. Sprint-5 voice refactor will start consuming
+        # ``platforms`` directly and let the legacy mirror fields wither.
+        "platforms": {
+            "tiktok": [
+                # Production-confirmed handle (channels_perplexity_2026_05_03.csv).
+                {"handle": "warnerbros", "market": "US"},
+                # DE handle per Wolf brief; aliasing handled by the case-insensitive
+                # lookup. If the actual stored handle differs, ``aggregate_pair``
+                # records that in ``notes`` rather than failing.
+                {"handle": "warnerbrosdeutschland", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "warnerbros", "market": "US"},
+                {"handle": "warnerbrosde", "market": "DE"},
+            ],
+            "youtube": [
+                {"handle": "WarnerBrosPictures", "market": "US"},
+                {"handle": "WarnerBrosDE", "market": "DE"},
+            ],
+        },
+        # Backwards-Compat mirror — TikTok = first platform.
         "platform": "tiktok",
         "channels": [
-            # Production-confirmed handle (channels_perplexity_2026_05_03.csv).
             {"handle": "warnerbros", "market": "US"},
-            # DE handle per Wolf brief; aliasing handled by the case-insensitive
-            # lookup. If the actual stored handle differs, ``aggregate_pair``
-            # records that in ``notes`` rather than failing.
             {"handle": "warnerbrosdeutschland", "market": "DE"},
         ],
         "enabled": True,
@@ -97,6 +120,20 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "sonypictures": {
         "label": "sonypictures DE+US",
+        "platforms": {
+            "tiktok": [
+                {"handle": "sonypictures", "market": "US"},
+                {"handle": "sonypicturesgermany", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "sonypictures", "market": "US"},
+                {"handle": "sonypicturesde", "market": "DE"},
+            ],
+            "youtube": [
+                {"handle": "SonyPicturesEntertainment", "market": "US"},
+                {"handle": "SonyPicturesGermany", "market": "DE"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
             {"handle": "sonypictures", "market": "US"},
@@ -107,6 +144,22 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "primevideo": {
         "label": "primevideo DE+US",
+        "platforms": {
+            "tiktok": [
+                {"handle": "primevideo", "market": "US"},
+                {"handle": "primevideode", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "primevideo", "market": "US"},
+                {"handle": "primevideode", "market": "DE"},
+            ],
+            # No DE-side YouTube channel for Prime — single-channel platform
+            # entry. ``_aggregate_platform`` handles the missing-market case
+            # by leaving ``de_channel`` None.
+            "youtube": [
+                {"handle": "PrimeVideo", "market": "US"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
             {"handle": "primevideo", "market": "US"},
@@ -117,12 +170,28 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "disney": {
         "label": "disney DE+US",
+        "platforms": {
+            "tiktok": [
+                # Wolf-spec handle. The whitelist-expansion migration registers
+                # ``disneystudios`` and ``disneyanimation`` for US Disney; if
+                # ``disney`` is not the production handle for the US side,
+                # ``aggregate_pair`` will surface that in ``notes``.
+                {"handle": "disney", "market": "US"},
+                {"handle": "disneyde", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "disney", "market": "US"},
+                # IG-DE handle differs from TikTok (``disneyde``) — Disney runs
+                # ``disneydeutschland`` on Instagram.
+                {"handle": "disneydeutschland", "market": "DE"},
+            ],
+            # No DE-side YouTube channel for Disney's main studios feed.
+            "youtube": [
+                {"handle": "WaltDisneyStudios", "market": "US"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
-            # Wolf-spec handle. The whitelist-expansion migration registers
-            # ``disneystudios`` and ``disneyanimation`` for US Disney; if
-            # ``disney`` is not the production handle for the US side,
-            # ``aggregate_pair`` will surface that in ``notes``.
             {"handle": "disney", "market": "US"},
             {"handle": "disneyde", "market": "DE"},
         ],
@@ -131,6 +200,20 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "netflix": {
         "label": "netflix DE+US",
+        "platforms": {
+            "tiktok": [
+                {"handle": "netflix", "market": "US"},
+                {"handle": "netflixde", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "netflix", "market": "US"},
+                {"handle": "netflixde", "market": "DE"},
+            ],
+            "youtube": [
+                {"handle": "Netflix", "market": "US"},
+                {"handle": "NetflixDE", "market": "DE"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
             {"handle": "netflix", "market": "US"},
@@ -141,10 +224,25 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "paramountpictures": {
         "label": "paramountpictures DE+US",
+        "platforms": {
+            "tiktok": [
+                # US handle is ``paramountpics``, not ``paramountpictures``
+                # (per migration e5d8f1a36b40 + Wolf brief).
+                {"handle": "paramountpics", "market": "US"},
+                {"handle": "paramountpicturesgermany", "market": "DE"},
+            ],
+            "instagram": [
+                {"handle": "paramountpics", "market": "US"},
+                # IG-DE uses underscores: ``paramount_pictures_germany``.
+                {"handle": "paramount_pictures_germany", "market": "DE"},
+            ],
+            # No DE-side YouTube channel for Paramount Pictures.
+            "youtube": [
+                {"handle": "ParamountPictures", "market": "US"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
-            # US handle is ``paramountpics``, not ``paramountpictures``
-            # (per migration e5d8f1a36b40 + Wolf brief).
             {"handle": "paramountpics", "market": "US"},
             {"handle": "paramountpicturesgermany", "market": "DE"},
         ],
@@ -153,6 +251,8 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "universalpictures": {
         "label": "universalpictures DE+US",
+        # Universal stays disabled — no platforms-dict yet. When the pair
+        # activates, fill in TT/IG/YT entries analogously to the others.
         "platform": "tiktok",
         "channels": [
             {"handle": "universalpictures", "market": "US"},

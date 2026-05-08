@@ -794,3 +794,36 @@ def test_few_shot_tldr_max_three_sentences():
     sentences = [s for s in tldr.split(".") if s.strip()]
     assert len(sentences) <= 3, \
         f"few-shot tldr has {len(sentences)} sentences (> 3): {tldr!r}"
+
+
+# ---------- Sprint 4: Multi-Plattform PAIRS ---------------------------------
+
+
+def test_pairs_have_platforms_dict_for_enabled_pairs():
+    """Every enabled PAIR carries a ``platforms`` dict with at least one
+    platform key — Sprint-4 source of truth for which channels to aggregate."""
+    for key, pair_def in insight_engine.PAIRS.items():
+        if not pair_def.get("enabled", False):
+            continue
+        assert "platforms" in pair_def, f"{key}: missing platforms dict"
+        assert isinstance(pair_def["platforms"], dict), f"{key}: platforms not a dict"
+        assert len(pair_def["platforms"]) >= 1, f"{key}: empty platforms dict"
+
+
+def test_pairs_backwards_compat_mirror_first_platform():
+    """Legacy ``platform`` and ``channels`` fields mirror the first platform
+    in the new ``platforms`` dict — so legacy code paths (LLM user prompt,
+    fixture-based tests) keep working without an audit. TikTok stays first
+    by convention; if the order ever changes, the mirror tracks it."""
+    for key, pair_def in insight_engine.PAIRS.items():
+        if not pair_def.get("enabled", False):
+            continue
+        platforms = pair_def["platforms"]
+        first_platform = next(iter(platforms.keys()))
+        assert pair_def["platform"] == first_platform, (
+            f"{key}: platform={pair_def['platform']!r} does not mirror "
+            f"first platforms entry {first_platform!r}"
+        )
+        assert pair_def["channels"] == platforms[first_platform], (
+            f"{key}: channels do not mirror platforms[{first_platform!r}]"
+        )
