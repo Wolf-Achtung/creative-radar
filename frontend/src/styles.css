@@ -373,3 +373,147 @@ a:hover { text-decoration: underline; }
 }
 .insight-notes ul { margin: 6px 0 0; padding-left: 22px; }
 .insight-slow-hint { border: 1px solid #f2c489; background: #fff7e6; }
+
+/* ---- Sprint 2: TopRankingSection ---- */
+/* Lebt im Light-Theme der Studio-Brief-Seite — innere Tile-Hintergründe
+   spiegeln den .insight-kpi-row-Stil (#f8f5ee), Trennlinie via .card-border
+   (#ece4d8), Akzent ist Trailerhaus-Rot. Plattform-Pillen behalten die
+   echten Brand-Farben unabhängig vom Theme, weil Wolf den visuellen
+   Sprung bewusst will. */
+.ranking-section .ranking-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ranking-section .ranking-header h3 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+.ranking-sort-select {
+  background: #fbf8f2;
+  color: #1d2330;
+  border: 1px solid #ece4d8;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ranking-sort-select:focus { outline: 2px solid #F26B5E; outline-offset: 1px; }
+
+.ranking-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.ranking-column h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7c7468;
+}
+
+.ranked-post-card {
+  display: block;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #f8f5ee;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ranked-post-card:hover {
+  background: #f3eee2;
+  border-color: #ece4d8;
+}
+
+.ranked-post-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.ranked-post-rank {
+  font-weight: 700;
+  color: #7c7468;
+}
+
+/* Plattform-Pille — Brand-Farben, theme-unabhängig.
+   tiktok: schwarz/weiß, instagram: Multi-Color-Gradient, youtube: rot. */
+.platform-pill {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.platform-tiktok    { background: #000;     color: #fff; }
+.platform-instagram { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); color: #fff; }
+.platform-youtube   { background: #ff0000;  color: #fff; }
+
+.ranked-post-date {
+  margin-left: auto;
+  color: #7c7468;
+  font-size: 12px;
+}
+
+.ranked-post-caption {
+  margin: 6px 0 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #1d2330;
+}
+
+.ranked-post-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.ranked-metric { color: #6c6458; }
+.ranked-metric strong {
+  color: #1d2330;
+  font-size: 13px;
+  margin-right: 3px;
+}
+.ranked-metric-highlight,
+.ranked-metric-highlight strong { color: #F26B5E; }
+
+.ranking-toggle {
+  display: block;
+  margin: 14px auto 0;
+  padding: 8px 18px;
+  background: transparent;
+  color: #7c7468;
+  border: 1px solid #ece4d8;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ranking-toggle:hover { background: #f8f5ee; color: #1d2330; }
+.ranking-toggle:focus { outline: 2px solid #F26B5E; outline-offset: 1px; }
+
+.ranking-empty {
+  color: #9a8f7e;
+  font-style: italic;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* Mobile-Stacking — DE/US untereinander. Bestehender Breakpoint aus
+   .insight-meta wiederverwendet. */
+@media (max-width: 800px) {
+  .ranking-grid { grid-template-columns: 1fr; }
+  .ranked-post-metrics { gap: 4px 10px; font-size: 11px; }
+}
