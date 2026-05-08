@@ -620,20 +620,117 @@ function RankedPostCard({ post, rank, sortKey }) {
   );
 }
 
-function TopRankingSection({ deRanked, usRanked, pairKey }) {
+const PLATFORM_LABEL = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
+
+// Sprint 4 — multi-platform stats block. One platform-block per entry in
+// per_platform, each holding the DE+US ChannelStatsCards plus a
+// per-platform CrossMarketCard. Backwards-compat: when per_platform is
+// empty (older persisted briefs from before Sprint-4) the component
+// falls back to the single-platform render path with the legacy
+// aggregation.de_channel / us_channel / cross_market_matches fields.
+//
+// Empty platform blocks (no DE and no US data) are skipped entirely
+// rather than rendered as empty shells — the YT-only-US pairs (Disney,
+// Prime, Paramount) thus show one card instead of one card plus an
+// empty-state placeholder.
+function MultiPlatformStats({ aggregation }) {
+  if (!aggregation) return null;
+  const perPlatform = Array.isArray(aggregation.per_platform) ? aggregation.per_platform : [];
+
+  if (perPlatform.length === 0) {
+    // Legacy path — keep rendering exactly what Sprint-1/2/3 rendered.
+    return (
+      <>
+        <div className="insight-grid-two">
+          <ChannelStatsCard stats={aggregation.de_channel} />
+          <ChannelStatsCard stats={aggregation.us_channel} />
+        </div>
+        <CrossMarketCard matches={aggregation.cross_market_matches} />
+      </>
+    );
+  }
+
+  return (
+    <div className="multiplatform-stats">
+      {perPlatform.map((p) => {
+        const hasData = p.de_channel || p.us_channel;
+        if (!hasData) return null;
+        const label = PLATFORM_LABEL[p.platform] || p.platform;
+        return (
+          <div key={p.platform} className={`platform-block platform-block-${p.platform}`}>
+            <h3 className="platform-block-title">
+              <span className={`platform-pill platform-${p.platform}`}>{label}</span>
+            </h3>
+            <div className="insight-grid-two">
+              {p.de_channel && <ChannelStatsCard stats={p.de_channel} />}
+              {p.us_channel && <ChannelStatsCard stats={p.us_channel} />}
+            </div>
+            {p.cross_market_matches?.length > 0 && (
+              <CrossMarketCard matches={p.cross_market_matches} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Sprint 4 — collect ranked_posts from all platforms (or a single one
+// when filtered). Walks per_platform if present, otherwise falls back to
+// aggregation.de_channel / us_channel for older persisted briefs (Sprint
+// 1 contract: a brief written before Sprint-4 has no per_platform field).
+function collectRankedPosts(aggregation, market, platformFilter) {
+  if (!aggregation) return [];
+  const perPlatform = Array.isArray(aggregation.per_platform) ? aggregation.per_platform : [];
+  if (perPlatform.length > 0) {
+    const posts = [];
+    for (const plat of perPlatform) {
+      if (platformFilter !== 'all' && plat.platform !== platformFilter) continue;
+      const channel = market === 'DE' ? plat.de_channel : plat.us_channel;
+      if (channel?.ranked_posts) posts.push(...channel.ranked_posts);
+    }
+    return posts;
+  }
+  // Legacy single-platform path for pre-Sprint-4 persisted briefs.
+  const channel = market === 'DE' ? aggregation.de_channel : aggregation.us_channel;
+  if (!channel?.ranked_posts) return [];
+  if (platformFilter !== 'all' && (channel.ranked_posts[0]?.platform || aggregation.platform) !== platformFilter) {
+    return [];
+  }
+  return channel.ranked_posts;
+}
+
+function TopRankingSection({ aggregation, pairKey }) {
   const [sortKey, setSortKey] = useLocalStorage(
     `creative-radar:ranking-sort:${pairKey}`,
     'views',
   );
+  const [platformFilter, setPlatformFilter] = useLocalStorage(
+    `creative-radar:ranking-platform:${pairKey}`,
+    'all',
+  );
   const [expanded, setExpanded] = useState(false);
 
-  const deList = Array.isArray(deRanked) ? deRanked : [];
-  const usList = Array.isArray(usRanked) ? usRanked : [];
+  const sortFn = useMemo(() => rankingSortFn(sortKey), [sortKey]);
+  const deList = useMemo(
+    () => collectRankedPosts(aggregation, 'DE', platformFilter),
+    [aggregation, platformFilter],
+  );
+  const usList = useMemo(
+    () => collectRankedPosts(aggregation, 'US', platformFilter),
+    [aggregation, platformFilter],
+  );
 
   // Graceful degrade for older persisted briefs (pre-Sprint-2).
-  if (deList.length === 0 && usList.length === 0) return null;
+  if (deList.length === 0 && usList.length === 0) {
+    // If the filter hides everything but there's data on other platforms,
+    // keep the section visible with an empty-state hint instead of a
+    // sudden disappear-on-select.
+    const hasAnyData = collectRankedPosts(aggregation, 'DE', 'all').length > 0
+      || collectRankedPosts(aggregation, 'US', 'all').length > 0;
+    if (!hasAnyData) return null;
+  }
 
-  const sortFn = useMemo(() => rankingSortFn(sortKey), [sortKey]);
   const visibleCount = expanded ? 10 : 5;
   const deSorted = [...deList].sort(sortFn).slice(0, visibleCount);
   const usSorted = [...usList].sort(sortFn).slice(0, visibleCount);
@@ -644,6 +741,17 @@ function TopRankingSection({ deRanked, usRanked, pairKey }) {
       <div className="ranking-header">
         <h3>Top-Posts</h3>
         <div className="ranking-controls">
+          <select
+            value={platformFilter}
+            onChange={(e) => setPlatformFilter(e.target.value)}
+            className="ranking-sort-select"
+            aria-label="Plattform"
+          >
+            <option value="all">Alle Plattformen</option>
+            <option value="tiktok">TikTok</option>
+            <option value="instagram">Instagram</option>
+            <option value="youtube">YouTube</option>
+          </select>
           <select
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value)}
@@ -784,19 +892,13 @@ export default function InsightWeekly({ pair }) {
           )}
 
           <TopRankingSection
-            deRanked={report.aggregation?.de_channel?.ranked_posts}
-            usRanked={report.aggregation?.us_channel?.ranked_posts}
+            aggregation={report.aggregation}
             pairKey={pair}
           />
 
           <LLMOutput output={report.llm_output} raw={report.raw_llm_text} />
 
-          <div className="insight-grid-two">
-            <ChannelStatsCard stats={report.aggregation?.de_channel} />
-            <ChannelStatsCard stats={report.aggregation?.us_channel} />
-          </div>
-
-          <CrossMarketCard matches={report.aggregation?.cross_market_matches} />
+          <MultiPlatformStats aggregation={report.aggregation} />
         </>
       )}
 
