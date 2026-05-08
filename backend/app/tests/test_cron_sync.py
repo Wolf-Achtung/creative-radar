@@ -455,7 +455,7 @@ def test_cron_sync_youtube_runs_when_configured(db, monkeypatch):
     fake_video = {"id": "vid-123", "snippet": {"title": "trailer", "channelTitle": "NetflixDE"}, "_creative_radar_channel_id": "UCxxx"}
     monkeypatch.setattr(
         cron_module, "fetch_channel_videos",
-        lambda handle, limit: ({"id": "UCxxx"}, [fake_video]),
+        lambda handle, limit, *, channel_id_hint=None: ({"id": "UCxxx"}, [fake_video]),
     )
 
     captured_calls: list[dict] = []
@@ -513,7 +513,7 @@ def test_cron_sync_youtube_isolates_per_channel_errors(db, monkeypatch):
         lambda session, platform, run_index: [ch_a, ch_b, ch_c, ch_d],
     )
 
-    def fake_fetch(handle, limit):
+    def fake_fetch(handle, limit, *, channel_id_hint=None):
         if handle == "GoodChannel":
             return ({"id": "UC1"}, [{"id": "v1", "snippet": {"channelTitle": handle}}])
         if handle == "BadChannel":
@@ -563,7 +563,9 @@ def test_youtube_aggregator_translates_helper_counter_keys(db, monkeypatch):
     )
     monkeypatch.setattr(
         cron_module, "fetch_channel_videos",
-        lambda handle, limit: ({"id": "UCx"}, [{"id": f"v{i}"} for i in range(9)]),
+        lambda handle, limit, *, channel_id_hint=None: (
+            {"id": "UCx"}, [{"id": f"v{i}"} for i in range(9)]
+        ),
     )
 
     async def fake_sync(*, channels, raw_items, **kw):
