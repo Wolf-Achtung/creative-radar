@@ -233,13 +233,20 @@ async def _execute_youtube_sync(
             })
             continue
 
+        # Sprint 4.5 — bug 1 fix. Forward the stored UCxxx-ID (when
+        # populated) so the connector resolves legacy custom-URL channels
+        # in one quota unit instead of failing 404 on ``forHandle``.
+        channel_id_hint = getattr(channel, "platform_channel_id", None)
         try:
             # Sync function from app.services.youtube_connector — wrapped in
             # asyncio.to_thread so the cron event loop isn't blocked during
             # the three sequential GET requests (channels.list +
             # playlistItems.list + videos.list).
             _channel_meta, raw_videos = await asyncio.to_thread(
-                fetch_channel_videos, handle, CRON_RESULTS_LIMIT_PER_CHANNEL,
+                fetch_channel_videos,
+                handle,
+                CRON_RESULTS_LIMIT_PER_CHANNEL,
+                channel_id_hint=channel_id_hint,
             )
             quota_units_used += 3  # YT-Quota-Verbrauch (siehe youtube_connector docstring).
         except YouTubeAuthError as exc:

@@ -120,7 +120,14 @@ def _get(client: httpx.Client, path: str, params: dict[str, Any]) -> dict[str, A
 def _channel_lookup_param(handle_or_id: str) -> dict[str, str]:
     """YouTube channel lookups take one of three params: ``id`` (UCxxx),
     ``forHandle`` (@netflix without the @), ``forUsername`` (legacy
-    pre-handles names). We pick based on the input shape."""
+    pre-handles names). We pick based on the input shape.
+
+    Sprint 4.5 — note: ``forHandle`` only resolves modern @handles, NOT
+    legacy custom-URL slugs (``c/<slug>``). Channels with only a custom
+    URL must be resolved via ``id`` (UCxxx) — handed in via the
+    ``channel_id_hint`` parameter on ``_resolve_channel`` /
+    ``fetch_channel_videos``.
+    """
     value = (handle_or_id or "").strip()
     if not value:
         raise YouTubeAPIError("empty channel handle/id")
@@ -131,10 +138,45 @@ def _channel_lookup_param(handle_or_id: str) -> dict[str, str]:
     return {"forHandle": value}
 
 
-def _resolve_channel(client: httpx.Client, handle_or_id: str) -> dict[str, Any]:
+def _resolve_channel(
+    client: httpx.Client,
+    handle_or_id: str,
+    *,
+    channel_id_hint: str | None = None,
+) -> dict[str, Any]:
     """channels.list (1 quota unit). Returns the full channel dict from
     items[0] — caller pulls uploads-playlist-id, snippet, statistics out
-    of it as needed. Raises YouTubeNotFoundError if items is empty."""
+    of it as needed. Raises YouTubeNotFoundError if items is empty.
+
+    Sprint 4.5 — bug 1 fix. When ``channel_id_hint`` is provided
+    (UCxxx-style), it is tried first via ``id=...``. If the hint
+    resolves, the handle-based lookup is skipped entirely (1 quota unit
+    saved). If the hint fails to resolve (empty items, malformed ID),
+    we fall back to the handle-based strategies — so a stale hint
+    doesn't break a channel that still resolves the legacy way.
+
+    Search API is intentionally NOT used as a live fallback — 100 quota
+    units per call would burn the daily allowance on a single bad
+    handle. Channel IDs are the robust solution.
+    """
+    if channel_id_hint:
+        params = {
+            "part": "snippet,contentDetails,statistics",
+            "id": channel_id_hint,
+        }
+        body = _get(client, "channels", params)
+        record_youtube_api_call(
+            quota_units=1,
+            operation="channels.list",
+            meta={"channel_id_hint": channel_id_hint, "handle_or_id": handle_or_id},
+        )
+        items = body.get("items") or []
+        if items and isinstance(items[0], dict):
+            return items[0]
+        # Hint didn't resolve — fall through to handle-based lookup so a
+        # stale or malformed hint doesn't kill a channel that still
+        # resolves via @handle.
+
     params = {
         "part": "snippet,contentDetails,statistics",
         **_channel_lookup_param(handle_or_id),
@@ -207,7 +249,10 @@ def _hydrate_videos(client: httpx.Client, video_ids: list[str]) -> list[dict[str
 
 
 def fetch_channel_videos(
-    handle_or_id: str, results_limit: int | None = None
+    handle_or_id: str,
+    results_limit: int | None = None,
+    *,
+    channel_id_hint: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Sync entry point. Returns ``(channel_meta, raw_video_items)``.
 
@@ -215,12 +260,17 @@ def fetch_channel_videos(
     + contentDetails). Each ``raw_video_item`` is the videos.list dict,
     with ``_creative_radar_channel_id`` added so the normalizer can
     cross-reference. Three quota units total.
+
+    Sprint 4.5 — ``channel_id_hint`` (UCxxx) is forwarded to
+    ``_resolve_channel`` so legacy custom-URL channels (NetflixDE,
+    SonyPicturesEntertainment, WaltDisneyStudios, WarnerBrosPictures
+    etc.) resolve in one quota unit instead of failing 404.
     """
     if not is_youtube_configured():
         raise YouTubeAuthError("YOUTUBE_API_KEY is not configured")
     limit = results_limit or settings.youtube_results_limit_per_channel
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
-        channel = _resolve_channel(client, handle_or_id)
+        channel = _resolve_channel(client, handle_or_id, channel_id_hint=channel_id_hint)
         uploads = (
             (channel.get("contentDetails") or {})
             .get("relatedPlaylists", {})
