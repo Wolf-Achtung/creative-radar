@@ -12,11 +12,14 @@ A single-run lock prevents parallel triggers (returns 409); runs older than
 ``CRON_RUN_TIMEOUT_MINUTES`` (default 30) are reaped as ``failed`` on the
 next trigger.
 
-Scope (Sprint 5.3.5): Apify-driven IG + TikTok only. YouTube cron lands in
-a separate sprint.
+Scope (Sprint 4 — Multi-Plattform V2a): Apify-driven IG + TikTok plus
+YouTube via the YouTube Data API. YouTube is gated by
+``is_youtube_configured()`` — if the API key is missing the YT sub-block
+skips with a structured ``reason``, the IG/TT path is unaffected.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -40,6 +43,15 @@ from app.services.apify_connector import (
 )
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
 from app.services.visual_analysis import analyze_asset_visual
+from app.services.youtube_connector import (
+    YouTubeAPIError,
+    YouTubeAuthError,
+    YouTubeNotFoundError,
+    YouTubeQuotaExceededError,
+    fetch_channel_videos,
+    is_youtube_configured,
+    normalize_youtube_video,
+)
 
 from app.api.monitor import _handle_from_url_or_value, _run_apify_sync_for_platform_async
 
@@ -151,7 +163,129 @@ async def _execute_platform_sync(session: Session, run_index: int) -> tuple[dict
                     "apify_actor_id": settings.apify_tiktok_actor_id,
                 }
 
+    # Sprint 4 — YouTube Data API leg. Structurally different from the
+    # Apify platforms above: ``fetch_channel_videos`` is one
+    # HTTP-call-bundle PER channel (3 quota units each), not one Apify
+    # run for many usernames. We therefore loop per channel and call the
+    # same ``_run_apify_sync_for_platform_async`` helper with a
+    # single-channel list each time; the fallback-by-index path inside
+    # ``_group_items_by_channel`` then maps every video back to that
+    # channel cleanly even when the YT ``channelTitle`` differs from the
+    # DB handle (e.g. ``NetflixDE`` vs. ``Netflix Deutschland``).
+    yt_summary = await _execute_youtube_sync(session, run_index, created_asset_ids)
+    summary["platforms"]["youtube"] = yt_summary
+
     return summary, created_asset_ids
+
+
+async def _execute_youtube_sync(
+    session: Session,
+    run_index: int,
+    created_asset_ids: list[UUID],
+) -> dict:
+    """Per-channel YouTube Data API sync. Mirrors the IG/TT paths
+    structurally: select channels via the shared
+    ``select_channels_for_cron`` rotation, then process each channel.
+    Per-channel errors (404 channelNotFound, 429 quota, transient HTTP)
+    are caught and logged as ``failed_channels`` entries so a single
+    bad handle doesn't take down the whole YT leg.
+    """
+    if not is_youtube_configured():
+        return {"skipped": True, "reason": "youtube_not_configured"}
+
+    yt_channels = select_channels_for_cron(session, "youtube", run_index)
+    if not yt_channels:
+        return {"skipped": True, "reason": "no_channels", "channels_checked": 0}
+
+    aggregated_counters = {
+        "created": 0,
+        "skipped_existing": 0,
+        "skipped_no_match": 0,
+        "skipped_other": 0,
+    }
+    failed_channels: list[dict] = []
+    raw_items_total = 0
+    quota_units_used = 0
+
+    for channel in yt_channels:
+        handle = channel.handle or _handle_from_url_or_value(channel.url)
+        market_str = str(getattr(channel.market, "value", channel.market))
+        if not handle:
+            failed_channels.append({
+                "handle": None, "market": market_str,
+                "error_class": "no_handle",
+                "error_message": "channel has no handle or url",
+                "failed_items": 0,
+            })
+            continue
+
+        try:
+            # Sync function from app.services.youtube_connector — wrapped in
+            # asyncio.to_thread so the cron event loop isn't blocked during
+            # the three sequential GET requests (channels.list +
+            # playlistItems.list + videos.list).
+            _channel_meta, raw_videos = await asyncio.to_thread(
+                fetch_channel_videos, handle, CRON_RESULTS_LIMIT_PER_CHANNEL,
+            )
+            quota_units_used += 3  # YT-Quota-Verbrauch (siehe youtube_connector docstring).
+        except YouTubeAuthError as exc:
+            logger.warning("youtube auth error for %s: %s", handle, exc)
+            failed_channels.append({
+                "handle": handle, "market": market_str,
+                "error_class": "auth_error", "error_message": str(exc), "failed_items": 0,
+            })
+            continue
+        except YouTubeQuotaExceededError as exc:
+            logger.warning("youtube quota exceeded at %s — stopping YT leg: %s", handle, exc)
+            failed_channels.append({
+                "handle": handle, "market": market_str,
+                "error_class": "quota_exceeded", "error_message": str(exc), "failed_items": 0,
+            })
+            # Quota is account-wide; further calls would burn the rest of
+            # the day's allowance on the same error. Stop the YT loop and
+            # let the next cron run pick up tomorrow.
+            break
+        except YouTubeNotFoundError as exc:
+            logger.warning("youtube channel not found for %s: %s", handle, exc)
+            failed_channels.append({
+                "handle": handle, "market": market_str,
+                "error_class": "not_found", "error_message": str(exc), "failed_items": 0,
+            })
+            continue
+        except YouTubeAPIError as exc:
+            logger.exception("youtube api error for %s", handle)
+            failed_channels.append({
+                "handle": handle, "market": market_str,
+                "error_class": "api_error", "error_message": str(exc), "failed_items": 0,
+            })
+            continue
+
+        raw_items_total += len(raw_videos)
+        if not raw_videos:
+            continue
+
+        sync = await _run_apify_sync_for_platform_async(
+            engine=engine,
+            channels=[channel],
+            raw_items=raw_videos,
+            platform="youtube",
+            normalize=normalize_youtube_video,
+            only_whitelist_matches=False,
+        )
+        for key in aggregated_counters:
+            aggregated_counters[key] += int(sync.get(key, 0) or 0)
+        for failed in sync.get("failed_channels", []) or []:
+            failed_channels.append(failed)
+        created_asset_ids.extend(aid for aid in sync.get("asset_ids", []) if aid is not None)
+
+    return {
+        "channels_checked": len(yt_channels),
+        "raw_items": raw_items_total,
+        "quota_units_used": quota_units_used,
+        "processed_channels": len(yt_channels) - len(failed_channels),
+        "failed_channels": failed_channels,
+        **aggregated_counters,
+    }
 
 
 def _run_vision_after_sync(
