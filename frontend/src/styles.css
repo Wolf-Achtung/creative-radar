@@ -595,3 +595,47 @@ a:hover { text-decoration: underline; }
   align-items: center;
   gap: 4px;
 }
+
+/* ---- Sprint 4: Multi-Plattform-Render ---- */
+/* Platform-Block hosts DE+US ChannelStatsCards plus a per-platform
+   CrossMarketCard. Lighter visual chrome than .ranking-section so the
+   blocks read as a stack of platform-scoped views, not as standalone
+   cards. ranking-controls grows a third item (platform filter) — wrap
+   on tight viewports rather than overflowing the header. */
+.multiplatform-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin: 24px 0 0;
+}
+.platform-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.platform-block-title {
+  display: flex;
+  align-items: center;
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #1d2330;
+}
+.platform-block-title .platform-pill {
+  font-size: 11px;
+  padding: 4px 9px;
+}
+
+.ranking-controls {
+  flex-wrap: wrap;
+}
+.ranking-controls .ranking-sort-select {
+  max-width: 100%;
+}
+
+@media (max-width: 800px) {
+  .multiplatform-stats { gap: 18px; }
+  .ranking-controls { width: 100%; gap: 6px; }
+  .ranking-controls .ranking-sort-select { flex: 1 1 calc(50% - 3px); min-width: 0; }
+}
