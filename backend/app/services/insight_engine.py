@@ -37,6 +37,7 @@ from app.schemas.insights import (
     InsightReport,
     LLMReport,
     PairAggregation,
+    RankedPost,
     TitleCoverage,
     TopPost,
     Trend,
@@ -586,6 +587,75 @@ def _engagement_sum(post: Post) -> int:
     )
 
 
+def compute_activation_rate(post: Post, platform: str) -> float:
+    """Sprint 2 — plattform-spezifische Activation-Rate für ein Post.
+
+    TT/IG: ``(likes + comments + saves) / views``
+    YT:    ``(likes + comments) / views`` (YouTube-API liefert keine
+           shares/saves, daher ein eigener Pfad).
+
+    ``views in {0, None}`` → ``0.0``. Keine Exception, kein NaN — die
+    Frontend-Sortierung muss sich auf einen sauberen Float verlassen
+    können, und ein Post mit Null Aufrufen ist trivialerweise 0%
+    aktiviert. Pre-Commitment 1 (Sprint-2-Brief).
+
+    Wolf-Decision (Sprint-2-Brief, Pre-Commitment 1+2): Plattform-Pfad
+    wird über den ``platform``-Parameter gewählt, nicht über
+    ``post.platform``, weil ``aggregate_pair`` die Channel-Plattform aus
+    dem PAIRS-Dict kennt und die Channel-Spalte autoritativ ist (ein
+    Post-row, der versehentlich auf einer falschen Plattform-Channel
+    liegt, wird trotzdem korrekt gewertet).
+    """
+    views = int(post.visible_views or 0)
+    if views == 0:
+        return 0.0
+    likes = int(post.visible_likes or 0)
+    comments = int(post.visible_comments or 0)
+    if platform == "youtube":
+        return (likes + comments) / views
+    saves = int(post.visible_bookmarks or 0)
+    return (likes + comments + saves) / views
+
+
+def _ranked_posts_for_channel(
+    posts: list[Post], platform: str, *, limit: int = 10
+) -> list[RankedPost]:
+    """Sprint 2 — Top-N Posts für die Ranking-Sektion eines Channels.
+
+    Backend-Default-Sort ist ``engagement_sum desc`` mit deterministischen
+    Tiebreakern (views desc, post_url asc), damit zwei Aufrufe innerhalb
+    derselben ISO-Woche identische Reihenfolge produzieren — wichtig für
+    den persistierten Cache. Frontend re-sortiert clientseitig nach den
+    rohen Metrik-Spalten ohne Backend-Round-Trip.
+    """
+    enriched: list[RankedPost] = []
+    for p in posts:
+        likes = int(p.visible_likes or 0)
+        comments = int(p.visible_comments or 0)
+        saves = int(p.visible_bookmarks or 0)
+        shares = int(p.visible_shares or 0)
+        enriched.append(
+            RankedPost(
+                post_url=p.post_url,
+                caption_excerpt=_excerpt(p.caption, max_len=120),
+                platform=p.platform or platform,
+                published_at=p.published_at,
+                duration_seconds=p.duration_seconds,
+                views=int(p.visible_views or 0),
+                likes=likes,
+                comments=comments,
+                saves=saves,
+                shares=shares,
+                engagement_sum=likes + comments + saves + shares,
+                activation_rate=compute_activation_rate(p, platform),
+            )
+        )
+    enriched.sort(
+        key=lambda r: (-r.engagement_sum, -(r.views or 0), r.post_url or "")
+    )
+    return enriched[:limit]
+
+
 def _duration_bucket(d: Optional[int]) -> str:
     if d is None:
         return "unknown"
@@ -726,8 +796,10 @@ def _channel_stats(
     window_start: datetime,
     window_end: datetime,
     *,
+    platform: str = "tiktok",
     top_posts_n: int = 3,
     top_hashtags_n: int = 5,
+    ranked_posts_n: int = 10,
 ) -> ChannelStats:
     """Build the per-channel slice that goes into both the LLM prompt and
     the response payload.
@@ -828,6 +900,18 @@ def _channel_stats(
     avg_caption = sum(caption_lens) / len(caption_lens) if caption_lens else 0.0
     avg_duration = sum(durations) / len(durations) if durations else None
 
+    # Sprint 2 — Activation-Rate-Aggregation läuft auf derselben Post-Liste
+    # wie ``engagements``, damit beide Aggregate denselben Window-Snapshot
+    # widerspiegeln (kein zweiter SELECT, keine Race-Condition zwischen
+    # zwei DB-Reads). Die Activation-Rate ist plattform-spezifisch — der
+    # ``platform``-Parameter ist autoritativ aus dem PAIRS-Dict, nicht aus
+    # der einzelnen Post-Row (Pre-Commitment 2 im Sprint-2-Brief).
+    activation_rates = [compute_activation_rate(p, platform) for p in posts]
+    avg_activation_rate = (
+        sum(activation_rates) / len(activation_rates) if activation_rates else 0.0
+    )
+    ranked_posts = _ranked_posts_for_channel(posts, platform, limit=ranked_posts_n)
+
     top_hashtags = [
         HashtagFrequency(tag=tag, count=count)
         for tag, count in tag_counter.most_common(top_hashtags_n)
@@ -847,7 +931,9 @@ def _channel_stats(
         duration_buckets=dict(bucket_counter),
         top_posts=top_posts,
         avg_engagement=round(avg_engagement, 1),
+        avg_activation_rate=round(avg_activation_rate, 4),
         historical_top_posts=historical_top_posts,
+        ranked_posts=ranked_posts,
     )
 
 
@@ -1062,8 +1148,8 @@ def aggregate_pair(
             "Onboarding/Whitelist-Eintrag prüfen."
         )
 
-    de_stats = _channel_stats(session, de_channel, de_spec["handle"] if de_spec else "", "DE", window_start, window_end) if de_spec else None
-    us_stats = _channel_stats(session, us_channel, us_spec["handle"] if us_spec else "", "US", window_start, window_end) if us_spec else None
+    de_stats = _channel_stats(session, de_channel, de_spec["handle"] if de_spec else "", "DE", window_start, window_end, platform=pair_def["platform"]) if de_spec else None
+    us_stats = _channel_stats(session, us_channel, us_spec["handle"] if us_spec else "", "US", window_start, window_end, platform=pair_def["platform"]) if us_spec else None
     matches = _cross_market_matches(session, de_channel, us_channel, window_start, window_end)
     coverage = _title_coverage(de_stats, us_stats, session, de_channel, us_channel, window_start, window_end)
 
