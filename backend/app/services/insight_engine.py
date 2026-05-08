@@ -193,8 +193,8 @@ _OPUS_OUTPUT_PER_1K_USD = 0.075
 #     constructions even with a strong persona.
 #
 #  3. **Schema enforcement**: all original fields stay required; the six
-#     new role-oriented sections (tonalität, watch_outs, für_cutter,
-#     für_motion_designer, für_creative_producer, vergleichbare_posts)
+#     new role-oriented sections (tonalitaet, watch_outs, fuer_cutter,
+#     fuer_motion_designer, fuer_creative_producer, vergleichbare_posts)
 #     are explicit in the schema with one-line guidance. ``risks`` stays
 #     for backwards-compat with old reports.
 #
@@ -220,7 +220,7 @@ VOICE — wie du schreibst:
 GLOSSAR — diese englischen Begriffe sind erlaubt, weil im Schnitt gebräuchlich:
 Hook, Beat, Cut, Cold-Open, L3 (Lower Third), End Card, BTS (Behind the Scenes), Texted, Textless, GSA (Germany/Austria/Switzerland), Tonalität, Trailer, Teaser, Spot, Establisher-Shot.
 
-UMLAUTE — WICHTIG: Schreibe alle deutschen Texte mit echten Umlauten (ä, ö, ü, ß). Nicht "ae", "oe", "ue", "ss". Beispiele: läuft (nicht läuft), hängt (nicht hängt), über (nicht über), größe (nicht größe), zerläuft (nicht zerläuft), nächster (nicht nächster), trägt (nicht trägt), kürzer (nicht kürzer), für (nicht für), groß (nicht groß), Länge (nicht Länge). Diese Regel gilt für alle Felder im Output, ohne Ausnahme. Die Few-Shot-Beispiele unten verwenden teilweise noch die alte Schreibweise — orientiere dich an der hier formulierten Regel, nicht an den Beispielen.
+UMLAUTE — WICHTIG: Schreibe alle deutschen Fließtext-Inhalte mit echten Umlauten (ä, ö, ü, ß). Nicht "ae", "oe", "ue", "ss". Beispiele: läuft (nicht läuft), hängt (nicht hängt), über (nicht über), größe (nicht größe), zerläuft (nicht zerläuft), nächster (nicht nächster), trägt (nicht trägt), kürzer (nicht kürzer), für (nicht für), groß (nicht groß), Länge (nicht Länge). Diese Regel gilt für alle Fließtext-Werte im Output. JSON-Keys hingegen bleiben ASCII (`fuer_cutter`, `fuer_motion_designer`, `fuer_creative_producer`, `tonalitaet`, `begruendung`) — JSON-Robustheit hat Priorität. Die Few-Shot-Beispiele unten verwenden teilweise noch die alte Pseudo-Umlaut-Schreibweise im Fließtext — orientiere dich an der hier formulierten Fließtext-Regel, nicht an den Beispielen.
 
 DEUTSCHE ALTERNATIVEN — wo immer möglich:
 - die Totale, die Anfangs-Einstellung, der Aufschlag, der Einstieg (statt Establisher-Shot)
@@ -300,10 +300,10 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
   },
   "risks": ["Kurzfassung als String — bleibt aus Backwards-Compat-Gründen"],
   "data_caveats": ["..."],
-  "tonalität": [
+  "tonalitaet": [
     {
       "adjektiv": "ein Adjektiv aus dem Tonalitäts-Pool",
-      "begründung": "ein Satz, warum dieses Adjektiv die Woche trifft, mit Daten-Anker"
+      "begruendung": "ein Satz, warum dieses Adjektiv die Woche trifft, mit Daten-Anker"
     }
   ],
   "watch_outs": [
@@ -312,19 +312,19 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
       "konsequenz": "was das für den Schnitt oder die Hook bedeutet"
     }
   ],
-  "für_cutter": {
+  "fuer_cutter": {
     "schnitt_pace": "Beobachtung zum Rhythmus, abgeleitet aus Top-Posts und Längen-Buckets — in Cutter-Sprache (kurze Cuts funktionieren, lange laufen zu lang, etc.)",
     "hook_strategie": "welche Hook-Form trägt diese Woche (Cold-Open, Title-First, BTS, Cast-Reaction, ...)",
-    "empfohlene_längen": "z.B. 15-22s primär, 28s als langer Cut",
+    "empfohlene_laengen": "z.B. 15-22s primär, 28s als langer Cut",
     "must_show": ["Element, das im Cut sein muss, mit Begründung aus den Daten"],
     "no_go": ["Element, das NICHT trägt — Begründung aus den Daten"]
   },
-  "für_motion_designer": {
+  "fuer_motion_designer": {
     "caption_style": "Caption-Beobachtung aus den Top-Posts (Länge, Tonfall, Hashtag-Dichte)",
     "text_overlay": "Empfehlung zu L3 und Text-Einsatz",
     "branding_einsatz": "wie End Card und Logo platziert werden sollten"
   },
-  "für_creative_producer": {
+  "fuer_creative_producer": {
     "strategische_pattern": "übergeordnetes Muster, das diese Woche sichtbar wird",
     "cross_market_chancen": "wo DE-Cuts US-Patterns adaptieren sollten oder umgekehrt",
     "format_empfehlungen": "Formate, Längen, Posting-Rhythmus für die nächste Woche"
@@ -492,14 +492,14 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   },
   "risks": ["Coverage moderat (60%)"],
   "data_caveats": ["Nur 2 DE-Posts im Fenster — Trend ist Indiz, nicht Beweis"],
-  "tonalität": [
+  "tonalitaet": [
     {
       "adjektiv": "präzise",
-      "begründung": "Top-US-Posts arbeiten mit klaren 22s-Hooks, kein narrativer Leerlauf"
+      "begruendung": "Top-US-Posts arbeiten mit klaren 22s-Hooks, kein narrativer Leerlauf"
     },
     {
       "adjektiv": "action-reich",
-      "begründung": "MortalKombat2-Hashtag dominiert, Caption-Sprache ist Action-fokussiert"
+      "begruendung": "MortalKombat2-Hashtag dominiert, Caption-Sprache ist Action-fokussiert"
     }
   ],
   "watch_outs": [
@@ -508,19 +508,19 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
       "konsequenz": "BTS-Format als Komplement testen, nicht als Hauptcut"
     }
   ],
-  "für_cutter": {
+  "fuer_cutter": {
     "schnitt_pace": "Top-Performer liegen bei 15-30s; >60s läuft im Feed zu lang",
     "hook_strategie": "Cold-Open mit Action-Beat in den ersten 2 Sekunden",
-    "empfohlene_längen": "22s primär, 12s als kurze Variante zum Reinzeigen",
+    "empfohlene_laengen": "22s primär, 12s als kurze Variante zum Reinzeigen",
     "must_show": ["Hauptkonflikt (Fight) im ersten Beat", "Logo-Reveal als End Card max. 1s"],
     "no_go": ["28s+ Cuts ohne klaren Bruch", "Captions über 120 Zeichen"]
   },
-  "für_motion_designer": {
+  "fuer_motion_designer": {
     "caption_style": "kurz (60-100 Zeichen), 2-3 Hashtags, Action-Verben",
     "text_overlay": "L3 mit Cast-Name + Datum am Ende, kein narrativer Text-Einsatz",
     "branding_einsatz": "End Card 1s, Logo zentriert, kein Lower-Third-Branding"
   },
-  "für_creative_producer": {
+  "fuer_creative_producer": {
     "strategische_pattern": "Ein klarer Beat funktioniert besser als vollgepackte Cuts — kürzere Cuts mit klarer Hook tragen besser",
     "cross_market_chancen": "DE übernimmt US-Rhythmus, behält deutsche Caption-Form",
     "format_empfehlungen": "Pro Woche 2 Cuts: 22s Hauptcut + 12s kurze Variante"
