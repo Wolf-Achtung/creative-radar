@@ -39,6 +39,43 @@ class TopPost(BaseModel):
     published_at: Optional[datetime] = None
 
 
+class RankedPost(BaseModel):
+    """One post in the Ranking section (Sprint 2 — top-N per channel).
+
+    Carries all five raw metrics plus the derived ``activation_rate`` so the
+    Frontend can re-sort client-side without a backend round-trip. Defaults
+    are zero/empty (not None) for the numeric fields so older persisted
+    briefs that lack these fields still validate via ``model_validate`` —
+    the Sprint-1 ``insight_report`` table stores the aggregation as JSON,
+    and a brief generated before this sprint will simply have an empty
+    ``ranked_posts`` list once Pydantic re-hydrates it.
+
+    ``platform`` reflects ``post.platform`` (currently always ``tiktok``
+    for the six Tier-A pairs; pre-wired for the multi-platform sprint so
+    the Frontend pill renders correctly without a follow-up schema bump).
+
+    ``saves``/``shares`` stay at 0 for YouTube — the API does not surface
+    them. ``activation_rate`` follows the YT branch in
+    ``compute_activation_rate`` for those rows.
+    """
+    post_url: Optional[str] = None
+    caption_excerpt: str = ""
+    platform: str = "tiktok"
+    published_at: Optional[datetime] = None
+    duration_seconds: Optional[int] = None
+
+    # Raw metrics — Frontend uses these for client-side re-sorting.
+    views: int = 0
+    likes: int = 0
+    comments: int = 0
+    saves: int = 0
+    shares: int = 0
+
+    # Derived aggregates.
+    engagement_sum: int = 0
+    activation_rate: float = 0.0
+
+
 class HashtagFrequency(BaseModel):
     tag: str
     count: int
@@ -58,11 +95,25 @@ class ChannelStats(BaseModel):
     duration_buckets: dict[str, int]
     top_posts: list[TopPost]
     avg_engagement: float
+    # Sprint 2 — arithmetic mean of activation_rate across all posts in
+    # the window (plattform-spezifische Formel siehe
+    # ``services/insight_engine.compute_activation_rate``). Default 0.0 so
+    # older persisted briefs that pre-date this field validate cleanly on
+    # cache-hit-rehydrate; cleanly distinguishable from "low rate" because
+    # ``posts_count > 0 and avg_activation_rate == 0.0`` is rare in
+    # practice (would mean every post has views=0).
+    avg_activation_rate: float = 0.0
     # Sprint-Trailerhaus-Prompt-v1: top historical posts from BEFORE the
     # current window. The LLM uses these as ground truth for the
     # ``vergleichbare_posts`` section. Default empty so existing fixtures
     # and old reports remain valid.
     historical_top_posts: list[TopPost] = []
+    # Sprint 2 — Top-N posts for the Ranking-Sektion. Stable backend
+    # default sort by ``engagement_sum desc``; Frontend re-sorts
+    # clientseitig via the sort dropdown. Default empty so older persisted
+    # briefs (pre-Sprint-2) still load — Frontend graceful-degrades and
+    # hides the section when this list is empty.
+    ranked_posts: list[RankedPost] = []
 
 
 class CrossMarketMatch(BaseModel):

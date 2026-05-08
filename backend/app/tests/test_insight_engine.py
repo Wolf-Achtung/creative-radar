@@ -622,3 +622,89 @@ def test_generate_surfaces_raw_text_on_parse_failure(monkeypatch):
         report = insight_engine.generate_weekly_report(session, "warnerbros")
         assert report.llm_output is None
         assert report.raw_llm_text == "oops, not json"
+
+
+# ---------- Sprint 2: Ranking + Activation-Rate ----------------------------
+
+
+def test_compute_activation_rate_tiktok():
+    """TT/IG path: ``(likes + comments + saves) / views``."""
+    post = SimpleNamespace(
+        visible_views=1000,
+        visible_likes=50,
+        visible_comments=10,
+        visible_bookmarks=15,  # saves
+        visible_shares=5,
+    )
+    rate = insight_engine.compute_activation_rate(post, "tiktok")
+    # (50 + 10 + 15) / 1000 = 0.075
+    assert rate == pytest.approx(0.075)
+
+
+def test_compute_activation_rate_youtube_no_saves():
+    """YouTube path: saves are NOT counted (YT API doesn't surface them).
+    ``(likes + comments) / views``."""
+    post = SimpleNamespace(
+        visible_views=1000,
+        visible_likes=50,
+        visible_comments=10,
+        visible_bookmarks=15,  # MUST NOT be added on YT
+        visible_shares=5,
+    )
+    rate = insight_engine.compute_activation_rate(post, "youtube")
+    # (50 + 10) / 1000 = 0.06 — saves intentionally ignored.
+    assert rate == pytest.approx(0.06)
+
+
+def test_compute_activation_rate_zero_views_returns_zero():
+    """views in {0, None} → 0.0. No NaN, no ZeroDivisionError."""
+    post_zero = SimpleNamespace(
+        visible_views=0,
+        visible_likes=100, visible_comments=10, visible_bookmarks=5, visible_shares=2,
+    )
+    post_none = SimpleNamespace(
+        visible_views=None,
+        visible_likes=100, visible_comments=10, visible_bookmarks=5, visible_shares=2,
+    )
+    assert insight_engine.compute_activation_rate(post_zero, "tiktok") == 0.0
+    assert insight_engine.compute_activation_rate(post_none, "tiktok") == 0.0
+    assert insight_engine.compute_activation_rate(post_zero, "youtube") == 0.0
+
+
+def test_ranked_posts_sorted_by_engagement_sum():
+    """Backend default-sort is ``engagement_sum`` desc. Frontend re-sorts
+    client-side — but Backend order must be stable across calls so
+    cache-hit responses match cache-miss responses byte-for-byte (within
+    the JSON-roundtrip tolerance)."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_ranked = agg.us_channel.ranked_posts
+        # Fixture seeds 3 US posts; ranked_posts limit=10 → all 3 returned.
+        assert len(us_ranked) == 3
+        # us_p1: 10000 + 500 + 200 + 400 = 11_100
+        # us_p2:  5000 + 100 +  50 +  80 =  5_230
+        # us_p3:  1000 +  20 +   5 +  10 =  1_035
+        assert us_ranked[0].engagement_sum == 11_100
+        assert us_ranked[1].engagement_sum == 5_230
+        assert us_ranked[2].engagement_sum == 1_035
+        sums = [r.engagement_sum for r in us_ranked]
+        assert sums == sorted(sums, reverse=True)
+        # Each entry carries the platform tag (today all "tiktok"; pre-wires
+        # the multi-platform pill rendering on the Frontend).
+        assert all(r.platform == "tiktok" for r in us_ranked)
+
+
+def test_avg_activation_rate_in_channel_stats():
+    """avg_activation_rate is the arithmetic mean across all posts in the
+    window. Fixture posts have visible_views=None, so each rate is 0.0 →
+    mean is 0.0. The assertion guards two things: (1) the field is a
+    populated float (not None, not NaN) and (2) ranked_posts is filled
+    in alongside it."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_stats = agg.us_channel
+        assert us_stats.avg_activation_rate == 0.0
+        assert isinstance(us_stats.avg_activation_rate, float)
+        assert len(us_stats.ranked_posts) == 3

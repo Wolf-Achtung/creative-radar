@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { endpoints } from './api/client';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
@@ -430,6 +430,188 @@ function LLMOutput({ output, raw }) {
   );
 }
 
+// ---- Sprint 2: TopRankingSection -----------------------------------------
+//
+// Sortable Top-N posts per channel (DE + US side-by-side). Backend ships the
+// top-10 in engagement_sum desc; the Frontend re-sorts client-side without a
+// backend round-trip. The selected sort key is persisted per pair via
+// localStorage so Wolf's per-pair preference survives reloads.
+//
+// The "show more" toggle is intentionally NOT persisted — every reload starts
+// at top-5, so the brief always opens with the most important posts above the
+// fold and the long tail is one click away.
+//
+// Graceful degrade: when both channels lack ranked_posts (older persisted
+// briefs from before Sprint 2), the section returns null instead of rendering
+// an empty shell. The Phase-3 force-regenerate fills in the data.
+
+function rankingSortFn(key) {
+  switch (key) {
+    case 'likes':           return (a, b) => (b.likes || 0)           - (a.likes || 0);
+    case 'activation_rate': return (a, b) => (b.activation_rate || 0) - (a.activation_rate || 0);
+    case 'comments':        return (a, b) => (b.comments || 0)        - (a.comments || 0);
+    case 'saves':           return (a, b) => (b.saves || 0)           - (a.saves || 0);
+    case 'views':
+    default:                return (a, b) => (b.views || 0)           - (a.views || 0);
+  }
+}
+
+function formatRankedNumber(n) {
+  const value = Number(n) || 0;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(value);
+}
+
+function formatRankedPercent(rate) {
+  const value = Number(rate) || 0;
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatRelativeDate(isoDate) {
+  if (!isoDate) return '';
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const days = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+  const absolute = date.toLocaleDateString('de-DE', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  });
+  if (days <= 0) return `heute (${absolute})`;
+  if (days === 1) return `gestern (${absolute})`;
+  if (days < 7) return `vor ${days} Tagen (${absolute})`;
+  if (days < 30) return `vor ${Math.floor(days / 7)} Wochen (${absolute})`;
+  return `vor ${Math.floor(days / 30)} Monaten (${absolute})`;
+}
+
+// Persistent state via localStorage. Silent fail when storage is full or
+// disabled (private-mode Safari) so the UI keeps working — the user just
+// loses the persistence on this one device.
+function useLocalStorage(key, defaultValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem(key);
+      return stored !== null ? stored : defaultValue;
+    } catch (_) {
+      return defaultValue;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (_) {
+      // localStorage full or disabled — drop write, keep UI working.
+    }
+  }, [key, value]);
+  return [value, setValue];
+}
+
+function RankedMetric({ label, value, highlight }) {
+  return (
+    <span className={`ranked-metric${highlight ? ' ranked-metric-highlight' : ''}`}>
+      <strong>{value}</strong> <span>{label}</span>
+    </span>
+  );
+}
+
+function RankedPostCard({ post, rank, sortKey }) {
+  const dateStr = formatRelativeDate(post.published_at);
+  const platformClass = `platform-pill platform-${post.platform || 'tiktok'}`;
+  return (
+    <a
+      href={post.post_url || '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="ranked-post-card"
+    >
+      <div className="ranked-post-header">
+        <span className="ranked-post-rank">{rank}.</span>
+        <span className={platformClass}>{post.platform || 'tiktok'}</span>
+        {dateStr && <span className="ranked-post-date">{dateStr}</span>}
+      </div>
+      {post.caption_excerpt && (
+        <p className="ranked-post-caption">{post.caption_excerpt}</p>
+      )}
+      <div className="ranked-post-metrics">
+        <RankedMetric label="Aufrufe" value={formatRankedNumber(post.views)} highlight={sortKey === 'views'} />
+        <RankedMetric label="Reactions" value={formatRankedNumber(post.likes)} highlight={sortKey === 'likes'} />
+        <RankedMetric label="Akt." value={formatRankedPercent(post.activation_rate)} highlight={sortKey === 'activation_rate'} />
+        <RankedMetric label="Komm." value={formatRankedNumber(post.comments)} highlight={sortKey === 'comments'} />
+        <RankedMetric label="Saves" value={formatRankedNumber(post.saves)} highlight={sortKey === 'saves'} />
+      </div>
+    </a>
+  );
+}
+
+function TopRankingSection({ deRanked, usRanked, pairKey }) {
+  const [sortKey, setSortKey] = useLocalStorage(
+    `creative-radar:ranking-sort:${pairKey}`,
+    'views',
+  );
+  const [expanded, setExpanded] = useState(false);
+
+  const deList = Array.isArray(deRanked) ? deRanked : [];
+  const usList = Array.isArray(usRanked) ? usRanked : [];
+
+  // Graceful degrade for older persisted briefs (pre-Sprint-2).
+  if (deList.length === 0 && usList.length === 0) return null;
+
+  const sortFn = useMemo(() => rankingSortFn(sortKey), [sortKey]);
+  const visibleCount = expanded ? 10 : 5;
+  const deSorted = [...deList].sort(sortFn).slice(0, visibleCount);
+  const usSorted = [...usList].sort(sortFn).slice(0, visibleCount);
+  const showToggle = deList.length > 5 || usList.length > 5;
+
+  return (
+    <section className="ranking-section card">
+      <div className="ranking-header">
+        <h3>Top-Posts</h3>
+        <select
+          value={sortKey}
+          onChange={(e) => setSortKey(e.target.value)}
+          className="ranking-sort-select"
+          aria-label="Sortierung"
+        >
+          <option value="views">Aufrufe</option>
+          <option value="likes">Reactions</option>
+          <option value="activation_rate">Aktivierungs-Rate</option>
+          <option value="comments">Kommentare</option>
+          <option value="saves">Saves</option>
+        </select>
+      </div>
+
+      <div className="ranking-grid">
+        <div className="ranking-column">
+          <h4>DE</h4>
+          {deSorted.length > 0
+            ? deSorted.map((p, i) => (
+                <RankedPostCard key={p.post_url || `de-${i}`} post={p} rank={i + 1} sortKey={sortKey} />
+              ))
+            : <p className="ranking-empty">Keine Daten für DE</p>}
+        </div>
+        <div className="ranking-column">
+          <h4>US</h4>
+          {usSorted.length > 0
+            ? usSorted.map((p, i) => (
+                <RankedPostCard key={p.post_url || `us-${i}`} post={p} rank={i + 1} sortKey={sortKey} />
+              ))
+            : <p className="ranking-empty">Keine Daten für US</p>}
+        </div>
+      </div>
+
+      {showToggle && (
+        <button
+          type="button"
+          className="ranking-toggle"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? 'Weniger anzeigen' : 'Weitere 5 anzeigen'}
+        </button>
+      )}
+    </section>
+  );
+}
+
 // 60s slow-marker — purely informational ("dauert länger als erwartet"),
 // the request itself is NOT aborted because Opus 4.7 can legitimately take
 // 30-90s on the largest reports and aborting would surface a misleading
@@ -520,6 +702,12 @@ export default function InsightWeekly({ pair }) {
               <ul>{report.aggregation.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
             </div>
           )}
+
+          <TopRankingSection
+            deRanked={report.aggregation?.de_channel?.ranked_posts}
+            usRanked={report.aggregation?.us_channel?.ranked_posts}
+            pairKey={pair}
+          />
 
           <LLMOutput output={report.llm_output} raw={report.raw_llm_text} />
 
