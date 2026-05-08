@@ -264,8 +264,8 @@ LÄNGE — produziere die ausführliche Variante (ca. 1500-2000 Wörter Gesamtou
 OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
 
 {
-  "headline": "Eine Zeile, max. 90 Zeichen, ruhig statt provokant — benennt den Wochenkern in Cutter-Sprache",
-  "tldr": "3 Sätze: was ist diese Woche anders, was sollten wir daraus lernen, wo ist die Wette",
+  "headline": "Max 90 Zeichen. EIN Hauptgedanke — keine zwei verketteten Aussagen mit 'und'. Marktstory in aktiver Sprache (zieht, läuft, dreht, hält, zerläuft), kein Zahlen-Konzentrat. Geschrieben für GF und CD, nicht für den Schnitt — die in ANTI-PATTERN HEADLINE/TLDR gelisteten Aggregations-Begriffe (Coverage, Cross-Market Match, Längen-Bucket, Engagement-Sum) sind hier verboten. Beispiel gut: 'Disney US zieht 10% Aktivierung, DE bleibt bei knapp 7%'. Beispiel schlecht: 'Title-Coverage 60% bei DE, Längen-Bucket <30s dominiert'.",
+  "tldr": "Max 3 Sätze. Pyramidenstruktur: Hauptaussage zuerst, Beleg dahinter — nicht 'erst Daten dann Take'. Jede Zahl mit Einordnung, kein nacktes 'DE bei 5k, US bei 32k' (besser: 'US erreicht 32k — sechsmal mehr, und nicht nur Marktgröße erklärt das'). Dieselbe Verbotsliste wie in der Headline (Coverage, Cross-Market Match, Längen-Bucket, Engagement-Sum). Geschrieben für GF und CD.",
   "aktuell_im_fokus": [
     {
       "titel": "The Mandalorian and Grogu",
