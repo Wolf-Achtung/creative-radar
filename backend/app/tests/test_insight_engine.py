@@ -827,3 +827,87 @@ def test_pairs_backwards_compat_mirror_first_platform():
         assert pair_def["channels"] == platforms[first_platform], (
             f"{key}: channels do not mirror platforms[{first_platform!r}]"
         )
+
+
+# ---------- Sprint 4: Multi-Plattform-Aggregation ---------------------------
+
+
+def test_aggregate_pair_returns_per_platform_list():
+    """Sprint-4: aggregate_pair populates per_platform with one entry per
+    platform in the PAIRS definition. The fixture seeds only TikTok
+    channels, so IG/YT entries appear with empty channel slots and the
+    'Channel nicht in der DB'-note — that's the expected graceful-degrade
+    behaviour and proves the iteration runs end-to-end without crashing
+    when only one platform has data."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        platforms = [p.platform for p in agg.per_platform]
+        assert platforms == ["tiktok", "instagram", "youtube"]
+
+
+def test_aggregate_pair_backwards_compat_mirrors_first_platform():
+    """Legacy fields on PairAggregation mirror the first platform
+    (TikTok by convention). Old consumers — LLM user-prompt and the
+    pre-Sprint-4 Frontend render path — see the same shape they did
+    before, but pulled from per_platform[0] under the hood."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        tt = next(p for p in agg.per_platform if p.platform == "tiktok")
+        assert agg.platform == "tiktok"
+        assert agg.de_channel == tt.de_channel
+        assert agg.us_channel == tt.us_channel
+        assert agg.cross_market_matches == tt.cross_market_matches
+        assert agg.title_coverage == tt.title_coverage
+
+
+def test_aggregate_pair_handles_single_market_youtube():
+    """Disney/Prime/Paramount have only US-side YouTube channels.
+    _aggregate_platform must leave de_channel=None without crashing,
+    not throw on the missing DE spec."""
+    with _session() as session:
+        agg = insight_engine.aggregate_pair(session, "disney", window_days=30)
+        yt_agg = next((p for p in agg.per_platform if p.platform == "youtube"), None)
+        assert yt_agg is not None
+        # No DE-side YouTube channel exists in PAIRS["disney"]["platforms"]["youtube"];
+        # the de_channel slot must be None rather than a stub-zero ChannelStats.
+        assert yt_agg.de_channel is None
+        # cross_market_matches naturally empty when one side is missing.
+        assert yt_agg.cross_market_matches == []
+
+
+def test_pair_aggregation_parses_legacy_persisted_brief():
+    """Sprint-1 persistence contract: an aggregation JSON written before
+    Sprint-4 has no per_platform field. model_validate must still parse
+    it cleanly, defaulting per_platform to []. This guards against a
+    silent Sprint-1-cache breakage at deploy time — the cache hit path
+    in api/insights.py would otherwise crash on every old brief."""
+    from app.schemas.insights import PairAggregation
+    legacy_payload = {
+        "pair_key": "warnerbros",
+        "pair_label": "Warner Bros DE+US",
+        "platform": "tiktok",
+        "window_days": 30,
+        "window_start": "2026-04-08T00:00:00+00:00",
+        "window_end": "2026-05-08T00:00:00+00:00",
+        "iso_week": 19,
+        "iso_year": 2026,
+        "de_channel": None,
+        "us_channel": None,
+        "cross_market_matches": [],
+        "title_coverage": {
+            "titles_in_both_markets": [],
+            "de_only_titles": [],
+            "us_only_titles": [],
+            "de_assets_with_title": 0,
+            "de_assets_total": 0,
+            "us_assets_with_title": 0,
+            "us_assets_total": 0,
+            "overall_coverage_pct": 0.0,
+        },
+        "notes": [],
+    }
+    parsed = PairAggregation.model_validate(legacy_payload)
+    assert parsed.per_platform == []
+    assert parsed.platform == "tiktok"
