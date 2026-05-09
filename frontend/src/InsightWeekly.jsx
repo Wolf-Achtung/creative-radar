@@ -622,7 +622,17 @@ function RankedPostCard({ post, rank, sortKey, platformFilter }) {
   const platform = post.platform || 'tiktok';
   const primaryMetric = getPrimaryMetric(post, sortKey);
   const secondaryMetrics = getSecondaryMetrics(post, sortKey);
-  const hasThumbnail = !!post.thumbnail_url;
+  // Sprint 5c — wenn das Brief-Schema asset_id mitbringt, gehen wir über
+  // den Thumbnail-Proxy (/api/thumbnails/{asset_id}). Der setzt
+  // plattform-spezifische Referer-Header und cached server-seitig, sodass
+  // TikTok/Instagram nicht mehr per Browser-Hotlink-Protection blocken.
+  // Briefe von vor Sprint 5c haben kein asset_id → wir laden direkt von
+  // der CDN-URL (Sprint-5b-Verhalten); der ``onError``-Pfad weiter unten
+  // schaltet bei 403/404 auf den Plattform-Akronym-Fallback um.
+  const thumbnailSrc = post.asset_id
+    ? `/api/thumbnails/${post.asset_id}`
+    : post.thumbnail_url;
+  const hasThumbnail = !!thumbnailSrc;
   const hasTitle = !!post.title_local;
   // Tooltip nur wenn beide Titel vorhanden UND verschieden — die häufigen
   // Fälle (kein title_original; identische Lokalisierung) erzeugen keine
@@ -644,7 +654,7 @@ function RankedPostCard({ post, rank, sortKey, platformFilter }) {
       <div className={`ranked-post-thumbnail-slot platform-${platform}`}>
         {hasThumbnail && (
           <img
-            src={post.thumbnail_url}
+            src={thumbnailSrc}
             alt=""
             loading="lazy"
             onError={(e) => {
