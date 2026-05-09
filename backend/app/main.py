@@ -5,7 +5,7 @@ from pathlib import Path
 from app.config import settings
 from app.database import create_db_and_tables
 from app.auth import auth_middleware
-from app.api import health, channels, titles, posts, assets, reports, monitor, insights, proxy, admin, cron
+from app.api import health, channels, titles, posts, assets, reports, monitor, insights, proxy, admin, cron, thumbnails
 
 app = FastAPI(title="Creative Radar API", version="1.0.0")
 
@@ -48,3 +48,4 @@ app.include_router(insights.router)
 app.include_router(proxy.router)
 app.include_router(admin.router)
 app.include_router(cron.router)
+app.include_router(thumbnails.router)

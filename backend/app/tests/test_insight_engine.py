@@ -846,6 +846,44 @@ def test_ranked_posts_eager_load_runs_in_single_query():
         )
 
 
+def test_ranked_posts_includes_asset_id_when_asset_loaded():
+    """Sprint 5c — wenn ein Asset für den Post existiert, fließt dessen
+    UUID als String in ``RankedPost.asset_id`` durch. Frontend nutzt das
+    für ``/api/thumbnails/{asset_id}``-Requests."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_top = agg.us_channel.ranked_posts[0]
+        assert us_top.post_url == data["us_posts"][0].post_url
+        # Asset-UUID gewinnt — die Fixture hängt für us_p1 ein Asset mit
+        # title_id an; daher gewinnt es im CASE-Sortier-Pfad.
+        assert us_top.asset_id is not None
+        # Stringified UUID — kein UUID-Objekt durchschlagen lassen, sonst
+        # bricht JSON-Persistenz im insight_report-Cache.
+        assert isinstance(us_top.asset_id, str)
+        assert len(us_top.asset_id) == 36  # canonical UUID length
+
+
+def test_ranked_posts_handles_missing_asset_id():
+    """Posts ohne irgendein Asset bekommen ``asset_id=None`` zurück, ohne
+    Crash. Frontend fällt dann auf den direkten ``thumbnail_url`` zurück
+    (selbst wiederum None für orphane Posts → Plattform-Fallback)."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        us_no_asset = _make_post(
+            session, data["us_channel"],
+            caption="orphan post — no asset row at all",
+            likes=20_000, comments=900, shares=300, saves=600,
+            days_ago=1, url_suffix="us-no-asset-5c",
+        )
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        ranked = {r.post_url: r for r in agg.us_channel.ranked_posts}
+        orphan = ranked[us_no_asset.post_url]
+        assert orphan.asset_id is None
+        assert orphan.thumbnail_url is None
+
+
 def test_backwards_compat_old_brief_without_new_fields():
     """Persistierte Briefe vor Sprint 5b kennen die vier neuen Felder
     nicht. ``RankedPost.model_validate`` muss sie auf ``None``
@@ -868,6 +906,7 @@ def test_backwards_compat_old_brief_without_new_fields():
     assert rp.title_original is None
     assert rp.franchise is None
     assert rp.thumbnail_url is None
+    assert rp.asset_id is None
     assert rp.engagement_sum == 80
 
 
