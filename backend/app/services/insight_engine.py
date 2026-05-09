@@ -391,7 +391,8 @@ Diese Begriffe sind ausschließlich in ``aktuell_im_fokus.format_typ`` erlaubt �
 - "verliert sich" / "verliert er sich"
 - "holt günstig" (Berater-Phrase)
 - "verbrennt Zeit" / "verbrennt Schnittzeit"
-Erlaubt bleibt: "kommt an", "kommt nicht an" (die Verdict-Werte), "wirkt", "die Leute reagieren stark/wenig", "läuft", "zieht".
+- "kostet Schnittzeit" / "kostet Zeit" als Wert-Phrase (Berater-Wortschatz, Variante von "verbrennt Schnittzeit")
+Erlaubt bleibt: "kommt an", "kommt nicht an" (die Verdict-Werte), "wirkt", "die Leute reagieren stark/wenig", "läuft", "zieht", "lohnt nicht", "ohne Ertrag", "fährt ins Leere".
 
 "trägt"-Wort komplett raus — überall im Output, auch in zusammengesetzten Wendungen:
 - nicht "trägt", "trägt stärker", "trägt diese Woche", "die Erzählung trägt", "der Cut trägt"
@@ -457,10 +458,12 @@ Nutze keine alten Werte ("trägt", "zerläuft", "sitzt", "ausbaufähig", "zweisc
 format_typ (Beispiele, kein striktes Enum — bleibe in der Sprache der Audience):
 - "Marken-Spot" (langer emotionaler Cut, meist über 60s)
 - "Kurzer Clip mit bekanntem Titel" (statt früher "Backkatalog-Anriss")
-- "Discovery-Clip" (statt früher "Discovery-Schnipsel")
 - "Kino-Reminder" (Trailer-Erinnerung mit Datum)
 - "Ankündigungs-Post" (Format-Bruch, einzelner Marken-Statement)
-- weitere möglich, aber NICHT "Format-Block" / "Format-Spur" / "Backkatalog-Anriss" — siehe VERBOTENE BERATER-VOKABEL.
+- weitere möglich, aber NIEMALS "Discovery-Clip" / "Discovery-Cut" / "Discovery-Schnipsel" — diese sind komplett verboten, auch in format_typ.
+- ebenso NICHT "Format-Block" / "Format-Spur" / "Backkatalog-Anriss" — siehe VERBOTENE BERATER-VOKABEL.
+
+"Discovery"-Begriffe sind Marketing-Klassifikations-Vokabular, das in den Erzähl-Fließtext leakt. Verwende stattdessen "Kurzer Clip mit bekanntem Titel" oder konkrete beschreibende Phrasen.
 
 kennzahl (Format-Empfehlung):
 - Einzeiler im Stil "X Sekunden, Y Reaktionen, Z% Aktivierung" — Doppel-Beziffung hier explizit erlaubt (Card ist der rohe Datenpunkt).
@@ -755,7 +758,7 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
     "was_diese_woche": "Was hier auffällt: die US-Captions arbeiten erzählerisch, DE listet eher. Für eigene Cuts lohnt es sich, erst die Caption-Idee zu schreiben und dann erst die Hashtags hinzuzufügen — nicht umgekehrt. Beim Branding gilt diese Woche: weniger ist mehr, eine End Card reicht."
   },
   "fuer_creative_producer": {
-    "strategische_pattern": "Die Woche zeigt eine klare Zwei-Lager-Logik: kurze Clips mit bekannten Titeln holen zuverlässig Reaktion und lassen sich wiederholen, lange Marken-Spots holen die höchste Aktivierung — aber nur, wenn die emotionale Idee sitzt. Der mittlere Bereich kostet Schnittzeit ohne Ertrag.",
+    "strategische_pattern": "Die Woche zeigt eine klare Zwei-Lager-Logik: kurze Clips mit bekannten Titeln holen zuverlässig Reaktion und lassen sich wiederholen, lange Marken-Spots holen die höchste Aktivierung — aber nur, wenn die emotionale Idee sitzt. Der mittlere Bereich lohnt nicht.",
     "cross_market_chancen": "DE hat das Pattern mit kurzen vertrauten Clips längst sauber drauf, hat aber kein eigenes emotionales Hero-Asset diese Woche. Genau dort liegt die Lücke — und damit das Argument für einen Marken-Spot-Pitch bei deutschen Verleihern oder Streaming-Anbietern. Das US-Modell zeigt, dass der Aufwand sich rechnet, wenn die Idee sitzt.",
     "format_empfehlungen": "Pro Verleih-Kunde zwei Standardpakete: kurze Clips mit bekannten Titeln als Wochen-Format und ein emotionaler Spot pro Quartal mit konkreter Person als Anker. Mittellange Erinnerungs-Cuts nur dort, wo der Kunde sie kampagnenseitig wirklich braucht.",
     "was_diese_woche": "Was hier auffällt: die zwei Lager sind nicht nur Cut-Längen, sondern auch Produktions-Modelle. Kurz und vertraut ist Wochen-Geschäft, lang und emotional ist Quartals-Investment. Wenn DE einen Hero-Spot wagt, könnte das die Lücke schließen, die diese Woche sichtbar wird."

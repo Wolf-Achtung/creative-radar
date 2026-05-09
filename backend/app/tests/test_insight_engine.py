@@ -1662,3 +1662,68 @@ def test_pair_aggregation_parses_legacy_persisted_brief():
     parsed = PairAggregation.model_validate(legacy_payload)
     assert parsed.per_platform == []
     assert parsed.platform == "tiktok"
+
+
+# ---------- Sprint 7-iter-2.5: Discovery-Klassifikation strukturell weg ----
+
+
+def _extract_schema_vocab_section(prompt: str) -> str:
+    """Bereich zwischen 'SCHEMA-VOKABEL' und der OUTPUT-Schema-Klausel.
+    Enthält die format_typ-Beispielliste, die iter-2.5 bereinigt."""
+    start = prompt.find("SCHEMA-VOKABEL")
+    if start < 0:
+        return ""
+    rest = prompt[start:]
+    end = rest.find("OUTPUT — AUSSCHLIESSLICH")
+    return rest[:end] if end > 0 else rest
+
+
+def test_voice_25_iter25_no_discovery_clip_in_format_typ_examples():
+    """Schema-Vokabel-Sektion listet 'Discovery-Clip' nicht mehr als
+    format_typ-Beispiel — der LLM hat das Label sonst aus der Schema-
+    Sektion gezogen und in den Fließtext geleakt."""
+    schema_block = _extract_schema_vocab_section(insight_engine.SYSTEM_PROMPT)
+    assert '- "Discovery-Clip"' not in schema_block
+    assert "- 'Discovery-Clip'" not in schema_block
+
+
+def test_voice_25_iter25_few_shot_no_discovery_clip():
+    """Few-Shot enthält Discovery-Klassifikation nirgends mehr."""
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert "Discovery-Clip" not in few_shot
+    assert "Discovery-Cut" not in few_shot
+    assert "Discovery-Schnipsel" not in few_shot
+
+
+def test_voice_25_iter25_blacklist_kostet_schnittzeit():
+    """'kostet Schnittzeit' / 'kostet Zeit' explizit als verbotener
+    Berater-Wortschatz gelistet (Variante von 'verbrennt Schnittzeit',
+    iter-2 hat das Pattern bereits geblockt)."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert "kostet Schnittzeit" in blacklist or "kostet Zeit" in blacklist
+
+
+def test_voice_25_iter25_few_shot_no_kostet_schnittzeit():
+    """Producer-strategische_pattern im Few-Shot scrubbed: 'kostet
+    Schnittzeit' / 'verbrennt Schnittzeit' ersetzt durch 'lohnt nicht'
+    o.ä. — sonst trainiert der LLM darauf weiter."""
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert "kostet Schnittzeit" not in few_shot
+    assert "verbrennt Schnittzeit" not in few_shot
+
+
+def test_voice_25_iter25_format_typ_examples_complete():
+    """Vier beschreibende format_typ-Beispiele müssen weiter im Schema-
+    Block stehen (Marken-Spot, Kurzer Clip, Kino-Reminder, Ankündigungs-
+    Post) — das ist die positive Vokabel, die Discovery-Clip ersetzt."""
+    schema_block = _extract_schema_vocab_section(insight_engine.SYSTEM_PROMPT)
+    for example in (
+        "Marken-Spot",
+        "Kurzer Clip mit bekanntem Titel",
+        "Kino-Reminder",
+        "Ankündigungs-Post",
+    ):
+        assert example in schema_block, (
+            f"format_typ-Beispiel {example!r} fehlt im SCHEMA-VOKABEL-Block — "
+            f"iter-2.5 erwartet alle vier beschreibenden Beispiele."
+        )
