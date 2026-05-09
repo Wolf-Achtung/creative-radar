@@ -417,15 +417,21 @@ a:hover { text-decoration: underline; }
   color: #7c7468;
 }
 
+/* Sprint 5a: redesigned card layout. Two-column grid (rank | body) so
+   the #N marker reads as a podium; the body stacks meta → caption →
+   primary-metric → secondary-metrics. */
 .ranked-post-card {
-  display: block;
-  padding: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  padding: 12px 14px;
   margin-bottom: 8px;
   background: #f8f5ee;
   border: 1px solid transparent;
   border-radius: 10px;
   text-decoration: none;
   color: inherit;
+  align-items: start;
   transition: background 0.15s, border-color 0.15s;
 }
 .ranked-post-card:hover {
@@ -433,16 +439,31 @@ a:hover { text-decoration: underline; }
   border-color: #ece4d8;
 }
 
-.ranked-post-header {
+.ranked-post-rank-slot {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  color: #F26B5E;
+  opacity: 0.4;
+  padding-top: 2px;
+  min-width: 40px;
+  text-align: left;
+  letter-spacing: -0.02em;
+}
+
+.ranked-post-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ranked-post-meta {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  margin-bottom: 6px;
-}
-.ranked-post-rank {
-  font-weight: 700;
-  color: #7c7468;
+  min-height: 16px;
 }
 
 /* Plattform-Pille — Brand-Farben, theme-unabhängig.
@@ -461,33 +482,50 @@ a:hover { text-decoration: underline; }
 .platform-youtube   { background: #ff0000;  color: #fff; }
 
 .ranked-post-date {
-  margin-left: auto;
   color: #7c7468;
   font-size: 12px;
+  opacity: 0.75;
+  cursor: help;
 }
 
 .ranked-post-caption {
-  margin: 6px 0 8px;
+  margin: 0;
   font-size: 14px;
   line-height: 1.4;
   color: #1d2330;
 }
 
-.ranked-post-metrics {
+.ranked-post-primary-metric {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+}
+.ranked-post-primary-metric strong {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  color: #F26B5E;
+  letter-spacing: -0.01em;
+}
+.ranked-post-primary-metric span {
+  font-size: 12px;
+  color: #6c6458;
+}
+
+.ranked-post-secondary-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-top: 6px;
+  gap: 4px 14px;
+  margin-top: 2px;
   font-size: 12px;
+  opacity: 0.65;
 }
-.ranked-metric { color: #6c6458; }
-.ranked-metric strong {
-  color: #1d2330;
-  font-size: 13px;
-  margin-right: 3px;
+.ranked-metric-secondary { color: #1d2330; }
+.ranked-metric-secondary span {
+  margin-left: 3px;
+  color: #6c6458;
 }
-.ranked-metric-highlight,
-.ranked-metric-highlight strong { color: #F26B5E; }
 
 .ranking-toggle {
   display: block;
@@ -515,7 +553,10 @@ a:hover { text-decoration: underline; }
    .insight-meta wiederverwendet. */
 @media (max-width: 800px) {
   .ranking-grid { grid-template-columns: 1fr; }
-  .ranked-post-metrics { gap: 4px 10px; font-size: 11px; }
+  .ranked-post-card { gap: 10px; padding: 10px 12px; }
+  .ranked-post-rank-slot { font-size: 22px; min-width: 30px; }
+  .ranked-post-primary-metric strong { font-size: 18px; }
+  .ranked-post-secondary-metrics { gap: 4px 10px; font-size: 11px; }
 }
 
 /* ---- Sprint 3: HelpTooltip ----
