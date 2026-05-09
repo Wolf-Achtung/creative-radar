@@ -1,0 +1,78 @@
+# Sprint 9 (H3) — curated brand-spot / event / platform whitelist.
+# Used as a fallback match pool by services/whitelist_matcher.py when
+# no TMDb-side title hits. Keep this list small and curated; Wolf
+# decides when to extend it based on real Brief output.
+#
+# Schema (per entry):
+#   title:     display name rendered in the brief
+#   aliases:   hashtag-/caption-patterns considered for matching
+#   franchise: thematic group label
+#   type:      brand_spot | event | platform | studio_brand | franchise_brand
+#   studio:    studio key (disney, sony, ...) for pair-filter; null = cross-studio
+brand_entries:
+  # Disney
+  - title: "Drawn to You"
+    aliases: ["drawntoyou", "make-a-wish", "DisneyWeekOfWishes"]
+    franchise: "Disney"
+    type: "brand_spot"
+    studio: "disney"
+
+  - title: "D23 Asia"
+    aliases: ["d23asia", "d23", "ultimatedisneyfanevent"]
+    franchise: "Disney"
+    type: "event"
+    studio: "disney"
+
+  - title: "Disney Plus Streaming"
+    aliases: ["disneyplus", "disney-plus"]
+    franchise: "Disney+"
+    type: "platform"
+    studio: "disney"
+
+  # Netflix
+  - title: "Netflix Originals"
+    aliases: ["netflixoriginal", "netflix"]
+    franchise: "Netflix"
+    type: "platform"
+    studio: "netflix"
+
+  # Warner / DC
+  - title: "DC Studios"
+    aliases: ["dcstudios", "dccomics"]
+    franchise: "DC"
+    type: "studio_brand"
+    studio: "warnerbros"
+
+  # Sony
+  - title: "Spider-Verse Brand"
+    aliases: ["spiderverse", "spider-verse"]
+    franchise: "Spider-Man"
+    type: "franchise_brand"
+    studio: "sonypictures"
+
+  # Prime Video
+  - title: "Prime Video Brand"
+    aliases: ["primevideo", "amazon-prime"]
+    franchise: "Prime Video"
+    type: "platform"
+    studio: "primevideo"
+
+  # Paramount
+  - title: "Paramount Plus"
+    aliases: ["paramountplus", "paramount-plus"]
+    franchise: "Paramount+"
+    type: "platform"
+    studio: "paramountpictures"
+
+  # Cross-studio events
+  - title: "Cinemacon"
+    aliases: ["cinemacon", "cinema-con"]
+    franchise: "Industry Event"
+    type: "event"
+    studio: null
+
+  - title: "Comic-Con"
+    aliases: ["comiccon", "comic-con", "sdcc"]
+    franchise: "Industry Event"
+    type: "event"
+    studio: null
