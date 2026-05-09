@@ -726,7 +726,11 @@ def compute_activation_rate(post: Post, platform: str) -> float:
 
 
 def _ranked_posts_for_channel(
-    posts: list[Post], platform: str, *, limit: int = 10
+    posts: list[Post],
+    platform: str,
+    *,
+    session: Optional[Session] = None,
+    limit: int = 10,
 ) -> list[RankedPost]:
     """Sprint 2 — Top-N Posts für die Ranking-Sektion eines Channels.
 
@@ -735,13 +739,53 @@ def _ranked_posts_for_channel(
     derselben ISO-Woche identische Reihenfolge produzieren — wichtig für
     den persistierten Cache. Frontend re-sortiert clientseitig nach den
     rohen Metrik-Spalten ohne Backend-Round-Trip.
+
+    Sprint 5b — wenn eine ``session`` übergeben ist, wird zusätzlich pro
+    Post das beste passende ``Asset`` (+ ggf. ``Title``) per
+    ``post_id IN (...)``-OUTER-JOIN nachgeladen. Bevorzugt wird das erste
+    Asset mit ``title_id IS NOT NULL`` und ``review_status IN
+    {approved, highlight}``; fällt das aus, gewinnt das erste nicht-
+    rejected Asset. Die Ladung läuft als **eine** Query pro Channel
+    (kein N+1) und ist deterministisch — Tiebreaker: ``created_at`` desc.
+    Wird keine ``session`` übergeben, bleibt das Verhalten identisch zum
+    Sprint-2-Pfad (alle vier neuen Felder ``None``); das schützt
+    Tests/Tools, die die Funktion direkt mit einer Post-Liste aufrufen.
     """
+    asset_by_post: dict[Any, tuple[Asset, Optional[Title]]] = {}
+    if session is not None and posts:
+        post_ids = [p.id for p in posts]
+        # Bevorzugung: title_id NOT NULL und review_status approved/highlight.
+        # ``case``-Spalten sind 0 für die Wunsch-Klasse, 1 sonst → ``ORDER BY``
+        # asc liefert die bevorzugten Rows zuerst, der erste Match pro
+        # post_id gewinnt. ``review_status='rejected'`` ist hart raus.
+        prefers_title = sa.case((Asset.title_id.isnot(None), 0), else_=1)
+        prefers_review = sa.case(
+            (Asset.review_status.in_(["approved", "highlight"]), 0),
+            else_=1,
+        )
+        asset_query = (
+            select(Asset, Title)
+            .join(Title, Asset.title_id == Title.id, isouter=True)
+            .where(Asset.post_id.in_(post_ids))
+            .where(Asset.review_status != "rejected")
+            .order_by(
+                Asset.post_id,
+                prefers_title,
+                prefers_review,
+                Asset.created_at.desc(),
+            )
+        )
+        for asset, title in session.exec(asset_query).all():
+            if asset.post_id not in asset_by_post:
+                asset_by_post[asset.post_id] = (asset, title)
+
     enriched: list[RankedPost] = []
     for p in posts:
         likes = int(p.visible_likes or 0)
         comments = int(p.visible_comments or 0)
         saves = int(p.visible_bookmarks or 0)
         shares = int(p.visible_shares or 0)
+        asset, title = asset_by_post.get(p.id, (None, None))
         enriched.append(
             RankedPost(
                 post_url=p.post_url,
@@ -756,6 +800,10 @@ def _ranked_posts_for_channel(
                 shares=shares,
                 engagement_sum=likes + comments + saves + shares,
                 activation_rate=compute_activation_rate(p, platform),
+                title_local=title.title_local if title else None,
+                title_original=title.title_original if title else None,
+                franchise=title.franchise if title else None,
+                thumbnail_url=asset.thumbnail_url if asset else None,
             )
         )
     enriched.sort(
@@ -1018,7 +1066,9 @@ def _channel_stats(
     avg_activation_rate = (
         sum(activation_rates) / len(activation_rates) if activation_rates else 0.0
     )
-    ranked_posts = _ranked_posts_for_channel(posts, platform, limit=ranked_posts_n)
+    ranked_posts = _ranked_posts_for_channel(
+        posts, platform, session=session, limit=ranked_posts_n
+    )
 
     top_hashtags = [
         HashtagFrequency(tag=tag, count=count)

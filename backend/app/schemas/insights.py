@@ -75,6 +75,17 @@ class RankedPost(BaseModel):
     engagement_sum: int = 0
     activation_rate: float = 0.0
 
+    # Sprint 5b — eager-loaded from the best matching Asset/Title row per
+    # post. All four default to ``None`` so older persisted briefs (pre-
+    # Sprint-5b) still validate via ``model_validate`` without migration.
+    # Coverage in production is asymmetric: ``thumbnail_url`` is filled
+    # for ~90-100% of posts, the title fields for <10% — the Frontend
+    # treats the title as bonus context, not a required column.
+    title_local: Optional[str] = None
+    title_original: Optional[str] = None
+    franchise: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+
 
 class HashtagFrequency(BaseModel):
     tag: str

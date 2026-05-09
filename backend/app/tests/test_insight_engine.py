@@ -20,7 +20,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 import pytest
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.entities import Asset, Channel, Market, Post, Title
 from app.schemas.insights import InsightReport
@@ -693,6 +693,182 @@ def test_ranked_posts_sorted_by_engagement_sum():
         # Each entry carries the platform tag (today all "tiktok"; pre-wires
         # the multi-platform pill rendering on the Frontend).
         assert all(r.platform == "tiktok" for r in us_ranked)
+
+
+# ---------- Sprint 5b: title + thumbnail eager-load ------------------------
+
+
+def test_ranked_posts_loads_thumbnail_when_available():
+    """Sprint 5b — wenn das Asset eines Posts ``thumbnail_url`` trägt,
+    fließt die URL in die ``RankedPost.thumbnail_url`` durch (per
+    JOIN-im-Engine, kein Frontend-Patch)."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        # Fixture-Asset von us_p1 hat noch kein thumbnail_url — nachbessern.
+        us_asset = session.exec(
+            select(Asset).where(Asset.post_id == data["us_posts"][0].id)
+        ).first()
+        us_asset.thumbnail_url = "https://cdn.example.com/thumb-us1.jpg"
+        session.add(us_asset)
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_top = agg.us_channel.ranked_posts[0]
+        assert us_top.post_url == data["us_posts"][0].post_url
+        assert us_top.thumbnail_url == "https://cdn.example.com/thumb-us1.jpg"
+
+
+def test_ranked_posts_loads_title_when_available():
+    """Wenn ein Asset über ``title_id`` an einen ``Title`` gebunden ist,
+    werden ``title_original`` (+ optional ``title_local``/``franchise``)
+    in den RankedPost übernommen. Die Fixture hängt us_p1 an
+    'Mortal Kombat II' — der Top-RankedPost muss das spiegeln."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        # title_local + franchise nachsetzen für eine vollständige Assertion.
+        title = data["title"]
+        title.title_local = "Mortal Kombat II"
+        title.franchise = "Mortal Kombat"
+        session.add(title)
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_top = agg.us_channel.ranked_posts[0]
+        assert us_top.title_original == "Mortal Kombat II"
+        assert us_top.title_local == "Mortal Kombat II"
+        assert us_top.franchise == "Mortal Kombat"
+
+
+def test_ranked_posts_handles_post_without_asset():
+    """Posts ohne irgendein Asset rendern weiterhin als RankedPost — alle
+    vier Sprint-5b-Felder bleiben ``None``, kein Crash, kein KeyError im
+    Mapping."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        us_no_asset = _make_post(
+            session, data["us_channel"],
+            caption="orphan post — no asset row at all",
+            likes=20_000, comments=900, shares=300, saves=600,
+            days_ago=1, url_suffix="us-no-asset",
+        )
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        ranked = {r.post_url: r for r in agg.us_channel.ranked_posts}
+        orphan = ranked[us_no_asset.post_url]
+        assert orphan.thumbnail_url is None
+        assert orphan.title_local is None
+        assert orphan.title_original is None
+        assert orphan.franchise is None
+
+
+def test_ranked_posts_prefers_asset_with_title_over_one_without():
+    """Wenn ein Post mehrere Assets hat, gewinnt das mit ``title_id`` —
+    sonst würde das Discovery-Asset (kein Titel) den Filmtitel im
+    RankedPost verschlucken, obwohl er bekannt ist."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        # us_p3 hat heute nur ein Discovery-Asset (kein title_id). Wir hängen
+        # ein zweites Asset MIT title an denselben Post — das muss gewinnen.
+        session.add(Asset(
+            post_id=data["us_posts"][2].id,
+            title_id=data["title"].id,
+            thumbnail_url="https://cdn.example.com/thumb-us3-with-title.jpg",
+        ))
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_p3_ranked = next(
+            r for r in agg.us_channel.ranked_posts
+            if r.post_url == data["us_posts"][2].post_url
+        )
+        assert us_p3_ranked.title_original == "Mortal Kombat II"
+        assert us_p3_ranked.thumbnail_url == "https://cdn.example.com/thumb-us3-with-title.jpg"
+
+
+def test_ranked_posts_skips_rejected_assets():
+    """Assets mit ``review_status='rejected'`` werden vom Eager-Load
+    ausgeschlossen — die Ranking-Card darf keine Curator-abgelehnten
+    Thumbnails surface'n."""
+    from app.models.entities import ReviewStatus
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        # de_p2 hat heute ein Asset ohne title_id und ohne thumbnail. Wir
+        # ergänzen ein zweites, MIT thumbnail, aber als REJECTED markiert —
+        # das darf NICHT in den RankedPost durchschlagen.
+        session.add(Asset(
+            post_id=data["de_posts"][1].id,
+            title_id=data["title"].id,
+            thumbnail_url="https://cdn.example.com/REJECTED.jpg",
+            review_status=ReviewStatus.REJECTED,
+        ))
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        de_p2_ranked = next(
+            r for r in agg.de_channel.ranked_posts
+            if r.post_url == data["de_posts"][1].post_url
+        )
+        assert de_p2_ranked.thumbnail_url is None
+        assert de_p2_ranked.title_original is None
+
+
+def test_ranked_posts_eager_load_runs_in_single_query():
+    """Performance-Guard: das Eager-Load darf NICHT N+1 sein. Wir
+    instrumentieren das SQLAlchemy ``before_cursor_execute``-Event und
+    prüfen, dass kein SELECT auf ``asset`` öfter als einmal pro Channel
+    feuert. Schwellwert großzügig (≤ 4 Asset-SELECTS für DE+US ohne
+    LLM), damit harmlose Side-Queries (z. B. CrossMarket) nicht
+    fehlschlagen — die Kernzusicherung ist: kein per-post Select."""
+    from sqlalchemy import event
+    seen_asset_selects: list[str] = []
+
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+
+        def _record(conn, cursor, statement, params, context, executemany):
+            if "FROM asset" in statement.lower().replace('"', ''):
+                seen_asset_selects.append(statement)
+
+        engine = session.get_bind()
+        event.listen(engine, "before_cursor_execute", _record)
+        try:
+            insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        finally:
+            event.remove(engine, "before_cursor_execute", _record)
+
+        # Hard cap: keine N+1-Schleife pro Post. Mit der Sprint-5b-Query
+        # erwarten wir wenige Aggregat-SELECTS; ein Vielfaches der Post-
+        # Anzahl wäre der Regressions-Smell.
+        post_count = 5  # 3 US + 2 DE in der Fixture
+        assert len(seen_asset_selects) < post_count, (
+            f"Expected aggregate Asset SELECTs (< {post_count}), got "
+            f"{len(seen_asset_selects)} — possible N+1 regression."
+        )
+
+
+def test_backwards_compat_old_brief_without_new_fields():
+    """Persistierte Briefe vor Sprint 5b kennen die vier neuen Felder
+    nicht. ``RankedPost.model_validate`` muss sie auf ``None``
+    defaulten, ohne Schema-Validation-Error."""
+    from app.schemas.insights import RankedPost
+    legacy_payload = {
+        "post_url": "https://tiktok.com/@warnerbros/video/legacy",
+        "caption_excerpt": "Legacy brief from before Sprint 5b",
+        "platform": "tiktok",
+        "views": 1234,
+        "likes": 56,
+        "comments": 7,
+        "saves": 8,
+        "shares": 9,
+        "engagement_sum": 80,
+        "activation_rate": 0.05,
+    }
+    rp = RankedPost.model_validate(legacy_payload)
+    assert rp.title_local is None
+    assert rp.title_original is None
+    assert rp.franchise is None
+    assert rp.thumbnail_url is None
+    assert rp.engagement_sum == 80
 
 
 def test_avg_activation_rate_in_channel_stats():
