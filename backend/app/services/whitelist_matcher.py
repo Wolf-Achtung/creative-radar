@@ -127,6 +127,7 @@ def find_best_title_match(
     session: Session,
     text: str | None,
     fields: dict[str, str | list[str] | None] | None = None,
+    studio: str | None = None,
 ) -> MatchResult:
     text_fields = _collect_text_fields(fields, text)
     if not text_fields:
@@ -190,6 +191,20 @@ def find_best_title_match(
         return MatchResult(title=weak_best[0], confidence=weak_best[1], source=weak_best[2], suggested_title=weak_best[3])
 
     joined = " ".join(value for _, value in text_fields)
+
+    # Sprint 9 (H3): brand-whitelist fallback. Only kicks in when no TMDb-side
+    # signal at all — confidence (0.85) stays below the 0.95 auto-tag bar so
+    # the result is visible in rankings but not silently auto-applied.
+    from app.services.brand_whitelist_loader import find_brand_match  # local import keeps module load cheap
+    brand_entry = find_brand_match(joined, studio=studio)
+    if brand_entry is not None:
+        return MatchResult(
+            title=None,
+            confidence=0.85,
+            source="brand_whitelist",
+            suggested_title=brand_entry.title,
+        )
+
     guess = _extract_title_guess(joined)
     return MatchResult(title=None, confidence=0.0, source="none", suggested_title=guess)
 
