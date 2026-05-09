@@ -86,6 +86,13 @@ class RankedPost(BaseModel):
     franchise: Optional[str] = None
     thumbnail_url: Optional[str] = None
 
+    # Sprint 5c — Asset-UUID des Sprint-5b-Eager-Loads, durchgereicht als
+    # String. Frontend nutzt es für ``/api/thumbnails/{asset_id}`` (CDN-
+    # Hotlink-Protection-Bypass via Referer-Header). Default ``None``
+    # damit Briefe von vor Sprint 5c sauber parsen — der Frontend-
+    # Fallback-Pfad nutzt dann direkt ``thumbnail_url``.
+    asset_id: Optional[str] = None
+
 
 class HashtagFrequency(BaseModel):
     tag: str

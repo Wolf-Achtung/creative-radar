@@ -804,6 +804,7 @@ def _ranked_posts_for_channel(
                 title_original=title.title_original if title else None,
                 franchise=title.franchise if title else None,
                 thumbnail_url=asset.thumbnail_url if asset else None,
+                asset_id=str(asset.id) if asset else None,
             )
         )
     enriched.sort(
