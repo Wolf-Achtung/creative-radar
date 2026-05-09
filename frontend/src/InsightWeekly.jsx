@@ -616,6 +616,29 @@ function getSecondaryMetrics(post, sortKey) {
 // werden per CSS gesetzt (gleiche Tokens wie .platform-pill).
 const PLATFORM_ACRONYM = { tiktok: 'TT', instagram: 'IG', youtube: 'YT' };
 
+// Sprint 5d — Caption-Sanitizer für die Stufe-3-Fallback-Variante.
+// TikTok/Instagram-CDN-URLs laufen oft nach 6-24h ab, viele Cards landen
+// also auf dem Fallback-Pfad. Wenn ein Filmtitel fehlt, ist die Caption
+// häufig die einzige sinnvolle Restinformation — aber nur, wenn sie nicht
+// nur aus Hashtags, Emojis und URLs besteht.
+//
+// Strategie: Hashtags, @-Mentions, URLs und Emojis (BMP + Misc Symbols)
+// rauswerfen, dann auf mindestens 3 echte Wörter (>=2 Zeichen) prüfen. Bei
+// weniger fällt der Slot auf das Plattform-Akronym (Stufe 4) zurück, weil
+// "#fyp #foryou" als Pseudo-Caption schlechter wirkt als ein klares
+// Platzhalter-Akronym.
+function sanitizeCaption(captionExcerpt) {
+  if (!captionExcerpt) return null;
+  let cleaned = captionExcerpt.replace(/#\w+/g, '');
+  cleaned = cleaned.replace(/@\w+/g, '');
+  cleaned = cleaned.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '');
+  cleaned = cleaned.replace(/https?:\/\/\S+/g, '');
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  const words = cleaned.split(/\s+/).filter((w) => w.length >= 2);
+  if (words.length < 3) return null;
+  return words.slice(0, 6).join(' ');
+}
+
 function RankedPostCard({ post, rank, sortKey, platformFilter }) {
   const { relative, absolute } = formatRelativeDate(post.published_at);
   const showPlatformPill = platformFilter === 'all';
@@ -632,7 +655,6 @@ function RankedPostCard({ post, rank, sortKey, platformFilter }) {
   const thumbnailSrc = post.asset_id
     ? `/api/thumbnails/${post.asset_id}`
     : post.thumbnail_url;
-  const hasThumbnail = !!thumbnailSrc;
   const hasTitle = !!post.title_local;
   // Tooltip nur wenn beide Titel vorhanden UND verschieden — die häufigen
   // Fälle (kein title_original; identische Lokalisierung) erzeugen keine
@@ -641,6 +663,27 @@ function RankedPostCard({ post, rank, sortKey, platformFilter }) {
     post.title_original && post.title_original !== post.title_local
       ? `Original: ${post.title_original}`
       : undefined;
+
+  // Sprint 5d — Hybrid-Fallback-Stack. Stufe 1 (Bild) bleibt der
+  // Default; wenn das <img> nie kommt (kein Source) oder onError feuert
+  // (Source-URL abgelaufen, Proxy 404), wird der vorberechnete
+  // ``fallbackContent`` sichtbar. Reihenfolge: Filmtitel > sanitisierte
+  // Caption > Plattform-Akronym. Die Sprint-5b-Inline-Title-Zeile in der
+  // Card-Body bleibt parallel sichtbar — bei Stufe-2-Fallback erscheint
+  // der Titel doppelt (groß im Slot, klein als Body-Bestätigung), das
+  // ist Absicht.
+  const captionFallback = sanitizeCaption(post.caption_excerpt);
+  const fallbackContent = post.title_local
+    ? { type: 'title', text: post.title_local }
+    : captionFallback
+    ? { type: 'caption', text: captionFallback }
+    : { type: 'acronym', text: PLATFORM_ACRONYM[platform] || 'TT' };
+
+  // imageFailed kippt auf true bei <img onError> oder ist sofort true,
+  // wenn gar keine Source-URL existiert. State ist React-managed statt
+  // DOM-mutiert (Sprint 5b/5c hatten classList-Mutation), damit die
+  // Fallback-Klasse im Markup steht und CSS deterministisch greift.
+  const [imageFailed, setImageFailed] = useState(!thumbnailSrc);
 
   return (
     <a
@@ -651,21 +694,28 @@ function RankedPostCard({ post, rank, sortKey, platformFilter }) {
     >
       <div className="ranked-post-rank-slot">#{rank}</div>
 
-      <div className={`ranked-post-thumbnail-slot platform-${platform}`}>
-        {hasThumbnail && (
+      <div
+        className={
+          imageFailed
+            ? `ranked-post-thumbnail-slot platform-${platform} fallback-active fallback-${fallbackContent.type}`
+            : `ranked-post-thumbnail-slot platform-${platform}`
+        }
+      >
+        {thumbnailSrc && !imageFailed && (
           <img
             src={thumbnailSrc}
             alt=""
             loading="lazy"
-            onError={(e) => {
-              // Auf Fetch-Fehler das <img> verstecken; CSS schaltet daraufhin
-              // den Fallback (Plattform-Akronym) sichtbar — siehe styles.css.
-              e.currentTarget.style.display = 'none';
-              e.currentTarget.parentElement?.classList.add('thumbnail-failed');
-            }}
+            onError={() => setImageFailed(true)}
           />
         )}
-        <div className="thumbnail-fallback">{PLATFORM_ACRONYM[platform] || 'TT'}</div>
+        {imageFailed && (
+          <div className="thumbnail-fallback">
+            <span className={`thumbnail-fallback-content fallback-${fallbackContent.type}`}>
+              {fallbackContent.text}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="ranked-post-body">
