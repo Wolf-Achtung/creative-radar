@@ -1256,6 +1256,151 @@ def test_anti_pattern_block_unchanged():
         )
 
 
+# ---------- Sprint 7-iter-2: Voice-Refinement (cluster 1-3 + trägt) -------
+
+
+def test_voice_25_iter2_blacklist_traegt():
+    """Sprint 7-iter-2 — 'trägt' als Voice-Verb komplett raus aus dem
+    Output. Die Blacklist-Sektion benennt es explizit; Cutter-Vokabel
+    in der allgemeinen VOICE-Sektion bleibt erlaubt, der LLM muss aber
+    aus dem Output-Verbot lernen, dass 'trägt' im realisierten Brief
+    nicht auftaucht."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert '"trägt"-Wort komplett raus' in blacklist or "trägt-Wort" in blacklist
+
+
+def test_voice_25_iter2_blacklist_kommt_durch():
+    """'kommt durch'-Familie überall verboten."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert "kommt durch" in blacklist or "kommt nicht durch" in blacklist
+
+
+def test_voice_25_iter2_blacklist_discovery_clip():
+    """Discovery-Klassifikation im Fließtext verboten — bleibt nur in
+    aktuell_im_fokus.format_typ erlaubt, das ist im Prompt explizit
+    abgegrenzt."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert "Discovery-Clip" in blacklist or "Discovery-Schnipsel" in blacklist
+
+
+def test_voice_25_iter2_blacklist_pseudo_precision_zeichen_counts():
+    """Pseudo-Präzision in Detail-Sektionen: Zeichen-Zahlen für
+    Captions explizit verboten."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert "Zeichen" in blacklist
+    # Hashtag-Counts ebenfalls als verboten benannt.
+    assert "Hashtag-Counts" in blacklist or "Hashtag" in blacklist
+
+
+def test_voice_25_iter2_headline_form_section_present():
+    """Sprint 7-iter-2 — HEADLINE-FORM-Klausel mit drei Beispiel-
+    Headlines im Wolf-Sprach-Anker-Stil."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "HEADLINE-FORM" in prompt
+    # Drei Beispiel-Headlines sind die konkrete Lehre.
+    assert "Disney US holt 33k mit *Drawn to You*" in prompt
+    assert "Sony US zieht" in prompt or "Warner DE läuft" in prompt
+
+
+def test_voice_25_iter2_was_diese_woche_clause_present():
+    """Schema-Vokabel-Klausel für was_diese_woche — Pflicht-Feld in
+    den drei Detail-Sektionen, kein Listen-Format."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "was_diese_woche" in prompt
+    # Compliance-Struktur explizit verboten in der Klausel.
+    assert "KEINE Listen" in prompt or "Listen" in prompt
+
+
+def test_voice_25_iter2_few_shot_no_traegt():
+    """Im kompletten Few-Shot darf 'trägt' / 'tragen' nicht als
+    eigenständiges Verb auftauchen — die Voice-Anchoring kommt sonst
+    nicht durch (der LLM imitiert die Wendungen aus dem Beispiel).
+
+    Wortgrenze-Regex statt Substring-Match: 'übertragen' (transfer)
+    enthält 'tragen', ist aber semantisch ein anderes Verb und in
+    Cross-Market-Kontext absolut legitim."""
+    import re as _re
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert _re.search(r"\bträgt\b", few_shot, _re.IGNORECASE) is None, (
+        "'trägt' als eigenständiges Verb noch im Few-Shot — "
+        "Sprint 7-iter-2-Scrub unvollständig."
+    )
+    assert _re.search(r"\btragen\b", few_shot, _re.IGNORECASE) is None, (
+        "'tragen' als eigenständiges Verb noch im Few-Shot — Plural / "
+        "Infinitiv hat dieselbe Voice-Wirkung wie 'trägt' und ist "
+        "ebenfalls verboten."
+    )
+
+
+def test_voice_25_iter2_few_shot_no_discovery_classification():
+    """Few-Shot enthält keine Discovery-Klassifikation, weder im
+    Fließtext noch in format_typ-Werten — der LLM lernt sonst, dass
+    'Discovery-Clip' eine legitime format_typ ist und nutzt sie auch
+    im Fließtext weiter."""
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert "Discovery-Clip" not in few_shot
+    assert "Discovery-Schnipsel" not in few_shot
+    assert "Discovery-Cut" not in few_shot
+    # Backkatalog-Anriss als Klassifikation ebenfalls raus aus dem Few-Shot.
+    assert "Backkatalog-Anriss" not in few_shot
+    assert "Backkatalog-Schnipsel" not in few_shot
+
+
+def test_voice_25_iter2_few_shot_no_kommt_durch_family():
+    """'kommt durch' / 'verliert sich' / 'holt günstig' raus aus dem
+    Few-Shot — sonst trainiert der LLM darauf weiter."""
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    for forbidden in ("kommt durch", "kommt nicht durch", "verliert sich",
+                      "holt günstig", "verbrennt Schnittzeit"):
+        assert forbidden not in few_shot, (
+            f"'{forbidden}' ist noch im Few-Shot — "
+            f"Sprint 7-iter-2-Scrub unvollständig."
+        )
+
+
+def test_voice_25_iter2_few_shot_no_zeichen_counts():
+    """Few-Shot vermeidet Pseudo-Präzision wie '130 Zeichen', '216
+    Zeichen' in den Detail-Sektionen."""
+    import re as _re
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    char_count_pattern = r"\d+\s*Zeichen"
+    matches = _re.findall(char_count_pattern, few_shot)
+    assert not matches, (
+        f"Pseudo-Präzision (Zeichen-Counts) im Few-Shot: {matches!r}"
+    )
+
+
+def test_voice_25_iter2_few_shot_uses_holt_or_punktet_in_headline():
+    """Headline nutzt aktive Verben (holt/punktet/zieht/wirkt/macht/
+    läuft/fährt/kommt) statt 'trägt'."""
+    headline = _extract_few_shot_headline(insight_engine.SYSTEM_PROMPT)
+    active_verbs = ("holt", "punktet", "zieht", "wirkt", "macht",
+                    "läuft", "fährt", "kommt")
+    assert any(verb in headline for verb in active_verbs), (
+        f"Headline nutzt kein aktives Verb aus der iter-2-Erlaubt-Liste: "
+        f"{headline!r}"
+    )
+
+
+def test_voice_25_iter2_few_shot_has_was_diese_woche():
+    """Few-Shot demonstriert das was_diese_woche-Feld in mindestens
+    einer der drei Detail-Sektionen — sonst bleibt das Schema-Feld
+    eine Theorie."""
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert '"was_diese_woche"' in few_shot
+    # Pattern aus der Schema-Klausel taucht im Beispiel auf.
+    assert "Was hier auffällt" in few_shot
+
+
+def test_voice_25_iter2_few_shot_no_must_show_no_go():
+    """Compliance-Listen sind strukturell aus dem Schema entfernt —
+    der Few-Shot demonstriert das, indem must_show/no_go nicht mehr
+    auftauchen."""
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert '"must_show"' not in few_shot
+    assert '"no_go"' not in few_shot
+
+
 # ---------- Sprint 7: Voice 2.5 — Berater-Vokabel-Blacklist + Tone --------
 
 
