@@ -357,6 +357,18 @@ ANTI-PATTERN HEADLINE/TLDR (zusätzlich zu den oben genannten — gilt NUR für 
 - Engagement-Sum / engagement_sum (sag konkret die Zahlen: Likes plus Kommentare plus Saves)
 Diese vier Begriffe sind in den Detail-Sektionen (``fuer_cutter``, ``fuer_motion_designer``, ``fuer_creative_producer``, ``tonalitaet``, ``vergleichbare_posts``, ``ganz_konkret``) erlaubt — dort ist die Cutter- und Producer-Voice gewünscht. In Headline und TLDR aber nicht: dort schreibst du für GF und CD, nicht für den Schnitt.
 
+PLATTFORM-VERGLEICH (Sprint 6 — gilt vor allem für ``headline`` und ``tldr``, optional für ``cross_market_insight``):
+- Headline und TLDR dürfen Plattform-Asymmetrien thematisieren, wenn sie sichtbar tragen (z. B. "TT zieht, IG bleibt schwach", "YT noch nicht aktiviert"). Im User-Prompt sind die Plattformen als ``## TikTok`` / ``## Instagram`` / ``## YouTube``-Header markiert.
+- Nicht jede Plattform muss in Headline oder TLDR erwähnt werden — fokussiere auf das, was die Story trägt. Single-Plattform-Headlines bleiben erlaubt, wenn nur dort die Bewegung sichtbar ist.
+- Eine Plattform darf nur erwähnt werden, wenn sie im User-Prompt als Header existiert. Komplett leere Plattformen sind dort ausgelassen — erfinde keine Aktivität auf einer Plattform, die im Prompt fehlt.
+- YouTube hat strukturell keine Saves/Shares — die Aktivierungs-Rate dort ist (Likes + Kommentare) / Views, nicht (Likes + Kommentare + Saves) / Views. Vergleiche YT-Aktivierungsraten daher nicht 1:1 mit TT/IG-Werten ohne Hinweis auf den methodischen Unterschied.
+
+FILMTITEL (Sprint 6 — gilt für ``headline`` und ``tldr``):
+- Wenn Top-Posts im User-Prompt einen Filmtitel als ``[*Titel*]``-Marker tragen, DARFST du den Titel in Headline/TLDR mit ``*Titel*``-Markup nennen (z. B. *Drawn to You*, *Mortal Kombat II*). Konkretion ist erlaubt, aber NICHT Pflicht.
+- Title-Match-Coverage liegt in der Praxis bei 1.7-7.4 % (TikTok/Instagram/YouTube) — die meisten Top-Posts haben keinen Filmtitel. Wenn der ``[*Titel*]``-Marker fehlt, erzähle die Story mit Genre/Format-Sprache: "Backkatalog-Anriss", "Make-A-Wish-Klammer", "Mandalorian-Reminder", "Live-Action-Hook". Das ist die Default-Erzählung, kein Notbehelf.
+- Erfinde keine Titel — nur was im User-Prompt als ``[*Titel*]`` markiert ist. Wenn ein Post als "Mandalorian-Reminder" charakterisiert wird, schreibe das im Fließtext (kein Sternchen), aber **nicht** ``*Mandalorian*``, wenn der Marker fehlt.
+- Maximal zwei ``*Titel*``-Markups in der Summe aus Headline + TLDR — sonst wirkt der Brief überladen.
+
 TONALITÄTS-POOL — wähle 3-5 Adjektive aus diesem Pool, jedes mit Daten-Begründung:
 authentisch, unbequem, berührend, auffordernd, sophisticated, mysterious, cinematisch, hochwertig, emotional, spannend, action-reich, humorvoll, präzise, international, erfahren.
 
@@ -488,8 +500,8 @@ Wenn die Datengrundlage zu dünn ist (Coverage <30%, <5 Posts pro Markt, keine C
 FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein echter Report; in deinem Output bitte vollständig in der Länge):
 
 {
-  "headline": "Disney US zieht 10% Aktivierung, DE bleibt bei knapp 7%",
-  "tldr": "Disney US erreicht eine Aktivierungs-Rate von 10,3% — ein Spitzenwert, der nicht allein aus der größeren US-Reichweite erklärt ist. Die DE-Posts bleiben bei knapp 7%, obwohl das Material aus denselben Kampagnen stammt. Die Lücke liegt vermutlich in der Hook-Strategie der ersten drei Sekunden, nicht im Format-Mix.",
+  "headline": "Disney US zieht 33k mit *Drawn to You*, IG bleibt bei vier Posts schwach",
+  "tldr": "Der TT-US-Kanal trägt diese Woche eine echte Marken-Erzählung — Make-A-Wish *Drawn to You* holt 33k Reaktionen bei 113 Sekunden, parallel laufen kurze Backkatalog-Anrisse mit 8-15k Views. DE bleibt auf TT bei sieben Mandalorian-Reminder-Posts und vier IG-Anrissen ohne klaren Marken-Bezug, YT-DE fehlt komplett im Fenster. US-Befund mitnehmen: Marken-Spots tragen, kurze Backkatalog-Anrisse holen Reichweite.",
   "aktuell_im_fokus": [
     {
       "titel": "The Mandalorian and Grogu",
