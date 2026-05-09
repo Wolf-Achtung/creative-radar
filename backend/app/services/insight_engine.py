@@ -391,7 +391,8 @@ Diese Begriffe sind ausschließlich in ``aktuell_im_fokus.format_typ`` erlaubt �
 - "verliert sich" / "verliert er sich"
 - "holt günstig" (Berater-Phrase)
 - "verbrennt Zeit" / "verbrennt Schnittzeit"
-Erlaubt bleibt: "kommt an", "kommt nicht an" (die Verdict-Werte), "wirkt", "die Leute reagieren stark/wenig", "läuft", "zieht".
+- "kostet Schnittzeit" / "kostet Zeit" als Wert-Phrase (Berater-Wortschatz, Variante von "verbrennt Schnittzeit")
+Erlaubt bleibt: "kommt an", "kommt nicht an" (die Verdict-Werte), "wirkt", "die Leute reagieren stark/wenig", "läuft", "zieht", "lohnt nicht", "ohne Ertrag", "fährt ins Leere".
 
 "trägt"-Wort komplett raus — überall im Output, auch in zusammengesetzten Wendungen:
 - nicht "trägt", "trägt stärker", "trägt diese Woche", "die Erzählung trägt", "der Cut trägt"
