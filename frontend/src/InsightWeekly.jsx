@@ -545,20 +545,25 @@ function formatRankedPercent(rate) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+// Sprint 5a: split into { relative, absolute } so the card can show the
+// short relative form prominently and expose the absolute date via a
+// title-attribute tooltip. Returns empty strings for null/invalid input.
 function formatRelativeDate(isoDate) {
-  if (!isoDate) return '';
+  if (!isoDate) return { relative: '', absolute: '' };
   const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return '';
+  if (Number.isNaN(date.getTime())) return { relative: '', absolute: '' };
   const now = new Date();
   const days = Math.floor((now - date) / (1000 * 60 * 60 * 24));
   const absolute = date.toLocaleDateString('de-DE', {
     day: '2-digit', month: '2-digit', year: 'numeric',
   });
-  if (days <= 0) return `heute (${absolute})`;
-  if (days === 1) return `gestern (${absolute})`;
-  if (days < 7) return `vor ${days} Tagen (${absolute})`;
-  if (days < 30) return `vor ${Math.floor(days / 7)} Wochen (${absolute})`;
-  return `vor ${Math.floor(days / 30)} Monaten (${absolute})`;
+  let relative;
+  if (days <= 0) relative = 'heute';
+  else if (days === 1) relative = 'gestern';
+  else if (days < 7) relative = `vor ${days} Tagen`;
+  else if (days < 30) relative = `vor ${Math.floor(days / 7)} Wochen`;
+  else relative = `vor ${Math.floor(days / 30)} Monaten`;
+  return { relative, absolute };
 }
 
 // Persistent state via localStorage. Silent fail when storage is full or
@@ -583,17 +588,36 @@ function useLocalStorage(key, defaultValue) {
   return [value, setValue];
 }
 
-function RankedMetric({ label, value, highlight }) {
-  return (
-    <span className={`ranked-metric${highlight ? ' ranked-metric-highlight' : ''}`}>
-      <strong>{value}</strong> <span>{label}</span>
-    </span>
-  );
+// Sprint 5a: hierarchy redesign. The active sort metric is rendered as
+// the primary number (large), the four remaining metrics drop into a
+// muted secondary footer. Pre-Sprint-5a all five were rendered equal-
+// weight with a colour-only highlight on the active sort.
+const RANKED_METRIC_DEFS = [
+  { key: 'views',           label: 'Aufrufe',   shortLabel: 'Aufrufe',  read: (p) => formatRankedNumber(p.views) },
+  { key: 'likes',           label: 'Reactions', shortLabel: 'Reactions', read: (p) => formatRankedNumber(p.likes) },
+  { key: 'activation_rate', label: 'Aktivierung', shortLabel: 'Akt.',   read: (p) => formatRankedPercent(p.activation_rate) },
+  { key: 'comments',        label: 'Kommentare', shortLabel: 'Komm.',   read: (p) => formatRankedNumber(p.comments) },
+  { key: 'saves',           label: 'Saves',     shortLabel: 'Saves',    read: (p) => formatRankedNumber(p.saves) },
+];
+
+function getPrimaryMetric(post, sortKey) {
+  const def = RANKED_METRIC_DEFS.find((m) => m.key === sortKey) || RANKED_METRIC_DEFS[0];
+  return { key: def.key, value: def.read(post), label: def.label };
 }
 
-function RankedPostCard({ post, rank, sortKey }) {
-  const dateStr = formatRelativeDate(post.published_at);
-  const platformClass = `platform-pill platform-${post.platform || 'tiktok'}`;
+function getSecondaryMetrics(post, sortKey) {
+  return RANKED_METRIC_DEFS
+    .filter((def) => def.key !== sortKey)
+    .map((def) => ({ key: def.key, value: def.read(post), label: def.shortLabel }));
+}
+
+function RankedPostCard({ post, rank, sortKey, platformFilter }) {
+  const { relative, absolute } = formatRelativeDate(post.published_at);
+  const showPlatformPill = platformFilter === 'all';
+  const platform = post.platform || 'tiktok';
+  const primaryMetric = getPrimaryMetric(post, sortKey);
+  const secondaryMetrics = getSecondaryMetrics(post, sortKey);
+
   return (
     <a
       href={post.post_url || '#'}
@@ -601,20 +625,34 @@ function RankedPostCard({ post, rank, sortKey }) {
       rel="noopener noreferrer"
       className="ranked-post-card"
     >
-      <div className="ranked-post-header">
-        <span className="ranked-post-rank">{rank}.</span>
-        <span className={platformClass}>{post.platform || 'tiktok'}</span>
-        {dateStr && <span className="ranked-post-date">{dateStr}</span>}
-      </div>
-      {post.caption_excerpt && (
-        <p className="ranked-post-caption">{post.caption_excerpt}</p>
-      )}
-      <div className="ranked-post-metrics">
-        <RankedMetric label="Aufrufe" value={formatRankedNumber(post.views)} highlight={sortKey === 'views'} />
-        <RankedMetric label="Reactions" value={formatRankedNumber(post.likes)} highlight={sortKey === 'likes'} />
-        <RankedMetric label="Akt." value={formatRankedPercent(post.activation_rate)} highlight={sortKey === 'activation_rate'} />
-        <RankedMetric label="Komm." value={formatRankedNumber(post.comments)} highlight={sortKey === 'comments'} />
-        <RankedMetric label="Saves" value={formatRankedNumber(post.saves)} highlight={sortKey === 'saves'} />
+      <div className="ranked-post-rank-slot">#{rank}</div>
+
+      <div className="ranked-post-body">
+        <div className="ranked-post-meta">
+          {showPlatformPill && (
+            <span className={`platform-pill platform-${platform}`}>{platform}</span>
+          )}
+          {relative && (
+            <span className="ranked-post-date" title={absolute}>{relative}</span>
+          )}
+        </div>
+
+        {post.caption_excerpt && (
+          <p className="ranked-post-caption">{post.caption_excerpt}</p>
+        )}
+
+        <div className="ranked-post-primary-metric">
+          <strong>{primaryMetric.value}</strong>
+          <span>{primaryMetric.label}</span>
+        </div>
+
+        <div className="ranked-post-secondary-metrics">
+          {secondaryMetrics.map((m) => (
+            <span key={m.key} className="ranked-metric-secondary">
+              {m.value} <span>{m.label}</span>
+            </span>
+          ))}
+        </div>
       </div>
     </a>
   );
@@ -773,7 +811,7 @@ function TopRankingSection({ aggregation, pairKey }) {
           <h4>DE</h4>
           {deSorted.length > 0
             ? deSorted.map((p, i) => (
-                <RankedPostCard key={p.post_url || `de-${i}`} post={p} rank={i + 1} sortKey={sortKey} />
+                <RankedPostCard key={p.post_url || `de-${i}`} post={p} rank={i + 1} sortKey={sortKey} platformFilter={platformFilter} />
               ))
             : <p className="ranking-empty">Keine Daten für DE</p>}
         </div>
@@ -781,7 +819,7 @@ function TopRankingSection({ aggregation, pairKey }) {
           <h4>US</h4>
           {usSorted.length > 0
             ? usSorted.map((p, i) => (
-                <RankedPostCard key={p.post_url || `us-${i}`} post={p} rank={i + 1} sortKey={sortKey} />
+                <RankedPostCard key={p.post_url || `us-${i}`} post={p} rank={i + 1} sortKey={sortKey} platformFilter={platformFilter} />
               ))
             : <p className="ranking-empty">Keine Daten für US</p>}
         </div>
