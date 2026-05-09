@@ -48,6 +48,12 @@ from app.config import settings
 PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/api/health",
     "/api/img",
+    # Sprint 5c — Thumbnail-Proxy. Wird vom Browser direkt aus
+    # ``<img src="/api/thumbnails/{asset_id}">`` gehit, kein Token-
+    # Forwarding möglich. Endpunkt ist nicht offen wie ``/api/img``,
+    # sondern asset-ID-keyed: nur in der DB existierende UUIDs liefern
+    # Daten, alles andere → 404.
+    "/api/thumbnails",
     "/storage",
     "/docs",
     "/redoc",
