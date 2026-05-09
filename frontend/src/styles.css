@@ -419,10 +419,11 @@ a:hover { text-decoration: underline; }
 
 /* Sprint 5a: redesigned card layout. Two-column grid (rank | body) so
    the #N marker reads as a podium; the body stacks meta → caption →
-   primary-metric → secondary-metrics. */
+   primary-metric → secondary-metrics.
+   Sprint 5b: third column for the thumbnail (rank | thumb | body). */
 .ranked-post-card {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto auto 1fr;
   gap: 14px;
   padding: 12px 14px;
   margin-bottom: 8px;
@@ -449,6 +450,52 @@ a:hover { text-decoration: underline; }
   min-width: 40px;
   text-align: left;
   letter-spacing: -0.02em;
+}
+
+/* Sprint 5b: Thumbnail-Slot zwischen Rang und Body. 9:16 weil alle drei
+   Plattformen vertikal sind. Das <img> liegt über dem Plattform-Akronym-
+   Fallback; wenn das Bild fehlt oder onError feuert, wird ``display:none``
+   aufs <img> gesetzt und der Fallback wird sichtbar. Der Slot trägt die
+   Plattform-Klasse zusätzlich, damit der Fallback-Hintergrund
+   theme-unabhängig die Brand-Farbe zeigt (gleiche Tokens wie .platform-*). */
+.ranked-post-thumbnail-slot {
+  position: relative;
+  width: 80px;
+  aspect-ratio: 9 / 16;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.04);
+}
+.ranked-post-thumbnail-slot img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  z-index: 1;
+}
+.ranked-post-thumbnail-slot .thumbnail-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.92);
+  z-index: 0;
+}
+/* Plattform-Akronym-Hintergründe — gleiche Brand-Tokens wie .platform-*. */
+.ranked-post-thumbnail-slot.platform-tiktok .thumbnail-fallback {
+  background: #000;
+}
+.ranked-post-thumbnail-slot.platform-instagram .thumbnail-fallback {
+  background: linear-gradient(45deg, #f09433, #dc2743, #bc1888);
+}
+.ranked-post-thumbnail-slot.platform-youtube .thumbnail-fallback {
+  background: #ff0000;
 }
 
 .ranked-post-body {
@@ -485,6 +532,23 @@ a:hover { text-decoration: underline; }
   color: #7c7468;
   font-size: 12px;
   opacity: 0.75;
+  cursor: help;
+}
+
+/* Sprint 5b: Filmtitel als kursive Zeile über der Caption — bewusst
+   subtil (klein, Akzentfarbe), weil Coverage in Production sehr niedrig
+   ist (1.7-7.4%) und der Titel als Bonus-Information wirken soll, nicht
+   als zentrales Element, das fast immer fehlt. ``cursor: help`` nur,
+   wenn der Hover-Tooltip (title-Attribut) tatsächlich gesetzt ist. */
+.ranked-post-title-inline {
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 500;
+  color: #F26B5E;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.ranked-post-title-inline[title] {
   cursor: help;
 }
 
@@ -555,8 +619,31 @@ a:hover { text-decoration: underline; }
   .ranking-grid { grid-template-columns: 1fr; }
   .ranked-post-card { gap: 10px; padding: 10px 12px; }
   .ranked-post-rank-slot { font-size: 22px; min-width: 30px; }
+  .ranked-post-thumbnail-slot { width: 56px; }
+  .ranked-post-thumbnail-slot .thumbnail-fallback { font-size: 16px; }
+  .ranked-post-title-inline { font-size: 11px; }
   .ranked-post-primary-metric strong { font-size: 18px; }
   .ranked-post-secondary-metrics { gap: 4px 10px; font-size: 11px; }
+}
+
+/* Sprint 5b: schmale Phones — 3 Spalten würden den Body unter 150px
+   pressen. Stattdessen Rang + Thumbnail in einer Zeile, Body darunter
+   über die volle Breite. */
+@media (max-width: 480px) {
+  .ranked-post-card {
+    grid-template-areas:
+      "rank thumb"
+      "body body";
+    grid-template-columns: auto 1fr;
+    gap: 8px 10px;
+  }
+  .ranked-post-rank-slot { grid-area: rank; }
+  .ranked-post-thumbnail-slot {
+    grid-area: thumb;
+    justify-self: end;
+    width: 70px;
+  }
+  .ranked-post-body { grid-area: body; }
 }
 
 /* ---- Sprint 3: HelpTooltip ----

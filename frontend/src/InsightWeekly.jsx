@@ -611,12 +611,26 @@ function getSecondaryMetrics(post, sortKey) {
     .map((def) => ({ key: def.key, value: def.read(post), label: def.shortLabel }));
 }
 
+// Plattform → 2-Letter-Akronym, das im Thumbnail-Fallback erscheint, wenn
+// post.thumbnail_url fehlt oder das Bild beim Laden 404'd. Brand-Farben
+// werden per CSS gesetzt (gleiche Tokens wie .platform-pill).
+const PLATFORM_ACRONYM = { tiktok: 'TT', instagram: 'IG', youtube: 'YT' };
+
 function RankedPostCard({ post, rank, sortKey, platformFilter }) {
   const { relative, absolute } = formatRelativeDate(post.published_at);
   const showPlatformPill = platformFilter === 'all';
   const platform = post.platform || 'tiktok';
   const primaryMetric = getPrimaryMetric(post, sortKey);
   const secondaryMetrics = getSecondaryMetrics(post, sortKey);
+  const hasThumbnail = !!post.thumbnail_url;
+  const hasTitle = !!post.title_local;
+  // Tooltip nur wenn beide Titel vorhanden UND verschieden — die häufigen
+  // Fälle (kein title_original; identische Lokalisierung) erzeugen keine
+  // Hover-Indirektion.
+  const titleTooltip =
+    post.title_original && post.title_original !== post.title_local
+      ? `Original: ${post.title_original}`
+      : undefined;
 
   return (
     <a
@@ -627,6 +641,23 @@ function RankedPostCard({ post, rank, sortKey, platformFilter }) {
     >
       <div className="ranked-post-rank-slot">#{rank}</div>
 
+      <div className={`ranked-post-thumbnail-slot platform-${platform}`}>
+        {hasThumbnail && (
+          <img
+            src={post.thumbnail_url}
+            alt=""
+            loading="lazy"
+            onError={(e) => {
+              // Auf Fetch-Fehler das <img> verstecken; CSS schaltet daraufhin
+              // den Fallback (Plattform-Akronym) sichtbar — siehe styles.css.
+              e.currentTarget.style.display = 'none';
+              e.currentTarget.parentElement?.classList.add('thumbnail-failed');
+            }}
+          />
+        )}
+        <div className="thumbnail-fallback">{PLATFORM_ACRONYM[platform] || 'TT'}</div>
+      </div>
+
       <div className="ranked-post-body">
         <div className="ranked-post-meta">
           {showPlatformPill && (
@@ -636,6 +667,12 @@ function RankedPostCard({ post, rank, sortKey, platformFilter }) {
             <span className="ranked-post-date" title={absolute}>{relative}</span>
           )}
         </div>
+
+        {hasTitle && (
+          <span className="ranked-post-title-inline" title={titleTooltip}>
+            {post.title_local}
+          </span>
+        )}
 
         {post.caption_excerpt && (
           <p className="ranked-post-caption">{post.caption_excerpt}</p>
