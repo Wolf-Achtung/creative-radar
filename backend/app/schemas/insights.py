@@ -22,7 +22,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TopPost(BaseModel):
@@ -347,23 +347,42 @@ class WatchOut(BaseModel):
 
 
 class FuerCutter(BaseModel):
+    """Sprint 7-iter-2: Compliance-Listen (``must_show`` / ``no_go``) raus,
+    stattdessen ``was_diese_woche`` als Fließtext-Absatz. Listen-Schema-
+    Felder erzwingen Bullet-Output, egal was der Prompt sagt; ein Free-
+    Text-Feld zwingt den LLM zur Erzählung. ``extra='ignore'`` lässt
+    persistierte Sprint-1-7-Briefe mit ``must_show``/``no_go`` weiter
+    parsen — die Listen werden beim Re-Hydrate stillschweigend
+    verworfen, das Frontend rendert sie sowieso nicht mehr."""
+    model_config = ConfigDict(extra="ignore")
+
     schnitt_pace: Optional[str] = None
     hook_strategie: Optional[str] = None
     empfohlene_laengen: Optional[str] = None
-    must_show: list[str] = []
-    no_go: list[str] = []
+    was_diese_woche: Optional[str] = None
 
 
 class FuerMotionDesigner(BaseModel):
+    """Sprint 7-iter-2: ``was_diese_woche`` als Fließtext-Absatz analog
+    zu ``FuerCutter``. ``extra='ignore'`` deckt persistierte Briefe ab,
+    falls dort z. B. zukünftig zusätzliche Felder eingebaut wurden."""
+    model_config = ConfigDict(extra="ignore")
+
     caption_style: Optional[str] = None
     text_overlay: Optional[str] = None
     branding_einsatz: Optional[str] = None
+    was_diese_woche: Optional[str] = None
 
 
 class FuerCreativeProducer(BaseModel):
+    """Sprint 7-iter-2: ``was_diese_woche`` als Fließtext-Absatz analog
+    zu ``FuerCutter``. ``extra='ignore'`` für Backwards-Compat."""
+    model_config = ConfigDict(extra="ignore")
+
     strategische_pattern: Optional[str] = None
     cross_market_chancen: Optional[str] = None
     format_empfehlungen: Optional[str] = None
+    was_diese_woche: Optional[str] = None
 
 
 class VergleichbarerPost(BaseModel):
