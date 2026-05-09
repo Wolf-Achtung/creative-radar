@@ -72,7 +72,10 @@ class TMDbClient:
                     "include_video": "false",
                     "release_date.gte": date_from.isoformat(),
                     "release_date.lte": date_to.isoformat(),
-                    "with_release_type": "2|3",
+                    # Sprint 9 (H1): include Digital (4) and TV (6) alongside theatrical
+                    # types so streaming originals and TV-movies enter the title pool.
+                    # Premiere (1) and Physical (5) stay out — low marketing relevance.
+                    "with_release_type": "2|3|4|6",
                     "page": page,
                 },
             )
