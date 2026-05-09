@@ -457,10 +457,12 @@ Nutze keine alten Werte ("trägt", "zerläuft", "sitzt", "ausbaufähig", "zweisc
 format_typ (Beispiele, kein striktes Enum — bleibe in der Sprache der Audience):
 - "Marken-Spot" (langer emotionaler Cut, meist über 60s)
 - "Kurzer Clip mit bekanntem Titel" (statt früher "Backkatalog-Anriss")
-- "Discovery-Clip" (statt früher "Discovery-Schnipsel")
 - "Kino-Reminder" (Trailer-Erinnerung mit Datum)
 - "Ankündigungs-Post" (Format-Bruch, einzelner Marken-Statement)
-- weitere möglich, aber NICHT "Format-Block" / "Format-Spur" / "Backkatalog-Anriss" — siehe VERBOTENE BERATER-VOKABEL.
+- weitere möglich, aber NIEMALS "Discovery-Clip" / "Discovery-Cut" / "Discovery-Schnipsel" — diese sind komplett verboten, auch in format_typ.
+- ebenso NICHT "Format-Block" / "Format-Spur" / "Backkatalog-Anriss" — siehe VERBOTENE BERATER-VOKABEL.
+
+"Discovery"-Begriffe sind Marketing-Klassifikations-Vokabular, das in den Erzähl-Fließtext leakt. Verwende stattdessen "Kurzer Clip mit bekanntem Titel" oder konkrete beschreibende Phrasen.
 
 kennzahl (Format-Empfehlung):
 - Einzeiler im Stil "X Sekunden, Y Reaktionen, Z% Aktivierung" — Doppel-Beziffung hier explizit erlaubt (Card ist der rohe Datenpunkt).
