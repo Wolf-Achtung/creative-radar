@@ -685,6 +685,20 @@ def test_user_prompt_token_budget_under_12k():
         )
 
 
+def test_user_prompt_includes_voice_25_reminder():
+    """Sprint 7 — Voice-2.5-Reminder direkt im User-Prompt-Header.
+    Der System-Prompt trägt die Klausel auch, aber der Reminder
+    direkt vor den Daten greift erfahrungsgemäß stärker als eine
+    Sektion 1500 Tokens weiter oben."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        prompt = insight_engine._build_user_prompt(agg)
+        assert "Schnittraum" in prompt
+        assert "Kaffee" in prompt
+        assert "Voice 2.5" in prompt or "Voice-2.5" in prompt
+
+
 def test_user_prompt_caps_ranked_posts_at_five_per_channel():
     """Sprint-6-Budget-Maßnahme: Top-5 statt Top-10 Posts pro Channel
     im Markdown-Overview. Die Fixture hat 3 US-Posts → alle erscheinen,
@@ -1239,6 +1253,152 @@ def test_anti_pattern_block_unchanged():
         assert forbidden in prompt, (
             f"Anti-Pattern-Begriff '{forbidden}' fehlt im SYSTEM_PROMPT — "
             f"Sprint-3-Liste wurde versehentlich gekürzt."
+        )
+
+
+# ---------- Sprint 7: Voice 2.5 — Berater-Vokabel-Blacklist + Tone --------
+
+
+def _voice_blacklist_section(prompt: str) -> str:
+    """Bereich zwischen 'VERBOTENE BERATER-VOKABEL' und der nächsten
+    Großbuchstaben-Sektion (PLATTFORM-VERGLEICH oder TONALITÄTS-POOL).
+    Wird von mehreren Tests reused."""
+    start = prompt.find("VERBOTENE BERATER-VOKABEL")
+    if start < 0:
+        return ""
+    # Nächster Sektions-Header — wir suchen den nächsten Doppelpunkt nach
+    # einem Wort in ALL CAPS am Zeilenanfang.
+    rest = prompt[start:]
+    end = rest.find("\nPLATTFORM-VERGLEICH")
+    return rest[:end] if end > 0 else rest
+
+
+def test_voice_25_voice_identity_section_present():
+    """Sprint-7-Voice-Identitäts-Sektion ist im Prompt — der
+    Schnittraum-Kaffee-Anker ist die Tone-Quelle für Voice 2.5."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "VOICE-IDENTITÄT" in prompt
+    # Schnittraum-Anker konkret referenziert (nicht nur Sektions-Header).
+    assert "Schnittraum" in prompt
+    assert "Kaffee" in prompt
+
+
+def test_voice_25_blacklist_friedhof():
+    """Friedhof-Vokabel als Berater-Wertbegriff explizit verboten."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert "Friedhof" in blacklist
+
+
+def test_voice_25_blacklist_korridor():
+    """Korridor / Mittelkorridor als Berater-Substantive verboten."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert "Korridor" in blacklist
+
+
+def test_voice_25_blacklist_format_spur_or_block():
+    """Format-Spur / Format-Block als Berater-Klassifikation verboten."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert "Format-Spur" in blacklist or "Format-Block" in blacklist
+
+
+def test_voice_25_blacklist_skalierbar():
+    """``leicht skalierbar`` als Pitch-Vokabel verboten."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert "skalierbar" in blacklist or "skaliert" in blacklist
+
+
+def test_voice_25_blacklist_substantive_ungetueme():
+    """Substantiv-Ungetüme wie ``Aktivierungsverhalten`` /
+    ``Reichweitendynamik`` werden explizit aufgelistet, sonst rutscht
+    der LLM in Berater-Substantive ohne dass die Klausel greift."""
+    blacklist = _voice_blacklist_section(insight_engine.SYSTEM_PROMPT)
+    assert "Aktivierungsverhalten" in blacklist or "Reichweitendynamik" in blacklist
+
+
+def test_voice_25_pseudo_precision_block_present():
+    """Doppel-Beziffung explizit als Anti-Pattern aufgenommen — sonst
+    bleibt der LLM bei der Sprint-3-6-Voice und packt drei Zahlen in
+    einen Atemzug."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "VERBOTENE PSEUDO-PRÄZISION" in prompt
+    assert "Doppel-Beziffung" in prompt
+
+
+def test_voice_25_compliance_structure_block_present():
+    """``Must Show`` / ``No-Go`` als Listen-Header sind verboten —
+    Erzähl-Sektionen sollen Fließtext sein, kein Compliance-Brief."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "VERBOTENE COMPLIANCE-STRUKTUR" in prompt
+    assert "Must Show" in prompt or "No-Go" in prompt
+
+
+def test_voice_25_schema_vocabulary_section_present():
+    """Schema-Vokabel-Hinweis listet die drei Voice-2.5 verdict-Werte
+    explizit auf, damit der LLM sie nicht aus der alten Few-Shot-Mem
+    rekonstruieren muss."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "SCHEMA-VOKABEL" in prompt
+    assert "funktioniert" in prompt
+    assert "kommt nicht an" in prompt
+    assert "noch ausbaufähig" in prompt
+
+
+def test_voice_25_tldr_arc_pattern_present():
+    """TLDR-3-Sätze-Bogen als explizites Pattern im Prompt — Satz 1
+    Beobachtung, Satz 2 Kontrast, Satz 3 Pointe."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "TLDR-STRUKTUR" in prompt
+    # Dreiteilung explizit benannt
+    assert "Satz 1" in prompt
+    assert "Satz 2" in prompt
+    assert "Satz 3" in prompt
+
+
+def test_voice_25_few_shot_uses_new_verdict_values():
+    """Few-Shot-aktuell_im_fokus-Items verwenden ausschließlich die
+    Voice-2.5-verdict-Werte. Alte Werte als verdict-String dürfen nicht
+    mehr im Few-Shot stehen — sonst trainiert der LLM weiter darauf."""
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert '"verdict": "funktioniert"' in few_shot
+    assert '"verdict": "kommt nicht an"' in few_shot
+    # Alte verdict-Strings sollten als JSON-Werte NICHT mehr auftauchen.
+    for old in ('"verdict": "trägt"', '"verdict": "zerläuft"',
+                '"verdict": "sitzt"', '"verdict": "ausbaufähig"',
+                '"verdict": "zweischneidig"'):
+        assert old not in few_shot, (
+            f"Alter verdict-Wert {old!r} ist noch im Few-Shot — "
+            f"Sprint-7-Vokabel-Migration unvollständig."
+        )
+
+
+def test_voice_25_few_shot_no_friedhof_or_korridor():
+    """Few-Shot ist von Berater-Vokabel bereinigt — sonst widerspricht
+    er der Blacklist-Klausel und der LLM nimmt das Beispiel als
+    Lizenz, die Vokabel weiter zu nutzen."""
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert "Friedhof" not in few_shot
+    assert "Korridor" not in few_shot
+    # ``Format-Block`` als Klassifikation auch raus aus dem Few-Shot.
+    assert "Format-Block" not in few_shot
+
+
+def test_voice_25_few_shot_no_double_beziffung_in_tldr():
+    """TLDR enthält keine Drei-Zahlen-Sätze wie '11.200 Reaktionen bei
+    108k Aufrufen — 10,4% Aktivierung'. Heuristik: in einem TLDR-Satz
+    dürfen höchstens zwei Zahlen-Tokens vorkommen, sonst ist die
+    Doppel-Beziffung wieder da."""
+    import re as _re
+    tldr = _extract_few_shot_tldr(insight_engine.SYSTEM_PROMPT)
+    sentences = [s for s in tldr.split(".") if s.strip()]
+    for s in sentences:
+        # Zahlen-Tokens: Sequenzen aus Ziffern, optional Komma/Prozent/k.
+        nums = _re.findall(r"\d[\d.,]*\s*[k%]?", s)
+        # Stripped: nur Tokens, die wirklich numerische Substanz haben
+        # (mind. eine Ziffer + optional %/k).
+        numeric_tokens = [n for n in nums if _re.search(r"\d", n)]
+        assert len(numeric_tokens) <= 2, (
+            f"TLDR-Satz hat {len(numeric_tokens)} Zahlen-Tokens — "
+            f"Doppel-Beziffung-Regression: {s!r} → {numeric_tokens!r}"
         )
 
 
