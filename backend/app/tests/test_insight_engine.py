@@ -606,6 +606,109 @@ def test_user_prompt_mentions_ganz_genau_mode():
         assert "historical_top_posts" in prompt
 
 
+# ---------- Sprint 6: Multi-Plattform user-prompt -------------------------
+
+
+def test_user_prompt_uses_platform_headers():
+    """Sprint 6 — pro Plattform mit Daten gibt es einen ``## TikTok``/
+    ``## Instagram``/``## YouTube``-Header. Multi-Plattform-Awareness im
+    Headline/TLDR setzt voraus, dass der LLM die Plattformen scannen kann
+    statt sie aus der JSON-Struktur abzuleiten."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        prompt = insight_engine._build_user_prompt(agg)
+        # Fixture seedet TikTok-Posts, also muss zumindest der TT-Header da sein.
+        assert "## TikTok" in prompt
+
+
+def test_user_prompt_skips_empty_platform():
+    """Komplett leere Plattformen (kein DE, kein US, keine Cross-Market-
+    Matches) erscheinen NICHT im Prompt — Token-Sparen + kein "Keine
+    Daten"-Filler. Die Fixture hat nur TikTok-Daten; IG/YT-Header dürfen
+    nicht erscheinen, denn die ``per_platform``-Liste enthält sie nicht."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        prompt = insight_engine._build_user_prompt(agg)
+        assert "## Instagram" not in prompt
+        assert "## YouTube" not in prompt
+
+
+def test_user_prompt_includes_title_marker_when_present():
+    """RankedPost mit ``title_local`` wird im Markdown-Overview als
+    ``[*Titel*]`` gerendert — der Marker ist die Eintrittsstelle, an der
+    der LLM erkennt, dass *Titel*-Markup in Headline/TLDR erlaubt ist."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        # Fixture-Title hat title_local=None — nachsetzen für die Assertion.
+        title = data["title"]
+        title.title_local = "Mortal Kombat II"
+        session.add(title)
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        prompt = insight_engine._build_user_prompt(agg)
+        assert "[*Mortal Kombat II*]" in prompt
+
+
+def test_user_prompt_no_title_marker_when_absent():
+    """Posts ohne ``title_local`` haben **keinen** ``[*…*]``-Marker — wir
+    erfinden keine Titel und der Few-Shot demonstriert die Genre-Fallback-
+    Erzählung. Die Fixture-Title hat von Haus aus title_local=None und
+    title_original=Mortal Kombat II — also sollte weder ``[*Mortal Kombat II*]``
+    noch sonstige eckige-Klammern-Marker im Prompt erscheinen."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        prompt = insight_engine._build_user_prompt(agg)
+        # Kein ``[*…*]``-Marker im Top-Posts-Block (egal welcher Titel).
+        # Die Klammer-Marker tauchen ausschließlich um Filmtitel auf.
+        import re as _re
+        assert _re.search(r"\[\*[^*\]]+\*\]", prompt) is None
+
+
+def test_user_prompt_token_budget_under_12k():
+    """Token-Budget-Guard: der komplette Multi-Plattform-Prompt für die
+    Warnerbros-Fixture muss unter 12k Tokens bleiben. ``_estimate_tokens``
+    ist kein echter Tokenizer, aber Zeichen/4 ist die etablierte Faustregel
+    bei Anthropic-Claude-Prompts und genau genug für den Sprint-Guard."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        prompt = insight_engine._build_user_prompt(agg)
+        approx_tokens = len(prompt) / 4
+        assert approx_tokens < 12000, (
+            f"Multi-Platform-Prompt liegt bei ~{approx_tokens:.0f} Tokens — "
+            f"über dem Sprint-6-Budget von 12k. Ranked-Posts-Limit oder "
+            f"Caption-Truncation prüfen."
+        )
+
+
+def test_user_prompt_caps_ranked_posts_at_five_per_channel():
+    """Sprint-6-Budget-Maßnahme: Top-5 statt Top-10 Posts pro Channel
+    im Markdown-Overview. Die Fixture hat 3 US-Posts → alle erscheinen,
+    aber bei mehr als 5 würde die Liste abgeschnitten."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        # Sechs zusätzliche US-Posts hinzufügen, damit der 5er-Cut greift.
+        for i in range(6):
+            _make_post(
+                session, data["us_channel"],
+                caption=f"Filler post #{i} #Filler",
+                likes=100 + i, days_ago=4 + i, url_suffix=f"us-filler-{i}",
+            )
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        prompt = insight_engine._build_user_prompt(agg)
+        # Im US-Block der TikTok-Sektion zählen wir die Top-Posts-Zeilen.
+        import re as _re
+        us_section = prompt.split("### US:")[1].split("###")[0] if "### US:" in prompt else ""
+        post_lines = _re.findall(r"^\s+\d+\.\s", us_section, _re.MULTILINE)
+        assert len(post_lines) <= 5, (
+            f"Erwartet höchstens 5 Top-Posts im US-Block, fand {len(post_lines)}."
+        )
+
+
 def test_generate_surfaces_raw_text_on_parse_failure(monkeypatch):
     """If the model returns non-JSON, the report still resolves but
     ``llm_output`` is None and ``raw_llm_text`` carries the model's
