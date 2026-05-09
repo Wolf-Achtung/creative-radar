@@ -391,21 +391,11 @@ function LLMOutput({ output, raw }) {
           {output.fuer_cutter.empfohlene_laengen && (
             <p><strong>Empfohlene Längen:</strong> {output.fuer_cutter.empfohlene_laengen}</p>
           )}
-          {output.fuer_cutter.must_show?.length > 0 && (
-            <>
-              <p><strong>Must Show:</strong></p>
-              <ul className="insight-list">
-                {output.fuer_cutter.must_show.map((m, i) => <li key={i}>{m}</li>)}
-              </ul>
-            </>
-          )}
-          {output.fuer_cutter.no_go?.length > 0 && (
-            <>
-              <p><strong>No-Go:</strong></p>
-              <ul className="insight-list">
-                {output.fuer_cutter.no_go.map((n, i) => <li key={i}>{n}</li>)}
-              </ul>
-            </>
+          {/* Sprint 7-iter-2: Compliance-Listen (must_show / no_go) ersetzt
+              durch was_diese_woche-Fließtext. Alte persistierte Briefe ohne
+              das Feld rendern den Block einfach nicht — graceful degrade. */}
+          {output.fuer_cutter.was_diese_woche && (
+            <p><strong>Was diese Woche:</strong> {output.fuer_cutter.was_diese_woche}</p>
           )}
         </div>
       )}
@@ -422,6 +412,9 @@ function LLMOutput({ output, raw }) {
           {output.fuer_motion_designer.branding_einsatz && (
             <p><strong>Branding-Einsatz:</strong> {output.fuer_motion_designer.branding_einsatz}</p>
           )}
+          {output.fuer_motion_designer.was_diese_woche && (
+            <p><strong>Was diese Woche:</strong> {output.fuer_motion_designer.was_diese_woche}</p>
+          )}
         </div>
       )}
 
@@ -436,6 +429,9 @@ function LLMOutput({ output, raw }) {
           )}
           {output.fuer_creative_producer.format_empfehlungen && (
             <p><strong>Format-Empfehlungen:</strong> {output.fuer_creative_producer.format_empfehlungen}</p>
+          )}
+          {output.fuer_creative_producer.was_diese_woche && (
+            <p><strong>Was diese Woche:</strong> {output.fuer_creative_producer.was_diese_woche}</p>
           )}
         </div>
       )}
