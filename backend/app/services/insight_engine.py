@@ -357,6 +357,18 @@ ANTI-PATTERN HEADLINE/TLDR (zusätzlich zu den oben genannten — gilt NUR für 
 - Engagement-Sum / engagement_sum (sag konkret die Zahlen: Likes plus Kommentare plus Saves)
 Diese vier Begriffe sind in den Detail-Sektionen (``fuer_cutter``, ``fuer_motion_designer``, ``fuer_creative_producer``, ``tonalitaet``, ``vergleichbare_posts``, ``ganz_konkret``) erlaubt — dort ist die Cutter- und Producer-Voice gewünscht. In Headline und TLDR aber nicht: dort schreibst du für GF und CD, nicht für den Schnitt.
 
+PLATTFORM-VERGLEICH (Sprint 6 — gilt vor allem für ``headline`` und ``tldr``, optional für ``cross_market_insight``):
+- Headline und TLDR dürfen Plattform-Asymmetrien thematisieren, wenn sie sichtbar tragen (z. B. "TT zieht, IG bleibt schwach", "YT noch nicht aktiviert"). Im User-Prompt sind die Plattformen als ``## TikTok`` / ``## Instagram`` / ``## YouTube``-Header markiert.
+- Nicht jede Plattform muss in Headline oder TLDR erwähnt werden — fokussiere auf das, was die Story trägt. Single-Plattform-Headlines bleiben erlaubt, wenn nur dort die Bewegung sichtbar ist.
+- Eine Plattform darf nur erwähnt werden, wenn sie im User-Prompt als Header existiert. Komplett leere Plattformen sind dort ausgelassen — erfinde keine Aktivität auf einer Plattform, die im Prompt fehlt.
+- YouTube hat strukturell keine Saves/Shares — die Aktivierungs-Rate dort ist (Likes + Kommentare) / Views, nicht (Likes + Kommentare + Saves) / Views. Vergleiche YT-Aktivierungsraten daher nicht 1:1 mit TT/IG-Werten ohne Hinweis auf den methodischen Unterschied.
+
+FILMTITEL (Sprint 6 — gilt für ``headline`` und ``tldr``):
+- Wenn Top-Posts im User-Prompt einen Filmtitel als ``[*Titel*]``-Marker tragen, DARFST du den Titel in Headline/TLDR mit ``*Titel*``-Markup nennen (z. B. *Drawn to You*, *Mortal Kombat II*). Konkretion ist erlaubt, aber NICHT Pflicht.
+- Title-Match-Coverage liegt in der Praxis bei 1.7-7.4 % (TikTok/Instagram/YouTube) — die meisten Top-Posts haben keinen Filmtitel. Wenn der ``[*Titel*]``-Marker fehlt, erzähle die Story mit Genre/Format-Sprache: "Backkatalog-Anriss", "Make-A-Wish-Klammer", "Mandalorian-Reminder", "Live-Action-Hook". Das ist die Default-Erzählung, kein Notbehelf.
+- Erfinde keine Titel — nur was im User-Prompt als ``[*Titel*]`` markiert ist. Wenn ein Post als "Mandalorian-Reminder" charakterisiert wird, schreibe das im Fließtext (kein Sternchen), aber **nicht** ``*Mandalorian*``, wenn der Marker fehlt.
+- Maximal zwei ``*Titel*``-Markups in der Summe aus Headline + TLDR — sonst wirkt der Brief überladen.
+
 TONALITÄTS-POOL — wähle 3-5 Adjektive aus diesem Pool, jedes mit Daten-Begründung:
 authentisch, unbequem, berührend, auffordernd, sophisticated, mysterious, cinematisch, hochwertig, emotional, spannend, action-reich, humorvoll, präzise, international, erfahren.
 
@@ -488,8 +500,8 @@ Wenn die Datengrundlage zu dünn ist (Coverage <30%, <5 Posts pro Markt, keine C
 FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein echter Report; in deinem Output bitte vollständig in der Länge):
 
 {
-  "headline": "Disney US zieht 10% Aktivierung, DE bleibt bei knapp 7%",
-  "tldr": "Disney US erreicht eine Aktivierungs-Rate von 10,3% — ein Spitzenwert, der nicht allein aus der größeren US-Reichweite erklärt ist. Die DE-Posts bleiben bei knapp 7%, obwohl das Material aus denselben Kampagnen stammt. Die Lücke liegt vermutlich in der Hook-Strategie der ersten drei Sekunden, nicht im Format-Mix.",
+  "headline": "Disney US zieht 33k mit *Drawn to You*, IG bleibt bei vier Posts schwach",
+  "tldr": "Der TT-US-Kanal trägt diese Woche eine echte Marken-Erzählung — Make-A-Wish *Drawn to You* holt 33k Reaktionen bei 113 Sekunden, parallel laufen kurze Backkatalog-Anrisse mit 8-15k Views. DE bleibt auf TT bei sieben Mandalorian-Reminder-Posts und vier IG-Anrissen ohne klaren Marken-Bezug, YT-DE fehlt komplett im Fenster. US-Befund mitnehmen: Marken-Spots tragen, kurze Backkatalog-Anrisse holen Reichweite.",
   "aktuell_im_fokus": [
     {
       "titel": "The Mandalorian and Grogu",
@@ -1448,24 +1460,157 @@ def _empty_title_coverage() -> TitleCoverage:
 # ---------- LLM call --------------------------------------------------------
 
 
-def _build_user_prompt(agg: PairAggregation) -> str:
-    """Compact data dump for the LLM. Keep it tabular so the model can
-    reference exact numbers in evidence-fields without hallucinating
-    counts. JSON is fine for the tabular parts, prose for the framing."""
-    payload = agg.model_dump(mode="json")
-    framing = (
-        f"Generiere den ausführlichen Wochenreport für {agg.pair_label} "
-        f"(Plattform: {agg.platform.upper()}), KW {agg.iso_week}/{agg.iso_year}, "
-        f"Datenfenster {agg.window_days} Tage "
-        f"({agg.window_start.date().isoformat()} bis {agg.window_end.date().isoformat()}).\n\n"
-        "Modus: 'ganz genau' — gib alle Sektionen vollständig aus, ca. "
-        "1500-2000 Wörter Gesamtoutput. Halte dich an Voice, Glossar und \n"
-        "Anti-Pattern aus dem System-Prompt. Nutze das Feld "
-        "``de_channel.historical_top_posts`` und ``us_channel.historical_top_posts`` \n"
-        "als Quelle für die ``vergleichbare_posts``-Sektion.\n\n"
-        "Datenpaket (JSON):\n"
+def _format_ranked_post_line(idx: int, p: RankedPost) -> str:
+    """Sprint 6 — kompakte Top-Posts-Zeile pro Plattform mit
+    ``[*Filmtitel*]``-Marker, wenn ``title_local`` gesetzt ist.
+
+    Format: ``  i. Xk views, Yk likes, Z.Z% akt., {duration}s [*Titel*]``
+    Caption-Auszug folgt eingerückt darunter (max 80 Zeichen)."""
+    views = int(p.views or 0)
+    likes = int(p.likes or 0)
+    akt_pct = (p.activation_rate or 0.0) * 100
+    duration = f", {p.duration_seconds}s" if p.duration_seconds else ""
+    title_marker = f" [*{p.title_local}*]" if p.title_local else ""
+    line = (
+        f"  {idx}. {views:,} views, {likes:,} likes, "
+        f"{akt_pct:.1f}% akt.{duration}{title_marker}"
     )
-    return framing + json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+    if p.caption_excerpt:
+        excerpt = p.caption_excerpt.strip()
+        if len(excerpt) > 80:
+            excerpt = excerpt[:80].rstrip() + "…"
+        line += f"\n     \"{excerpt}\""
+    return line
+
+
+def _format_channel_section(market: str, stats: ChannelStats, platform: str) -> str:
+    """Sprint 6 — kompakte Channel-Sektion: Header mit aggregierten
+    Kennzahlen, dann Top-5 Ranked Posts (limitiert für Token-Budget),
+    dann Top-Hashtags inline. Historische Top-Posts wandern in den
+    JSON-Anhang (siehe ``_build_user_prompt``), damit
+    ``vergleichbare_posts`` darauf zurückgreifen kann."""
+    avg_eng = float(stats.avg_engagement or 0.0)
+    avg_act_pct = (stats.avg_activation_rate or 0.0) * 100
+    coverage = stats.coverage_pct
+    lines = [
+        f"### {market}: @{stats.handle} — {stats.posts_count} Posts, "
+        f"avg engagement {avg_eng:.0f}, avg activation {avg_act_pct:.1f}%, "
+        f"coverage {coverage:.0f}%",
+    ]
+    ranked = stats.ranked_posts[:5]
+    if ranked:
+        lines.append("Top Posts:")
+        for i, p in enumerate(ranked, 1):
+            lines.append(_format_ranked_post_line(i, p))
+    if stats.top_hashtags:
+        tags = ", ".join(f"#{h.tag} ({h.count})" for h in stats.top_hashtags[:5])
+        lines.append(f"Top-Hashtags: {tags}")
+    return "\n".join(lines)
+
+
+def _format_cross_market_block(matches: list[CrossMarketMatch]) -> str:
+    """Sprint 6 — Cross-Market-Matches kompakt unter dem jeweiligen
+    Plattform-Block. Maximum 5 Einträge, fehlende Engagement-Werte fallen
+    auf 0 zurück."""
+    if not matches:
+        return ""
+    lines = ["Cross-Market Matches:"]
+    for m in matches[:5]:
+        title = m.title or "[ohne Titel]"
+        lines.append(
+            f"  - {title}: DE {m.de_engagement} vs. US {m.us_engagement}"
+        )
+    return "\n".join(lines)
+
+
+_PLATFORM_HEADER_LABEL = {"tiktok": "TikTok", "instagram": "Instagram", "youtube": "YouTube"}
+
+
+def _build_user_prompt(agg: PairAggregation) -> str:
+    """Sprint 6 — strukturierter Multi-Plattform-Datenblock plus JSON-Anhang.
+
+    Aufbau:
+
+      1. Framing (Pair, KW, Modus-Hinweis "ganz genau", Verweis auf Voice/
+         Anti-Pattern aus dem System-Prompt).
+      2. Pro Plattform (in der Reihenfolge ``per_platform``) ein
+         ``## TikTok`` / ``## Instagram`` / ``## YouTube``-Block mit den
+         vorhandenen DE/US-Channel-Sektionen. **Komplett leere Plattformen
+         (weder DE noch US, kein Match) werden ausgelassen** — das spart
+         Tokens und vermeidet "Keine Daten"-Filler im Prompt.
+      3. Top-5 Ranked Posts pro Channel (statt Top-10 wie in Sprint 1-5)
+         mit ``[*Filmtitel*]``-Marker, wenn ``title_local`` gesetzt ist.
+         Token-Budget bleibt bei Multi-Plattform-Pairs unter 12k input.
+      4. JSON-Datenanhang: vollständige ``PairAggregation`` als
+         strukturierter Backup-Quell für die Detail-Sektionen. Headline/
+         TLDR scannen den Markdown-Teil oben, Detail-Sektionen holen sich
+         ``historical_top_posts`` etc. aus dem JSON.
+
+    Sprint 1 hat hier nur den JSON-Dump abgelegt; Sprint 4 hat
+    ``per_platform`` ergänzt, aber der LLM musste den Block in der
+    JSON-Struktur "finden". Sprint 6 hebt das vor — Multi-Plattform-
+    Asymmetrien sind so direkt scannbar und das Few-Shot kann Plattform-
+    Headern als Anker referenzieren.
+    """
+    framing = (
+        f"Generiere den ausführlichen Wochenreport für {agg.pair_label}, "
+        f"KW {agg.iso_week}/{agg.iso_year}, Datenfenster {agg.window_days} Tage "
+        f"({agg.window_start.date().isoformat()} bis {agg.window_end.date().isoformat()}).\n\n"
+        "Modus: 'ganz genau' — gib alle Sektionen vollständig aus, ca. 1500-2000 "
+        "Wörter Gesamtoutput. Halte dich an Voice, Glossar und Anti-Pattern aus "
+        "dem System-Prompt. Plattform-Vergleich ist erlaubt, wenn er sichtbar "
+        "trägt — siehe Multi-Plattform-Klausel im System-Prompt. Filmtitel "
+        "(in den Top-Posts in eckigen Klammern + Sternchen markiert) darfst "
+        "du in Headline/TLDR mit Sternchen-Markup nutzen, wenn vorhanden — "
+        "siehe Filmtitel-Klausel.\n\n"
+        "Daten pro Plattform folgen. Komplett leere Plattformen sind ausgelassen.\n"
+    )
+
+    sections: list[str] = [framing]
+
+    per_platform = agg.per_platform or []
+    for platform_agg in per_platform:
+        platform = platform_agg.platform
+        de = platform_agg.de_channel
+        us = platform_agg.us_channel
+        cross_matches = platform_agg.cross_market_matches or []
+
+        de_has_data = bool(de and de.posts_count)
+        us_has_data = bool(us and us.posts_count)
+        if not de_has_data and not us_has_data and not cross_matches:
+            # Plattform komplett leer (z. B. YT-DE bei Disney/Prime/Paramount,
+            # ohne dass irgendeine Seite Posts oder Matches hätte) — auslassen.
+            continue
+
+        label = _PLATFORM_HEADER_LABEL.get(platform, platform.title())
+        block = [f"## {label}"]
+        if de_has_data:
+            block.append(_format_channel_section("DE", de, platform))
+        if us_has_data:
+            block.append(_format_channel_section("US", us, platform))
+        cross_text = _format_cross_market_block(cross_matches)
+        if cross_text:
+            block.append(cross_text)
+        sections.append("\n".join(block))
+
+    if agg.notes:
+        sections.append("## Notes\n" + "\n".join(f"- {n}" for n in agg.notes))
+
+    # JSON-Anhang behält die volle Struktur — Detail-Sektionen
+    # (``vergleichbare_posts``, ``ganz_konkret``) referenzieren
+    # ``historical_top_posts``, ``title_coverage`` und weitere Aggregat-
+    # Felder, die im Markdown-Overview bewusst fehlen, um den
+    # Headline/TLDR-Scan kompakt zu halten.
+    payload = agg.model_dump(mode="json")
+    sections.append(
+        "## Vollständiger Datenanhang (JSON)\n"
+        "Detail-Sektionen (vergleichbare_posts, ganz_konkret, fuer_cutter) "
+        "stützen sich auf diesen Block, insbesondere die "
+        "``historical_top_posts``-Listen pro Channel.\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+    )
+
+    return "\n\n".join(sections)
 
 
 def _strip_codefence(text: str) -> str:
