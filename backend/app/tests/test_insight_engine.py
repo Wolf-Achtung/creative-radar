@@ -1114,6 +1114,134 @@ def test_few_shot_tldr_max_three_sentences():
         f"few-shot tldr has {len(sentences)} sentences (> 3): {tldr!r}"
 
 
+# ---------- Sprint 6: Multi-Plattform-Voice + Filmtitel-Klausel ------------
+
+
+def test_system_prompt_has_multi_platform_clause():
+    """Sprint 6 — Headline/TLDR dürfen Plattform-Asymmetrien thematisieren.
+    Die Klausel macht das explizit, sonst bleibt der LLM beim Sprint-1-3-
+    Default und schreibt single-platform TT-Headlines."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "PLATTFORM-VERGLEICH" in prompt
+    # Plattform-Header-Marker werden im User-Prompt verwendet — der
+    # System-Prompt referenziert sie als Anker.
+    assert "## TikTok" in prompt
+    assert "## Instagram" in prompt
+    assert "## YouTube" in prompt
+
+
+def test_system_prompt_has_youtube_activation_caveat():
+    """YT hat strukturell keine Saves/Shares — der LLM darf YT-Akt-Raten
+    nicht 1:1 mit TT/IG-Werten vergleichen, wenn die Formel-Asymmetrie
+    nicht erwähnt wird."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    # Eine der beiden Formeln muss im Prompt benannt sein, damit der
+    # Hinweis konkret bleibt statt nur "YT ist anders".
+    assert "(Likes + Kommentare) / Views" in prompt
+
+
+def test_system_prompt_has_film_title_clause():
+    """Filmtitel-Klausel mit Coverage-Hinweis — Konkretion erlaubt
+    (``*Titel*``-Markup), aber NICHT Pflicht. Coverage in der Praxis
+    wird explizit benannt, damit der LLM den Genre/Format-Fallback als
+    Default-Erzählung versteht und nicht als Notbehelf."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "FILMTITEL" in prompt
+    assert "[*Titel*]" in prompt  # User-Prompt-Marker referenziert
+    assert "*Titel*" in prompt    # Output-Markup-Format
+    # Coverage-Realität benannt — der LLM weiß, dass title-arme Briefe der
+    # Default-Fall sind und Genre-Sprache nicht als Schwäche gelesen wird.
+    assert "1.7-7.4" in prompt or "1,7-7,4" in prompt
+
+
+def test_system_prompt_forbids_inventing_titles():
+    """Der LLM darf nur ``*Titel*``-Markup nutzen, wenn der ``[*Titel*]``-
+    Marker im User-Prompt steht. Andernfalls erfindet er sonst Titel
+    aus Hashtag-Hinweisen oder Caption-Fragmenten."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "Erfinde keine Titel" in prompt
+
+
+def test_few_shot_includes_multiple_platforms():
+    """Few-Shot-Headline + TLDR referenzieren mindestens zwei der drei
+    Plattformen — sonst bleibt das Beispiel im Sprint-1-3-Single-
+    Plattform-Modus und der LLM lernt die Multi-Plattform-Klausel
+    nicht."""
+    fs = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    headline = _extract_few_shot_headline(insight_engine.SYSTEM_PROMPT)
+    tldr = _extract_few_shot_tldr(insight_engine.SYSTEM_PROMPT)
+    combined = (headline + " " + tldr).lower()
+    mentions = sum(
+        1 for token in ("tiktok", " tt ", "tt-", "instagram", " ig ", "ig-",
+                        "youtube", " yt ", "yt-")
+        if token in combined
+    )
+    assert mentions >= 2, (
+        f"Few-Shot Headline+TLDR nennt keine zwei Plattformen — bleibt "
+        f"single-platform: {headline!r} / {tldr!r}"
+    )
+
+
+def test_few_shot_uses_title_markup_at_least_once():
+    """Mindestens 1× ``*Titel*``-Markup in Headline oder TLDR demonstriert
+    das Format. Coverage in der Praxis ist niedrig — der Few-Shot zeigt
+    aber, wie es aussieht, wenn ein Top-Post tatsächlich einen Titel
+    trägt."""
+    headline = _extract_few_shot_headline(insight_engine.SYSTEM_PROMPT)
+    tldr = _extract_few_shot_tldr(insight_engine.SYSTEM_PROMPT)
+    combined = headline + " " + tldr
+    import re as _re
+    # Ein nicht-leeres ``*…*``-Markup. Strikter Match: keine Sternchen in
+    # JSON-Strukturen, nur als Wortgrenze.
+    assert _re.search(r"\*[A-Za-zÄÖÜäöüß][^*]+\*", combined), (
+        f"Kein *Titel*-Markup im Few-Shot Headline+TLDR: {combined!r}"
+    )
+
+
+def test_few_shot_demonstrates_no_title_fallback():
+    """Genre/Format-Sprache als Fallback-Demo: bei niedriger Coverage
+    erzählt der LLM mit "Backkatalog-Anriss", "Reminder", "Klammer",
+    "Spot" — der Few-Shot zeigt mindestens einen dieser Begriffe in
+    Headline+TLDR, sonst lernt der LLM die Klausel nur theoretisch."""
+    headline = _extract_few_shot_headline(insight_engine.SYSTEM_PROMPT)
+    tldr = _extract_few_shot_tldr(insight_engine.SYSTEM_PROMPT)
+    combined = headline + " " + tldr
+    fallback_terms = ["Anriss", "Reminder", "Backkatalog", "Klammer",
+                      "Spot", "Hook"]
+    hits = [t for t in fallback_terms if t in combined]
+    assert hits, (
+        f"Kein Genre/Format-Fallback-Term im Few-Shot — der LLM lernt "
+        f"die Filmtitel-Coverage-Klausel nur theoretisch: {combined!r}"
+    )
+
+
+def test_few_shot_max_two_title_markups():
+    """Maximal zwei ``*Titel*``-Markups in Headline + TLDR — sonst wirkt
+    der Brief überladen und der LLM lernt das Limit nicht aus dem
+    Beispiel."""
+    headline = _extract_few_shot_headline(insight_engine.SYSTEM_PROMPT)
+    tldr = _extract_few_shot_tldr(insight_engine.SYSTEM_PROMPT)
+    combined = headline + " " + tldr
+    import re as _re
+    matches = _re.findall(r"\*[A-Za-zÄÖÜäöüß][^*]+\*", combined)
+    assert len(matches) <= 2, (
+        f"Few-Shot hat {len(matches)} *Titel*-Markups (> 2): {matches!r}"
+    )
+
+
+def test_anti_pattern_block_unchanged():
+    """Sprint-3-Anti-Pattern-Liste bleibt intakt — Sprint 6 erweitert,
+    aber löscht nicht. Coverage / Cross-Market Match / Längen-Bucket /
+    Engagement-Sum sind in Headline+TLDR weiterhin verboten."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    for forbidden in ("Coverage", "Cross-Market Match",
+                      "Längen-Bucket", "Engagement-Sum"):
+        assert forbidden in prompt, (
+            f"Anti-Pattern-Begriff '{forbidden}' fehlt im SYSTEM_PROMPT — "
+            f"Sprint-3-Liste wurde versehentlich gekürzt."
+        )
+
+
 # ---------- Sprint 4: Multi-Plattform PAIRS ---------------------------------
 
 
