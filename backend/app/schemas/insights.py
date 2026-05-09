@@ -19,9 +19,10 @@ schemas without changes; the only thing that grows is the lookup map in
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TopPost(BaseModel):
@@ -247,23 +248,79 @@ class SchnittAufgabe(BaseModel):
     bezug: Optional[str] = None
 
 
+class VerdictEnum(str, Enum):
+    """Sprint 7 — Voice-2.5-Verdict-Vokabular.
+
+    Vorher (Sprint 1-6): freier String, in der Praxis ``trägt`` /
+    ``zerläuft`` / ``sitzt`` / ``ausbaufähig`` / ``zweischneidig``.
+    Wolf-Kritikpunkt: "Friedhof"-/"zerläuft"-Vokabel ist Berater-
+    Sprache, nicht das, was er einem Cutter im Schnittraum sagen
+    würde. Die drei neuen Werte sind bewusst alltagssprachlich.
+
+    Backwards-Compat siehe ``TitelImFokus.normalize_old_verdict`` —
+    persistierte Briefe aus Sprint 1-6 enthalten die alten Werte und
+    werden beim Re-Hydrate auf die neuen drei normalisiert.
+    """
+    FUNKTIONIERT = "funktioniert"
+    KOMMT_NICHT_AN = "kommt nicht an"
+    NOCH_AUSBAUFAEHIG = "noch ausbaufähig"
+
+
+_VERDICT_BACKCOMPAT_MAP: dict[str, str] = {
+    # Sprint 1-3 hatten drei Werte. Sprint-Trailerhaus-Prompt-v2.2
+    # erweiterte um zwei weitere; alle fünf werden auf die neuen drei
+    # gemappt, damit kein persistierter Brief beim Re-Hydrate platzt.
+    "trägt": VerdictEnum.FUNKTIONIERT.value,
+    "sitzt": VerdictEnum.FUNKTIONIERT.value,
+    "zerläuft": VerdictEnum.KOMMT_NICHT_AN.value,
+    "ausbaufähig": VerdictEnum.NOCH_AUSBAUFAEHIG.value,
+    "zweischneidig": VerdictEnum.NOCH_AUSBAUFAEHIG.value,
+}
+
+
 class TitelImFokus(BaseModel):
     """Ein Titel, eine Kampagne oder ein Format-Block, der diese Woche
     sichtbar im Material auftaucht. Sektion 'Worum geht's diese Woche'
     gibt einem Cutter in 10 Sekunden Ueberblick, welche konkreten Titel
     in den Aufgaben weiter unten gemeint sind.
     Sprint-Trailerhaus-Prompt-v2.2.
-    
+
     post_url (v2.4): URL des Referenz-Posts, falls vorhanden. Macht den
     Titel im Frontend klickbar — Cutter kann den Spot direkt ansehen.
-    Nur exakte URLs aus dem Input verwenden, niemals erfinden."""
+    Nur exakte URLs aus dem Input verwenden, niemals erfinden.
+
+    verdict (Sprint 7): Voice-2.5 Vokabular — "funktioniert" /
+    "kommt nicht an" / "noch ausbaufähig". Alte Werte aus Sprint 1-6
+    werden via ``normalize_old_verdict`` auf die neuen drei
+    normalisiert."""
     titel: str
     markt: str
     format_typ: str
     kennzahl: str
     release_datum: Optional[str] = None
-    verdict: Optional[str] = None
+    verdict: Optional[VerdictEnum] = None
     post_url: Optional[str] = None
+
+    @field_validator("verdict", mode="before")
+    @classmethod
+    def normalize_old_verdict(cls, v):
+        """Sprint-1-6-Briefe haben ``trägt``/``sitzt``/``zerläuft``/
+        ``ausbaufähig``/``zweischneidig`` im verdict-Feld. Sprint 7
+        normalisiert vor der Enum-Validation auf die neuen drei
+        Werte; alles andere geht unverändert durch und stolpert dann
+        ggf. über die Standard-Enum-Validation (das ist Absicht: ein
+        unbekannter neuer Wert soll laut auffallen, nicht silently
+        durchgehen)."""
+        if v is None:
+            return v
+        if isinstance(v, VerdictEnum):
+            return v
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped in _VERDICT_BACKCOMPAT_MAP:
+                return _VERDICT_BACKCOMPAT_MAP[stripped]
+            return stripped
+        return v
 
 
 
