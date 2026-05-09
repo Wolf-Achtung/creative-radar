@@ -481,11 +481,22 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
-  font-weight: 700;
+  /* Sprint 5d: Padding standardmäßig für die Text-Stufen (Title /
+     Caption). Das Akronym bekommt sein Padding zurückgesetzt, damit
+     die 22px-Letter zentriert bleiben statt im Padding zu kleben. */
+  padding: 8px;
+  box-sizing: border-box;
   letter-spacing: 0.04em;
   color: rgba(255, 255, 255, 0.92);
   z-index: 0;
+}
+/* Sprint 5d: Sichtbarkeit über React-State, nicht mehr über DOM-Mutation.
+   Vorher schaltete onError per classList.add('thumbnail-failed') den
+   Fallback per :not(:has(img)) frei — jetzt setzt der Card-State
+   ``imageFailed`` die Klasse ``fallback-active`` direkt im Markup, und
+   das <img> wird erst gar nicht gerendert, wenn der Fallback greift. */
+.ranked-post-thumbnail-slot.fallback-active .thumbnail-fallback {
+  z-index: 1;
 }
 /* Plattform-Akronym-Hintergründe — gleiche Brand-Tokens wie .platform-*. */
 .ranked-post-thumbnail-slot.platform-tiktok .thumbnail-fallback {
@@ -496,6 +507,52 @@ a:hover { text-decoration: underline; }
 }
 .ranked-post-thumbnail-slot.platform-youtube .thumbnail-fallback {
   background: #ff0000;
+}
+
+/* Sprint 5d: Inhaltsstyle pro Fallback-Stufe.
+   Stufe 4 (Akronym) bleibt visuell identisch zu Sprint 5b — fett,
+   gross, white opacity ~0.9. Stufe 2 (Titel) und Stufe 3 (Caption)
+   sind ein neuer Pfad: kleinere Schrift, mehrzeilig truncated mit
+   ``-webkit-line-clamp``, Title kursiv damit der Slot trotz Brand-
+   Hintergrund nicht wie ein Akronym wirkt. */
+.thumbnail-fallback-content.fallback-acronym {
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: center;
+}
+.thumbnail-fallback-content.fallback-title {
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.2;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  hyphens: auto;
+}
+.thumbnail-fallback-content.fallback-caption {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+  line-height: 1.2;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  hyphens: auto;
+}
+/* Akronym-Slot braucht kein Padding — die Fallback-Klasse landet vom
+   Card-State direkt am Slot, also können wir hier ohne :has() targeten. */
+.ranked-post-thumbnail-slot.fallback-acronym .thumbnail-fallback {
+  padding: 0;
+  letter-spacing: normal;
 }
 
 .ranked-post-body {
@@ -620,7 +677,18 @@ a:hover { text-decoration: underline; }
   .ranked-post-card { gap: 10px; padding: 10px 12px; }
   .ranked-post-rank-slot { font-size: 22px; min-width: 30px; }
   .ranked-post-thumbnail-slot { width: 56px; }
-  .ranked-post-thumbnail-slot .thumbnail-fallback { font-size: 16px; }
+  /* Sprint 5d: 56px-Slot ist zu schmal für 4 Zeilen 12px-Text — auf
+     11px / 3 Zeilen kürzen, damit nichts überläuft. */
+  .ranked-post-thumbnail-slot .thumbnail-fallback { padding: 6px; }
+  .thumbnail-fallback-content.fallback-acronym { font-size: 16px; }
+  .thumbnail-fallback-content.fallback-title {
+    font-size: 11px;
+    -webkit-line-clamp: 3;
+  }
+  .thumbnail-fallback-content.fallback-caption {
+    font-size: 10px;
+    -webkit-line-clamp: 3;
+  }
   .ranked-post-title-inline { font-size: 11px; }
   .ranked-post-primary-metric strong { font-size: 18px; }
   .ranked-post-secondary-metrics { gap: 4px 10px; font-size: 11px; }
@@ -644,6 +712,12 @@ a:hover { text-decoration: underline; }
     width: 70px;
   }
   .ranked-post-body { grid-area: body; }
+  /* Sprint 5d: Stack-Layout schenkt dem Slot wieder vertikalen Platz —
+     der 70px-Slot bei 9:16 ist 124px hoch, also passen wieder 4 Zeilen. */
+  .thumbnail-fallback-content.fallback-title,
+  .thumbnail-fallback-content.fallback-caption {
+    -webkit-line-clamp: 4;
+  }
 }
 
 /* ---- Sprint 3: HelpTooltip ----
