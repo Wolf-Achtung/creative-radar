@@ -685,6 +685,20 @@ def test_user_prompt_token_budget_under_12k():
         )
 
 
+def test_user_prompt_includes_voice_25_reminder():
+    """Sprint 7 — Voice-2.5-Reminder direkt im User-Prompt-Header.
+    Der System-Prompt trägt die Klausel auch, aber der Reminder
+    direkt vor den Daten greift erfahrungsgemäß stärker als eine
+    Sektion 1500 Tokens weiter oben."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        prompt = insight_engine._build_user_prompt(agg)
+        assert "Schnittraum" in prompt
+        assert "Kaffee" in prompt
+        assert "Voice 2.5" in prompt or "Voice-2.5" in prompt
+
+
 def test_user_prompt_caps_ranked_posts_at_five_per_channel():
     """Sprint-6-Budget-Maßnahme: Top-5 statt Top-10 Posts pro Channel
     im Markdown-Overview. Die Fixture hat 3 US-Posts → alle erscheinen,

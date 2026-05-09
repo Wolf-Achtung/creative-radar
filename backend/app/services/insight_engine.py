@@ -1620,6 +1620,16 @@ def _build_user_prompt(agg: PairAggregation) -> str:
         "(in den Top-Posts in eckigen Klammern + Sternchen markiert) darfst "
         "du in Headline/TLDR mit Sternchen-Markup nutzen, wenn vorhanden — "
         "siehe Filmtitel-Klausel.\n\n"
+        # Sprint 7 — Voice-2.5 Reminder direkt im User-Prompt: erzähl es,
+        # wie du es einem Kollegen im Trailerhaus-Schnittraum bei einem
+        # Kaffee sagen würdest. Persönlich, konkret, von Mensch zu Mensch.
+        # Wiederholt absichtlich den Anker aus VOICE-IDENTITÄT im
+        # System-Prompt — der Reminder direkt vor den Daten greift
+        # erfahrungsgemäß stärker als die Sektion 1500 Tokens weiter oben.
+        "Erinnerung Voice 2.5: erzähle, wie du es einem Kollegen im "
+        "Trailerhaus-Schnittraum bei einem Kaffee sagen würdest. "
+        "Persönlich, konkret, von Mensch zu Mensch — keine Berater-Folie, "
+        "keine Doppel-Beziffung in einem Atemzug, keine Compliance-Listen.\n\n"
         "Daten pro Plattform folgen. Komplett leere Plattformen sind ausgelassen.\n"
     )
 
