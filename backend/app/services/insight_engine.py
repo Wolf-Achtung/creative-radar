@@ -147,23 +147,26 @@ PAIRS: dict[str, dict[str, Any]] = {
         "label": "primevideo DE+US",
         "platforms": {
             "tiktok": [
-                {"handle": "primevideo", "market": "US"},
+                # Sprint 10c: US-Seite auf Cinema-Master @amazonmgmstudios
+                # umgestellt (war @primevideo Streaming-Catalog). DB-Channel
+                # für TT/IG/YT US wurde in Sprint 10c-pre per SQL angelegt.
+                {"handle": "amazonmgmstudios", "market": "US"},
                 {"handle": "primevideode", "market": "DE"},
             ],
             "instagram": [
-                {"handle": "primevideo", "market": "US"},
+                {"handle": "amazonmgmstudios", "market": "US"},
                 {"handle": "primevideode", "market": "DE"},
             ],
             # No DE-side YouTube channel for Prime — single-channel platform
             # entry. ``_aggregate_platform`` handles the missing-market case
             # by leaving ``de_channel`` None.
             "youtube": [
-                {"handle": "PrimeVideo", "market": "US"},
+                {"handle": "AmazonMGMStudios", "market": "US"},
             ],
         },
         "platform": "tiktok",
         "channels": [
-            {"handle": "primevideo", "market": "US"},
+            {"handle": "amazonmgmstudios", "market": "US"},
             {"handle": "primevideode", "market": "DE"},
         ],
         "enabled": True,
@@ -173,15 +176,15 @@ PAIRS: dict[str, dict[str, Any]] = {
         "label": "disney DE+US",
         "platforms": {
             "tiktok": [
-                # Wolf-spec handle. The whitelist-expansion migration registers
-                # ``disneystudios`` and ``disneyanimation`` for US Disney; if
-                # ``disney`` is not the production handle for the US side,
-                # ``aggregate_pair`` will surface that in ``notes``.
-                {"handle": "disney", "market": "US"},
+                # Sprint 10c: US-Seite auf Cinema-Master @disneystudios
+                # umgestellt (war @disney Generic mit Make-A-Wish/D23/Catalog).
+                # Whitelist-expansion-Migration e5d8f1a36b40 registriert
+                # disneystudios als priority=A für TT/US.
+                {"handle": "disneystudios", "market": "US"},
                 {"handle": "disneyde", "market": "DE"},
             ],
             "instagram": [
-                {"handle": "disney", "market": "US"},
+                {"handle": "disneystudios", "market": "US"},
                 # IG-DE handle differs from TikTok (``disneyde``) — Disney runs
                 # ``disneydeutschland`` on Instagram.
                 {"handle": "disneydeutschland", "market": "DE"},
@@ -193,7 +196,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         },
         "platform": "tiktok",
         "channels": [
-            {"handle": "disney", "market": "US"},
+            {"handle": "disneystudios", "market": "US"},
             {"handle": "disneyde", "market": "DE"},
         ],
         "enabled": True,
