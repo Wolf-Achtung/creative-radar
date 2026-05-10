@@ -278,6 +278,41 @@ def test_cron_run_with_no_new_assets_skips_vision(client_with_auth, db):
         assert "vision" not in run.summary_json
 
 
+def test_cron_run_always_emits_rematch_summary(client_with_auth, db):
+    """Sprint 10e: ``_run_rematch_after_sync`` runs unconditionally — the
+    new-title path is the actual driver, not the new-asset path. Even with
+    zero new assets in this tick, a previously-ingested asset can flip to
+    matched once a TMDb-title row arrives. The summary block must be
+    present and well-formed so Wolf can audit auto-rematch volume per run.
+    """
+    _seed_ig_channel(db, handle="netflixde")
+
+    with patch("app.api.cron.run_public_channel_monitor",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("app.api.cron.run_tiktok_profile_monitor",
+               new_callable=AsyncMock, return_value=[]):
+        response = client_with_auth.post(
+            "/api/admin/cron/sync-all",
+            headers={"Authorization": "Bearer TESTTOKEN"},
+        )
+
+    assert response.status_code == 202, response.text
+
+    with Session(db) as session:
+        run = session.get(CronRun, uuid4().__class__(response.json()["run_id"]))
+        assert run.status == "completed"
+        rematch = run.summary_json["rematch"]
+        # No active assets in the fixture -> rematch sees zero work, but
+        # all four counters must be present (and zero) so dashboard logic
+        # doesn't have to defend against missing keys.
+        assert rematch == {
+            "checked": 0,
+            "auto_matched": 0,
+            "candidates_created": 0,
+            "still_unmatched": 0,
+        }
+
+
 def test_cron_run_below_cap_analyzes_all_new_assets(client_with_auth, db, monkeypatch):
     _seed_ig_channel(db, handle="netflixde")
     monkeypatch.setattr(settings, "cron_vision_max_assets_per_run", 10, raising=False)

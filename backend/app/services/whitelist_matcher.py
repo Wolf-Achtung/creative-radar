@@ -91,11 +91,34 @@ def _load_titles(session: Session) -> list[tuple[Title, dict[str, list[str]]]]:
 
 def _extract_hashtag_matches(text: str, normalized_to_titles: dict[str, list[tuple[Title, str]]]) -> list[tuple[Title, str, str]]:
     hits: list[tuple[Title, str, str]] = []
+    # Sprint 10e: build a compact-form index once per call so lowercase
+    # hashtags like ``#mortalkombatmovie`` can be resolved against the
+    # known title pool. Maps "mortalkombatii" -> "mortal kombat ii".
+    compact_to_normalized: dict[str, str] = {
+        normalized.replace(" ", ""): normalized
+        for normalized in normalized_to_titles
+    }
     for raw in re.findall(r"#[A-Za-z][A-Za-z0-9_\-]{2,}", text or ""):
         split = _split_hashtag(raw)
-        if split and split in normalized_to_titles:
+        if not split:
+            continue
+        if split in normalized_to_titles:
             for title, source in normalized_to_titles[split]:
                 hits.append((title, source, split))
+            continue
+
+        # Sprint 10e fallback: lowercase hashtags (no CamelCase boundary)
+        # stay glued together after _split_hashtag — try a compact-form
+        # match against the known title index. Threshold len > 8 keeps
+        # noise out (short tags like "#kino", "#film" aren't candidates).
+        if " " not in split and len(split) > 8:
+            compact_split = split.replace(" ", "")
+            for compact_key, normalized_key in compact_to_normalized.items():
+                if not compact_key or len(compact_key) < 4:
+                    continue
+                if compact_key in compact_split or compact_split in compact_key:
+                    for title, source in normalized_to_titles[normalized_key]:
+                        hits.append((title, source, normalized_key))
     return hits
 
 
