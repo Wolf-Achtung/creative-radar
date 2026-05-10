@@ -270,10 +270,12 @@ def test_missing_channels_record_notes_but_dont_crash():
 
 @pytest.mark.parametrize("pair_key", sorted(insight_engine.PAIRS.keys()))
 def test_pairs_registry_schema(pair_key: str):
-    """Jeder PAIRS-Eintrag muss das Sprint-2-Schema erfüllen: label, platform,
-    channels (DE+US), enabled, reason. Verhindert, dass eine neue Pair-PR
-    versehentlich einen Schlüssel vergisst und das Endpoint dann mit
-    KeyError stirbt."""
+    """Jeder PAIRS-Eintrag muss das Schema erfüllen: label, platform,
+    channels (mind. ein DE und mind. ein US, beide Märkte vertreten),
+    enabled, reason. Sprint 10d: ``channels`` darf mehrere US-Einträge
+    enthalten (Disney pooled disneystudios/marvelstudios/pixar/starwars/
+    20thcentury) — der DE+US-Markt-Invariant bleibt aber bindend, weil
+    sonst _aggregate_platform für eine Seite leer rendert."""
     pair_def = insight_engine.PAIRS[pair_key]
     assert isinstance(pair_def.get("label"), str) and pair_def["label"]
     assert pair_def.get("platform") == "tiktok", "Tier-A-Scope ist TikTok-only"
@@ -281,9 +283,9 @@ def test_pairs_registry_schema(pair_key: str):
     if not pair_def["enabled"]:
         assert pair_def.get("reason"), "disabled pair muss reason haben"
     channels = pair_def.get("channels") or []
-    assert len(channels) == 2, "Pair hat genau einen DE- und einen US-Channel"
+    assert len(channels) >= 2, "Pair braucht mind. einen DE- und einen US-Channel"
     markets = {c["market"] for c in channels}
-    assert markets == {"DE", "US"}
+    assert markets == {"DE", "US"}, "Beide Märkte müssen im channels-Mirror vertreten sein"
     for c in channels:
         assert isinstance(c.get("handle"), str) and c["handle"], (
             f"Channel-Handle fehlt für {pair_key}/{c.get('market')}"
@@ -1626,6 +1628,101 @@ def test_aggregate_pair_handles_single_market_youtube():
         assert yt_agg.de_channel is None
         # cross_market_matches naturally empty when one side is missing.
         assert yt_agg.cross_market_matches == []
+
+
+def test_aggregate_pair_pools_disney_us_multi_channels_on_tiktok():
+    """Sprint 10d: Disney US TikTok ist Multi-Channel-Pool. Posts mehrerer
+    Sub-Brand-Channels (disneystudios + marvelstudios) müssen in einem
+    gepoolten ChannelStats landen — nicht pro Channel separat. Coverage
+    und ranked_posts spiegeln die Vereinigung der Pools, der display
+    handle bleibt der erste in der PAIRS-Spec gelistete (disneystudios)."""
+    with _session() as session:
+        # Seed two Disney US TikTok sub-brand channels — handles must match
+        # the PAIRS["disney"]["platforms"]["tiktok"] spec so _find_channels
+        # picks them up. DE side stays empty so the test can isolate the
+        # multi-channel-US-pool effect from the cross-market path.
+        ds = Channel(
+            name="Disney Studios",
+            platform="tiktok",
+            url="https://www.tiktok.com/@disneystudios",
+            handle="disneystudios",
+            market=Market.US,
+        )
+        marvel = Channel(
+            name="Marvel Studios",
+            platform="tiktok",
+            url="https://www.tiktok.com/@marvelstudios",
+            handle="marvelstudios",
+            market=Market.US,
+        )
+        session.add_all([ds, marvel])
+        session.commit()
+        session.refresh(ds)
+        session.refresh(marvel)
+
+        title = Title(title_original="Avengers: Doomsday")
+        session.add(title)
+        session.commit()
+        session.refresh(title)
+
+        # 2 disneystudios posts, 2 marvelstudios posts — pool size 4.
+        ds_p1 = _make_post(
+            session, ds,
+            caption="New trailer drop #DisneyStudios",
+            likes=8_000, comments=200, shares=80, saves=120, duration=24,
+            days_ago=2, url_suffix="ds1",
+        )
+        ds_p2 = _make_post(
+            session, ds,
+            caption="Behind the scenes #BTS",
+            likes=2_000, comments=40, shares=10, saves=20, duration=15,
+            days_ago=8, url_suffix="ds2",
+        )
+        mv_p1 = _make_post(
+            session, marvel,
+            caption="Suit up! #MarvelStudios #Avengers",
+            likes=15_000, comments=600, shares=300, saves=500, duration=30,
+            days_ago=3, url_suffix="mv1",
+        )
+        mv_p2 = _make_post(
+            session, marvel,
+            caption="The team assembles #Avengers",
+            likes=5_000, comments=120, shares=60, saves=90, duration=20,
+            days_ago=12, url_suffix="mv2",
+        )
+
+        # 3 of 4 posts get a title — pool coverage = 3/4 = 75%.
+        session.add_all([
+            Asset(post_id=ds_p1.id, title_id=title.id),
+            Asset(post_id=ds_p2.id),  # no title
+            Asset(post_id=mv_p1.id, title_id=title.id),
+            Asset(post_id=mv_p2.id, title_id=title.id),
+        ])
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "disney", window_days=30)
+        tt_agg = next(p for p in agg.per_platform if p.platform == "tiktok")
+        us_stats = tt_agg.us_channel
+
+        # US-pool stats reflect both sub-brand channels combined.
+        assert us_stats is not None
+        assert us_stats.handle == "disneystudios", (
+            "Display handle must be the first spec-listed handle (the lead "
+            "cinema-master), not a per-channel breakdown."
+        )
+        assert us_stats.posts_count == 4, "Pool covers both sub-brand channels"
+        assert us_stats.assets_count == 4
+        assert us_stats.coverage_pct == 75.0
+
+        # ranked_posts must contain post URLs from BOTH sub-brand channels —
+        # if pooling were broken, only one channel's posts would appear.
+        ranked_urls = {rp.post_url for rp in us_stats.ranked_posts}
+        assert any("disneystudios" in url for url in ranked_urls)
+        assert any("marvelstudios" in url for url in ranked_urls)
+
+        # primary channel_id mirrors the first resolved pool member
+        # (disneystudios). Audit-trail convention from Sprint 10d.
+        assert us_stats.channel_id == str(ds.id)
 
 
 def test_pair_aggregation_parses_legacy_persisted_brief():
