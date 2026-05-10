@@ -176,27 +176,46 @@ PAIRS: dict[str, dict[str, Any]] = {
         "label": "disney DE+US",
         "platforms": {
             "tiktok": [
-                # Sprint 10c: US-Seite auf Cinema-Master @disneystudios
-                # umgestellt (war @disney Generic mit Make-A-Wish/D23/Catalog).
-                # Whitelist-expansion-Migration e5d8f1a36b40 registriert
-                # disneystudios als priority=A für TT/US.
+                # Sprint 10d: US-Seite ist Multi-Channel-Pool (Cinema-Sub-Brands).
+                # Disney verteilt Theatrical-Marketing über @disneystudios,
+                # @marvelstudios, @pixar, @starwars und @20thcentury — wenn ein
+                # Channel Catalog postet, postet ein anderer ggf. Trailer.
+                # _aggregate_platform bündelt alle US-Posts in einen Pool.
                 {"handle": "disneystudios", "market": "US"},
+                {"handle": "marvelstudios", "market": "US"},
+                {"handle": "pixar", "market": "US"},
+                {"handle": "starwars", "market": "US"},
+                {"handle": "20thcentury", "market": "US"},
                 {"handle": "disneyde", "market": "DE"},
             ],
             "instagram": [
+                # IG-Casing für 20th Century weicht von TT ab: "20thcenturystudios".
                 {"handle": "disneystudios", "market": "US"},
+                {"handle": "marvelstudios", "market": "US"},
+                {"handle": "pixar", "market": "US"},
+                {"handle": "starwars", "market": "US"},
+                {"handle": "20thcenturystudios", "market": "US"},
                 # IG-DE handle differs from TikTok (``disneyde``) — Disney runs
                 # ``disneydeutschland`` on Instagram.
                 {"handle": "disneydeutschland", "market": "DE"},
             ],
             # No DE-side YouTube channel for Disney's main studios feed.
+            # YouTube bleibt single-channel — kein Multi-YT-Scope in 10d.
             "youtube": [
                 {"handle": "WaltDisneyStudios", "market": "US"},
             ],
         },
         "platform": "tiktok",
+        # Sprint 10d: legacy ``channels`` mirror tracks platforms["tiktok"]
+        # (the first platform). Multi-channel-aware so the
+        # ``test_pairs_backwards_compat_mirror_first_platform`` invariant
+        # and the ``_platforms_dict_for`` fallback both hold.
         "channels": [
             {"handle": "disneystudios", "market": "US"},
+            {"handle": "marvelstudios", "market": "US"},
+            {"handle": "pixar", "market": "US"},
+            {"handle": "starwars", "market": "US"},
+            {"handle": "20thcentury", "market": "US"},
             {"handle": "disneyde", "market": "DE"},
         ],
         "enabled": True,
@@ -977,6 +996,31 @@ def _find_channel(session: Session, handle: str, platform: str) -> Optional[Chan
     return session.exec(stmt).first()
 
 
+def _find_channels(session: Session, handles: list[str], platform: str) -> list[Channel]:
+    """Sprint 10d: Multi-channel handle lookup — returns one Channel row per
+    handle in ``handles`` that exists in the DB for the given ``platform``.
+
+    Order in the returned list mirrors ``handles`` so the first-handle
+    convention used by the pool aggregator (display handle, primary
+    channel_id) is deterministic.
+    """
+    if not handles:
+        return []
+    lowered = [h.lower() for h in handles]
+    stmt = select(Channel).where(
+        sa.func.lower(Channel.handle).in_(lowered),
+        Channel.platform == platform,
+    )
+    rows = list(session.exec(stmt).all())
+    by_lower = {row.handle.lower(): row for row in rows}
+    ordered: list[Channel] = []
+    for handle, lower in zip(handles, lowered):
+        match = by_lower.get(lower)
+        if match is not None:
+            ordered.append(match)
+    return ordered
+
+
 # ---------- Aggregation -----------------------------------------------------
 
 
@@ -1017,13 +1061,18 @@ def _build_top_post(session: Session, p: Post, eng: int, assets_by_post: dict[An
 
 def _historical_top_posts(
     session: Session,
-    channel: Optional[Channel],
+    channels: list[Channel],
     window_start: datetime,
     *,
     n: int = 3,
     lookback_days: int = 180,
 ) -> list[TopPost]:
-    """Top-``n`` posts from the channel's history (BEFORE ``window_start``).
+    """Top-``n`` posts from the channels' history (BEFORE ``window_start``).
+
+    Sprint 10d: ``channels`` is the multi-channel pool for one (pair, platform,
+    market) slot — for single-channel pairs the list has 1 element, for
+    Disney US it has up to 5 cinema sub-brands. Pool query via
+    ``Post.channel_id IN (...)`` keeps it to one round-trip.
 
     The LLM uses these as the ``vergleichbare_posts`` ground truth — a
     cutter wants to see "this kind of cut worked last month" rather than
@@ -1034,12 +1083,13 @@ def _historical_top_posts(
     (Wolf brief mentions "ähnliche Range", but that adds an extra knob with
     little payoff at MVP scale — easier to let the LLM eyeball the numbers).
     """
-    if channel is None:
+    if not channels:
         return []
+    channel_ids = [c.id for c in channels]
     lookback_start = window_start - timedelta(days=lookback_days)
     posts_stmt = (
         select(Post)
-        .where(Post.channel_id == channel.id)
+        .where(Post.channel_id.in_(channel_ids))
         .where(
             sa.or_(
                 sa.and_(
@@ -1075,7 +1125,7 @@ def _historical_top_posts(
 
 def _channel_stats(
     session: Session,
-    channel: Optional[Channel],
+    channels: list[Channel],
     handle: str,
     market: str,
     window_start: datetime,
@@ -1086,14 +1136,26 @@ def _channel_stats(
     top_hashtags_n: int = 5,
     ranked_posts_n: int = 10,
 ) -> ChannelStats:
-    """Build the per-channel slice that goes into both the LLM prompt and
-    the response payload.
+    """Build the per-(pair, platform, market) slice that goes into both the
+    LLM prompt and the response payload.
 
-    ``channel=None`` means the handle wasn't found in the DB — we still
-    return a populated stats object (zeroed) so the Frontend can render
-    a clear "channel not yet onboarded" caveat instead of crashing.
+    Sprint 10d: ``channels`` is the multi-channel pool for the slot. For
+    single-channel pairs the list has 1 element; for Disney US it can have
+    up to 5 cinema sub-brand channels. Posts/assets are pooled via
+    ``Post.channel_id IN (...)``. ``handle`` is the display handle (first
+    spec-listed handle for the market — even when no channel resolved, so
+    callers can render a clear "Channel @x ({platform}) wurde nicht in der
+    DB gefunden" note). ``ChannelStats.channel_id`` mirrors the first
+    resolved pool member's id so the legacy single-id audit trail keeps
+    working — the pool's full membership lives implicitly in the PAIRS
+    mapping.
+
+    ``channels=[]`` means none of the spec-listed handles resolved in the
+    DB — we still return a populated stats object (zeroed) so the
+    Frontend can render the "channel not yet onboarded" caveat instead of
+    crashing.
     """
-    if channel is None:
+    if not channels:
         return ChannelStats(
             handle=handle,
             market=market,
@@ -1110,9 +1172,12 @@ def _channel_stats(
             avg_engagement=0.0,
         )
 
+    channel_ids = [c.id for c in channels]
+    primary_channel_id = str(channels[0].id)
+
     posts_stmt = (
         select(Post)
-        .where(Post.channel_id == channel.id)
+        .where(Post.channel_id.in_(channel_ids))
         .where(
             sa.or_(
                 # Prefer published_at (creator-supplied timestamp) but fall back to
@@ -1129,7 +1194,7 @@ def _channel_stats(
         return ChannelStats(
             handle=handle,
             market=market,
-            channel_id=str(channel.id),
+            channel_id=primary_channel_id,
             channel_found=True,
             posts_count=0,
             assets_count=0,
@@ -1175,7 +1240,7 @@ def _channel_stats(
         _build_top_post(session, p, eng, assets_by_post)
         for p, eng in engagements[:top_posts_n]
     ]
-    historical_top_posts = _historical_top_posts(session, channel, window_start)
+    historical_top_posts = _historical_top_posts(session, channels, window_start)
 
     # Title-coverage on the asset level (an asset is "covered" if title_id is set).
     assets_with_title = sum(1 for a in assets if a.title_id is not None)
@@ -1207,7 +1272,7 @@ def _channel_stats(
     return ChannelStats(
         handle=handle,
         market=market,
-        channel_id=str(channel.id),
+        channel_id=primary_channel_id,
         channel_found=True,
         posts_count=len(posts),
         assets_count=len(assets),
@@ -1226,23 +1291,30 @@ def _channel_stats(
 
 def _cross_market_matches(
     session: Session,
-    de_channel: Optional[Channel],
-    us_channel: Optional[Channel],
+    de_channels: list[Channel],
+    us_channels: list[Channel],
     window_start: datetime,
     window_end: datetime,
 ) -> list[CrossMarketMatch]:
-    """Group assets by ``de_us_match_key`` across the two channels.
+    """Group assets by ``de_us_match_key`` across the DE+US channel pools.
+
+    Sprint 10d: ``de_channels`` / ``us_channels`` are pools (1 element for
+    single-channel pairs, up to 5 for Disney US). Pool query via
+    ``Post.channel_id IN (...)`` keeps it to one round-trip per market.
 
     The match-key is set by ``services/match_key.py`` during ingest; an
     empty result here is itself a useful signal for the LLM ("no
     cross-market matches in this window").
     """
-    if de_channel is None or us_channel is None:
+    if not de_channels or not us_channels:
         return []
+
+    de_channel_ids = [c.id for c in de_channels]
+    us_channel_ids = [c.id for c in us_channels]
 
     de_post_ids_stmt = (
         select(Post.id)
-        .where(Post.channel_id == de_channel.id)
+        .where(Post.channel_id.in_(de_channel_ids))
         .where(
             sa.or_(
                 sa.and_(Post.published_at.is_not(None), Post.published_at >= window_start, Post.published_at <= window_end),
@@ -1252,7 +1324,7 @@ def _cross_market_matches(
     )
     us_post_ids_stmt = (
         select(Post.id)
-        .where(Post.channel_id == us_channel.id)
+        .where(Post.channel_id.in_(us_channel_ids))
         .where(
             sa.or_(
                 sa.and_(Post.published_at.is_not(None), Post.published_at >= window_start, Post.published_at <= window_end),
@@ -1337,10 +1409,16 @@ def _cross_market_matches(
 
 def _title_coverage(
     de_stats: ChannelStats, us_stats: ChannelStats, session: Session,
-    de_channel: Optional[Channel], us_channel: Optional[Channel],
+    de_channels: list[Channel], us_channels: list[Channel],
     window_start: datetime, window_end: datetime,
 ) -> TitleCoverage:
-    """Compute aggregate coverage + title-overlap across both channels."""
+    """Compute aggregate coverage + title-overlap across both channel pools.
+
+    Sprint 10d: pooled across all channels per market — for Disney US this
+    means combined assets from disneystudios + marvelstudios + pixar +
+    starwars + 20thcentury(studios). Coverage = pooled_with_title /
+    pooled_total per market, no per-channel breakdown.
+    """
     de_titles: set[str] = set()
     us_titles: set[str] = set()
     de_with_title = 0
@@ -1348,16 +1426,17 @@ def _title_coverage(
     us_with_title = 0
     us_total = 0
 
-    for channel, market_titles_set, with_title_holder, total_holder in (
-        (de_channel, de_titles, "de_with_title", "de_total"),
-        (us_channel, us_titles, "us_with_title", "us_total"),
+    for channels, market_titles_set, market_label in (
+        (de_channels, de_titles, "DE"),
+        (us_channels, us_titles, "US"),
     ):
-        if channel is None:
+        if not channels:
             continue
+        channel_ids = [c.id for c in channels]
         post_ids = list(
             session.exec(
                 select(Post.id)
-                .where(Post.channel_id == channel.id)
+                .where(Post.channel_id.in_(channel_ids))
                 .where(
                     sa.or_(
                         sa.and_(Post.published_at.is_not(None), Post.published_at >= window_start, Post.published_at <= window_end),
@@ -1370,12 +1449,12 @@ def _title_coverage(
             continue
         assets = list(session.exec(select(Asset).where(Asset.post_id.in_(post_ids))).all())
         for a in assets:
-            if channel is de_channel:
+            if market_label == "DE":
                 de_total += 1
             else:
                 us_total += 1
             if a.title_id is not None:
-                if channel is de_channel:
+                if market_label == "DE":
                     de_with_title += 1
                 else:
                     us_with_title += 1
@@ -1428,39 +1507,57 @@ def _aggregate_platform(
     distinguished from a thin TT window.
     """
     label = _PLATFORM_LABELS.get(platform, platform.capitalize())
-    de_spec = next((c for c in channel_specs if c["market"] == "DE"), None)
-    us_spec = next((c for c in channel_specs if c["market"] == "US"), None)
-    de_channel = _find_channel(session, de_spec["handle"], platform) if de_spec else None
-    us_channel = _find_channel(session, us_spec["handle"], platform) if us_spec else None
+    # Sprint 10d: ``channel_specs`` may list multiple US (or DE) entries —
+    # one per cinema sub-brand for the Disney pair. Group by market and
+    # resolve each pool with a single IN-query via _find_channels.
+    de_specs = [c for c in channel_specs if c["market"] == "DE"]
+    us_specs = [c for c in channel_specs if c["market"] == "US"]
+    de_handles = [s["handle"] for s in de_specs]
+    us_handles = [s["handle"] for s in us_specs]
+    de_channels = _find_channels(session, de_handles, platform)
+    us_channels = _find_channels(session, us_handles, platform)
+
+    # Map resolved channels back to handles to surface per-handle gaps.
+    de_resolved = {c.handle.lower() for c in de_channels}
+    us_resolved = {c.handle.lower() for c in us_channels}
 
     notes: list[str] = []
-    if de_spec and de_channel is None:
-        notes.append(
-            f"DE-Channel @{de_spec['handle']} ({label}) wurde nicht in der DB gefunden — "
-            "Onboarding/Whitelist-Eintrag prüfen."
-        )
-    if us_spec and us_channel is None:
-        notes.append(
-            f"US-Channel @{us_spec['handle']} ({label}) wurde nicht in der DB gefunden — "
-            "Onboarding/Whitelist-Eintrag prüfen."
-        )
+    for spec in de_specs:
+        if spec["handle"].lower() not in de_resolved:
+            notes.append(
+                f"DE-Channel @{spec['handle']} ({label}) wurde nicht in der DB gefunden — "
+                "Onboarding/Whitelist-Eintrag prüfen."
+            )
+    for spec in us_specs:
+        if spec["handle"].lower() not in us_resolved:
+            notes.append(
+                f"US-Channel @{spec['handle']} ({label}) wurde nicht in der DB gefunden — "
+                "Onboarding/Whitelist-Eintrag prüfen."
+            )
+
+    # Display handle = first spec-listed handle for the market. For
+    # single-channel pairs it's the only handle; for the Disney US pool
+    # it's "disneystudios" (the lead cinema-master). Stats render
+    # "@disneystudios" as the pool's representative marker.
+    de_display_handle = de_specs[0]["handle"] if de_specs else ""
+    us_display_handle = us_specs[0]["handle"] if us_specs else ""
 
     de_stats = (
         _channel_stats(
-            session, de_channel,
-            de_spec["handle"] if de_spec else "",
+            session, de_channels,
+            de_display_handle,
             "DE", window_start, window_end, platform=platform,
-        ) if de_spec else None
+        ) if de_specs else None
     )
     us_stats = (
         _channel_stats(
-            session, us_channel,
-            us_spec["handle"] if us_spec else "",
+            session, us_channels,
+            us_display_handle,
             "US", window_start, window_end, platform=platform,
-        ) if us_spec else None
+        ) if us_specs else None
     )
-    matches = _cross_market_matches(session, de_channel, us_channel, window_start, window_end)
-    coverage = _title_coverage(de_stats, us_stats, session, de_channel, us_channel, window_start, window_end)
+    matches = _cross_market_matches(session, de_channels, us_channels, window_start, window_end)
+    coverage = _title_coverage(de_stats, us_stats, session, de_channels, us_channels, window_start, window_end)
 
     if de_stats and de_stats.posts_count < 5:
         notes.append(
@@ -1472,7 +1569,7 @@ def _aggregate_platform(
             f"Datenbasis US schwach ({label}): nur {us_stats.posts_count} Posts "
             f"in den letzten {window_days} Tagen."
         )
-    if (de_channel is not None and us_channel is not None) and not matches:
+    if de_channels and us_channels and not matches:
         notes.append(
             f"Keine de_us_match_key-Treffer im {label}-Fenster — Cross-Market-Insight basiert "
             "auf indirekten Signalen."
