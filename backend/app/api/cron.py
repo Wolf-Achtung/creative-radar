@@ -42,6 +42,7 @@ from app.services.apify_connector import (
     run_tiktok_profile_monitor,
 )
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
+from app.services.title_rematch import rematch_unassigned_assets
 from app.services.visual_analysis import analyze_asset_visual
 from app.services.youtube_connector import (
     YouTubeAPIError,
@@ -384,6 +385,29 @@ def _run_vision_after_sync(
     }
 
 
+def _run_rematch_after_sync(session: Session) -> dict:
+    """Sprint 10e — auto re-match unassigned assets after every cron sync.
+
+    New TMDb-title rows arrive continuously between cron runs (Sprint 10a's
+    popularity-sorted discover pulls them in), and a title that wasn't in
+    the DB at initial-ingest time silently drifts as ``Asset.title_id =
+    NULL`` until someone hits ``POST /api/titles/rematch-assets`` by hand.
+    Wiring rematch into the cron tail removes that manual step.
+
+    Runs unconditionally per cron tick (also when no new assets were
+    created in this run): the new-title path is the actual driver, not
+    the new-asset path. Failures are absorbed into the summary instead of
+    failing the whole cron — re-match is a best-effort enrichment, the
+    sync itself has already succeeded by this point.
+    """
+    try:
+        summary = rematch_unassigned_assets(session)
+    except Exception as exc:  # noqa: BLE001 — top-level guard, see PC-4
+        logger.exception("auto-rematch after cron sync failed")
+        return {"error": str(exc)[:500]}
+    return summary.to_dict()
+
+
 async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
     """Background task body. Owns its own Session — the request session is
     closed by the time this runs."""
@@ -397,6 +421,7 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             cap = settings.cron_vision_max_assets_per_run
             if created_asset_ids:
                 summary["vision"] = _run_vision_after_sync(session, created_asset_ids, cap)
+            summary["rematch"] = _run_rematch_after_sync(session)
             run.summary_json = summary
             run.status = "completed"
             run.completed_at = datetime.now(timezone.utc)

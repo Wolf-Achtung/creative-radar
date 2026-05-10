@@ -73,3 +73,56 @@ def test_brand_whitelist_respects_studio_filter_in_full_matcher(session: Session
 
     assert match.title is None
     assert match.source != "brand_whitelist"
+
+
+def test_lowercase_hashtag_matches_known_title_via_compact_fallback(session: Session):
+    """Sprint 10e: ``#mortalkombatmovie`` (no CamelCase boundary) used to
+    pass through ``_split_hashtag`` as a single glued token and miss the
+    title index entirely. The compact-form fallback in
+    ``_extract_hashtag_matches`` recognises that the alias "Mortal Kombat"
+    (compact ``mortalkombat``) is a substring of the lowercase hashtag and
+    surfaces the match."""
+    session.add(
+        Title(
+            tmdb_id=931285,
+            title_original="Mortal Kombat II",
+            # The "Mortal Kombat" franchise alias is what makes the
+            # compact-substring fallback fire for the marketing hashtag
+            # #mortalkombatmovie — production TMDb rows for sequels typically
+            # carry the franchise stem as an alias for exactly this reason.
+            aliases=["Mortal Kombat", "Mortal Kombat II"],
+            active=True,
+        )
+    )
+    session.commit()
+
+    caption = "Wer hat die beste Johnny Cage Impression? #mortalkombatmovie"
+    match = find_best_title_match(session, caption)
+
+    assert match.title is not None, "lowercase hashtag must hit via compact fallback"
+    assert match.title.title_original == "Mortal Kombat II"
+    assert match.source == "hashtag"
+
+
+def test_lowercase_hashtag_below_threshold_does_not_overmatch(session: Session):
+    """Sprint 10e: lowercase-Hashtags ≤ 8 Zeichen dürfen NICHT den
+    compact-Fallback triggern — sonst würde z.B. ``#mkmovie`` jeden Title
+    mit Compact-Substring greifen. Schwelle len > 8 hält Noise raus."""
+    session.add(
+        Title(
+            tmdb_id=931285,
+            title_original="Mortal Kombat II",
+            aliases=["Mortal Kombat", "Mortal Kombat II"],
+            active=True,
+        )
+    )
+    session.commit()
+
+    # "#mkmovie" is 7 chars after stripping #. The compact fallback's
+    # len > 8 gate must keep this short tag out — otherwise sub-3-char
+    # title prefixes would over-match.
+    caption = "Quick teaser #mkmovie"
+    match = find_best_title_match(session, caption)
+    assert match.source != "hashtag", (
+        "compact fallback must not fire for short tags below the len > 8 threshold"
+    )
