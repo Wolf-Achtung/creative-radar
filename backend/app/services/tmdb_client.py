@@ -67,7 +67,7 @@ class TMDbClient:
                 {
                     "region": region,
                     "language": language,
-                    "sort_by": "primary_release_date.asc",
+                    "sort_by": "popularity.desc",
                     "include_adult": "false",
                     "include_video": "false",
                     "release_date.gte": date_from.isoformat(),
