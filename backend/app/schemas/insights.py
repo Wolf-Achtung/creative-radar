@@ -86,6 +86,10 @@ class RankedPost(BaseModel):
     title_original: Optional[str] = None
     franchise: Optional[str] = None
     thumbnail_url: Optional[str] = None
+    # Sprint 10i — Title.content_type ("Film" | "Series") so the LLM prompt
+    # marker can flag Series posts. Default None for back-compat with
+    # persisted briefs that pre-date Sprint 10i.
+    content_type: Optional[str] = None
 
     # Sprint 5c — Asset-UUID des Sprint-5b-Eager-Loads, durchgereicht als
     # String. Frontend nutzt es für ``/api/thumbnails/{asset_id}`` (CDN-

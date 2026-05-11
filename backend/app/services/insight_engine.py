@@ -490,6 +490,7 @@ FILMTITEL (Sprint 6 — gilt für ``headline`` und ``tldr``):
 - Title-Match-Coverage liegt in der Praxis bei 1.7-7.4 % (TikTok/Instagram/YouTube) — die meisten Top-Posts haben keinen Filmtitel. Wenn der ``[*Titel*]``-Marker fehlt, erzähle die Story mit Genre/Format-Sprache: "Backkatalog-Anriss", "Make-A-Wish-Klammer", "Mandalorian-Reminder", "Live-Action-Hook". Das ist die Default-Erzählung, kein Notbehelf.
 - Erfinde keine Titel — nur was im User-Prompt als ``[*Titel*]`` markiert ist. Wenn ein Post als "Mandalorian-Reminder" charakterisiert wird, schreibe das im Fließtext (kein Sternchen), aber **nicht** ``*Mandalorian*``, wenn der Marker fehlt.
 - Maximal zwei ``*Titel*``-Markups in der Summe aus Headline + TLDR — sonst wirkt der Brief überladen.
+- Sprint 10i: Streaming-Series tragen den Marker ``[*Titel* — Serie]`` (mit dem Suffix ``— Serie``). Theatrical-Releases haben den Marker ohne Suffix. Wenn beide Format-Typen in den Top-Posts vorkommen, behandle sie als zwei eigenständige Erzählstränge — z. B. einen Absatz für die Kino-Releases und einen für die Serien-Premiere — und vermeide, beides in einem Satz zusammenzuwerfen. Im Markup bleiben Serien-Titel ``*Titel*`` (ohne den Daten-Suffix, der nur im Marker steht).
 
 TONALITÄTS-POOL — wähle 3-5 Adjektive aus diesem Pool, jedes mit Daten-Begründung:
 authentisch, unbequem, berührend, auffordernd, sophisticated, mysterious, cinematisch, hochwertig, emotional, spannend, action-reich, humorvoll, präzise, international, erfahren.
@@ -979,6 +980,7 @@ def _ranked_posts_for_channel(
                 franchise=title.franchise if title else None,
                 thumbnail_url=asset.thumbnail_url if asset else None,
                 asset_id=str(asset.id) if asset else None,
+                content_type=title.content_type if title else None,
             )
         )
     enriched.sort(
@@ -1705,12 +1707,24 @@ def _format_ranked_post_line(idx: int, p: RankedPost) -> str:
     ``[*Filmtitel*]``-Marker, wenn ``title_local`` gesetzt ist.
 
     Format: ``  i. Xk views, Yk likes, Z.Z% akt., {duration}s [*Titel*]``
-    Caption-Auszug folgt eingerückt darunter (max 80 Zeichen)."""
+    Caption-Auszug folgt eingerückt darunter (max 80 Zeichen).
+
+    Sprint 10i — wenn ``content_type == 'Series'``, hängt der Marker
+    ``— Serie`` an: ``[*Title* — Serie]``. Damit kann das LLM in
+    Headline/TLDR/aktuell_im_fokus Streaming-Series natürlich von
+    Theatrical-Releases trennen, ohne dass die Schema-Form sich ändert.
+    Films bleiben unmarkiert (Default-Layout)."""
     views = int(p.views or 0)
     likes = int(p.likes or 0)
     akt_pct = (p.activation_rate or 0.0) * 100
     duration = f", {p.duration_seconds}s" if p.duration_seconds else ""
-    title_marker = f" [*{p.title_local}*]" if p.title_local else ""
+    if p.title_local:
+        if p.content_type == "Series":
+            title_marker = f" [*{p.title_local}* — Serie]"
+        else:
+            title_marker = f" [*{p.title_local}*]"
+    else:
+        title_marker = ""
     line = (
         f"  {idx}. {views:,} views, {likes:,} likes, "
         f"{akt_pct:.1f}% akt.{duration}{title_marker}"
