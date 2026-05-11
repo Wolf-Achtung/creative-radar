@@ -49,14 +49,19 @@ def _make_post(
     days_ago: int = 1,
     raw_payload: Optional[dict] = None,
     url_suffix: Optional[str] = None,
+    platform: str = "tiktok",
 ) -> Post:
     """Single post helper. ``url_suffix`` lets the caller hand-pick a URL
     so tests can match against ``post_url`` deterministically."""
     suffix = url_suffix or f"{caption[:8]}-{days_ago}-{likes}"
+    if platform == "youtube":
+        post_url = f"https://www.youtube.com/watch?v={suffix}"
+    else:
+        post_url = f"https://tiktok.com/@{channel.handle}/video/{suffix}"
     post = Post(
         channel_id=channel.id,
-        platform="tiktok",
-        post_url=f"https://tiktok.com/@{channel.handle}/video/{suffix}",
+        platform=platform,
+        post_url=post_url,
         caption=caption,
         published_at=datetime.now(timezone.utc) - timedelta(days=days_ago),
         detected_at=datetime.now(timezone.utc) - timedelta(days=days_ago),
@@ -1886,6 +1891,92 @@ def test_aggregate_pair_pools_sony_us_multi_channels_on_tiktok():
         assert any("sonypicturesanimation" in url for url in ranked_urls)
 
         assert us_stats.channel_id == str(sp.id)
+
+
+def test_aggregate_pair_pools_disney_us_multi_channels_on_youtube():
+    """Sprint 10j: Disney US YouTube ist Multi-Channel-Pool. Marvel-Trailer
+    auf @marvel und Catalog-Posts auf @WaltDisneyStudios müssen im selben
+    us_channel-Pool landen. Display-handle bleibt WaltDisneyStudios (erster
+    Spec-Eintrag). DE-Seite bleibt single-market None."""
+    with _session() as session:
+        wds = Channel(
+            name="Walt Disney Studios",
+            platform="youtube",
+            url="https://www.youtube.com/@WaltDisneyStudios",
+            handle="WaltDisneyStudios",
+            market=Market.US,
+        )
+        marvel = Channel(
+            name="Marvel Entertainment",
+            platform="youtube",
+            url="https://www.youtube.com/@marvel",
+            handle="marvel",
+            market=Market.US,
+        )
+        session.add_all([wds, marvel])
+        session.commit()
+        session.refresh(wds)
+        session.refresh(marvel)
+
+        title = Title(title_original="Avengers: Doomsday")
+        session.add(title)
+        session.commit()
+        session.refresh(title)
+
+        wds_p1 = _make_post(
+            session, wds,
+            caption="Official trailer #WaltDisneyStudios",
+            likes=12_000, comments=400, shares=160, saves=240, duration=120,
+            days_ago=2, url_suffix="wds-yt1", platform="youtube",
+        )
+        wds_p2 = _make_post(
+            session, wds,
+            caption="Featurette #BTS",
+            likes=3_000, comments=80, shares=20, saves=40, duration=90,
+            days_ago=9, url_suffix="wds-yt2", platform="youtube",
+        )
+        mv_p1 = _make_post(
+            session, marvel,
+            caption="Avengers: Doomsday | Official Teaser",
+            likes=25_000, comments=900, shares=500, saves=700, duration=150,
+            days_ago=3, url_suffix="mv-yt1", platform="youtube",
+        )
+        mv_p2 = _make_post(
+            session, marvel,
+            caption="Marvel | Phase 6 sizzle",
+            likes=7_000, comments=180, shares=80, saves=120, duration=60,
+            days_ago=12, url_suffix="mv-yt2", platform="youtube",
+        )
+
+        session.add_all([
+            Asset(post_id=wds_p1.id, title_id=title.id),
+            Asset(post_id=wds_p2.id),  # no title
+            Asset(post_id=mv_p1.id, title_id=title.id),
+            Asset(post_id=mv_p2.id, title_id=title.id),
+        ])
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "disney", window_days=30)
+        yt_agg = next(p for p in agg.per_platform if p.platform == "youtube")
+        us_stats = yt_agg.us_channel
+
+        assert us_stats is not None
+        assert us_stats.handle == "WaltDisneyStudios", (
+            "Display handle must be the first spec-listed handle "
+            "(WaltDisneyStudios), not the Marvel sub-brand."
+        )
+        assert us_stats.posts_count == 4, "Pool covers both sub-brand channels"
+        assert us_stats.assets_count == 4
+        assert us_stats.coverage_pct == 75.0
+
+        ranked_urls = {rp.post_url for rp in us_stats.ranked_posts}
+        assert any("wds-yt" in url for url in ranked_urls)
+        assert any("mv-yt" in url for url in ranked_urls)
+
+        assert us_stats.channel_id == str(wds.id)
+
+        # DE-Seite bleibt single-market None — keine YT-DE-Channels.
+        assert yt_agg.de_channel is None
 
 
 def test_pair_aggregation_parses_legacy_persisted_brief():
