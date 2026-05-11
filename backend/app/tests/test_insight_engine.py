@@ -863,6 +863,142 @@ def test_ranked_posts_loads_title_when_available():
         assert us_top.franchise == "Mortal Kombat"
 
 
+def test_ranked_posts_populates_content_type_from_title():
+    """Sprint 10i: ``Title.content_type`` wird in ``RankedPost.content_type``
+    durchgereicht. Default ist 'Film' (laut Title-Model-Default) — Series-
+    Titles müssen explizit gesetzt werden. Beide Werte landen im RankedPost,
+    damit das LLM-Prompt-Format darauf reagieren kann."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        title = data["title"]
+        title.title_local = "Mortal Kombat II"
+        title.content_type = "Film"
+        session.add(title)
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_top = agg.us_channel.ranked_posts[0]
+        assert us_top.content_type == "Film"
+
+        # Switch to Series — verifies the field actually mirrors the column,
+        # not a hard-coded default.
+        title.content_type = "Series"
+        session.add(title)
+        session.commit()
+
+        agg2 = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_top2 = agg2.us_channel.ranked_posts[0]
+        assert us_top2.content_type == "Series"
+
+
+def test_ranked_posts_content_type_none_when_no_title():
+    """Posts ohne gemappten Title (häufiger Fall: ~93% laut Coverage-Stats)
+    bekommen weiterhin ``content_type=None``. Back-compat-Default des
+    Schemas — keine Pflichtangabe."""
+    from app.models.entities import Channel, Market, Post
+
+    with _session() as session:
+        ch = Channel(
+            name="Warner Bros US",
+            platform="tiktok",
+            url="https://www.tiktok.com/@warnerbros",
+            handle="warnerbros",
+            market=Market.US,
+        )
+        ch_de = Channel(
+            name="Warner Bros DE",
+            platform="tiktok",
+            url="https://www.tiktok.com/@warnerbrosdeutschland",
+            handle="warnerbrosdeutschland",
+            market=Market.DE,
+        )
+        session.add_all([ch, ch_de])
+        session.commit()
+        session.refresh(ch)
+
+        _make_post(
+            session, ch,
+            caption="Untitled drop #Trailer",
+            likes=500, comments=10, shares=2, saves=5, duration=20,
+            days_ago=2, url_suffix="us-untitled-1",
+        )
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_top = agg.us_channel.ranked_posts[0]
+        assert us_top.content_type is None
+
+
+def test_format_ranked_post_line_marks_series_with_suffix():
+    """Sprint 10i: Format-Marker ``[*Title* — Serie]`` für Series-RankedPosts,
+    Default-Marker ``[*Title*]`` für Films und kein Marker, wenn kein
+    ``title_local`` gesetzt ist. Das LLM stützt sich auf diesen Marker als
+    Anchor in der Filmtitel-Klausel (System-Prompt)."""
+    from app.schemas.insights import RankedPost
+
+    film = RankedPost(
+        post_url="https://tt.com/film",
+        views=1_000, likes=100, activation_rate=0.05,
+        title_local="Mortal Kombat II", content_type="Film",
+    )
+    series = RankedPost(
+        post_url="https://tt.com/series",
+        views=2_000, likes=200, activation_rate=0.04,
+        title_local="Daredevil: Born Again", content_type="Series",
+    )
+    untitled = RankedPost(
+        post_url="https://tt.com/none", views=500, likes=50,
+        activation_rate=0.03,
+    )
+
+    film_line = insight_engine._format_ranked_post_line(1, film)
+    series_line = insight_engine._format_ranked_post_line(2, series)
+    untitled_line = insight_engine._format_ranked_post_line(3, untitled)
+
+    assert "[*Mortal Kombat II*]" in film_line
+    assert "— Serie" not in film_line
+    assert "[*Daredevil: Born Again* — Serie]" in series_line
+    # Untitled-Posts behalten den marker-freien Default-Layout.
+    assert "[*" not in untitled_line
+
+
+def test_ranked_post_legacy_persisted_brief_loads_without_content_type():
+    """Persistenz-Vertrag: ein vor Sprint 10i geschriebenes RankedPost-JSON
+    hat kein ``content_type``-Feld. ``model_validate`` muss es trotzdem
+    parsen und ``content_type=None`` defaulten — der Cache-Hit-Pfad in
+    api/insights.py würde sonst auf jedem alten Brief crashen."""
+    from app.schemas.insights import RankedPost
+
+    legacy_payload = {
+        "post_url": "https://tt.com/legacy",
+        "caption_excerpt": "Older post pre-10i",
+        "platform": "tiktok",
+        "views": 1234,
+        "likes": 56,
+        "comments": 7,
+        "saves": 0,
+        "shares": 0,
+        "engagement_sum": 63,
+        "activation_rate": 0.0512,
+        "title_local": "Older Title",
+        "title_original": "Older Title",
+    }
+    rp = RankedPost.model_validate(legacy_payload)
+    assert rp.title_local == "Older Title"
+    assert rp.content_type is None
+
+
+def test_system_prompt_documents_series_marker_suffix():
+    """Sprint 10i: das System-Prompt-Filmtitel-Kapitel kennt den
+    ``— Serie``-Suffix-Marker und unterscheidet Streaming-Series von
+    Theatrical-Releases. Wenn jemand die Klausel in einem späteren
+    Refactor schwächt, fängt dieser Test es ab."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "— Serie" in prompt, (
+        "Filmtitel-Klausel muss den Series-Marker dokumentieren — "
+        "sonst weiß das LLM nicht, wie es Streaming-Series im Markup "
+        "behandeln soll."
+    )
+
+
 def test_ranked_posts_handles_post_without_asset():
     """Posts ohne irgendein Asset rendern weiterhin als RankedPost — alle
     vier Sprint-5b-Felder bleiben ``None``, kein Crash, kein KeyError im
