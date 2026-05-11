@@ -370,32 +370,24 @@ Für B1:
 - ❌ Cross-Market-Matching DE↔UK / US↔UK (B2-Scope)
 - ❌ Frontend 3-Spalten-Layout (B3-Scope)
 - ❌ Disney TT-UK (Phase-A-Lücke, separater Recherche-Sprint)
-- ❌ Netflix UK-Channel-Anlage falls Phase A keine angelegt hat
-  (Pre-Mapping listet `netflixuk` + `NetflixUK` — Phase A
-  hat aber laut Wolfs Brief „Netflix UK: komplett fehlend" gemeldet ⚠️)
 
-**⚠️ Hinweis Netflix-UK**: Wolfs Brief vom 11.05. (Phase-A-Wrap)
-sagte: „Netflix UK: komplett fehlend (kein IG/TT/YT-UK angelegt)".
-Aber das Pre-Mapping listet `netflixuk` für IG/TT + `NetflixUK` für YT.
+**✅ Update 2026-05-11 EOD — Netflix-UK-Gap geschlossen**
 
-**Auflösung**: Diagnose-Session kann das ohne DB-Query nicht
-verifizieren. Falls Phase A tatsächlich keine Netflix-UK-Channels
-angelegt hat, würde der morgen geschriebene PAIRS-Eintrag in `aggregate_pair`
-nur die übliche „Channel nicht in DB gefunden"-Notiz produzieren. Kein
-Crash, aber UK-Aggregation für Netflix wäre stillschweigend nutzlos.
+Der ursprüngliche Diagnose-Stand zitierte Wolfs Brief vom 11.05.:
+„Netflix UK: komplett fehlend (kein IG/TT/YT-UK angelegt)". Dieser
+Stand ist überholt. Am 11.05. EOD wurde der Gap durch einen weiteren
+SQL-Sprint (`sprint_uk_inventory_gap_2026_05_11`) geschlossen:
 
-**Empfehlung**: Wolf möge vor Phase-2-Start kurz prüfen:
+- `netflixuk` IG ✅ (5M Followers)
+- `netflixuk` TT ✅ (1.5M Followers)
+- `NetflixUK` YT ✅
+- Plus `disneyuk` TT (4.9M Followers, Phase-A-Lücke ebenfalls geschlossen)
 
-```sql
-SELECT handle, platform, market, mvp
-FROM creative_radar.channel
-WHERE market = 'UK' AND handle ILIKE '%netflix%';
-```
-
-Falls leer: entweder Netflix-UK in Phase-A-Followup anlegen, ODER
-Netflix aus B1-Scope rausnehmen (5 Pairs statt 6). Die Entscheidung
-ist nicht-blockierend, die Aggregations-Logik ist gegen fehlende
-Channels robust.
+**DB-Stand jetzt**: 28 UK-Channels (10+1 IG, 7+2 TT, 8 YT), alle
+`mvp=true`. Netflix UK ist damit voll in B1-Scope — alle 6 Pairs
+(`warnerbros`, `sonypictures`, `primevideo`, `disney`, `netflix`,
+`paramountpictures`) bekommen UK-Einträge in B1. Die ursprüngliche
+DB-Query-Empfehlung entfällt.
 
 ---
 
