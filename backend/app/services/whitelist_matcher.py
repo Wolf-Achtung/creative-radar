@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from uuid import UUID
 import re
 import unicodedata
 
@@ -80,13 +81,47 @@ def _title_candidates(title: Title, keywords: list[TitleKeyword]) -> dict[str, l
     }
 
 
+def load_title_bundle(session: Session) -> list[tuple[Title, dict[str, list[str]]]]:
+    """Eager-load all active titles + their keywords in 2 queries total.
+
+    The legacy ``_load_titles`` helper issued one query per title to fetch
+    its keywords (N+1). For batch operations like the cron auto-rematch this
+    is the dominant cost — see Sprint 10g. Callers can reuse the returned
+    bundle across many ``find_best_title_match`` calls.
+    """
+    titles = list(session.exec(select(Title).where(Title.active == True)).all())  # noqa: E712
+    if not titles:
+        return []
+    title_ids = [t.id for t in titles]
+    keywords_by_title: dict[UUID, list[TitleKeyword]] = {}
+    for kw in session.exec(
+        select(TitleKeyword).where(TitleKeyword.title_id.in_(title_ids))
+    ).all():
+        keywords_by_title.setdefault(kw.title_id, []).append(kw)
+    return [(t, _title_candidates(t, keywords_by_title.get(t.id, []))) for t in titles]
+
+
+def build_normalized_index(
+    bundle: list[tuple[Title, dict[str, list[str]]]],
+) -> dict[str, list[tuple[Title, str]]]:
+    """Build the normalized-text-to-titles lookup map once per batch."""
+    normalized_to_titles: dict[str, list[tuple[Title, str]]] = {}
+    for title, candidate_map in bundle:
+        for source_key, values in candidate_map.items():
+            if source_key == "weak":
+                continue
+            for candidate in values:
+                normalized = _normalize_text(candidate)
+                if not normalized:
+                    continue
+                if len(normalized) <= 2 or normalized in _GENERIC_WORDS:
+                    continue
+                normalized_to_titles.setdefault(normalized, []).append((title, source_key))
+    return normalized_to_titles
+
+
 def _load_titles(session: Session) -> list[tuple[Title, dict[str, list[str]]]]:
-    titles = session.exec(select(Title).where(Title.active == True)).all()  # noqa: E712
-    bundle: list[tuple[Title, dict[str, list[str]]]] = []
-    for title in titles:
-        keywords = session.exec(select(TitleKeyword).where(TitleKeyword.title_id == title.id)).all()
-        bundle.append((title, _title_candidates(title, keywords)))
-    return bundle
+    return load_title_bundle(session)
 
 
 def _extract_hashtag_matches(text: str, normalized_to_titles: dict[str, list[tuple[Title, str]]]) -> list[tuple[Title, str, str]]:
@@ -151,24 +186,22 @@ def find_best_title_match(
     text: str | None,
     fields: dict[str, str | list[str] | None] | None = None,
     studio: str | None = None,
+    *,
+    cached_bundle: list[tuple[Title, dict[str, list[str]]]] | None = None,
+    cached_normalized_index: dict[str, list[tuple[Title, str]]] | None = None,
 ) -> MatchResult:
     text_fields = _collect_text_fields(fields, text)
     if not text_fields:
         return MatchResult(title=None, confidence=0.0, source="empty")
 
-    titles_with_candidates = _load_titles(session)
-    normalized_to_titles: dict[str, list[tuple[Title, str]]] = {}
-    for title, candidate_map in titles_with_candidates:
-        for source_key, values in candidate_map.items():
-            if source_key == "weak":
-                continue
-            for candidate in values:
-                normalized = _normalize_text(candidate)
-                if not normalized:
-                    continue
-                if len(normalized) <= 2 or normalized in _GENERIC_WORDS:
-                    continue
-                normalized_to_titles.setdefault(normalized, []).append((title, source_key))
+    titles_with_candidates = (
+        cached_bundle if cached_bundle is not None else load_title_bundle(session)
+    )
+    normalized_to_titles = (
+        cached_normalized_index
+        if cached_normalized_index is not None
+        else build_normalized_index(titles_with_candidates)
+    )
 
     strong_hits: list[tuple[Title, str, str]] = []
     weak_best: tuple[Title | None, float, str, str | None] = (None, 0.0, "none", None)
