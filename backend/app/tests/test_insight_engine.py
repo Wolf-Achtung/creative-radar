@@ -280,7 +280,13 @@ def test_pairs_registry_schema(pair_key: str):
     enabled, reason. Sprint 10d: ``channels`` darf mehrere US-Einträge
     enthalten (Disney pooled disneystudios/marvelstudios/pixar/starwars/
     20thcentury) — der DE+US-Markt-Invariant bleibt aber bindend, weil
-    sonst _aggregate_platform für eine Seite leer rendert."""
+    sonst _aggregate_platform für eine Seite leer rendert.
+
+    Sprint UK-B1 (2026-05-12): UK ist ab B1 erlaubt als 3. Markt, aber
+    optional — disabled Pairs (universalpictures) und Pairs vor Phase A
+    haben keinen UK-Eintrag und das ist ok. Der Invariant ``DE+US müssen
+    vertreten sein`` bleibt; UK darf zusätzlich auftauchen.
+    """
     pair_def = insight_engine.PAIRS[pair_key]
     assert isinstance(pair_def.get("label"), str) and pair_def["label"]
     assert pair_def.get("platform") == "tiktok", "Tier-A-Scope ist TikTok-only"
@@ -290,7 +296,9 @@ def test_pairs_registry_schema(pair_key: str):
     channels = pair_def.get("channels") or []
     assert len(channels) >= 2, "Pair braucht mind. einen DE- und einen US-Channel"
     markets = {c["market"] for c in channels}
-    assert markets == {"DE", "US"}, "Beide Märkte müssen im channels-Mirror vertreten sein"
+    assert {"DE", "US"} <= markets <= {"DE", "US", "UK"}, (
+        "DE+US müssen vertreten sein; UK ist seit B1 erlaubt aber optional"
+    )
     for c in channels:
         assert isinstance(c.get("handle"), str) and c["handle"], (
             f"Channel-Handle fehlt für {pair_key}/{c.get('market')}"
@@ -2221,3 +2229,179 @@ def test_voice_25_iter25_format_typ_examples_complete():
             f"format_typ-Beispiel {example!r} fehlt im SCHEMA-VOKABEL-Block — "
             f"iter-2.5 erwartet alle vier beschreibenden Beispiele."
         )
+
+
+# ---------- Sprint UK-B1: 3-Markt-Aggregation -------------------------------
+
+
+def test_aggregate_pair_includes_uk_channel_when_specced():
+    """Sprint UK-B1: warnerbros TT hat seit B1 einen UK-Eintrag
+    (warnerbrosuk). Wenn der UK-Channel mit Posts in der DB liegt, muss
+    ``per_platform[tiktok].uk_channel`` befüllt sein und die Posts zählen."""
+    with _session() as session:
+        # Minimal-Seed: US-Hauptchannel + UK-Schwester. DE bleibt leer
+        # (für diesen Test irrelevant — er fokussiert auf den UK-Pfad).
+        us = Channel(
+            name="Warner Bros US",
+            platform="tiktok",
+            url="https://www.tiktok.com/@warnerbros",
+            handle="warnerbros",
+            market=Market.US,
+        )
+        uk = Channel(
+            name="Warner Bros UK",
+            platform="tiktok",
+            url="https://www.tiktok.com/@warnerbrosuk",
+            handle="warnerbrosuk",
+            market=Market.UK,
+        )
+        session.add_all([us, uk])
+        session.commit()
+        session.refresh(us)
+        session.refresh(uk)
+
+        _make_post(
+            session, us,
+            caption="US Drop #Trailer",
+            likes=1_000, days_ago=2, url_suffix="us-uk-1",
+        )
+        _make_post(
+            session, uk,
+            caption="UK premiere #Trailer #Cinema",
+            likes=2_000, comments=50, shares=10, saves=30, duration=22,
+            days_ago=3, url_suffix="uk-1",
+        )
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        tt_agg = next(p for p in agg.per_platform if p.platform == "tiktok")
+        assert tt_agg.uk_channel is not None, "UK-Channel muss bei vorhandener UK-Spec befüllt sein"
+        assert tt_agg.uk_channel.handle == "warnerbrosuk"
+        assert tt_agg.uk_channel.market == "UK"
+        assert tt_agg.uk_channel.posts_count == 1
+        # Mirror auf PairAggregation-Ebene zeigt auf erste Plattform (TikTok).
+        assert agg.uk_channel is not None
+        assert agg.uk_channel.handle == "warnerbrosuk"
+
+
+def test_aggregate_pair_uk_channel_none_when_pair_has_no_uk_specs():
+    """Sprint UK-B1: universalpictures ist disabled und hat keinen UK-Spec.
+    aggregate_pair muss ohne Crash laufen und ``uk_channel`` auf jeder
+    Plattform-Slice ``None`` lassen. Persistierte Briefe vor B1 enthalten
+    das Feld nicht — Default ``None`` deckt den Re-Hydrate-Pfad ab."""
+    with _session() as session:
+        agg = insight_engine.aggregate_pair(session, "universalpictures", window_days=30)
+        # Pair ist disabled, hat aber Legacy ``channels`` (DE+US) — keine UK.
+        for platform_agg in agg.per_platform:
+            assert platform_agg.uk_channel is None, (
+                f"Pair ohne UK-Spec darf kein uk_channel produzieren "
+                f"(platform={platform_agg.platform})"
+            )
+        # Mirror auf PairAggregation-Ebene ebenfalls None.
+        assert agg.uk_channel is None
+
+
+def test_title_coverage_includes_uk_only_titles():
+    """Sprint UK-B1: ein UK-Post mit Title-Match (und kein DE/US-Post mit
+    demselben Titel) muss in ``title_coverage.uk_only_titles`` auftauchen.
+    ``uk_assets_total`` / ``uk_assets_with_title`` zählen die UK-Assets."""
+    with _session() as session:
+        us = Channel(
+            name="Warner Bros US",
+            platform="tiktok",
+            url="https://www.tiktok.com/@warnerbros",
+            handle="warnerbros",
+            market=Market.US,
+        )
+        uk = Channel(
+            name="Warner Bros UK",
+            platform="tiktok",
+            url="https://www.tiktok.com/@warnerbrosuk",
+            handle="warnerbrosuk",
+            market=Market.UK,
+        )
+        session.add_all([us, uk])
+        session.commit()
+        session.refresh(us)
+        session.refresh(uk)
+
+        uk_only_title = Title(title_original="The Boy and the Heron UK Cut")
+        session.add(uk_only_title)
+        session.commit()
+        session.refresh(uk_only_title)
+
+        us_post = _make_post(
+            session, us,
+            caption="US release #Trailer",
+            likes=500, days_ago=2, url_suffix="us-no-title",
+        )
+        uk_post = _make_post(
+            session, uk,
+            caption="UK-exclusive premiere #Cinema",
+            likes=900, days_ago=3, url_suffix="uk-title",
+        )
+        # US-Post bleibt ohne Title, UK-Post bekommt den UK-exklusiven Title.
+        session.add(Asset(post_id=us_post.id))
+        session.add(Asset(post_id=uk_post.id, title_id=uk_only_title.id))
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        tt_agg = next(p for p in agg.per_platform if p.platform == "tiktok")
+        coverage = tt_agg.title_coverage
+        assert "The Boy and the Heron UK Cut" in coverage.uk_only_titles
+        assert coverage.uk_assets_total == 1
+        assert coverage.uk_assets_with_title == 1
+        # Der UK-only-Titel darf NICHT in titles_in_both_markets oder
+        # de_only/us_only auftauchen — sonst leakt die DE∩US-Semantik.
+        assert "The Boy and the Heron UK Cut" not in coverage.titles_in_both_markets
+        assert "The Boy and the Heron UK Cut" not in coverage.us_only_titles
+        assert "The Boy and the Heron UK Cut" not in coverage.de_only_titles
+
+
+def test_format_channel_section_renders_uk_header():
+    """Sprint UK-B1: ``_format_channel_section`` nimmt das Markt-Kürzel
+    als String-Parameter — der Markdown-Header "### UK: @handle" entsteht
+    daher ohne Funktions-Edit. Unit-Test gegen den Renderer, damit ein
+    versehentlicher Hardcode (z. B. "DE/US-only"-Check) sofort auffällt."""
+    stats = insight_engine.ChannelStats(
+        handle="warnerbrosuk",
+        market="UK",
+        channel_id=None,
+        channel_found=True,
+        posts_count=4,
+        assets_count=4,
+        coverage_pct=75.0,
+        top_hashtags=[insight_engine.HashtagFrequency(tag="cinema", count=2)],
+        avg_caption_length=42.0,
+        avg_duration_seconds=24.0,
+        duration_buckets={"<15s": 0, "15-30s": 3, "30-60s": 1, ">=60s": 0},
+        top_posts=[],
+        avg_engagement=1500.0,
+        avg_activation_rate=0.05,
+    )
+    rendered = insight_engine._format_channel_section("UK", stats, "tiktok")
+    assert "### UK: @warnerbrosuk" in rendered
+    assert "4 Posts" in rendered
+    # Top-Hashtag-Block taucht inline auf.
+    assert "#cinema" in rendered
+
+
+def test_pairs_registry_schema_accepts_uk_market():
+    """Sprint UK-B1 expliziter Test zur Invariant-Lockerung: die 6
+    enabled Pairs müssen ab B1 alle einen UK-Eintrag im channels-Mirror
+    haben. ``universalpictures`` bleibt out-of-scope (disabled)."""
+    expected_uk_pairs = {
+        "warnerbros", "sonypictures", "primevideo",
+        "disney", "netflix", "paramountpictures",
+    }
+    for pair_key in expected_uk_pairs:
+        pair_def = insight_engine.PAIRS[pair_key]
+        markets = {c["market"] for c in pair_def["channels"]}
+        assert "UK" in markets, (
+            f"Pair {pair_key!r} muss seit B1 einen UK-Channel im "
+            f"channels-Mirror haben — gefunden: {markets}"
+        )
+    # universalpictures ist disabled und bleibt 2-Markt.
+    universal_markets = {c["market"] for c in insight_engine.PAIRS["universalpictures"]["channels"]}
+    assert "UK" not in universal_markets, (
+        "universalpictures ist B1-out-of-scope (disabled) — kein UK-Eintrag"
+    )
