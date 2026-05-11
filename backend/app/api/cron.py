@@ -41,7 +41,10 @@ from app.services.apify_connector import (
     run_public_channel_monitor,
     run_tiktok_profile_monitor,
 )
-from app.services.budget_check import compute_apify_monthly_spend
+from app.services.budget_check import (
+    aggregate_apify_costs_since,
+    compute_apify_monthly_spend,
+)
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.visual_analysis import analyze_asset_visual
@@ -450,6 +453,13 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             if created_asset_ids:
                 summary["vision"] = _run_vision_after_sync(session, created_asset_ids, cap)
             summary["rematch"] = _run_rematch_after_sync(session)
+            # Tech-Debt A5 — Apify-Cost dieses Runs ins summary_json.
+            # ``record_apify_run`` läuft synchron im ``_run_actor``-Pfad ab
+            # und stempelt UTC-now-Timestamps, also liegen alle Rows des
+            # aktuellen Runs strikt nach ``run.started_at`` und keine
+            # Concurrency-Race (parallele Cron-Runs werden vorne via
+            # 409-Lock geblockt). Block wird auch bei null Calls emittiert.
+            summary["apify"] = aggregate_apify_costs_since(session, run.started_at)
             summary["budget"] = budget.to_dict()
             if budget.soft_warn_exceeded:
                 summary["budget_warning"] = True
