@@ -160,22 +160,42 @@ class TitleCoverage(BaseModel):
     de_assets_total: int
     us_assets_with_title: int
     us_assets_total: int
+    # Sprint UK-B1 — UK als 3. Markt additiv ergänzt. Defaults sorgen
+    # dafür, dass persistierte Briefe von vor B1 weiter via
+    # ``model_validate`` parsen. ``titles_in_both_markets`` behält die
+    # DE∩US-Semantik in B1; eine Triple-Intersection (DE∩UK / US∩UK /
+    # DE∩US∩UK) ist B2-Scope.
+    uk_only_titles: list[str] = []
+    uk_assets_with_title: int = 0
+    uk_assets_total: int = 0
     overall_coverage_pct: float
 
 
 class PlatformAggregation(BaseModel):
     """Sprint-4 — per-platform slice of a PairAggregation. One platform's
-    DE+US channel stats, cross-market matches, and title coverage live
+    DE/US/UK channel stats, cross-market matches, and title coverage live
     here so the LLM and Frontend can inspect each platform independently.
 
-    ``de_channel`` / ``us_channel`` are Optional because some pairs only
-    have a US channel on a given platform (Disney/Prime/Paramount
-    YouTube). ``_aggregate_platform`` handles the missing-market case
-    by leaving the side at None; the Frontend hides empty halves.
+    ``de_channel`` / ``us_channel`` / ``uk_channel`` are Optional because
+    some pairs only ship one or two market sides on a given platform
+    (Disney/Prime/Paramount YouTube US-only; UK still rolling out for
+    several pairs). ``_aggregate_platform`` handles the missing-market
+    case by leaving the side at None; the Frontend hides empty halves.
+
+    Sprint UK-B1 (2026-05-12): ``uk_channel`` als 3. Markt additiv
+    ergänzt. Frontend bleibt 2-Spalten (DE/US) bis B3 — der LLM sieht
+    UK aber bereits in Markdown- und JSON-Anhang und kann ab B1 in der
+    Brief-Prosa darauf referenzieren.
     """
     platform: str  # tiktok | instagram | youtube
     de_channel: Optional[ChannelStats] = None
     us_channel: Optional[ChannelStats] = None
+    # Sprint UK-B1 — UK als 3. Markt additiv. Default ``None`` damit
+    # Pairs ohne UK-Spec (universalpictures, ggf. Phase-A-Gaps) sowie
+    # persistierte Briefe vor B1 weiter sauber parsen. Frontend bleibt
+    # in B1 2-Spalten (B3-Scope), das LLM sieht UK aber bereits im
+    # Markdown- und JSON-Block.
+    uk_channel: Optional[ChannelStats] = None
     cross_market_matches: list[CrossMarketMatch] = []
     title_coverage: TitleCoverage
     notes: list[str] = []
@@ -192,6 +212,10 @@ class PairAggregation(BaseModel):
     iso_year: int
     de_channel: Optional[ChannelStats]
     us_channel: Optional[ChannelStats]
+    # Sprint UK-B1 — Mirror-Feld für UK. Default ``None`` damit alte
+    # persistierte Briefe parsen und Pairs ohne UK (universalpictures)
+    # keine speziellen Code-Pfade brauchen.
+    uk_channel: Optional[ChannelStats] = None
     cross_market_matches: list[CrossMarketMatch]
     title_coverage: TitleCoverage
     notes: list[str]

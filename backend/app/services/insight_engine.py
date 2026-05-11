@@ -103,17 +103,21 @@ PAIRS: dict[str, dict[str, Any]] = {
                 # lookup. If the actual stored handle differs, ``aggregate_pair``
                 # records that in ``notes`` rather than failing.
                 {"handle": "warnerbrosdeutschland", "market": "DE"},
+                # Sprint UK-B1: UK-Schwestermarkt ergänzt (Phase A).
+                {"handle": "warnerbrosuk", "market": "UK"},
             ],
             "instagram": [
                 {"handle": "warnerbros", "market": "US"},
                 # IG-Handle für DC ist @dcofficial (TT-Handle @dc ist nur dort).
                 {"handle": "dcofficial", "market": "US"},
                 {"handle": "warnerbrosde", "market": "DE"},
+                {"handle": "warnerbrosuk", "market": "UK"},
             ],
             "youtube": [
                 {"handle": "WarnerBrosPictures", "market": "US"},
                 {"handle": "dcofficial", "market": "US"},
                 {"handle": "WarnerBrosDE", "market": "DE"},
+                {"handle": "WarnerBrosUK", "market": "UK"},
             ],
         },
         # Backwards-Compat mirror — TikTok = first platform.
@@ -122,6 +126,7 @@ PAIRS: dict[str, dict[str, Any]] = {
             {"handle": "warnerbros", "market": "US"},
             {"handle": "dc", "market": "US"},
             {"handle": "warnerbrosdeutschland", "market": "DE"},
+            {"handle": "warnerbrosuk", "market": "UK"},
         ],
         "enabled": True,
         "reason": None,
@@ -137,6 +142,9 @@ PAIRS: dict[str, dict[str, Any]] = {
                 {"handle": "sonypictures", "market": "US"},
                 {"handle": "sonypicturesanimation", "market": "US"},
                 {"handle": "sonypicturesgermany", "market": "DE"},
+                # Sprint UK-B1: Sony's UK-Handle ist @sonypictures.uk
+                # (Punkt-Suffix, kein Underscore wie bei Paramount-IG).
+                {"handle": "sonypictures.uk", "market": "UK"},
             ],
             "instagram": [
                 {"handle": "sonypictures", "market": "US"},
@@ -144,11 +152,13 @@ PAIRS: dict[str, dict[str, Any]] = {
                 # (kürzer als der TT-Handle @sonypicturesanimation).
                 {"handle": "sonyanimation", "market": "US"},
                 {"handle": "sonypicturesde", "market": "DE"},
+                {"handle": "sonypictures.uk", "market": "UK"},
             ],
             "youtube": [
                 {"handle": "SonyPicturesEntertainment", "market": "US"},
                 {"handle": "sonyanimation", "market": "US"},
                 {"handle": "SonyPicturesGermany", "market": "DE"},
+                {"handle": "SonyPicsUK", "market": "UK"},
             ],
         },
         "platform": "tiktok",
@@ -156,6 +166,7 @@ PAIRS: dict[str, dict[str, Any]] = {
             {"handle": "sonypictures", "market": "US"},
             {"handle": "sonypicturesanimation", "market": "US"},
             {"handle": "sonypicturesgermany", "market": "DE"},
+            {"handle": "sonypictures.uk", "market": "UK"},
         ],
         "enabled": True,
         "reason": None,
@@ -169,14 +180,18 @@ PAIRS: dict[str, dict[str, Any]] = {
                 # für TT/IG/YT US wurde in Sprint 10c-pre per SQL angelegt.
                 {"handle": "amazonmgmstudios", "market": "US"},
                 {"handle": "primevideode", "market": "DE"},
+                # Sprint UK-B1: UK-Schwester via @primevideouk (Phase A).
+                {"handle": "primevideouk", "market": "UK"},
             ],
             "instagram": [
                 {"handle": "amazonmgmstudios", "market": "US"},
                 {"handle": "primevideode", "market": "DE"},
+                {"handle": "primevideouk", "market": "UK"},
             ],
-            # No DE-side YouTube channel for Prime — single-channel platform
-            # entry. ``_aggregate_platform`` handles the missing-market case
-            # by leaving ``de_channel`` None.
+            # No DE-side or UK-side YouTube channel for Prime — single-channel
+            # platform entry. ``_aggregate_platform`` handles the missing-market
+            # case by leaving ``de_channel`` / ``uk_channel`` None. Phase A
+            # hat für Prime kein YT-UK angelegt; Aufnahme in B1 separat.
             "youtube": [
                 {"handle": "AmazonMGMStudios", "market": "US"},
             ],
@@ -185,6 +200,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "channels": [
             {"handle": "amazonmgmstudios", "market": "US"},
             {"handle": "primevideode", "market": "DE"},
+            {"handle": "primevideouk", "market": "UK"},
         ],
         "enabled": True,
         "reason": None,
@@ -204,6 +220,10 @@ PAIRS: dict[str, dict[str, Any]] = {
                 {"handle": "starwars", "market": "US"},
                 {"handle": "20thcentury", "market": "US"},
                 {"handle": "disneyde", "market": "DE"},
+                # Sprint UK-B1: TT-UK ist single-handle @disneyuk (Phase A
+                # hat MarvelUK/StarWarsUK auf TT noch nicht angelegt — IG/YT
+                # haben den 3-Pool, TT bleibt erstmal single).
+                {"handle": "disneyuk", "market": "UK"},
             ],
             "instagram": [
                 # IG-Casing für 20th Century weicht von TT ab: "20thcenturystudios".
@@ -215,6 +235,12 @@ PAIRS: dict[str, dict[str, Any]] = {
                 # IG-DE handle differs from TikTok (``disneyde``) — Disney runs
                 # ``disneydeutschland`` on Instagram.
                 {"handle": "disneydeutschland", "market": "DE"},
+                # Sprint UK-B1: UK-Pool analog US (Master + Sub-Brands).
+                # Disney IG-UK = @disneyuk + @disneystudiosuk + @marvel_uk
+                # (Underscore in marvel_uk ist der echte DB-Handle aus Phase A).
+                {"handle": "disneyuk", "market": "UK"},
+                {"handle": "disneystudiosuk", "market": "UK"},
+                {"handle": "marvel_uk", "market": "UK"},
             ],
             # Sprint 10j: US-Seite ist Multi-Channel-Pool analog TT/IG.
             # Marvel-Trailer landen auf @marvel, Pixar-Promos auf @pixar,
@@ -230,6 +256,12 @@ PAIRS: dict[str, dict[str, Any]] = {
                 {"handle": "pixar", "market": "US"},
                 {"handle": "StarWars", "market": "US"},
                 {"handle": "20thCenturyStudios", "market": "US"},
+                # Sprint UK-B1: YT-UK-Pool analog US (Master + 2 Sub-Brands).
+                # Pixar-UK / 20thCentury-UK gibt es in Phase A nicht — Lücke
+                # ist akzeptabel, Sub-Brands sind UK-seitig weniger aktiv.
+                {"handle": "DisneyUK", "market": "UK"},
+                {"handle": "MarvelUK", "market": "UK"},
+                {"handle": "StarWarsUK", "market": "UK"},
             ],
         },
         "platform": "tiktok",
@@ -244,6 +276,7 @@ PAIRS: dict[str, dict[str, Any]] = {
             {"handle": "starwars", "market": "US"},
             {"handle": "20thcentury", "market": "US"},
             {"handle": "disneyde", "market": "DE"},
+            {"handle": "disneyuk", "market": "UK"},
         ],
         "enabled": True,
         "reason": None,
@@ -254,20 +287,26 @@ PAIRS: dict[str, dict[str, Any]] = {
             "tiktok": [
                 {"handle": "netflix", "market": "US"},
                 {"handle": "netflixde", "market": "DE"},
+                # Sprint UK-B1: Netflix-UK via sprint_uk_inventory_gap_2026_05_11
+                # angelegt (1.5M Followers TT, 5M IG, separater YT-Channel).
+                {"handle": "netflixuk", "market": "UK"},
             ],
             "instagram": [
                 {"handle": "netflix", "market": "US"},
                 {"handle": "netflixde", "market": "DE"},
+                {"handle": "netflixuk", "market": "UK"},
             ],
             "youtube": [
                 {"handle": "Netflix", "market": "US"},
                 {"handle": "NetflixDE", "market": "DE"},
+                {"handle": "NetflixUK", "market": "UK"},
             ],
         },
         "platform": "tiktok",
         "channels": [
             {"handle": "netflix", "market": "US"},
             {"handle": "netflixde", "market": "DE"},
+            {"handle": "netflixuk", "market": "UK"},
         ],
         "enabled": True,
         "reason": None,
@@ -280,21 +319,28 @@ PAIRS: dict[str, dict[str, Any]] = {
                 # (per migration e5d8f1a36b40 + Wolf brief).
                 {"handle": "paramountpics", "market": "US"},
                 {"handle": "paramountpicturesgermany", "market": "DE"},
+                # Sprint UK-B1: UK-Schwester via @paramountpicturesuk (Phase A).
+                {"handle": "paramountpicturesuk", "market": "UK"},
             ],
             "instagram": [
                 {"handle": "paramountpics", "market": "US"},
                 # IG-DE uses underscores: ``paramount_pictures_germany``.
                 {"handle": "paramount_pictures_germany", "market": "DE"},
+                {"handle": "paramountpicturesuk", "market": "UK"},
             ],
-            # No DE-side YouTube channel for Paramount Pictures.
+            # No DE-side YouTube channel for Paramount Pictures. UK exists
+            # via @ParamountPicturesUK (case-mix verträglich mit
+            # lowercase-handle-match in _find_channels).
             "youtube": [
                 {"handle": "ParamountPictures", "market": "US"},
+                {"handle": "ParamountPicturesUK", "market": "UK"},
             ],
         },
         "platform": "tiktok",
         "channels": [
             {"handle": "paramountpics", "market": "US"},
             {"handle": "paramountpicturesgermany", "market": "DE"},
+            {"handle": "paramountpicturesuk", "market": "UK"},
         ],
         "enabled": True,
         "reason": None,
@@ -1437,28 +1483,42 @@ def _cross_market_matches(
 
 
 def _title_coverage(
-    de_stats: ChannelStats, us_stats: ChannelStats, session: Session,
+    de_stats: Optional[ChannelStats], us_stats: Optional[ChannelStats],
+    uk_stats: Optional[ChannelStats],
+    session: Session,
     de_channels: list[Channel], us_channels: list[Channel],
+    uk_channels: list[Channel],
     window_start: datetime, window_end: datetime,
 ) -> TitleCoverage:
-    """Compute aggregate coverage + title-overlap across both channel pools.
+    """Compute aggregate coverage + title-overlap across the market pools.
 
     Sprint 10d: pooled across all channels per market — for Disney US this
     means combined assets from disneystudios + marvelstudios + pixar +
     starwars + 20thcentury(studios). Coverage = pooled_with_title /
     pooled_total per market, no per-channel breakdown.
+
+    Sprint UK-B1 (2026-05-12): drittes Markt-Bucket UK. ``titles_in_both_markets``
+    behält die DE∩US-Semantik aus Sprint 1; ``uk_only_titles`` zählt
+    Titel, die ausschließlich UK-seitig aufgetaucht sind. Triple-
+    Intersection (DE∩UK / US∩UK / DE∩US∩UK) ist B2-Scope. Wenn
+    ``uk_channels`` leer ist, bleiben alle UK-Counter auf 0 — kein Crash.
     """
     de_titles: set[str] = set()
     us_titles: set[str] = set()
+    uk_titles: set[str] = set()
     de_with_title = 0
     de_total = 0
     us_with_title = 0
     us_total = 0
+    uk_with_title = 0
+    uk_total = 0
 
-    for channels, market_titles_set, market_label in (
+    market_buckets = (
         (de_channels, de_titles, "DE"),
         (us_channels, us_titles, "US"),
-    ):
+        (uk_channels, uk_titles, "UK"),
+    )
+    for channels, market_titles_set, market_label in market_buckets:
         if not channels:
             continue
         channel_ids = [c.id for c in channels]
@@ -1480,22 +1540,30 @@ def _title_coverage(
         for a in assets:
             if market_label == "DE":
                 de_total += 1
-            else:
+            elif market_label == "US":
                 us_total += 1
+            else:
+                uk_total += 1
             if a.title_id is not None:
                 if market_label == "DE":
                     de_with_title += 1
-                else:
+                elif market_label == "US":
                     us_with_title += 1
+                else:
+                    uk_with_title += 1
                 t = session.get(Title, a.title_id)
                 if t:
                     market_titles_set.add(t.title_original)
 
     both = sorted(de_titles & us_titles)
-    de_only = sorted(de_titles - us_titles)
-    us_only = sorted(us_titles - de_titles)
-    total_assets = de_total + us_total
-    overall = ((de_with_title + us_with_title) / total_assets * 100.0) if total_assets else 0.0
+    de_only = sorted(de_titles - us_titles - uk_titles)
+    us_only = sorted(us_titles - de_titles - uk_titles)
+    uk_only = sorted(uk_titles - de_titles - us_titles)
+    total_assets = de_total + us_total + uk_total
+    overall = (
+        ((de_with_title + us_with_title + uk_with_title) / total_assets * 100.0)
+        if total_assets else 0.0
+    )
 
     return TitleCoverage(
         titles_in_both_markets=both,
@@ -1505,6 +1573,9 @@ def _title_coverage(
         de_assets_total=de_total,
         us_assets_with_title=us_with_title,
         us_assets_total=us_total,
+        uk_only_titles=uk_only,
+        uk_assets_with_title=uk_with_title,
+        uk_assets_total=uk_total,
         overall_coverage_pct=round(overall, 1),
     )
 
@@ -1539,16 +1610,23 @@ def _aggregate_platform(
     # Sprint 10d: ``channel_specs`` may list multiple US (or DE) entries —
     # one per cinema sub-brand for the Disney pair. Group by market and
     # resolve each pool with a single IN-query via _find_channels.
+    # Sprint UK-B1: UK als 3. Markt additiv ergänzt; ``uk_specs`` ist
+    # leer für universalpictures + alle Pairs vor B1, dann bleibt
+    # ``uk_channel=None`` und kein Code-Pfad ändert sein Verhalten.
     de_specs = [c for c in channel_specs if c["market"] == "DE"]
     us_specs = [c for c in channel_specs if c["market"] == "US"]
+    uk_specs = [c for c in channel_specs if c["market"] == "UK"]
     de_handles = [s["handle"] for s in de_specs]
     us_handles = [s["handle"] for s in us_specs]
+    uk_handles = [s["handle"] for s in uk_specs]
     de_channels = _find_channels(session, de_handles, platform)
     us_channels = _find_channels(session, us_handles, platform)
+    uk_channels = _find_channels(session, uk_handles, platform)
 
     # Map resolved channels back to handles to surface per-handle gaps.
     de_resolved = {c.handle.lower() for c in de_channels}
     us_resolved = {c.handle.lower() for c in us_channels}
+    uk_resolved = {c.handle.lower() for c in uk_channels}
 
     notes: list[str] = []
     for spec in de_specs:
@@ -1563,6 +1641,12 @@ def _aggregate_platform(
                 f"US-Channel @{spec['handle']} ({label}) wurde nicht in der DB gefunden — "
                 "Onboarding/Whitelist-Eintrag prüfen."
             )
+    for spec in uk_specs:
+        if spec["handle"].lower() not in uk_resolved:
+            notes.append(
+                f"UK-Channel @{spec['handle']} ({label}) wurde nicht in der DB gefunden — "
+                "Onboarding/Whitelist-Eintrag prüfen."
+            )
 
     # Display handle = first spec-listed handle for the market. For
     # single-channel pairs it's the only handle; for the Disney US pool
@@ -1570,6 +1654,7 @@ def _aggregate_platform(
     # "@disneystudios" as the pool's representative marker.
     de_display_handle = de_specs[0]["handle"] if de_specs else ""
     us_display_handle = us_specs[0]["handle"] if us_specs else ""
+    uk_display_handle = uk_specs[0]["handle"] if uk_specs else ""
 
     de_stats = (
         _channel_stats(
@@ -1585,8 +1670,21 @@ def _aggregate_platform(
             "US", window_start, window_end, platform=platform,
         ) if us_specs else None
     )
+    uk_stats = (
+        _channel_stats(
+            session, uk_channels,
+            uk_display_handle,
+            "UK", window_start, window_end, platform=platform,
+        ) if uk_specs else None
+    )
+    # Sprint UK-B1: Cross-Market bleibt explizit 2-Markt (DE↔US). Triple-
+    # bzw. UK-pairwise-Matching ist B2-Scope.
     matches = _cross_market_matches(session, de_channels, us_channels, window_start, window_end)
-    coverage = _title_coverage(de_stats, us_stats, session, de_channels, us_channels, window_start, window_end)
+    coverage = _title_coverage(
+        de_stats, us_stats, uk_stats, session,
+        de_channels, us_channels, uk_channels,
+        window_start, window_end,
+    )
 
     if de_stats and de_stats.posts_count < 5:
         notes.append(
@@ -1596,6 +1694,11 @@ def _aggregate_platform(
     if us_stats and us_stats.posts_count < 5:
         notes.append(
             f"Datenbasis US schwach ({label}): nur {us_stats.posts_count} Posts "
+            f"in den letzten {window_days} Tagen."
+        )
+    if uk_stats and uk_stats.posts_count < 5:
+        notes.append(
+            f"Datenbasis UK schwach ({label}): nur {uk_stats.posts_count} Posts "
             f"in den letzten {window_days} Tagen."
         )
     if de_channels and us_channels and not matches:
@@ -1608,6 +1711,7 @@ def _aggregate_platform(
         platform=platform,
         de_channel=de_stats,
         us_channel=us_stats,
+        uk_channel=uk_stats,
         cross_market_matches=matches,
         title_coverage=coverage,
         notes=notes,
@@ -1676,6 +1780,7 @@ def aggregate_pair(
         iso_year=iso_year,
         de_channel=first.de_channel if first else None,
         us_channel=first.us_channel if first else None,
+        uk_channel=first.uk_channel if first else None,
         cross_market_matches=first.cross_market_matches if first else [],
         title_coverage=first.title_coverage if first else _empty_title_coverage(),
         notes=notes,
@@ -1695,6 +1800,9 @@ def _empty_title_coverage() -> TitleCoverage:
         de_assets_total=0,
         us_assets_with_title=0,
         us_assets_total=0,
+        uk_only_titles=[],
+        uk_assets_with_title=0,
+        uk_assets_total=0,
         overall_coverage_pct=0.0,
     )
 
@@ -1837,11 +1945,18 @@ def _build_user_prompt(agg: PairAggregation) -> str:
         platform = platform_agg.platform
         de = platform_agg.de_channel
         us = platform_agg.us_channel
+        uk = platform_agg.uk_channel
         cross_matches = platform_agg.cross_market_matches or []
 
         de_has_data = bool(de and de.posts_count)
         us_has_data = bool(us and us.posts_count)
-        if not de_has_data and not us_has_data and not cross_matches:
+        # Sprint UK-B1: UK als 3. Markt-Sektion. ``_format_channel_section``
+        # nimmt das Markt-Kürzel als String-Parameter, daher kein Funktions-
+        # Edit nötig — der Markdown-Header "### UK: @<handle>" entsteht
+        # automatisch. Cross-Market mit UK ist B2-Scope, daher hier bewusst
+        # keine UK-Cross-Matches.
+        uk_has_data = bool(uk and uk.posts_count)
+        if not de_has_data and not us_has_data and not uk_has_data and not cross_matches:
             # Plattform komplett leer (z. B. YT-DE bei Disney/Prime/Paramount,
             # ohne dass irgendeine Seite Posts oder Matches hätte) — auslassen.
             continue
@@ -1852,6 +1967,8 @@ def _build_user_prompt(agg: PairAggregation) -> str:
             block.append(_format_channel_section("DE", de, platform))
         if us_has_data:
             block.append(_format_channel_section("US", us, platform))
+        if uk_has_data:
+            block.append(_format_channel_section("UK", uk, platform))
         cross_text = _format_cross_market_block(cross_matches)
         if cross_text:
             block.append(cross_text)
