@@ -1,10 +1,11 @@
 name: Cron Sync
 
-# Triggers the Apify cron-sync endpoint every 3 days at 06:00 UTC.
+# Triggers the Apify cron-sync endpoint every Saturday and Sunday at 06:00 UTC.
 # Schedule expression: minute hour day-of-month month day-of-week
-#   "0 6 */3 * *"  — at 06:00 on every 3rd day-of-month
-# GitHub Actions schedule is best-effort and may drift by a few minutes
-# under load; for a 3-day frequency that's irrelevant.
+#   "0 6 * * 6,0"  — Saturday (6) and Sunday (0) at 06:00 UTC
+# Berlin time: 08:00 CET (winter) / 07:00 CEST (summer).
+# B-Class channel rotation cycles through 3 buckets, so a Sa+Su pair covers
+# 2 of 3 buckets per weekend — third bucket gets picked up the following week.
 #
 # Setup once (Wolf-Aktion, see PR body):
 #   Settings -> Secrets and variables -> Actions
@@ -13,7 +14,7 @@ name: Cron Sync
 
 on:
   schedule:
-    - cron: '0 6 */3 * *'
+    - cron: '0 6 * * 6,0'
   workflow_dispatch:
 
 jobs:
