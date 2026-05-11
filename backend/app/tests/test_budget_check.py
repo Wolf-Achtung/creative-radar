@@ -320,3 +320,25 @@ def test_aggregate_apify_costs_since_emits_zero_block_when_no_rows(db):
         "calls_total": 0,
         "calls_by_operation": {},
     }
+
+
+# ---------- F0.6 Budget-Default-Anchor (Regression-Guard) ------------------
+
+
+def test_default_budget_is_50_usd():
+    """Regression-Guard nach PR #116: Apify-Pay-per-Event-Cost-Tracking
+    machte den realen Verbrauch erstmalig sichtbar — Wolfs Console zeigte
+    ~$13.41/Monat. Pre-#116-Default $200 basierte auf einer 15×-falschen
+    Verbrauchs-Schätzung. Neuer Default $50 hält ~4× Cushion auf $13 für
+    saisonale Spikes, Channel-Ausbau und Apify-Pricing-Erhöhungen.
+
+    Dieser Test fängt es, falls jemand den Default in einem späteren
+    Refactor wieder auf einen pre-PR-#116-Wert dreht — Railway-ENV-
+    Overrides bleiben unberührt, die testen wir nicht.
+    """
+    from app.config import Settings
+
+    # Fresh Settings-Instanz ohne ENV-File-Read, damit der Test gegen den
+    # Code-Default prüft (nicht gegen einen lokal gesetzten ENV-Wert).
+    fresh = Settings(_env_file=None)
+    assert fresh.apify_monthly_budget_usd == 50.0

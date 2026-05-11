@@ -104,11 +104,17 @@ class Settings(BaseSettings):
 
     # Sprint F0.6 Hard-Cap-Vollausbau — Apify-Monatsbudget. Versicherung
     # gegen Spike-Anomalien (Faktor 10+), kein Optimierungs-Hebel.
-    # Aktueller Ist-Verbrauch ~$120/Monat → Default $200 hält ~$80 Cushion.
-    # Bei einer echten Loop-Anomalie (z. B. fehlerhafte Channel-Selection,
-    # die Apify im Endlos-Modus aufruft) greift der Cap am dritten
-    # Wochenende. Kalendermonat-UTC-Reset (siehe budget_check.py).
-    apify_monthly_budget_usd: float = 200.0
+    # Default $50 nach Apify-Pay-per-Event-Cost-Tracking-Fix (PR #116):
+    # Wolfs Apify-Console zeigte am 11.05.2026 ~$13.41/Monat reale Cost
+    # (98% Pay-per-Event-Result-Events, IG dominiert, TT klein). $50
+    # gibt ~4× Cushion für saisonale Spikes (Major-Theatrical-Releases),
+    # Channel-Ausbau (heute +21 neue Channels) und Apify-Pricing-
+    # Erhöhungen. Wolf kann via Railway-ENV jederzeit hochsetzen,
+    # falls der Verbrauch dauerhaft Richtung $40 läuft.
+    # Pre-PR-#116-Default war $200 — basierte auf einer 15×-falschen
+    # Verbrauchs-Schätzung (alter Compute-Units-Bug ließ alles als 0
+    # tracken; Wolf schätzte aus Apify-Console-Werten der vor-PPE-Ära).
+    apify_monthly_budget_usd: float = 50.0
     apify_soft_warn_pct: float = 0.80
     apify_hard_cap_pct: float = 1.00
     # Kill-Switch: auf False setzen deaktiviert den Hard-Cap komplett —
