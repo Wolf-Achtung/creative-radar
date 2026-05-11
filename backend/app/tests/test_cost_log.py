@@ -64,20 +64,25 @@ def test_to_eur_cents_handles_zero_rate(monkeypatch: pytest.MonkeyPatch) -> None
 # ---------- record_apify_run ----------
 
 
-def test_record_apify_run_persists_row_with_compute_units(
+def test_record_apify_run_legacy_compute_units_path_falls_back_to_zero(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings, "apify_compute_unit_usd", 0.4, raising=False)
+    """Pay-per-Event-Pricing-Fix: das ``compute_units * apify_compute_unit_usd``-
+    Modell ist tot. Wenn ein Run-Response NUR die alte ``usage``-Struktur
+    trägt (z. B. ein Free-Tier-Owner-Run oder ein Mock aus alter Test-
+    Fixture) und ``usageTotalUsd`` fehlt, schreibt das Cost-Log eine
+    0-cent-Row + WARN. Die Compute-Unit-Zahl bleibt im ``cost_meta`` als
+    Audit-Anker erhalten — beide Garantien sind nötig, damit
+    Pre-Pay-per-Event-Captures rückverfolgbar bleiben."""
     monkeypatch.setattr(settings, "usd_to_eur_rate", 0.92, raising=False)
 
-    # Patch the module-level engine so _persist writes to our test session's DB
     test_engine = session.get_bind()
     with patch.object(cost_log_module, "engine", test_engine):
         cost_log_module.record_apify_run(
             run_data={
                 "id": "run-123",
                 "actId": "apify~instagram-scraper",
-                "usage": {"COMPUTE_UNITS": 0.5},
+                "usage": {"ACTOR_COMPUTE_UNITS": 0.5},
             },
             items_count=12,
             operation="actor:apify~instagram-scraper",
@@ -88,13 +93,14 @@ def test_record_apify_run_persists_row_with_compute_units(
     row = rows[0]
     assert row.provider == "apify"
     assert row.operation == "actor:apify~instagram-scraper"
-    # 0.5 CU * 0.4 USD = 0.2 USD = 20 cents
-    assert row.cost_usd_cents == 20
-    # 20 cents * 0.92 = 18.4 -> rounded to 18
-    assert row.cost_eur_cents == 18
+    # usageTotalUsd fehlt → 0 cents, kein Versuch der CU-Hochrechnung.
+    assert row.cost_usd_cents == 0
+    assert row.cost_eur_cents == 0
+    # Audit-Anker bleibt — der Drill-Down kann später die CU-Zahl lesen.
     assert row.cost_meta["compute_units"] == 0.5
     assert row.cost_meta["items_count"] == 12
     assert row.cost_meta["run_id"] == "run-123"
+    assert row.cost_meta["usage_total_usd"] is None
 
 
 def test_record_apify_run_handles_missing_usage(
@@ -115,6 +121,154 @@ def test_record_apify_run_handles_missing_usage(
     assert rows[0].cost_usd_cents == 0
     assert rows[0].cost_eur_cents == 0
     assert rows[0].cost_meta["compute_units"] == 0.0
+
+
+# ---------- Pay-per-Event Cost-Tracking (Apify-Pricing-Migration 2025) ----
+
+
+def test_record_apify_run_uses_usage_total_usd_when_present_pay_per_event(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Authoritative-Read: bei Pay-per-Event-Actors trägt Apify die
+    Run-Kosten in ``usageTotalUsd`` ein (server-seitig über
+    ``chargedEventCounts × Event-Preise`` berechnet). Wir lesen direkt
+    diese Zahl, runden auf Cent — keine eigene Hochrechnung, kein
+    Drift zwischen unseren Hardcoded-Preisen und Apifys
+    Pricing-Engine."""
+    monkeypatch.setattr(settings, "usd_to_eur_rate", 0.92, raising=False)
+
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_apify_run(
+            run_data={
+                "id": "ig-run-1",
+                "actId": "apify~instagram-api-scraper",
+                # 280 result-events × $0.002025 = $0.567 (server-seitig
+                # bereits aggregiert in usageTotalUsd)
+                "usageTotalUsd": 0.567,
+                "usage": {"ACTOR_COMPUTE_UNITS": 0.0},  # PPE → CU=0
+                "usageUsd": {
+                    "ACTOR_COMPUTE_UNITS": 0.0,
+                    "EVENT_RESULT": 0.567,
+                },
+                "chargedEventCounts": {
+                    "actor-start": 1,
+                    "result-event": 280,
+                },
+                "pricingInfo": {"pricingModel": "PAY_PER_EVENT"},
+            },
+            items_count=280,
+            operation="actor:apify~instagram-api-scraper",
+        )
+
+    rows = session.exec(select(CostLog)).all()
+    assert len(rows) == 1
+    row = rows[0]
+    # 0.567 USD → 56.7 cents → int(round(56.7)) = 57
+    assert row.cost_usd_cents == 57
+    # 57 cents × 0.92 = 52.44 → 52
+    assert row.cost_eur_cents == 52
+
+
+def test_record_apify_run_uses_usage_total_usd_when_present_tt(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TT-Scraper-Variante: identisches Cost-Modell mit anderem Event-
+    Preis (Clockworks $0.003 statt Apifys $0.002025). Test sichert,
+    dass die Authoritative-Read-Logik plattform-agnostisch ist."""
+    monkeypatch.setattr(settings, "usd_to_eur_rate", 0.92, raising=False)
+
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_apify_run(
+            run_data={
+                "id": "tt-run-1",
+                "actId": "clockworks~tiktok-scraper",
+                # 86 result-events × $0.003 + 1 actor-start × $0.001 = $0.259
+                "usageTotalUsd": 0.259,
+                "chargedEventCounts": {
+                    "actor-start": 1,
+                    "result-event": 86,
+                },
+                "pricingInfo": {"pricingModel": "PAY_PER_EVENT"},
+            },
+            items_count=86,
+            operation="actor:clockworks~tiktok-scraper",
+        )
+
+    rows = session.exec(select(CostLog)).all()
+    assert len(rows) == 1
+    # 0.259 USD → 25.9 cents → int(round(25.9)) = 26
+    assert rows[0].cost_usd_cents == 26
+
+
+def test_record_apify_run_cost_meta_includes_event_counts_and_pricing_model(
+    session: Session,
+) -> None:
+    """Drill-Down-Audit-Trail: ``chargedEventCounts``, ``usage_usd`` und
+    ``pricing_model`` landen vollständig in ``cost_meta``, damit eine
+    spätere Analyse rekonstruieren kann, wofür Apify abgerechnet hat —
+    actor-start vs result-event vs künftige Event-Typen — ohne dass die
+    Cost-Berechnungs-Logik selber dieses Wissen halten muss."""
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_apify_run(
+            run_data={
+                "id": "ig-run-meta",
+                "actId": "apify~instagram-api-scraper",
+                "usageTotalUsd": 0.30,
+                "usageUsd": {
+                    "ACTOR_COMPUTE_UNITS": 0.0,
+                    "EVENT_RESULT": 0.30,
+                    "DATA_TRANSFER_INTERNAL_GBYTES": 0.0,
+                },
+                "chargedEventCounts": {
+                    "actor-start": 1,
+                    "result-event": 148,
+                },
+                "pricingInfo": {"pricingModel": "PAY_PER_EVENT"},
+            },
+            items_count=148,
+            operation="actor:apify~instagram-api-scraper",
+        )
+
+    rows = session.exec(select(CostLog)).all()
+    assert len(rows) == 1
+    meta = rows[0].cost_meta
+    assert meta["usage_total_usd"] == 0.30
+    assert meta["pricing_model"] == "PAY_PER_EVENT"
+    assert meta["charged_event_counts"] == {
+        "actor-start": 1,
+        "result-event": 148,
+    }
+    assert meta["usage_usd"]["EVENT_RESULT"] == 0.30
+    # Backward-Compat-Audit-Felder bleiben befüllt.
+    assert meta["compute_units"] == 0.0
+    assert meta["items_count"] == 148
+    assert meta["actor_id"] == "apify~instagram-api-scraper"
+    assert meta["run_id"] == "ig-run-meta"
+
+
+def test_record_apify_run_handles_string_usage_total_usd_defensively(
+    session: Session,
+) -> None:
+    """Apify's HTTP-JSON ist normalerweise floats, aber wir absichern
+    defensiv gegen String-Werte (z. B. proxy-mangling, alte SDK-
+    Versionen, Test-Fixtures). ``int(round(float("0.42") * 100))`` = 42."""
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_apify_run(
+            run_data={
+                "id": "ig-run-str",
+                "usageTotalUsd": "0.42",  # ← string, kein float
+            },
+            items_count=42,
+            operation="actor:apify~instagram-api-scraper",
+        )
+
+    rows = session.exec(select(CostLog)).all()
+    assert len(rows) == 1
+    assert rows[0].cost_usd_cents == 42
 
 
 def test_record_apify_run_swallows_db_failures(monkeypatch: pytest.MonkeyPatch) -> None:

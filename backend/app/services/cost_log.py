@@ -73,27 +73,76 @@ def record_apify_run(
     """Persist one cost log row for an Apify actor run.
 
     ``run_data`` is the dict from Apify's run-response (under the ``data``
-    key). We pull ``usage.COMPUTE_UNITS`` if present; otherwise estimate
-    zero CU and log items_count anyway so the audit trail is intact.
-    """
-    compute_units = 0.0
-    if isinstance(run_data, dict):
-        usage = run_data.get("usage")
-        if isinstance(usage, dict):
-            cu = usage.get("COMPUTE_UNITS") or usage.get("computeUnits")
-            try:
-                compute_units = float(cu) if cu is not None else 0.0
-            except (TypeError, ValueError):
-                compute_units = 0.0
+    key). The authoritative USD figure lives in ``usageTotalUsd``, which
+    Apify computes server-side over the run's active pricing model — Pay-
+    Per-Usage (compute units), Pay-Per-Event, Pay-Per-Dataset-Item, or
+    any combination Apify ships next. Reading this single field replaces
+    the older ``compute_units * settings.apify_compute_unit_usd`` math
+    that broke when Apify migrated ``apify~instagram-scraper`` and
+    ``clockworks~tiktok-scraper`` to Pay-Per-Event in 2025: the CU figure
+    is now $0 for those actors, all real cost lives in event buckets.
 
-    usd = compute_units * (settings.apify_compute_unit_usd or 0.4)
-    usd_cents = int(round(usd * 100))
+    Fallback policy: if ``usageTotalUsd`` is missing (anonymous run,
+    free-tier owner, or a malformed response), we log 0 cents with a
+    WARN log and preserve the legacy ``compute_units`` + ``items_count``
+    in ``cost_meta`` so the audit trail keeps something we can drill on
+    later.
+    """
+    if not isinstance(run_data, dict):
+        run_data = {}
+
+    usage_total_usd_raw = run_data.get("usageTotalUsd")
+    usage_total_usd: float | None
+    try:
+        usage_total_usd = (
+            float(usage_total_usd_raw) if usage_total_usd_raw is not None else None
+        )
+    except (TypeError, ValueError):
+        usage_total_usd = None
+
+    if usage_total_usd is None:
+        logger.warning(
+            "apify-usage-total-usd-missing",
+            extra={
+                "operation": operation,
+                "run_id": run_data.get("id"),
+                "actor_id": run_data.get("actId"),
+            },
+        )
+        usd_cents = 0
+    else:
+        usd_cents = int(round(usage_total_usd * 100))
+
+    # Backward-compat audit fields: keep ``compute_units`` derived from
+    # the legacy ``usage`` dict so a historical drill-down still works,
+    # even though we no longer base ``cost_usd_cents`` on it.
+    compute_units = 0.0
+    usage_dict = run_data.get("usage")
+    if isinstance(usage_dict, dict):
+        cu = (
+            usage_dict.get("ACTOR_COMPUTE_UNITS")
+            or usage_dict.get("COMPUTE_UNITS")
+            or usage_dict.get("computeUnits")
+        )
+        try:
+            compute_units = float(cu) if cu is not None else 0.0
+        except (TypeError, ValueError):
+            compute_units = 0.0
+
+    pricing_model = None
+    pricing_info = run_data.get("pricingInfo")
+    if isinstance(pricing_info, dict):
+        pricing_model = pricing_info.get("pricingModel")
 
     full_meta = {
+        "usage_total_usd": usage_total_usd,
+        "charged_event_counts": run_data.get("chargedEventCounts") or {},
+        "usage_usd": run_data.get("usageUsd") or {},
+        "pricing_model": pricing_model,
         "compute_units": compute_units,
         "items_count": items_count,
-        "actor_id": (run_data or {}).get("actId") if isinstance(run_data, dict) else None,
-        "run_id": (run_data or {}).get("id") if isinstance(run_data, dict) else None,
+        "actor_id": run_data.get("actId"),
+        "run_id": run_data.get("id"),
         **(meta or {}),
     }
     _persist("apify", operation, usd_cents, full_meta)
