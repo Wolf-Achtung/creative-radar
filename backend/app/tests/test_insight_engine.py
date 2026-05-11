@@ -1725,6 +1725,169 @@ def test_aggregate_pair_pools_disney_us_multi_channels_on_tiktok():
         assert us_stats.channel_id == str(ds.id)
 
 
+def test_aggregate_pair_pools_warner_us_multi_channels_on_tiktok():
+    """Sprint 10h: Warner US TikTok ist Multi-Channel-Pool (warnerbros + dc).
+    Posts beider Sub-Brand-Channels müssen im selben us_channel-Pool landen.
+    Display-handle bleibt der erste Spec-Eintrag (warnerbros)."""
+    with _session() as session:
+        wb = Channel(
+            name="Warner Bros US",
+            platform="tiktok",
+            url="https://www.tiktok.com/@warnerbros",
+            handle="warnerbros",
+            market=Market.US,
+        )
+        dc = Channel(
+            name="DC",
+            platform="tiktok",
+            url="https://www.tiktok.com/@dc",
+            handle="dc",
+            market=Market.US,
+        )
+        session.add_all([wb, dc])
+        session.commit()
+        session.refresh(wb)
+        session.refresh(dc)
+
+        title = Title(title_original="Superman: Legacy")
+        session.add(title)
+        session.commit()
+        session.refresh(title)
+
+        wb_p1 = _make_post(
+            session, wb,
+            caption="Mortal Kombat II hits theaters #MK2",
+            likes=9_000, comments=300, shares=120, saves=180, duration=28,
+            days_ago=2, url_suffix="wb1",
+        )
+        wb_p2 = _make_post(
+            session, wb,
+            caption="Behind the scenes #BTS",
+            likes=1_500, comments=30, shares=10, saves=20, duration=14,
+            days_ago=9, url_suffix="wb2",
+        )
+        dc_p1 = _make_post(
+            session, dc,
+            caption="Superman returns #SupermanLegacy",
+            likes=20_000, comments=800, shares=400, saves=600, duration=32,
+            days_ago=3, url_suffix="dc1",
+        )
+        dc_p2 = _make_post(
+            session, dc,
+            caption="Up, up and away #DC",
+            likes=6_000, comments=150, shares=80, saves=110, duration=18,
+            days_ago=11, url_suffix="dc2",
+        )
+
+        session.add_all([
+            Asset(post_id=wb_p1.id, title_id=title.id),
+            Asset(post_id=wb_p2.id),  # no title
+            Asset(post_id=dc_p1.id, title_id=title.id),
+            Asset(post_id=dc_p2.id, title_id=title.id),
+        ])
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        tt_agg = next(p for p in agg.per_platform if p.platform == "tiktok")
+        us_stats = tt_agg.us_channel
+
+        assert us_stats is not None
+        assert us_stats.handle == "warnerbros", (
+            "Display handle must be the first spec-listed handle (warnerbros), "
+            "not the DC sub-brand."
+        )
+        assert us_stats.posts_count == 4, "Pool covers both sub-brand channels"
+        assert us_stats.assets_count == 4
+        assert us_stats.coverage_pct == 75.0
+
+        ranked_urls = {rp.post_url for rp in us_stats.ranked_posts}
+        assert any("warnerbros" in url for url in ranked_urls)
+        assert any("@dc/" in url for url in ranked_urls)
+
+        assert us_stats.channel_id == str(wb.id)
+
+
+def test_aggregate_pair_pools_sony_us_multi_channels_on_tiktok():
+    """Sprint 10h: Sony US TikTok ist Multi-Channel-Pool (sonypictures +
+    sonypicturesanimation). Display-handle bleibt sonypictures."""
+    with _session() as session:
+        sp = Channel(
+            name="Sony Pictures US",
+            platform="tiktok",
+            url="https://www.tiktok.com/@sonypictures",
+            handle="sonypictures",
+            market=Market.US,
+        )
+        spa = Channel(
+            name="Sony Pictures Animation",
+            platform="tiktok",
+            url="https://www.tiktok.com/@sonypicturesanimation",
+            handle="sonypicturesanimation",
+            market=Market.US,
+        )
+        session.add_all([sp, spa])
+        session.commit()
+        session.refresh(sp)
+        session.refresh(spa)
+
+        title = Title(title_original="Spider-Man: Beyond the Spider-Verse")
+        session.add(title)
+        session.commit()
+        session.refresh(title)
+
+        sp_p1 = _make_post(
+            session, sp,
+            caption="Karate Kid Legends in cinemas #KarateKid",
+            likes=7_500, comments=210, shares=90, saves=140, duration=26,
+            days_ago=2, url_suffix="sp1",
+        )
+        sp_p2 = _make_post(
+            session, sp,
+            caption="Trailer dropping soon #Sony",
+            likes=2_000, comments=50, shares=15, saves=25, duration=12,
+            days_ago=10, url_suffix="sp2",
+        )
+        spa_p1 = _make_post(
+            session, spa,
+            caption="Miles is back #SpiderVerse",
+            likes=18_000, comments=700, shares=350, saves=520, duration=30,
+            days_ago=3, url_suffix="spa1",
+        )
+        spa_p2 = _make_post(
+            session, spa,
+            caption="Animation reel #SonyAnimation",
+            likes=4_500, comments=100, shares=40, saves=70, duration=20,
+            days_ago=14, url_suffix="spa2",
+        )
+
+        session.add_all([
+            Asset(post_id=sp_p1.id, title_id=title.id),
+            Asset(post_id=sp_p2.id),  # no title
+            Asset(post_id=spa_p1.id, title_id=title.id),
+            Asset(post_id=spa_p2.id, title_id=title.id),
+        ])
+        session.commit()
+
+        agg = insight_engine.aggregate_pair(session, "sonypictures", window_days=30)
+        tt_agg = next(p for p in agg.per_platform if p.platform == "tiktok")
+        us_stats = tt_agg.us_channel
+
+        assert us_stats is not None
+        assert us_stats.handle == "sonypictures", (
+            "Display handle must be the first spec-listed handle (sonypictures), "
+            "not the Sony Pictures Animation sub-brand."
+        )
+        assert us_stats.posts_count == 4
+        assert us_stats.assets_count == 4
+        assert us_stats.coverage_pct == 75.0
+
+        ranked_urls = {rp.post_url for rp in us_stats.ranked_posts}
+        assert any("@sonypictures/" in url for url in ranked_urls)
+        assert any("sonypicturesanimation" in url for url in ranked_urls)
+
+        assert us_stats.channel_id == str(sp.id)
+
+
 def test_pair_aggregation_parses_legacy_persisted_brief():
     """Sprint-1 persistence contract: an aggregation JSON written before
     Sprint-4 has no per_platform field. model_validate must still parse

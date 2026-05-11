@@ -94,8 +94,11 @@ PAIRS: dict[str, dict[str, Any]] = {
         # ``platforms`` directly and let the legacy mirror fields wither.
         "platforms": {
             "tiktok": [
-                # Production-confirmed handle (channels_perplexity_2026_05_03.csv).
+                # Sprint 10h: US-Seite ist Multi-Channel-Pool. Warner verteilt
+                # Theatrical-Marketing zwischen @warnerbros (Hauptstudio) und
+                # @dc (DC Studios Sub-Brand). _aggregate_platform pooled beide.
                 {"handle": "warnerbros", "market": "US"},
+                {"handle": "dc", "market": "US"},
                 # DE handle per Wolf brief; aliasing handled by the case-insensitive
                 # lookup. If the actual stored handle differs, ``aggregate_pair``
                 # records that in ``notes`` rather than failing.
@@ -103,10 +106,13 @@ PAIRS: dict[str, dict[str, Any]] = {
             ],
             "instagram": [
                 {"handle": "warnerbros", "market": "US"},
+                # IG-Handle für DC ist @dcofficial (TT-Handle @dc ist nur dort).
+                {"handle": "dcofficial", "market": "US"},
                 {"handle": "warnerbrosde", "market": "DE"},
             ],
             "youtube": [
                 {"handle": "WarnerBrosPictures", "market": "US"},
+                {"handle": "dcofficial", "market": "US"},
                 {"handle": "WarnerBrosDE", "market": "DE"},
             ],
         },
@@ -114,6 +120,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "platform": "tiktok",
         "channels": [
             {"handle": "warnerbros", "market": "US"},
+            {"handle": "dc", "market": "US"},
             {"handle": "warnerbrosdeutschland", "market": "DE"},
         ],
         "enabled": True,
@@ -123,21 +130,31 @@ PAIRS: dict[str, dict[str, Any]] = {
         "label": "sonypictures DE+US",
         "platforms": {
             "tiktok": [
+                # Sprint 10h: US-Seite ist Multi-Channel-Pool. Sony Pictures
+                # Animation (@sonypicturesanimation) postet aktiv im Theatrical-
+                # Marketing parallel zu @sonypictures — beide Pools werden
+                # in _aggregate_platform vereinigt.
                 {"handle": "sonypictures", "market": "US"},
+                {"handle": "sonypicturesanimation", "market": "US"},
                 {"handle": "sonypicturesgermany", "market": "DE"},
             ],
             "instagram": [
                 {"handle": "sonypictures", "market": "US"},
+                # IG-Handle für Sony Pictures Animation ist @sonyanimation
+                # (kürzer als der TT-Handle @sonypicturesanimation).
+                {"handle": "sonyanimation", "market": "US"},
                 {"handle": "sonypicturesde", "market": "DE"},
             ],
             "youtube": [
                 {"handle": "SonyPicturesEntertainment", "market": "US"},
+                {"handle": "sonyanimation", "market": "US"},
                 {"handle": "SonyPicturesGermany", "market": "DE"},
             ],
         },
         "platform": "tiktok",
         "channels": [
             {"handle": "sonypictures", "market": "US"},
+            {"handle": "sonypicturesanimation", "market": "US"},
             {"handle": "sonypicturesgermany", "market": "DE"},
         ],
         "enabled": True,
