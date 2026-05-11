@@ -40,10 +40,12 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import RedirectResponse
 from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.entities import Asset
+from app.services.storage import resolve_url
 
 router = APIRouter(prefix="/api/thumbnails", tags=["thumbnails"])
 logger = logging.getLogger(__name__)
@@ -169,7 +171,24 @@ async def get_thumbnail(
         raise HTTPException(status_code=400, detail="invalid asset id")
 
     asset = session.exec(select(Asset).where(Asset.id == asset_uuid)).first()
-    if asset is None or not asset.thumbnail_url:
+    if asset is None:
+        raise HTTPException(status_code=404, detail="thumbnail not available")
+
+    # F0.1-Capture-Pipeline-Fix: bevorzuge den R2-Object-Key aus
+    # ``visual_evidence_url``, sobald die Capture-Pipeline einen geschrieben
+    # hat. ``resolve_url`` produziert je nach Backend eine S3-Signed-URL
+    # (production) oder einen ``/storage/<key>``-Pfad (LocalFileStorage).
+    # Beide Formen werden via 302-Redirect direkt an den Browser durchgereicht,
+    # sodass der Hotlink-Protection-Cache-Pfad NUR noch für die Pre-F0.1-
+    # Altbestände greift (visual_evidence_url leer → Fallback auf
+    # thumbnail_url + CDN-Proxy + Stale-Cache). Damit landet kein frischer
+    # Capture nochmal auf dem 7-Tage-flüchtigen CDN-Pfad.
+    if asset.visual_evidence_url:
+        resolved = resolve_url(asset.visual_evidence_url)
+        if resolved:
+            return RedirectResponse(url=resolved, status_code=302)
+
+    if not asset.thumbnail_url:
         raise HTTPException(status_code=404, detail="thumbnail not available")
 
     source_url = asset.thumbnail_url

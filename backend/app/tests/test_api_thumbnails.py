@@ -127,9 +127,18 @@ def client(monkeypatch: pytest.MonkeyPatch):
         app.dependency_overrides.pop(get_session, None)
 
 
-def _make_asset(session: Session, *, thumbnail_url: Optional[str]) -> Asset:
+def _make_asset(
+    session: Session,
+    *,
+    thumbnail_url: Optional[str],
+    visual_evidence_url: Optional[str] = None,
+) -> Asset:
     """Minimal Channel + Post + Asset chain — enough to satisfy the
-    foreign-key constraints. The test only ever reads the Asset row."""
+    foreign-key constraints. The test only ever reads the Asset row.
+
+    F0.1-Capture-Pipeline-Fix: ``visual_evidence_url`` accepts the
+    R2-Object-Key (or legacy ``/storage/...`` path) that the capture
+    pipeline writes via ``persist_asset_screenshot_async``."""
     channel = Channel(
         name="Test Channel",
         platform="tiktok",
@@ -150,7 +159,11 @@ def _make_asset(session: Session, *, thumbnail_url: Optional[str]) -> Asset:
     session.commit()
     session.refresh(post)
 
-    asset = Asset(post_id=post.id, thumbnail_url=thumbnail_url)
+    asset = Asset(
+        post_id=post.id,
+        thumbnail_url=thumbnail_url,
+        visual_evidence_url=visual_evidence_url,
+    )
     session.add(asset)
     session.commit()
     session.refresh(asset)
@@ -317,3 +330,61 @@ def test_thumbnail_writes_cache_on_first_fetch(client, isolated_cache_dir, fake_
     cache_file = _cache_path(isolated_cache_dir, src)
     assert cache_file.exists()
     assert cache_file.read_bytes() == b"freshly fetched"
+
+
+# ---------- F0.1 capture-pipeline fix --------------------------------------
+
+
+def test_thumbnail_redirects_to_r2_when_visual_evidence_url_is_object_key(
+    client, isolated_cache_dir, fake_httpx,
+):
+    """F0.1-Capture-Pipeline-Fix: wenn die Capture-Pipeline einen R2-
+    Object-Key in ``asset.visual_evidence_url`` geschrieben hat, leitet
+    der Thumbnail-Endpoint per 302 auf die R2-aufgelöste URL um — kein
+    CDN-Hotlink-Proxy-Roundtrip, kein 7-Tage-Stale-Cache. Der CDN-
+    ``thumbnail_url`` bleibt als Audit-Trail in der DB, wird aber ignoriert,
+    solange ``visual_evidence_url`` greift."""
+    test_client, db = client
+    object_key = "evidence/test-asset-1234.jpg"
+    asset = _make_asset(
+        db,
+        thumbnail_url="https://p19-common-sign.tiktokcdn-us.com/expired-cdn.jpg",
+        visual_evidence_url=object_key,
+    )
+
+    response = test_client.get(
+        f"/api/thumbnails/{asset.id}", follow_redirects=False,
+    )
+
+    assert response.status_code == 302, response.text
+    # LocalFileStorage (Default in Tests) löst Object-Keys nach
+    # ``/storage/<key>`` auf — das Frontend absolutisiert das via
+    # ``buildProxyImageUrl`` gegen die API-Origin.
+    assert response.headers["location"] == f"/storage/{object_key}"
+    # Kein CDN-Fetch — der Hotlink-Proxy-Pfad wurde nicht angefasst.
+    assert fake_httpx.calls == []
+
+
+def test_thumbnail_falls_back_to_cdn_proxy_when_visual_evidence_url_missing(
+    client, isolated_cache_dir, fake_httpx,
+):
+    """Backward-Compat-Garantie: Assets aus der Pre-F0.1-Phase (oder
+    Captures, in denen ``persist_asset_screenshot_async`` die R2-Schreibung
+    geskippt hat — PC-1 Skip-and-Log-Policy) haben ``visual_evidence_url=
+    NULL``. Diese Assets müssen weiterhin durch den CDN-Hotlink-Proxy
+    (Sprint 5c) bedient werden, exakt wie vor dem Fix. Sonst fallen alle
+    historischen Brief-Cards auf den Plattform-Akronym-Fallback."""
+    test_client, db = client
+    src = "https://p19-common-sign.tiktokcdn-us.com/legacy.jpg"
+    asset = _make_asset(db, thumbnail_url=src, visual_evidence_url=None)
+
+    fake_httpx.response = _RecordingResponse(content=b"legacy-cdn-bytes")
+
+    response = test_client.get(f"/api/thumbnails/{asset.id}")
+
+    assert response.status_code == 200
+    assert response.content == b"legacy-cdn-bytes"
+    # Hotlink-Proxy ist tatsächlich angesprungen — der CDN-Fallback-Pfad
+    # läuft unverändert weiter.
+    assert len(fake_httpx.calls) == 1
+    assert fake_httpx.calls[0]["url"] == src
