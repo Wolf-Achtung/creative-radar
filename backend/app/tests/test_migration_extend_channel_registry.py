@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlmodel import SQLModel
 
 import app.database as db_mod
@@ -59,9 +59,21 @@ def alembic_cfg(sqlite_url, monkeypatch):
 
     # Bootstrap the channel table (and the rest of the SQLModel schema) so
     # add_column has something to attach to.
+    #
+    # Cleanup A2: ``SQLModel.metadata.create_all`` materialisiert die Tabelle
+    # aus dem AKTUELLEN ``Channel``-Model — das enthält seit Sprint 5.2.1
+    # bereits die vier Spalten, deren Hinzufügung diese Migration testet.
+    # Ohne nachträgliches ``DROP COLUMN`` ist der Pre-Migration-Zustand
+    # nicht echt: der Baseline-Check (``isdisjoint``) und der
+    # Downgrade-Roundtrip schlagen sofort fehl. SQLite 3.35+ unterstützt
+    # ``ALTER TABLE ... DROP COLUMN`` nativ, deshalb genügt ein
+    # vier-zeiliges DROP-Statement direkt nach ``create_all``.
     engine = create_engine(sqlite_url)
     try:
         SQLModel.metadata.create_all(engine)
+        with engine.begin() as conn:
+            for column in NEW_COLUMNS:
+                conn.execute(text(f"ALTER TABLE channel DROP COLUMN {column}"))
     finally:
         engine.dispose()
 
@@ -84,7 +96,7 @@ def test_upgrade_adds_all_four_columns(sqlite_url, alembic_cfg):
         f"baseline already contains new columns: {NEW_COLUMNS & baseline}"
     )
 
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
 
     after_up = _channel_columns(sqlite_url)
     missing = NEW_COLUMNS - after_up
@@ -94,7 +106,7 @@ def test_upgrade_adds_all_four_columns(sqlite_url, alembic_cfg):
 
 
 def test_roundtrip_up_down_up(sqlite_url, alembic_cfg):
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
     assert NEW_COLUMNS.issubset(_channel_columns(sqlite_url))
 
     command.downgrade(alembic_cfg, "-1")
@@ -103,7 +115,7 @@ def test_roundtrip_up_down_up(sqlite_url, alembic_cfg):
     assert not leftover, f"downgrade left columns behind: {leftover}"
     assert "notes" in after_down, "downgrade unexpectedly removed 'notes'"
 
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
     after_reup = _channel_columns(sqlite_url)
     missing = NEW_COLUMNS - after_reup
     assert not missing, f"second upgrade did not re-add: {missing}"

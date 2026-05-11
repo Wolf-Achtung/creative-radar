@@ -576,14 +576,21 @@ def test_llm_report_parses_old_schema_for_backwards_compat(monkeypatch):
 def test_system_prompt_blocks_known_anti_patterns():
     """Sanity guard: the system prompt explicitly names the LLM-typical
     English X-Y-Floskeln we want to block. If someone weakens the
-    anti-pattern block in a future refactor, this test catches it."""
+    anti-pattern block in a future refactor, this test catches it.
+
+    Cleanup A2: ``Catalog-Reaktivierung`` ist seit der Trailerhaus-Voice-v2-
+    Umstellung (commit d7ea8a0) das im Prompt geführte Catalog-Verbot —
+    die frühere Standalone-Vokabel ``Catalog-Nostalgie`` wurde durch das
+    breitere Bucket ``Catalog-Mid, Catalog-Reaktivierung, Catalog-Hook``
+    ersetzt. Test sichert weiterhin den Catalog-Guard, nur mit dem
+    aktuellen Token."""
     prompt = insight_engine.SYSTEM_PROMPT
     for forbidden in (
         "Brand-Storytelling",
         "Engagement-Drivers",
         "Hook-Architektur",
         "Live-Event-Framing",
-        "Catalog-Nostalgie",
+        "Catalog-Reaktivierung",
     ):
         assert forbidden in prompt, (
             f"Anti-pattern guard removed for {forbidden!r} — re-add to "
