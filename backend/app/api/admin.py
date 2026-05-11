@@ -42,6 +42,7 @@ from app.services.anthropic_client import (
     AnthropicAuthError,
     AnthropicRateLimitError,
 )
+from app.services.budget_check import compute_apify_monthly_spend
 from app.services.insight_engine import PAIRS, generate_and_persist_report
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,18 @@ def cost_summary(
             for key, values in sorted(buckets.items())
         ],
     }
+
+
+@router.get("/budget-status")
+def budget_status(session: Session = Depends(get_session)) -> dict:
+    """Sprint F0.6 — current Apify monthly budget snapshot.
+
+    Returns the same ``BudgetStatus`` payload that ``_run_cron_sync_background``
+    consults for its pre-flight check, so Wolf can verify mid-month whether
+    the next weekend's cron run will be allowed through. Bearer-auth runs
+    through the global middleware — no separate ADMIN token here.
+    """
+    return compute_apify_monthly_spend(session).to_dict()
 
 
 # ---------- YouTube sync (Sprint 5.2.3) -------------------------------
