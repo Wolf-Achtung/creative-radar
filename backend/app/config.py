@@ -102,6 +102,21 @@ class Settings(BaseSettings):
     # is verified. 0 disables the auto-vision step entirely.
     cron_vision_max_assets_per_run: int = 50
 
+    # Sprint F0.6 Hard-Cap-Vollausbau — Apify-Monatsbudget. Versicherung
+    # gegen Spike-Anomalien (Faktor 10+), kein Optimierungs-Hebel.
+    # Aktueller Ist-Verbrauch ~$120/Monat → Default $200 hält ~$80 Cushion.
+    # Bei einer echten Loop-Anomalie (z. B. fehlerhafte Channel-Selection,
+    # die Apify im Endlos-Modus aufruft) greift der Cap am dritten
+    # Wochenende. Kalendermonat-UTC-Reset (siehe budget_check.py).
+    apify_monthly_budget_usd: float = 200.0
+    apify_soft_warn_pct: float = 0.80
+    apify_hard_cap_pct: float = 1.00
+    # Kill-Switch: auf False setzen deaktiviert den Hard-Cap komplett —
+    # für Notfall-Runs nach einem Bug-Fix, wenn die Spike-Kosten zwar
+    # gelogged aber nicht repräsentativ sind. Default an, damit die
+    # Versicherung im Normalbetrieb greift.
+    apify_budget_enforced: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

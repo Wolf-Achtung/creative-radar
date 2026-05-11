@@ -41,6 +41,7 @@ from app.services.apify_connector import (
     run_public_channel_monitor,
     run_tiktok_profile_monitor,
 )
+from app.services.budget_check import compute_apify_monthly_spend
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.visual_analysis import analyze_asset_visual
@@ -417,11 +418,41 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             logger.error("cron run %s not found in background task", run_id)
             return
         try:
+            # Sprint F0.6 — Apify-Monatsbudget-Pre-Flight. Wenn der Hard-Cap
+            # erreicht ist und der Kill-Switch nicht aus ist, bricht der
+            # Run hier vor jeder API-Aktion ab. Der CronRun bleibt als
+            # Audit-Trail erhalten mit Status ``budget_exceeded`` und
+            # vollständigem BudgetStatus im summary_json. Soft-Warn (>=80%)
+            # läuft weiter und wird nur via ``budget_warning=True``
+            # markiert — die ~$80 Cushion zwischen Soft und Hard ist die
+            # bewusste Sicherheitsmarge.
+            budget = compute_apify_monthly_spend(session)
+            if budget.hard_cap_exceeded and budget.enforced:
+                summary = {
+                    "skipped": True,
+                    "reason": "apify_budget_exceeded",
+                    "budget": budget.to_dict(),
+                }
+                run.summary_json = summary
+                run.status = "budget_exceeded"
+                run.completed_at = datetime.now(timezone.utc)
+                session.add(run)
+                session.commit()
+                logger.warning(
+                    "cron run %s aborted: apify budget %d/%d cents (%.1f%%)",
+                    run_id, budget.spent_usd_cents, budget.budget_usd_cents,
+                    budget.pct_used * 100,
+                )
+                return
+
             summary, created_asset_ids = await _execute_platform_sync(session, run_index)
             cap = settings.cron_vision_max_assets_per_run
             if created_asset_ids:
                 summary["vision"] = _run_vision_after_sync(session, created_asset_ids, cap)
             summary["rematch"] = _run_rematch_after_sync(session)
+            summary["budget"] = budget.to_dict()
+            if budget.soft_warn_exceeded:
+                summary["budget_warning"] = True
             run.summary_json = summary
             run.status = "completed"
             run.completed_at = datetime.now(timezone.utc)
