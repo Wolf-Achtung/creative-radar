@@ -216,10 +216,20 @@ PAIRS: dict[str, dict[str, Any]] = {
                 # ``disneydeutschland`` on Instagram.
                 {"handle": "disneydeutschland", "market": "DE"},
             ],
-            # No DE-side YouTube channel for Disney's main studios feed.
-            # YouTube bleibt single-channel — kein Multi-YT-Scope in 10d.
+            # Sprint 10j: US-Seite ist Multi-Channel-Pool analog TT/IG.
+            # Marvel-Trailer landen auf @marvel, Pixar-Promos auf @pixar,
+            # Lucasfilm-Content auf @StarWars, 20th-Century-Releases auf
+            # @20thCenturyStudios — alle vier sub-brand YT-Channels gehören
+            # zusammen mit @WaltDisneyStudios in den US-Pool.
+            # DE-Seite bleibt single-market (kein DE-Cinema-Marketing-Account).
+            # _find_channels nutzt lowercase-handle-match, daher case-mix
+            # (StarWars/20thCenturyStudios) verträglich mit der DB-Form.
             "youtube": [
                 {"handle": "WaltDisneyStudios", "market": "US"},
+                {"handle": "marvel", "market": "US"},
+                {"handle": "pixar", "market": "US"},
+                {"handle": "StarWars", "market": "US"},
+                {"handle": "20thCenturyStudios", "market": "US"},
             ],
         },
         "platform": "tiktok",
