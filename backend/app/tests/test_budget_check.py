@@ -33,6 +33,7 @@ from app.models.entities import Channel, CostLog, CronRun
 from app.services.budget_check import (
     BudgetStatus,
     _month_window_utc,
+    aggregate_apify_costs_since,
     compute_apify_monthly_spend,
 )
 
@@ -92,12 +93,13 @@ def _seed_costlog(
     provider: str,
     usd_cents: int,
     timestamp: datetime | None = None,
+    operation: str | None = None,
 ) -> None:
     with Session(db) as session:
         session.add(
             CostLog(
                 provider=provider,
-                operation="instagram_actor" if provider == "apify" else "test",
+                operation=operation or ("instagram_actor" if provider == "apify" else "test"),
                 cost_usd_cents=usd_cents,
                 cost_eur_cents=int(round(usd_cents * 0.92)),
                 cost_meta={},
@@ -252,3 +254,69 @@ def test_admin_budget_status_endpoint_returns_current_state(client_with_auth, db
     assert start.day == 1 and start.hour == 0 and start.minute == 0
     assert end.day == 1
     assert end > start
+
+
+# ---------- Tech-Debt A5: apify-cost in cron summary_json ------------------
+
+
+def test_aggregate_apify_costs_since_buckets_per_operation_and_ignores_prior_rows(
+    db, monkeypatch: pytest.MonkeyPatch,
+):
+    """Helper-Garantie: nur Apify-Rows ab dem ``since``-Cutoff fließen in
+    den Cron-Summary-Block. Non-Apify-Provider (openai, anthropic_*) und
+    Apify-Rows VOR ``since`` (z. B. vom vorigen Cron-Lauf am Samstag)
+    bleiben strikt draußen. Bucket-Counts werden pro ``operation`` (=
+    Actor-ID) hochgezählt — eine Eigenschaft, die das Dashboard braucht,
+    um IG- vs TT-Anteil zu sehen."""
+    since = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+    _seed_costlog(
+        db, provider="apify", usd_cents=25,
+        operation="actor:apify~instagram-scraper",
+        timestamp=since + timedelta(seconds=30),
+    )
+    _seed_costlog(
+        db, provider="apify", usd_cents=17,
+        operation="actor:clockworks~tiktok-scraper",
+        timestamp=since + timedelta(minutes=2),
+    )
+    # Apify row VOR dem Cutoff — vom vorigen Run, ignorieren.
+    _seed_costlog(
+        db, provider="apify", usd_cents=9_999,
+        operation="actor:apify~instagram-scraper",
+        timestamp=since - timedelta(minutes=10),
+    )
+    # Non-Apify im Window — ignorieren.
+    _seed_costlog(
+        db, provider="openai", usd_cents=5000,
+        timestamp=since + timedelta(seconds=10),
+    )
+
+    with Session(db) as session:
+        block = aggregate_apify_costs_since(session, since)
+
+    assert block["calls_total"] == 2
+    assert block["estimated_cost_usd"] == pytest.approx(0.42)  # (25 + 17) / 100
+    assert block["calls_by_operation"] == {
+        "actor:apify~instagram-scraper": 1,
+        "actor:clockworks~tiktok-scraper": 1,
+    }
+
+
+def test_aggregate_apify_costs_since_emits_zero_block_when_no_rows(db):
+    """Backward-Compat-Garantie: bei null Apify-Calls (Apify nicht
+    konfiguriert, alle Channels geskippt, oder ``_run_actor`` failed
+    before logging) emittiert der Aggregator trotzdem den vollständigen
+    Block mit Nullen. Dashboards können nicht zwischen „Feld fehlt"
+    und „kein Apify in diesem Run" unterscheiden — Nullen sind das
+    explizitere Signal."""
+    since = datetime.now(timezone.utc) - timedelta(minutes=1)
+
+    with Session(db) as session:
+        block = aggregate_apify_costs_since(session, since)
+
+    assert block == {
+        "estimated_cost_usd": 0.0,
+        "calls_total": 0,
+        "calls_by_operation": {},
+    }

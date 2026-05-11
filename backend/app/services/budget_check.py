@@ -122,3 +122,44 @@ def compute_apify_monthly_spend(
         hard_cap_exceeded=pct_used >= hard_pct,
         enforced=bool(settings.apify_budget_enforced),
     )
+
+
+def aggregate_apify_costs_since(session: Session, since: datetime) -> dict:
+    """Tech-Debt A5 — Apify-Cost-Aggregat für den laufenden Cron-Run.
+
+    Bündelt alle ``provider='apify'``-Rows mit ``timestamp >= since`` zu
+    einem Surface-Block für ``cron_run.summary_json``. Format analog zum
+    Vision-Block (``estimated_cost_usd`` als USD-float gerundet auf 4
+    Stellen). Cents bleiben Backend-intern.
+
+    Bei null Calls (Apify nicht konfiguriert, alle Channels geskippt,
+    Run vor `record_apify_run` abgebrochen) emittiert die Funktion
+    trotzdem den Block mit Nullen — ein sichtbares „diesem Run wurden
+    keine Apify-Kosten zugeordnet" ist im Dashboard mehr wert als ein
+    fehlendes Feld.
+
+    Failure policy: DB-Fehler werden geloggt und produzieren einen
+    Null-Block. Die Logging-Pipeline ist nicht der richtige Ort, einen
+    Cron-Run wegen einer Stat-Query scheitern zu lassen.
+    """
+    try:
+        rows = list(session.exec(
+            select(CostLog.operation, CostLog.cost_usd_cents)
+            .where(CostLog.provider == "apify")
+            .where(CostLog.timestamp >= since)
+        ).all())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("apify-cost-aggregate-failed: %s", exc)
+        rows = []
+
+    total_cents = 0
+    calls_by_operation: dict[str, int] = {}
+    for operation, cost_usd_cents in rows:
+        total_cents += int(cost_usd_cents or 0)
+        calls_by_operation[operation] = calls_by_operation.get(operation, 0) + 1
+
+    return {
+        "estimated_cost_usd": round(total_cents / 100.0, 4),
+        "calls_total": len(rows),
+        "calls_by_operation": calls_by_operation,
+    }
