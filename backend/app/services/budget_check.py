@@ -124,6 +124,101 @@ def compute_apify_monthly_spend(
     )
 
 
+def _aggregate_costs_by_provider_prefix(
+    session: Session,
+    *,
+    providers: tuple[str, ...],
+    since: datetime,
+    log_tag: str,
+) -> dict:
+    """Shared body for the anthropic/openai cost aggregators below.
+
+    The two callers differ only in their provider-bucket filter:
+    Anthropic has four buckets (``anthropic``, ``anthropic_haiku``,
+    ``anthropic_sonnet``, ``anthropic_sonnet_vision``, ``anthropic_opus``)
+    after the 2026-05-12 fix; OpenAI is a single bucket. Both sum the
+    new ``cost_usd_millicents`` column to preserve sub-cent calls, and
+    both bucket-count per ``operation`` for dashboard drill-down.
+    """
+    try:
+        rows = list(session.exec(
+            select(
+                CostLog.provider,
+                CostLog.operation,
+                CostLog.cost_usd_millicents,
+            )
+            .where(CostLog.provider.in_(providers))
+            .where(CostLog.timestamp >= since)
+        ).all())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("%s-cost-aggregate-failed: %s", log_tag, exc)
+        rows = []
+
+    total_millicents = 0
+    calls_by_operation: dict[str, int] = {}
+    calls_by_provider: dict[str, int] = {}
+    for provider, operation, cost_millicents in rows:
+        total_millicents += int(cost_millicents or 0)
+        calls_by_operation[operation] = calls_by_operation.get(operation, 0) + 1
+        calls_by_provider[provider] = calls_by_provider.get(provider, 0) + 1
+
+    return {
+        # USD is the source of truth; rounding to 6 decimals keeps sub-cent
+        # precision visible in JSON while staying readable in dashboards.
+        "estimated_cost_usd": round(total_millicents / 100_000.0, 6),
+        "calls_total": len(rows),
+        "calls_by_operation": calls_by_operation,
+        "calls_by_provider": calls_by_provider,
+    }
+
+
+def aggregate_anthropic_costs_since(session: Session, since: datetime) -> dict:
+    """Cost-Tracking-Fix 2026-05-12 — Anthropic-Cost-Aggregat für einen
+    laufenden Cron-Run.
+
+    Bündelt alle Anthropic-Provider-Buckets (``anthropic``,
+    ``anthropic_haiku``, ``anthropic_sonnet``, ``anthropic_sonnet_vision``,
+    ``anthropic_opus``) zu einem Block für ``cron_run.summary_json``. Vor
+    diesem Sprint waren Anthropic-Buckets gar nicht im Cron-Summary
+    sichtbar — der Brief-Pfad und post_analyzer-Vision-Pfad hatten je
+    Cost in der DB, das Dashboard sah nichts davon.
+
+    Aggregiert ``cost_usd_millicents`` statt ``cost_usd_cents`` — der
+    Sub-Cent-Pfad ist nach dem Precision-Loss-Fix die einzige verlässliche
+    Quelle. Bei null Anthropic-Calls bleibt der Block mit Nullen sichtbar
+    (gleiche Konvention wie Apify-Aggregator).
+    """
+    return _aggregate_costs_by_provider_prefix(
+        session,
+        providers=(
+            "anthropic",
+            "anthropic_haiku",
+            "anthropic_sonnet",
+            "anthropic_sonnet_vision",
+            "anthropic_opus",
+        ),
+        since=since,
+        log_tag="anthropic",
+    )
+
+
+def aggregate_openai_costs_since(session: Session, since: datetime) -> dict:
+    """Cost-Tracking-Fix 2026-05-12 — OpenAI-Cost-Aggregat für einen
+    laufenden Cron-Run.
+
+    Vor dem Precision-Loss-Fix lieferte ``cost_usd_cents`` für 1118
+    chat_completions + 448 vision_calls über 7 Tage konstant 0. Nach dem
+    Fix summieren wir ``cost_usd_millicents`` und zeigen den realen
+    Sub-Cent-Verbrauch (~$0.80/7d Schätzung).
+    """
+    return _aggregate_costs_by_provider_prefix(
+        session,
+        providers=("openai",),
+        since=since,
+        log_tag="openai",
+    )
+
+
 def aggregate_apify_costs_since(session: Session, since: datetime) -> dict:
     """Tech-Debt A5 — Apify-Cost-Aggregat für den laufenden Cron-Run.
 

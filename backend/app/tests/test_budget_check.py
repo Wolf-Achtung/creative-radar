@@ -33,7 +33,9 @@ from app.models.entities import Channel, CostLog, CronRun
 from app.services.budget_check import (
     BudgetStatus,
     _month_window_utc,
+    aggregate_anthropic_costs_since,
     aggregate_apify_costs_since,
+    aggregate_openai_costs_since,
     compute_apify_monthly_spend,
 )
 
@@ -94,6 +96,7 @@ def _seed_costlog(
     usd_cents: int,
     timestamp: datetime | None = None,
     operation: str | None = None,
+    usd_millicents: int | None = None,
 ) -> None:
     with Session(db) as session:
         session.add(
@@ -101,6 +104,9 @@ def _seed_costlog(
                 provider=provider,
                 operation=operation or ("instagram_actor" if provider == "apify" else "test"),
                 cost_usd_cents=usd_cents,
+                cost_usd_millicents=(
+                    usd_millicents if usd_millicents is not None else usd_cents * 1000
+                ),
                 cost_eur_cents=int(round(usd_cents * 0.92)),
                 cost_meta={},
                 timestamp=timestamp or datetime.now(timezone.utc),
@@ -319,6 +325,124 @@ def test_aggregate_apify_costs_since_emits_zero_block_when_no_rows(db):
         "estimated_cost_usd": 0.0,
         "calls_total": 0,
         "calls_by_operation": {},
+    }
+
+
+# ---------- Cost-Tracking-Fix 2026-05-12: Anthropic + OpenAI aggregators ---
+
+
+def test_aggregate_anthropic_costs_since_sums_all_anthropic_buckets(db):
+    """Anthropic-Aggregator muss alle Provider-Buckets bündeln: das
+    ``anthropic_opus`` aus dem Brief-Pfad, ``anthropic_haiku`` und
+    ``anthropic_sonnet`` aus dem post_analyzer-Pfad. Sub-Cent-Calls
+    werden über ``cost_usd_millicents`` aggregiert — sonst gehen die
+    Haiku-Calls verloren, die einzeln unter 1 Cent liegen."""
+    since = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+    # Brief-Pfad: 1 Opus-Call, ~30 cents = 30000 millicents.
+    _seed_costlog(
+        db, provider="anthropic_opus", usd_cents=30, usd_millicents=30_000,
+        operation="weekly_brief",
+        timestamp=since + timedelta(seconds=10),
+    )
+    # post_analyzer-Pfad: Haiku-Call unter 1 Cent (typische Praxis).
+    _seed_costlog(
+        db, provider="anthropic_haiku", usd_cents=0, usd_millicents=85,
+        operation="analyze_post",
+        timestamp=since + timedelta(seconds=20),
+    )
+    # post_analyzer-Pfad: Sonnet-Vision-Call.
+    _seed_costlog(
+        db, provider="anthropic_sonnet_vision", usd_cents=1, usd_millicents=1_200,
+        operation="vision_call",
+        timestamp=since + timedelta(seconds=30),
+    )
+    # Non-Anthropic im Window — ignorieren.
+    _seed_costlog(
+        db, provider="openai", usd_cents=0, usd_millicents=30,
+        operation="chat_completion",
+        timestamp=since + timedelta(seconds=40),
+    )
+    # Anthropic VOR cutoff — ignorieren.
+    _seed_costlog(
+        db, provider="anthropic_opus", usd_cents=99, usd_millicents=99_000,
+        timestamp=since - timedelta(minutes=10),
+    )
+
+    with Session(db) as session:
+        block = aggregate_anthropic_costs_since(session, since)
+
+    assert block["calls_total"] == 3
+    # 30000 + 85 + 1200 = 31285 millicents = 0.31285 USD
+    assert block["estimated_cost_usd"] == pytest.approx(0.31285)
+    assert block["calls_by_operation"] == {
+        "weekly_brief": 1,
+        "analyze_post": 1,
+        "vision_call": 1,
+    }
+    assert block["calls_by_provider"] == {
+        "anthropic_opus": 1,
+        "anthropic_haiku": 1,
+        "anthropic_sonnet_vision": 1,
+    }
+
+
+def test_aggregate_openai_costs_since_uses_millicents(db):
+    """OpenAI-Aggregator muss sub-cent-präzise summieren. Vor dem Fix
+    rundete jeder Call cost_usd_cents auf 0, was diese Funktion
+    nutzlos gemacht hätte. Über millicents bleibt der reale Verbrauch
+    sichtbar."""
+    since = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+    # 3 typische gpt-4o-mini-Calls, je ~0.03-0.06 cents = 30-60 millicents.
+    _seed_costlog(
+        db, provider="openai", usd_cents=0, usd_millicents=45,
+        operation="chat_completion",
+        timestamp=since + timedelta(seconds=10),
+    )
+    _seed_costlog(
+        db, provider="openai", usd_cents=0, usd_millicents=29,
+        operation="vision_call",
+        timestamp=since + timedelta(seconds=20),
+    )
+    _seed_costlog(
+        db, provider="openai", usd_cents=0, usd_millicents=60,
+        operation="chat_completion",
+        timestamp=since + timedelta(seconds=30),
+    )
+    # Anthropic im Window — ignorieren.
+    _seed_costlog(
+        db, provider="anthropic_haiku", usd_cents=0, usd_millicents=80,
+        timestamp=since + timedelta(seconds=40),
+    )
+
+    with Session(db) as session:
+        block = aggregate_openai_costs_since(session, since)
+
+    assert block["calls_total"] == 3
+    # 45 + 29 + 60 = 134 millicents = 0.00134 USD
+    assert block["estimated_cost_usd"] == pytest.approx(0.00134)
+    assert block["calls_by_operation"] == {
+        "chat_completion": 2,
+        "vision_call": 1,
+    }
+    assert block["calls_by_provider"] == {"openai": 3}
+
+
+def test_aggregate_openai_costs_since_emits_zero_block_when_no_rows(db):
+    """Backward-Compat-Garantie analog zum Apify-Aggregator: keine Calls
+    -> kompletter Null-Block, damit das Dashboard "kein OpenAI in diesem
+    Run" zuverlässig vom "Feld fehlt" unterscheiden kann."""
+    since = datetime.now(timezone.utc) - timedelta(minutes=1)
+
+    with Session(db) as session:
+        block = aggregate_openai_costs_since(session, since)
+
+    assert block == {
+        "estimated_cost_usd": 0.0,
+        "calls_total": 0,
+        "calls_by_operation": {},
+        "calls_by_provider": {},
     }
 
 

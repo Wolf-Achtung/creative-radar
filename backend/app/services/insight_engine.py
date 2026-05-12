@@ -47,12 +47,14 @@ from app.schemas.insights import (
 # Module-internal alias for the SQLModel persistence row (re-export the
 # Pydantic ``InsightReport`` from app.schemas.insights). The two share a
 # name; we disambiguate with the import alias above.
+from app.config import settings
 from app.services.anthropic_client import (
     AnthropicAPIError,
     AnthropicAuthError,
     is_anthropic_configured,
     messages_create_text,
 )
+from app.services.cost_log import record_anthropic_call
 
 logger = logging.getLogger(__name__)
 
@@ -370,11 +372,11 @@ PAIRS: dict[str, dict[str, Any]] = {
 # force a datestamped pin, but no override is wired today: one Opus, one call.
 OPUS_MODEL_ALIAS = "claude-opus-4-7"
 
-# Public list price as of 2026-05 — Opus 4.7: $15/Mtok input, $75/Mtok output.
-# Used only for the cost-estimate field in the response (informational, not
-# enforced). Update when Anthropic publishes new pricing.
-_OPUS_INPUT_PER_1K_USD = 0.015
-_OPUS_OUTPUT_PER_1K_USD = 0.075
+# Opus 4.7 pricing reads from ``settings.anthropic_opus_*_per_1k_usd`` —
+# previously hardcoded here AND implicit in ``record_anthropic_call``,
+# which gave us a drift-window where the brief-frontend estimate and the
+# costlog row could disagree. One source of truth (config.py) now feeds
+# both the frontend ``cost_usd_estimate`` field and the persisted row.
 
 
 # ---------- System prompt ---------------------------------------------------
@@ -2010,9 +2012,10 @@ def _strip_codefence(text: str) -> str:
 
 
 def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
+    in_rate = settings.anthropic_opus_input_per_1k_usd or 0.0
+    out_rate = settings.anthropic_opus_output_per_1k_usd or 0.0
     return round(
-        (input_tokens / 1000.0) * _OPUS_INPUT_PER_1K_USD
-        + (output_tokens / 1000.0) * _OPUS_OUTPUT_PER_1K_USD,
+        (input_tokens / 1000.0) * in_rate + (output_tokens / 1000.0) * out_rate,
         4,
     )
 
@@ -2107,6 +2110,25 @@ def generate_weekly_report(
     input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
     output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
     cost = _estimate_cost_usd(input_tokens, output_tokens) if (input_tokens or output_tokens) else None
+
+    # Persist the brief-path Anthropic call so F0.6 cost-summary sees it.
+    # Before today's fix this was missed entirely — the weekly brief was
+    # the single most expensive Anthropic call we make ($0.30+/brief) but
+    # never landed in the costlog because the post_analyzer-path was the
+    # only caller of ``record_anthropic_call``. We pass the SDK usage
+    # object directly; the cost_log helper handles both attribute- and
+    # dict-shaped usage.
+    if usage is not None and (input_tokens or output_tokens):
+        record_anthropic_call(
+            usage,
+            model=model,
+            operation="weekly_brief",
+            meta={
+                "pair_key": agg.pair_key,
+                "iso_week": agg.iso_week,
+                "iso_year": agg.iso_year,
+            },
+        )
 
     return InsightReport(
         pair_key=agg.pair_key,

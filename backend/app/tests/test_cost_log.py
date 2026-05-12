@@ -361,6 +361,91 @@ def test_record_openai_call_handles_none_usage(
     assert rows[0].cost_meta["input_tokens"] == 0
 
 
+def test_record_openai_call_uses_millicents_for_sub_cent_precision(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Precision-loss-fix regression-guard. A typical gpt-4o-mini vision
+    call (~965 input + ~250 output tokens) costs ~0.03 cents — well below
+    the 0.5-cent rounding floor. Before the fix every such call landed
+    with cost_usd_cents=0, making aggregation worthless. The millicent
+    column stores the unrounded integer (1 cent = 1000 millicents) so the
+    sub-cent signal survives."""
+    monkeypatch.setattr(settings, "openai_input_per_1k_usd", 0.000150, raising=False)
+    monkeypatch.setattr(settings, "openai_output_per_1k_usd", 0.000600, raising=False)
+
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_openai_call(
+            usage={"prompt_tokens": 965, "completion_tokens": 250},
+            operation="vision_call",
+        )
+
+    row = session.exec(select(CostLog)).one()
+    # input_usd  = 965/1000 * 0.000150 = 0.00014475
+    # output_usd = 250/1000 * 0.000600 = 0.00015000
+    # total      = 0.00029475 USD = 0.029475 cents = 29.475 millicents
+    # int(round(...)) -> 29 millicents (the 0 from cents is the bug we fix)
+    assert row.cost_usd_cents == 0
+    assert row.cost_usd_millicents == 29
+    assert row.cost_meta["cost_usd_millicents"] == 29
+
+
+# ---------- record_anthropic_call ----------
+
+
+def test_record_anthropic_call_opus_pricing(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Opus 4.7 must route to ``anthropic_opus`` with the configured
+    $15/$75-per-Mtok rates. Before the fix, ``claude-opus-*`` fell
+    through to the generic ``anthropic`` bucket with rate=0 and the
+    weekly-brief cost was silently 0 cents."""
+    monkeypatch.setattr(settings, "anthropic_opus_input_per_1k_usd", 0.015, raising=False)
+    monkeypatch.setattr(settings, "anthropic_opus_output_per_1k_usd", 0.075, raising=False)
+
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_anthropic_call(
+            usage={"input_tokens": 10_000, "output_tokens": 2_000},
+            model="claude-opus-4-7",
+            operation="weekly_brief",
+            meta={"pair_key": "disney"},
+        )
+
+    row = session.exec(select(CostLog)).one()
+    # input_usd  = 10000/1000 * 0.015 = 0.15
+    # output_usd = 2000/1000  * 0.075 = 0.15
+    # total      = 0.30 USD = 30 cents = 30000 millicents
+    assert row.provider == "anthropic_opus"
+    assert row.operation == "weekly_brief"
+    assert row.cost_usd_cents == 30
+    assert row.cost_usd_millicents == 30_000
+    assert row.cost_meta["model"] == "claude-opus-4-7"
+    assert row.cost_meta["pair_key"] == "disney"
+
+
+def test_record_anthropic_call_handles_unknown_model(
+    session: Session,
+) -> None:
+    """A model string outside haiku/sonnet/opus must still produce a
+    persisted row (auditable) rather than blowing up. Cost is 0 because
+    we have no rate to apply — the cost_meta keeps the model name so
+    Wolf can spot the unknown-model and ship a config update."""
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_anthropic_call(
+            usage={"input_tokens": 1000, "output_tokens": 500},
+            model="claude-future-9000",
+            operation="weekly_brief",
+        )
+
+    row = session.exec(select(CostLog)).one()
+    assert row.provider == "anthropic"
+    assert row.cost_usd_cents == 0
+    assert row.cost_usd_millicents == 0
+    assert row.cost_meta["model"] == "claude-future-9000"
+
+
 # ---------- /api/admin/cost-summary endpoint ----------
 
 

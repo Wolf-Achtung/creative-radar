@@ -405,6 +405,64 @@ def test_generate_with_mocked_llm(monkeypatch):
         assert report.cost_usd_estimate == pytest.approx(0.135, abs=0.001)
 
 
+def test_generate_weekly_report_logs_to_costlog(monkeypatch):
+    """Cost-Tracking-Fix 2026-05-12 regression-guard. Before the fix the
+    weekly-brief Opus call was the single most expensive Anthropic call
+    we make but never landed in the costlog because
+    ``record_anthropic_call`` was only invoked from the post_analyzer
+    path. This test pins the persistence: one Opus message ->
+    one CostLog row in the ``anthropic_opus`` bucket with the resolved
+    millicent cost and the pair_key / iso_week meta."""
+    import json as _json
+
+    from app.config import settings
+    from app.models.entities import CostLog
+    from app.services import cost_log as cost_log_module
+
+    monkeypatch.setattr(settings, "anthropic_opus_input_per_1k_usd", 0.015, raising=False)
+    monkeypatch.setattr(settings, "anthropic_opus_output_per_1k_usd", 0.075, raising=False)
+
+    sample = {
+        "headline": "H",
+        "tldr": "x",
+        "trends": [],
+        "actions": [],
+        "cross_market_insight": {"de_vs_us": "a", "transfer_opportunity": "b"},
+        "risks": [],
+        "data_caveats": [],
+    }
+    fake_message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=_json.dumps(sample))],
+        usage=SimpleNamespace(input_tokens=5000, output_tokens=800),
+    )
+    monkeypatch.setattr(insight_engine, "messages_create_text", lambda **k: fake_message)
+    monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
+
+    with _session() as session:
+        # cost_log._persist opens its own Session against the module-level
+        # engine. Pin it to the test's in-memory engine so we can read
+        # the persisted row back.
+        monkeypatch.setattr(cost_log_module, "engine", session.get_bind())
+
+        _seed_warnerbros_pair(session)
+        report = insight_engine.generate_weekly_report(session, "warnerbros")
+        assert report.llm_output is not None
+
+        rows = session.exec(select(CostLog)).all()
+        # input_usd  = 5000/1000 * 0.015 = 0.075
+        # output_usd = 800/1000  * 0.075 = 0.06
+        # total      = 0.135 USD = 13.5 cents = 13500 millicents
+        anthropic_rows = [r for r in rows if r.provider == "anthropic_opus"]
+        assert len(anthropic_rows) == 1
+        row = anthropic_rows[0]
+        assert row.operation == "weekly_brief"
+        assert row.cost_usd_millicents == 13_500
+        # int(round(13.5)) -> 14 under Python's banker's rounding to int
+        assert row.cost_usd_cents in (13, 14)
+        assert row.cost_meta["pair_key"] == "warnerbros"
+        assert row.cost_meta["model"].startswith("claude-opus")
+
+
 def test_generate_handles_codefence_wrap(monkeypatch):
     """The model occasionally wraps JSON in ```json … ``` despite the
     instruction. The wrapper strips that defensively."""
