@@ -541,3 +541,95 @@ Nach jeder Iteration eintragen (`cost_usd_millicents` Summe / 100000):
 3. Ich analysiere nach Iter 1, schlage Iter 2 oder STOP vor.
 4. Wiederholen bis Hypothese verifiziert oder Budget erschöpft.
 5. Ich schreibe Final-Befund + Wolf-Ping in den Slot am Doc-Ende, dann eigener Fix-Sprint.
+
+---
+
+## Iteration 1 — Paste-Back (ausgeführt 12.05.2026)
+
+### Anker
+- `ANCHOR_UTC = 2026-05-12T18:42:59Z`
+- `ANCHOR_BERLIN = 2026-05-12 20:42:59 CEST`
+- C1 started: 20:43:42 CEST
+- C2 started: 20:43:47 CEST (5s gap)
+
+### Curl-Output
+
+    [c1 status=200 time=126.913887s]
+    [c2 status=200 time=235.603437s]
+
+### Post-State costlog
+
+    rows|total_millicents|total_usd
+    2|362312|3.62
+
+### Post-State insight_report (netflix)
+
+    pair_key|iso_year|iso_week|generated_berlin|secs_after_prev
+    netflix|2026|20|2026-05-12 20:45:50.339991|
+
+Composite-PK (pair_key, iso_year, iso_week) erlaubt nur 1 Row — der zweite LLM-Call hat trotzdem $1.81 gekostet, der Brief wurde überschrieben.
+
+### Railway-Logs (UTC, brief_* Events)
+
+Sortiert nach Zeitstempel:
+
+    18:43:43.163  brief_request_received       C1
+    18:43:43.163  brief_pipeline_start         C1
+    18:43:44.032  brief_lock_attempt           C1
+    18:43:44.044  brief_lock_acquired (12ms)   C1
+    18:43:44.055  brief_precheck_done          C1
+    18:43:44.055  brief_llm_call_start         C1
+    18:43:44.592  insight-engine-call (SDK)    C1
+    18:43:48.057  brief_request_received       C2
+    18:43:48.058  brief_pipeline_start         C2
+    18:43:48.710  brief_lock_attempt           C2
+       [~125s Lock-Wait — C2 wartet brav auf C1]
+    18:45:49.564  httpx HTTP 200 Anthropic     C1
+    18:45:49.655  brief_llm_call_done          C1
+    18:45:49.655  brief_cost_logged            C1
+    18:45:49.733  brief_report_persisted       C1
+    18:45:49.733  brief_pipeline_done          C1
+    18:45:49.734  brief_lock_acquired (125024ms) C2  -- Lock funktioniert!
+    18:45:49.762  brief_precheck_done          C2
+    18:45:49.763  brief_llm_call_start         C2  -- HIER ist der Bug
+    18:45:50.342  insight-engine-call (SDK)    C2
+    18:47:43.403  httpx HTTP 200 Anthropic     C2
+    18:47:43.431  brief_llm_call_done          C2
+    18:47:43.431  brief_cost_logged            C2
+    18:47:43.473  brief_report_persisted       C2 (PK-Conflict-Overwrite)
+    18:47:43.473  brief_pipeline_done          C2
+
+Source-IPs: C1 `100.64.0.14`, C2 `100.64.0.15` (unsere eigenen Curls über Railway-Edge).
+
+### Hypothesen-Verifikation
+
+| Hypothese | Status | Evidenz |
+|---|---|---|
+| A — strukturell (Test-Lücke) | offen | nicht durch Smoke testbar |
+| **B — Edge-Proxy-Retry** | **WIDERLEGT** | unsere eigenen Curls mit 5s Gap, unterschiedliche IPs |
+| C — kein Logging | erledigt | PR #138/#139 |
+| **D — Lock-Scope-Bug** | **VERIFIZIERT** | Lock greift, aber Pre-Check nach Lock bei force=true umgangen |
+| E — legitime Mix-Calls | WIDERLEGT | deterministisch reproduzierbar mit 2 Curls |
+
+### Final-Befund
+
+**Bug-Mechanik:** Advisory-Lock funktioniert vollständig (C2 wartet 125s). Aber nach Lock-Acquire wird der Pre-Check (PR #123) mit `force=true` umgangen, sodass C2 den vollen LLM-Call startet, obwohl C1's frischer Brief bereits in der DB ist.
+
+**Konzeptuelles Problem:** Pre-Check ist als First-Read-Optimization vor dem Lock designt, nicht als Double-Check-Locking nach dem Lock. Bei parallelen Force-Calls braucht es einen Post-Lock-Re-Check, unabhängig vom force-Flag.
+
+**Fix-Pfad (Sprint 3c):** Double-Check-Locking — Post-Lock Pre-Check IMMER ausführen, auch bei `force=true`. Wenn nach Lock-Wait ein frischer Brief existiert: return existing mit neuem `outcome=lock_dedup` Logging.
+
+**Cost-Impact:** $3.62 für Diagnose. Production-Impact bei parallelen Force-Curls: $1.81 pro überflüssigem Call.
+
+### STOP (Hard-Stop-Trigger ausgelöst)
+
+Hypothese D verifiziert nach Iter 1 → STOP per Run-Sheet-Matrix. Iter 2-5 nicht ausgeführt. Cost-Verbrauch: $3.62 / $10 Budget-Cap.
+
+---
+
+## Fix-Sprint 3c
+
+Briefing liegt im Handover-Doc bereit (siehe Folge-Commit `docs/handovers/race-condition-sprint-3b-done.md`). Operating-Mode: Autonomous. Branch: `fix/race-condition-double-check-locking`. Aufwand: ~30-45 Min Implementation + 3 neue Tests + Verifikations-Smoke.
+
+Verifikations-Smoke nach Merge: 2 sequentielle Force-Curls (vermutlich auf sonypictures, damit iso_week 20 netflix-Brief nicht verfälscht). Erwartung: costlog rows=1 statt 2, Cost-Halbierung.
+
