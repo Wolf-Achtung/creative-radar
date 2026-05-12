@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
@@ -2400,8 +2401,45 @@ def _acquire_brief_lock(
     if session.bind is None or session.bind.dialect.name != "postgresql":
         return False
     lock_int = abs(hash((pair_key, iso_year, iso_week))) % (2**31)
+    logger.info(
+        "brief_lock_attempt",
+        extra={
+            "pair": pair_key,
+            "iso_week": iso_week,
+            "iso_year": iso_year,
+            "lock_key": lock_int,
+        },
+    )
     session.exec(sa.text("SET LOCAL lock_timeout = '300s'"))
-    session.exec(sa.text("SELECT pg_advisory_xact_lock(:k)"), params={"k": lock_int})
+    attempt_started = time.perf_counter()
+    try:
+        session.exec(sa.text("SELECT pg_advisory_xact_lock(:k)"), params={"k": lock_int})
+    except Exception as exc:  # noqa: BLE001 — log + re-raise so callers see the failure
+        wait_ms = int((time.perf_counter() - attempt_started) * 1000)
+        if "lock_timeout" in str(exc).lower() or "canceling statement" in str(exc).lower():
+            logger.warning(
+                "brief_lock_timeout",
+                extra={
+                    "pair": pair_key,
+                    "iso_week": iso_week,
+                    "iso_year": iso_year,
+                    "lock_key": lock_int,
+                    "timeout_s": 300,
+                    "wait_ms": wait_ms,
+                },
+            )
+        raise
+    wait_ms = int((time.perf_counter() - attempt_started) * 1000)
+    logger.info(
+        "brief_lock_acquired",
+        extra={
+            "pair": pair_key,
+            "iso_week": iso_week,
+            "iso_year": iso_year,
+            "lock_key": lock_int,
+            "wait_ms": wait_ms,
+        },
+    )
     return True
 
 
@@ -2448,6 +2486,12 @@ def generate_and_persist_report(
     look-up. The advisory lock closes that window by serialising both
     workers on the same key.
     """
+    pipeline_started = time.perf_counter()
+    logger.info(
+        "brief_pipeline_start",
+        extra={"pair": pair_key, "force": force, "window_days": window_days},
+    )
+
     agg = aggregate_pair(session, pair_key, window_days=window_days, now=now)
 
     has_lock = _acquire_brief_lock(
@@ -2465,8 +2509,28 @@ def generate_and_persist_report(
         InsightReportRow,
         (pair_key, agg.iso_year, agg.iso_week),
     )
+    logger.info(
+        "brief_precheck_done",
+        extra={
+            "pair": pair_key,
+            "iso_week": agg.iso_week,
+            "iso_year": agg.iso_year,
+            "exists": existing is not None,
+            "force": force,
+            "lock_path": has_lock,
+        },
+    )
     if existing is not None:
         if not force:
+            logger.info(
+                "brief_pipeline_done",
+                extra={
+                    "pair": pair_key,
+                    "iso_week": agg.iso_week,
+                    "total_ms": int((time.perf_counter() - pipeline_started) * 1000),
+                    "outcome": "cache_hit",
+                },
+            )
             return _hydrate_from_persisted(existing, window_days=window_days)
         # force=true Pfad: short-circuit nur für sehr frische Rows. Wolf
         # behält das Recht, einen >120s alten Brief absichtlich zu
@@ -2489,11 +2553,25 @@ def generate_and_persist_report(
                     ).total_seconds(),
                 },
             )
+            logger.info(
+                "brief_pipeline_done",
+                extra={
+                    "pair": pair_key,
+                    "iso_week": agg.iso_week,
+                    "total_ms": int((time.perf_counter() - pipeline_started) * 1000),
+                    "outcome": "debounce_hit",
+                },
+            )
             return _hydrate_from_persisted(existing, window_days=window_days)
 
     # Cache miss (or force on a stale row) → run the LLM. The advisory
     # lock (when active) guarantees that no other worker is in this
     # branch for the same ``(pair, year, week)`` right now.
+    logger.info(
+        "brief_llm_call_start",
+        extra={"pair": pair_key, "iso_week": agg.iso_week, "model": model},
+    )
+    llm_started = time.perf_counter()
     report = generate_weekly_report(
         session,
         pair_key,
@@ -2503,9 +2581,54 @@ def generate_and_persist_report(
         max_tokens=max_tokens,
         now=now,
     )
+    llm_duration_ms = int((time.perf_counter() - llm_started) * 1000)
+    logger.info(
+        "brief_llm_call_done",
+        extra={
+            "pair": pair_key,
+            "iso_week": agg.iso_week,
+            "tokens_in": report.input_tokens or 0,
+            "tokens_out": report.output_tokens or 0,
+            "duration_ms": llm_duration_ms,
+        },
+    )
+    # ``record_anthropic_call`` happened inside ``generate_weekly_report``
+    # (opens its own session). Surface the cost figures here so a single
+    # log stream covers the whole pipeline without grepping cost_log.
+    cost_millicents = (
+        int(round(report.cost_usd_estimate * 100_000))
+        if report.cost_usd_estimate
+        else 0
+    )
+    logger.info(
+        "brief_cost_logged",
+        extra={
+            "pair": pair_key,
+            "iso_week": agg.iso_week,
+            "cost_millicents": cost_millicents,
+        },
+    )
 
     _persist_report(session, report)
+    logger.info(
+        "brief_report_persisted",
+        extra={
+            "pair": pair_key,
+            "iso_week": agg.iso_week,
+            "iso_year": agg.iso_year,
+            "lock_path": has_lock,
+        },
+    )
 
+    logger.info(
+        "brief_pipeline_done",
+        extra={
+            "pair": pair_key,
+            "iso_week": agg.iso_week,
+            "total_ms": int((time.perf_counter() - pipeline_started) * 1000),
+            "outcome": "fresh_generation",
+        },
+    )
     return report
 
 
