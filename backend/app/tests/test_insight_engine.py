@@ -2807,16 +2807,18 @@ def test_generate_and_persist_recent_force_returns_existing(monkeypatch):
         assert second.iso_week == first.iso_week
 
 
-def test_generate_and_persist_recent_force_older_than_120s_regenerates(monkeypatch):
-    """Force-Semantik bleibt erhalten für Rows ÄLTER als 120s — Wolf
-    muss einen stale Brief jederzeit re-generieren können. Wir
-    persistieren eine Row mit generated_at=now-200s und prüfen, dass
-    force=true einen frischen Opus-Call macht."""
+def test_generate_and_persist_force_dedups_against_aged_row(monkeypatch):
+    """Sprint 3c semantics flip: force=true no longer re-generates against
+    an aged row. The composite PK ``(pair_key, iso_year, iso_week)`` is
+    authoritative — once a brief exists for the slot, every force-call
+    short-circuits via the lock_dedup path. A caller who genuinely wants
+    to overwrite deletes the row first. Old behaviour (regenerate after
+    120s) leaked $1.81 LLM calls in the Sprint-3b smoke when two parallel
+    force-curls raced and Opus latency exceeded 120s."""
     state = _persist_a_warnerbros_brief(monkeypatch)
     with _session() as session:
         _seed_warnerbros_pair(session)
 
-        # Ein erster Brief, dann backdaten wir die persistierte Row.
         first = insight_engine.generate_and_persist_report(
             session, "warnerbros", force=True,
         )
@@ -2832,14 +2834,15 @@ def test_generate_and_persist_recent_force_older_than_120s_regenerates(monkeypat
         session.add(stale_row)
         session.commit()
 
-        # Nach Backdate: force=true MUSS frisch generieren.
-        insight_engine.generate_and_persist_report(
+        second = insight_engine.generate_and_persist_report(
             session, "warnerbros", force=True,
         )
-        assert state["calls"] == 2, (
-            f"force-Call gegen >120s alte Row muss frisch generieren, "
-            f"war aber {state['calls']}."
+        assert state["calls"] == 1, (
+            f"force-call against aged row MUST dedup against the composite "
+            f"PK, but LLM was invoked {state['calls']} times."
         )
+        assert second.pair_key == first.pair_key
+        assert second.iso_week == first.iso_week
 
 
 def test_generate_and_persist_no_recent_row_generates(monkeypatch):
@@ -2972,3 +2975,195 @@ def test_generate_and_persist_advisory_lock_short_circuits_second_call(monkeypat
             f"neuen Opus-Call starten, war aber {state['calls']}."
         )
         assert second.pair_key == first.pair_key
+
+
+# ---------- Sprint 3c: Double-Check-Locking semantics ----------------------
+
+
+def test_force_call_after_existing_returns_existing(monkeypatch, caplog):
+    """Sprint 3c #1: a pre-existing row + force=true returns the existing
+    row, no LLM call, with outcome=lock_dedup. This is the dedup path that
+    the Sprint-3b race-condition smoke hit when C2 acquired the lock after
+    C1 had committed."""
+    import logging
+
+    state = _persist_a_warnerbros_brief(monkeypatch)
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+
+        # First call generates and persists the row that the second call
+        # will then dedup against.
+        first = insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+        assert state["calls"] == 1
+        assert first.llm_output is not None
+
+        # Second force=true call: no new LLM invocation, returns existing.
+        caplog.set_level(logging.INFO, logger="app.services.insight_engine")
+        caplog.clear()
+
+        second = insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+
+        assert state["calls"] == 1, (
+            f"force-call with existing row must NOT invoke LLM; was {state['calls']}."
+        )
+        assert second.pair_key == first.pair_key
+        assert second.iso_week == first.iso_week
+
+        outcomes = [
+            rec.__dict__.get("outcome")
+            for rec in caplog.records
+            if rec.message == "brief_pipeline_done"
+        ]
+        assert outcomes == ["lock_dedup"], (
+            f"expected exactly one brief_pipeline_done with outcome=lock_dedup, "
+            f"got: {outcomes}"
+        )
+
+
+def test_force_call_no_existing_creates_new(monkeypatch, caplog):
+    """Sprint 3c #2: with no row in the DB, force=true must invoke the LLM
+    and persist exactly once, with outcome=fresh_generation."""
+    import logging
+
+    state = _persist_a_warnerbros_brief(monkeypatch)
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+
+        caplog.set_level(logging.INFO, logger="app.services.insight_engine")
+        caplog.clear()
+
+        report = insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+
+        assert state["calls"] == 1, (
+            f"force-call with no existing row must invoke LLM exactly once; "
+            f"was {state['calls']}."
+        )
+        assert report.llm_output is not None
+
+        outcomes = [
+            rec.__dict__.get("outcome")
+            for rec in caplog.records
+            if rec.message == "brief_pipeline_done"
+        ]
+        assert outcomes == ["fresh_generation"], (
+            f"expected exactly one brief_pipeline_done with "
+            f"outcome=fresh_generation, got: {outcomes}"
+        )
+
+
+def test_double_check_locking_concurrent(monkeypatch, caplog):
+    """Sprint 3c #3: two parallel force=true calls with a mocked lock end
+    with exactly one LLM invocation, both callers receive a brief, and
+    the loser logs outcome=lock_dedup. This is the canonical Sprint-3b
+    race-condition reproduction at unit-test scale.
+
+    The mocked _acquire_brief_lock wraps a threading.Lock so the second
+    thread really does block on the first. Release is wired to
+    SQLAlchemy's after_commit / after_rollback events to mirror the
+    real pg_advisory_xact_lock semantics (transaction-bound) — when T1
+    commits in _persist_report, the mock-lock releases and T2's call
+    unblocks. T2's session.get inside the lock then finds T1's committed
+    row and short-circuits via lock_dedup.
+
+    The cross-thread SQLite engine uses StaticPool + check_same_thread=
+    False so a single in-memory database is visible to both threads.
+    """
+    import logging
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import sqlalchemy as sa
+    from sqlalchemy.pool import StaticPool
+
+    state = _persist_a_warnerbros_brief(monkeypatch)
+
+    # Single shared in-memory engine across the two threads.
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as setup_session:
+        _seed_warnerbros_pair(setup_session)
+
+    mock_lock = threading.Lock()
+
+    def _mocked_acquire(session, *, pair_key, iso_year, iso_week):
+        mock_lock.acquire()
+
+        def _release(*_args, **_kwargs):
+            try:
+                mock_lock.release()
+            except RuntimeError:
+                # Already released or never held on this branch — safe to ignore.
+                pass
+
+        sa.event.listen(session, "after_commit", _release, once=True)
+        sa.event.listen(session, "after_rollback", _release, once=True)
+        return True
+
+    monkeypatch.setattr(insight_engine, "_acquire_brief_lock", _mocked_acquire)
+
+    # T1 in mock-LLM holds briefly to let T2 actually contend on the lock.
+    t1_inside_llm = threading.Event()
+    t2_started = threading.Event()
+    original_fake_call = insight_engine.messages_create_text
+
+    def _gated_call(**kwargs):
+        # Only the very first invocation (T1) waits — T2 should never
+        # reach this path if the lock-dedup works.
+        if not t1_inside_llm.is_set():
+            t1_inside_llm.set()
+            # Wait up to 5s for T2 to enter _acquire_brief_lock; if T2 is
+            # already blocked on the mock lock, that's exactly the
+            # condition we want before T1 returns and commits.
+            t2_started.wait(timeout=5)
+        return original_fake_call(**kwargs)
+
+    monkeypatch.setattr(insight_engine, "messages_create_text", _gated_call)
+
+    caplog.set_level(logging.INFO, logger="app.services.insight_engine")
+    caplog.clear()
+
+    def _worker(label: str):
+        with Session(engine) as session:
+            if label == "T2":
+                # Make sure T2 starts only AFTER T1 is inside the LLM call.
+                t1_inside_llm.wait(timeout=5)
+                t2_started.set()
+            return insight_engine.generate_and_persist_report(
+                session, "warnerbros", force=True,
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        t1_future = pool.submit(_worker, "T1")
+        t2_future = pool.submit(_worker, "T2")
+        results = {"T1": t1_future.result(timeout=15), "T2": t2_future.result(timeout=15)}
+
+    # Exactly one LLM call total.
+    assert state["calls"] == 1, (
+        f"two parallel force-calls must collapse to one LLM call via the "
+        f"lock + recheck; was {state['calls']}."
+    )
+
+    # Both callers got a brief, same PK.
+    assert results["T1"].pair_key == "warnerbros"
+    assert results["T2"].pair_key == "warnerbros"
+    assert results["T1"].iso_week == results["T2"].iso_week
+
+    # One outcome=fresh_generation (T1), one outcome=lock_dedup (T2).
+    outcomes = sorted(
+        rec.__dict__.get("outcome")
+        for rec in caplog.records
+        if rec.message == "brief_pipeline_done"
+    )
+    assert outcomes == ["fresh_generation", "lock_dedup"], (
+        f"expected one fresh_generation + one lock_dedup, got: {outcomes}"
+    )
