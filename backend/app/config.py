@@ -82,6 +82,13 @@ class Settings(BaseSettings):
     anthropic_haiku_output_per_1k_usd: float = 0.005
     anthropic_sonnet_input_per_1k_usd: float = 0.003
     anthropic_sonnet_output_per_1k_usd: float = 0.015
+    # Opus 4.7 list price (anthropic.com/pricing, 2026-05): $15/Mtok input,
+    # $75/Mtok output. The weekly-brief path (generate_weekly_report) pins
+    # to claude-opus-4-7; override the alias via ENV to a datestamped pin
+    # if Wolf wants to freeze a specific release.
+    anthropic_opus_model: str = "claude-opus-4-7"
+    anthropic_opus_input_per_1k_usd: float = 0.015
+    anthropic_opus_output_per_1k_usd: float = 0.075
 
     # Bearer-token auth (Phase 4 W4 Task 4.3). Default off so the rollout can
     # land Frontend changes first; Wolf flips AUTH_ENABLED=true once both

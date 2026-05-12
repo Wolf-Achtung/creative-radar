@@ -42,7 +42,9 @@ from app.services.apify_connector import (
     run_tiktok_profile_monitor,
 )
 from app.services.budget_check import (
+    aggregate_anthropic_costs_since,
     aggregate_apify_costs_since,
+    aggregate_openai_costs_since,
     compute_apify_monthly_spend,
 )
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
@@ -460,6 +462,14 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             # Concurrency-Race (parallele Cron-Runs werden vorne via
             # 409-Lock geblockt). Block wird auch bei null Calls emittiert.
             summary["apify"] = aggregate_apify_costs_since(session, run.started_at)
+            # Cost-Tracking-Fix 2026-05-12 — Anthropic + OpenAI Surface.
+            # Diese beiden Aggregat-Blöcke kamen vor dem Fix gar nicht im
+            # Cron-Summary an: ``record_anthropic_call`` wurde aus dem
+            # Brief-Pfad nie aufgerufen, und OpenAI rundete jeden Call
+            # auf 0 cents ab. Jetzt liefern beide reale Sub-Cent-Werte
+            # über die ``cost_usd_millicents``-Spalte.
+            summary["anthropic"] = aggregate_anthropic_costs_since(session, run.started_at)
+            summary["openai"] = aggregate_openai_costs_since(session, run.started_at)
             summary["budget"] = budget.to_dict()
             if budget.soft_warn_exceeded:
                 summary["budget_warning"] = True

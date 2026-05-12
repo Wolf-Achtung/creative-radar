@@ -413,6 +413,11 @@ class CostLog(SQLModel, table=True):
     provider: str = Field(index=True)  # 'apify' | 'openai'
     operation: str = Field(index=True)  # e.g. 'instagram_actor', 'vision_call', 'chat_completion'
     cost_usd_cents: int = 0
+    # Sub-cent precision (1 cent = 1000 millicents). Added after the
+    # cost-tracking diagnose 2026-05-11 caught int-cent flatten-to-zero
+    # bug for OpenAI/Anthropic per-call costs. ``cost_usd_cents`` stays
+    # for back-compat with historical Apify rows.
+    cost_usd_millicents: int = 0
     cost_eur_cents: int = 0
     cost_meta: dict = Field(default_factory=dict, sa_column=Column(JSON))
 

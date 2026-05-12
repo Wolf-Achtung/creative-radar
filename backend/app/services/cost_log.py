@@ -38,8 +38,24 @@ def _to_eur_cents(usd_cents: int) -> int:
     return int(round(usd_cents * (settings.usd_to_eur_rate or 0.92)))
 
 
-def _persist(provider: str, operation: str, usd_cents: int, meta: dict | None) -> None:
-    """Open a fresh session, write the row, never raise."""
+def _persist(
+    provider: str,
+    operation: str,
+    usd_cents: int,
+    meta: dict | None,
+    *,
+    usd_millicents: int | None = None,
+) -> None:
+    """Open a fresh session, write the row, never raise.
+
+    ``usd_millicents`` is the sub-cent-precise integer (1 cent = 1000
+    millicents) and survives the rounding loss that flattens many LLM
+    per-call costs to ``cost_usd_cents = 0`` for gpt-4o-mini (~0.03-0.06
+    cents/call). When omitted we backfill ``usd_cents * 1000`` so legacy
+    callers (Apify, YouTube quota logging) keep working without churn.
+    """
+    if usd_millicents is None:
+        usd_millicents = usd_cents * 1000
     try:
         with Session(engine) as session:
             session.add(
@@ -47,6 +63,7 @@ def _persist(provider: str, operation: str, usd_cents: int, meta: dict | None) -
                     provider=provider,
                     operation=operation,
                     cost_usd_cents=usd_cents,
+                    cost_usd_millicents=usd_millicents,
                     cost_eur_cents=_to_eur_cents(usd_cents),
                     cost_meta=meta or {},
                 )
@@ -59,6 +76,7 @@ def _persist(provider: str, operation: str, usd_cents: int, meta: dict | None) -
                 "provider": provider,
                 "operation": operation,
                 "usd_cents": usd_cents,
+                "usd_millicents": usd_millicents,
                 "error_class": type(exc).__name__,
             },
         )
@@ -197,14 +215,22 @@ def record_openai_call(
 
     input_usd = (input_tokens / 1000.0) * (settings.openai_input_per_1k_usd or 0.0)
     output_usd = (output_tokens / 1000.0) * (settings.openai_output_per_1k_usd or 0.0)
-    usd_cents = int(round((input_usd + output_usd) * 100))
+    total_usd = input_usd + output_usd
+    # Precision-loss-fix: gpt-4o-mini calls cost ~0.03-0.06 cents each, so
+    # int(round(total_usd*100)) flattens every single call to 0 and the
+    # per-call audit trail becomes useless for aggregation. Persist the
+    # millicent-precise integer in addition to the cents column so the
+    # cost-summary endpoint can sum sub-cent calls without losing them.
+    usd_millicents = int(round(total_usd * 100_000))
+    usd_cents = int(round(total_usd * 100))
 
     full_meta = {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "cost_usd_millicents": usd_millicents,
         **(meta or {}),
     }
-    _persist("openai", operation, usd_cents, full_meta)
+    _persist("openai", operation, usd_cents, full_meta, usd_millicents=usd_millicents)
 
 
 def record_anthropic_call(
@@ -256,6 +282,10 @@ def record_anthropic_call(
         in_rate = settings.anthropic_sonnet_input_per_1k_usd or 0.0
         out_rate = settings.anthropic_sonnet_output_per_1k_usd or 0.0
         bucket_family = "anthropic_sonnet"
+    elif model_lc.startswith("claude-opus"):
+        in_rate = settings.anthropic_opus_input_per_1k_usd or 0.0
+        out_rate = settings.anthropic_opus_output_per_1k_usd or 0.0
+        bucket_family = "anthropic_opus"
     else:
         in_rate = 0.0
         out_rate = 0.0
@@ -272,12 +302,19 @@ def record_anthropic_call(
 
     input_usd = (input_tokens / 1000.0) * in_rate
     output_usd = (output_tokens / 1000.0) * out_rate
-    usd_cents = int(round((input_usd + output_usd) * 100))
+    total_usd = input_usd + output_usd
+    # Same precision-loss reasoning as record_openai_call: Haiku calls
+    # ($1/$5 per Mtok) can land below 1 cent each; the millicent column
+    # preserves the per-call signal so cost-summary can aggregate without
+    # the floor-to-zero round-trip.
+    usd_millicents = int(round(total_usd * 100_000))
+    usd_cents = int(round(total_usd * 100))
 
     full_meta = {
         "model": model,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "cost_usd_millicents": usd_millicents,
         **(meta or {}),
     }
-    _persist(provider, operation, usd_cents, full_meta)
+    _persist(provider, operation, usd_cents, full_meta, usd_millicents=usd_millicents)
