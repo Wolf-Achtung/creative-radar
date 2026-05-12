@@ -1,0 +1,106 @@
+name: Backend Tests
+
+# Runs the backend pytest suite against a real Postgres-13 service so the
+# Alembic migrations, advisory-lock paths, and schema-qualified queries all
+# exercise the same dialect that production runs on. Triggered on every PR
+# that touches ``backend/**`` and on pushes to ``main`` (baseline tracking).
+#
+# Setup once (Wolf-Aktion after first green run):
+#   Settings -> Branches -> Branch protection rules -> main
+#     Require status checks to pass before merging: backend-tests / test
+#   (see PR body for the full anleitung).
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-tests.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-tests.yml"
+
+jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: cr
+          POSTGRES_PASSWORD: cr
+          POSTGRES_DB: creative_radar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cr -d creative_radar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Production uses the bare ``postgresql://`` form (see
+      # backend/app/database.py:resolve_database_url). psycopg2-binary
+      # is in requirements.txt so SQLAlchemy picks the right driver.
+      DATABASE_URL: postgresql://cr:cr@localhost:5432/creative_radar
+      PGPASSWORD: cr
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          # pytest itself is not in requirements.txt — only pytest-asyncio,
+          # which transitively pulls pytest in. Pin explicitly so the CI
+          # cannot drift if pytest-asyncio ever drops the dependency.
+          pip install pytest
+
+      - name: Wait for postgres readiness
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U cr -d creative_radar; then
+              echo "postgres ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "postgres did not become ready in 30s"
+          exit 1
+
+      - name: Create creative_radar schema
+        # Alembic env.py expects the schema to exist for Postgres deployments
+        # (target_metadata=SQLModel.metadata, version_table_schema is set to
+        # creative_radar in run_migrations_online). Railway provisions the
+        # schema out-of-band; CI does it explicitly here.
+        run: |
+          psql -h localhost -U cr -d creative_radar \
+            -c "CREATE SCHEMA IF NOT EXISTS creative_radar;"
+
+      - name: Run alembic migrations
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Run pytest
+        working-directory: backend
+        # --maxfail=1 stops at the first failing test so the log isn't a wall
+        # of red. -v keeps the test names readable in the GitHub UI without
+        # spamming the diff view.
+        run: pytest -v --maxfail=1
