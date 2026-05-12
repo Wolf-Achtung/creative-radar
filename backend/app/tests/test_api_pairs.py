@@ -171,3 +171,56 @@ def test_pairs_endpoint_markets_always_in_fixed_display_order(client: TestClient
             f"{pair['pair_key']!r} emitted markets {markets} not in "
             f"DE → US → UK order"
         )
+
+
+# ---------- X1 surface override --------------------------------------------
+
+
+def test_pairs_endpoint_surface_override_warnerbros_de_us_only(client: TestClient):
+    """X1 invariant: warnerbros has UK channels in its PAIRS pool
+    (Phase A added @warnerbrosuk on TT/IG/YT), but the explicit
+    ``markets`` field is ['DE', 'US'] and the endpoint must emit
+    exactly that — no leakage of pool-derived UK back into the
+    surface response. Guards the override mechanism itself."""
+    pool_markets = {
+        channel["market"]
+        for platform in insight_engine.PAIRS["warnerbros"]["platforms"].values()
+        for channel in platform
+    }
+    assert "UK" in pool_markets, (
+        "Precondition: warnerbros must have UK channels in its pool, "
+        "otherwise this test is testing nothing"
+    )
+
+    response = client.get("/api/pairs")
+    warnerbros = next(
+        (p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros"),
+        None,
+    )
+    assert warnerbros is not None
+    assert warnerbros["markets"] == ["DE", "US"]
+
+
+def test_pairs_endpoint_falls_back_to_pool_when_markets_field_absent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Backwards-compat: a pair entered before the X1 ``markets``
+    convention catches up should fall back to the channel-pool union
+    (the pre-X1 derivation). Verified by stripping the field from
+    one pair in-place and asserting the endpoint still returns a
+    sensible markets list derived from its channels."""
+    pair_def = insight_engine.PAIRS["warnerbros"]
+    original_markets = pair_def.pop("markets")
+    try:
+        response = client.get("/api/pairs")
+        assert response.status_code == 200
+        warnerbros = next(
+            (p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros"),
+            None,
+        )
+        assert warnerbros is not None
+        # Pool union for warnerbros covers DE/US/UK (Phase A), emitted
+        # in fixed display order.
+        assert warnerbros["markets"] == ["DE", "US", "UK"]
+    finally:
+        pair_def["markets"] = original_markets
