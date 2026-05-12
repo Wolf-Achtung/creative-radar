@@ -362,6 +362,67 @@ PAIRS: dict[str, dict[str, Any]] = {
             "pair will activate when both channels have >=3 posts/30d"
         ),
     },
+    "paramountplus": {
+        "label": "paramountplus DE+US+UK",
+        # Sprint 2026-05-12: voll-Pair über alle drei Märkte. Handle-
+        # Casing der YT-Channels behalten wir aus der Wolf-SQL-Anlage,
+        # _find_channels macht den Case-insensitiven Match. UK fehlt
+        # auf YouTube — Paramount+ hat dort keinen separaten Channel.
+        "platforms": {
+            "tiktok": [
+                {"handle": "paramountplus", "market": "US"},
+                {"handle": "paramountplusde", "market": "DE"},
+                {"handle": "paramountplusuk", "market": "UK"},
+            ],
+            "instagram": [
+                {"handle": "paramountplus", "market": "US"},
+                {"handle": "paramountplusde", "market": "DE"},
+                {"handle": "paramountplusuk", "market": "UK"},
+            ],
+            "youtube": [
+                {"handle": "paramountplus", "market": "US"},
+                {"handle": "ParamountPlusDE", "market": "DE"},
+            ],
+        },
+        "platform": "tiktok",
+        "channels": [
+            {"handle": "paramountplus", "market": "US"},
+            {"handle": "paramountplusde", "market": "DE"},
+            {"handle": "paramountplusuk", "market": "UK"},
+        ],
+        "enabled": True,
+        "reason": None,
+    },
+    "lionsgate": {
+        "label": "lionsgate US+UK",
+        # Sprint 2026-05-12: US+UK-only Pair. Lionsgate hat keinen
+        # deutschen Social-Media-Auftritt — der DE-Vertrieb läuft via
+        # Leonine Studios und Studiocanal, also kein eigenes
+        # Lionsgate-DE-Profil. Voice-Brief wird die "Datenbasis DE
+        # schwach"-Note für DE auslassen (keine DE-Channel-Definition,
+        # also kein leerer DE-Block). UK-YouTube fehlt ebenfalls —
+        # Lionsgate UK postet nur auf IG/TT.
+        "platforms": {
+            "tiktok": [
+                {"handle": "lionsgate", "market": "US"},
+                {"handle": "lionsgateuk", "market": "UK"},
+            ],
+            "instagram": [
+                {"handle": "lionsgate", "market": "US"},
+                {"handle": "lionsgateuk", "market": "UK"},
+            ],
+            "youtube": [
+                {"handle": "LionsgateMovies", "market": "US"},
+            ],
+        },
+        "platform": "tiktok",
+        "channels": [
+            {"handle": "lionsgate", "market": "US"},
+            {"handle": "lionsgateuk", "market": "UK"},
+        ],
+        "enabled": True,
+        "reason": None,
+    },
 }
 
 
