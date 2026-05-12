@@ -1,9 +1,12 @@
+import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session
 
 from app.database import get_session
+
+logger = logging.getLogger(__name__)
 from app.schemas.insights import InsightReport, PairInfo, PairsResponse
 from app.services.anthropic_client import (
     AnthropicAPIError,
@@ -104,6 +107,7 @@ def overview(
 
 @router.get("/weekly", response_model=InsightReport)
 def weekly(
+    request: Request,
     pair: str = Query(..., description="Pair-Key, z.B. 'warnerbros'"),
     window_days: int = Query(30, ge=7, le=90, description="Datenfenster in Tagen"),
     dry_run: bool = Query(
@@ -136,6 +140,24 @@ def weekly(
     ohne Code-Push. Solche Pairs antworten mit 503 und einem strukturierten
     Body, den das Frontend zu einer Aktivierungs-Notiz rendert.
     """
+    # Request-entry log: needed by the race-condition diagnose (PR #137 /
+    # hypothesis B) to distinguish a real concurrent-curl race from an
+    # edge-proxy retry of a single user trigger. Forwarded-IP, UA and
+    # X-Forwarded-For are the three headers Railway / Cloudflare set;
+    # Authorization stays out for security reasons.
+    logger.info(
+        "brief_request_received",
+        extra={
+            "pair": pair,
+            "force": force,
+            "dry_run": dry_run,
+            "window_days": window_days,
+            "forwarded_for": request.headers.get("x-forwarded-for"),
+            "forwarded_ip": request.headers.get("x-real-ip")
+            or (request.client.host if request.client else None),
+            "user_agent": request.headers.get("user-agent"),
+        },
+    )
     if pair not in PAIRS:
         raise HTTPException(
             status_code=404,
