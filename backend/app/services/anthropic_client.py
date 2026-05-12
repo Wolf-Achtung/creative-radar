@@ -130,34 +130,27 @@ def messages_create_text(
     system: str,
     user_message: str,
     max_tokens: int = 256,
-    idempotency_key: str | None = None,
 ) -> Any:
     """Single-text-message Messages API call. Returns the raw Message
     so the caller can read both ``content[0].text`` and ``usage``.
 
-    ``idempotency_key`` (optional): forwarded as the ``Idempotency-Key``
-    HTTP header via the SDK's ``extra_headers`` escape hatch. Defense-
-    in-depth against retry-echo from edge proxies / client timeouts —
-    the primary fix lives in the calling layer (DB-debounce in
-    ``generate_and_persist_report``). The Anthropic API does not formally
-    publish an idempotency-key contract in their REST docs, so we treat
-    this as best-effort: if their gateway honors the header, two
-    retry-echo calls collapse to one server-side; if not, the DB-debounce
-    layer still catches it.
+    PR #123 wired an ``Idempotency-Key`` header as defense-in-depth
+    against retry-echo; the 2026-05-12 smoke-test proved Anthropic does
+    not honor the header (two billed calls 5s apart with identical key).
+    The Postgres advisory-lock in ``generate_and_persist_report`` is now
+    the single source of concurrency protection. Drop the dead code
+    here — if Anthropic later publishes an idempotency contract we can
+    re-introduce it under their official header name.
     """
     client = _client()
-    extra_headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
 
     def _do() -> Any:
-        kwargs: dict = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": [{"role": "user", "content": user_message}],
-        }
-        if extra_headers is not None:
-            kwargs["extra_headers"] = extra_headers
-        return client.messages.create(**kwargs)
+        return client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user_message}],
+        )
 
     return call_with_retry(_do)
 
