@@ -1,0 +1,8 @@
+pair_key,platform,market,handle,post_id,post_url,published_at,caption_excerpt,hashtags,has_match,matched_title_original,matched_title_local,matched_match_keys,visual_statuses,expected_title,expected_match_source,cluster
+# Diese CSV ist ein Header-Stub. Wolf befüllt sie mit dem Output des
+# psql-Blocks aus docs/audits/tmdb-match-2026-05.md §5 (\copy ... TO ...
+# WITH CSV HEADER). Die letzten drei Spalten (expected_title,
+# expected_match_source, cluster) füllt die Annotation-Phase 8.4 auf
+# Basis Caption-Lesens — siehe §6 für die Cluster-Definitionen
+# (A=match-lücke-mit-titel, B=lokalisiert-oder-sequel, C=korrekt-none,
+# D=erfolgreich).
