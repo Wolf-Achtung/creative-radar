@@ -497,15 +497,6 @@ MARKETS_DISPLAY_ORDER: tuple[str, ...] = ("DE", "US", "UK")
 # force a datestamped pin, but no override is wired today: one Opus, one call.
 OPUS_MODEL_ALIAS = "claude-opus-4-7"
 
-# Debounce-Window für ``generate_and_persist_report`` (Retry-Echo-Fix
-# 2026-05-12). Edge-Proxies und HTTP-Clients retried den ``GET
-# /api/insights/weekly``-Endpoint nach 60-90s Timeout — mit ``force=true``
-# führte das vor diesem Fix zu doppelten Opus-Generationen.
-# 120s sind kurz genug, dass eine absichtliche Re-Generation kurz nach
-# dem ersten Brief noch möglich ist, lang genug, um die typischen
-# Retry-Echo-Fenster (60-90s) zu blocken.
-_RECENT_BRIEF_WINDOW_SECONDS = 120
-
 # Opus 4.7 pricing reads from ``settings.anthropic_opus_*_per_1k_usd`` —
 # previously hardcoded here AND implicit in ``record_anthropic_call``,
 # which gave us a drift-window where the brief-frontend estimate and the
@@ -2468,23 +2459,25 @@ def generate_and_persist_report(
       lock returns the persisted row and short-circuits the second
       LLM call. SQLite test paths skip the lock and rely on the
       plain pre-check.
-    - If ``force=False`` and a row exists for this (pair_key, iso_year,
-      iso_week), hydrate and return it without an LLM call.
-    - With ``force=True`` and a row younger than
-      ``_RECENT_BRIEF_WINDOW_SECONDS``, hydrate and return — this
-      handles the secondary case where two requests arrive far enough
-      apart that the second one fires after the first has committed
-      but Wolf would still expect a single brief per click.
+    - **Double-check locking** (Sprint 3c): after the lock acquires,
+      re-read the row IRRESPECTIVE of ``force``. If a row exists for
+      this ``(pair_key, iso_year, iso_week)`` PK, return it without
+      an LLM call. ``force=true`` semantics: "ignore the optional
+      pre-lock first-read", **not** "ignore the composite PK". A
+      caller who actually wants to overwrite a persisted brief
+      deletes the row before retrying. This closes the Sprint-3b
+      race where two parallel ``force=true`` curls both committed
+      LLM calls because the older 120s-window short-circuit failed
+      when the brief took longer than 120s to generate.
     - Otherwise call Opus, build the report, persist it (Last-Write-Wins
       on the composite PK), return the fresh report.
 
-    Anti-retry-echo (2026-05-12 sprint chain): TOCTOU-race fix follow-up
-    to PR #123. The original 120s pre-check window protected against
-    a SECOND retry that arrived AFTER the first persist; smoke-test
-    proved a SIMULTANEOUS race (5s apart, Opus ~6s) still got past the
-    pre-check because neither worker had persisted yet at the second's
-    look-up. The advisory lock closes that window by serialising both
-    workers on the same key.
+    Anti-retry-echo (2026-05-12 sprint chain): Sprint 3b smoke-test
+    verified hypothesis D — the lock blocks correctly but the
+    force-path's age-based short-circuit failed to return C1's
+    fresh brief to C2 once Opus latency exceeded the 120s window.
+    Dropping the age gate and always honouring the composite PK
+    fixes the leak without changing the rest of the lock contract.
     """
     pipeline_started = time.perf_counter()
     logger.info(
@@ -2521,48 +2514,21 @@ def generate_and_persist_report(
         },
     )
     if existing is not None:
-        if not force:
-            logger.info(
-                "brief_pipeline_done",
-                extra={
-                    "pair": pair_key,
-                    "iso_week": agg.iso_week,
-                    "total_ms": int((time.perf_counter() - pipeline_started) * 1000),
-                    "outcome": "cache_hit",
-                },
-            )
-            return _hydrate_from_persisted(existing, window_days=window_days)
-        # force=true Pfad: short-circuit nur für sehr frische Rows. Wolf
-        # behält das Recht, einen >120s alten Brief absichtlich zu
-        # überschreiben.
-        recent_generated_at = existing.generated_at
-        if recent_generated_at.tzinfo is None:
-            recent_generated_at = recent_generated_at.replace(tzinfo=timezone.utc)
-        cutoff = (now or datetime.now(timezone.utc)) - timedelta(
-            seconds=_RECENT_BRIEF_WINDOW_SECONDS
+        # Double-check locking: same PK after lock → return existing,
+        # regardless of force. force=true bypasses the optional first-
+        # read optimisation, not the composite PK. Manual delete is
+        # the explicit overwrite path.
+        outcome = "cache_hit" if not force else "lock_dedup"
+        logger.info(
+            "brief_pipeline_done",
+            extra={
+                "pair": pair_key,
+                "iso_week": agg.iso_week,
+                "total_ms": int((time.perf_counter() - pipeline_started) * 1000),
+                "outcome": outcome,
+            },
         )
-        if recent_generated_at >= cutoff:
-            logger.info(
-                "insight-engine-debounce-hit",
-                extra={
-                    "pair": pair_key,
-                    "iso_week": agg.iso_week,
-                    "lock_path": has_lock,
-                    "age_seconds": (
-                        (now or datetime.now(timezone.utc)) - recent_generated_at
-                    ).total_seconds(),
-                },
-            )
-            logger.info(
-                "brief_pipeline_done",
-                extra={
-                    "pair": pair_key,
-                    "iso_week": agg.iso_week,
-                    "total_ms": int((time.perf_counter() - pipeline_started) * 1000),
-                    "outcome": "debounce_hit",
-                },
-            )
-            return _hydrate_from_persisted(existing, window_days=window_days)
+        return _hydrate_from_persisted(existing, window_days=window_days)
 
     # Cache miss (or force on a stale row) → run the LLM. The advisory
     # lock (when active) guarantees that no other worker is in this
