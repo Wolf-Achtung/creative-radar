@@ -2194,20 +2194,41 @@ def generate_weekly_report(
         )
 
     user_prompt = _build_user_prompt(agg)
+    call_extra = {
+        "pair": pair_key,
+        "window_days": window_days,
+        "model": model,
+        "prompt_chars": len(user_prompt),
+    }
+    logger.info("brief_anthropic_call_start", extra=call_extra)
+    anthropic_started = time.monotonic()
+    try:
+        message = messages_create_text(
+            model=model,
+            system=SYSTEM_PROMPT,
+            user_message=user_prompt,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        anthropic_duration_ms = int((time.monotonic() - anthropic_started) * 1000)
+        logger.error(
+            "brief_anthropic_call_done",
+            extra={
+                **call_extra,
+                "duration_ms": anthropic_duration_ms,
+                "outcome": "error",
+                "error_type": type(exc).__name__,
+            },
+        )
+        raise
+    anthropic_duration_ms = int((time.monotonic() - anthropic_started) * 1000)
     logger.info(
-        "brief_anthropic_call_start",
+        "brief_anthropic_call_done",
         extra={
-            "pair": pair_key,
-            "window_days": window_days,
-            "model": model,
-            "prompt_chars": len(user_prompt),
+            **call_extra,
+            "duration_ms": anthropic_duration_ms,
+            "outcome": "success",
         },
-    )
-    message = messages_create_text(
-        model=model,
-        system=SYSTEM_PROMPT,
-        user_message=user_prompt,
-        max_tokens=max_tokens,
     )
 
     raw_text = ""
