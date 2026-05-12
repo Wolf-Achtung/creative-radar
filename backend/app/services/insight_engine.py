@@ -465,6 +465,21 @@ PAIRS: dict[str, dict[str, Any]] = {
 }
 
 
+# ---------- Briefing cadence ------------------------------------------------
+
+# Global, pair-agnostic briefing cadence. Used by ``GET /api/pairs`` and any
+# future Frontend surface that needs to label a pair's rhythm. If a future
+# pair switches to bi-weekly or monthly, lift this to a per-pair field in
+# the PAIRS dict and keep this constant as the default.
+INSIGHT_FREQUENCY_LABEL = "wöchentlich"
+
+# Stable visualisation order for market codes on the landing-page card and
+# anywhere a "DE + US + UK"-style join is rendered. Independent of insertion
+# order in any ``channels`` list — what the user sees is what this constant
+# spells.
+MARKETS_DISPLAY_ORDER: tuple[str, ...] = ("DE", "US", "UK")
+
+
 # ---------- Model + cost ----------------------------------------------------
 
 # Opus 4.7 alias — the briefing pins the engine to the latest Opus. Override

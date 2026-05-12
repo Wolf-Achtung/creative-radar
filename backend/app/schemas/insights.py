@@ -478,3 +478,23 @@ class InsightReport(BaseModel):
         default=None,
         description="Raw assistant text — populated only when JSON parsing fails, to surface the failure in the response without losing the LLM's reply.",
     )
+
+
+class PairInfo(BaseModel):
+    """One enabled pair as exposed by ``GET /api/pairs`` (Sprint 2026-05-12).
+
+    Frontend-ready: ``display_name`` is the curated human label, ``markets``
+    is ordered DE → US → UK (visual order on the landing-page card,
+    independent of insertion order in the PAIRS dict), and
+    ``frequency_label`` is the briefing cadence shown next to the markets.
+    """
+
+    pair_key: str
+    display_name: str
+    markets: list[str]
+    frequency_label: str
+    enabled: bool
+
+
+class PairsResponse(BaseModel):
+    pairs: list[PairInfo]

@@ -64,6 +64,12 @@ PUBLIC_PATH_EXACT: frozenset[str] = frozenset(
     {
         "/api/reports/latest/download.html",
         "/api/reports/latest/download.md",
+        # Landing-page pair-registry. Drives the public card grid on
+        # ``app.creative-radar.de`` and must render before any auth flip
+        # is in effect (Frontend may load the page before the bearer
+        # token has been hydrated). Read-only, list of enabled pairs
+        # only — no PII, no DB query.
+        "/api/pairs",
     }
 )
 

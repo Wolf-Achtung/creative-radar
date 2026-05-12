@@ -4,13 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from app.database import get_session
-from app.schemas.insights import InsightReport
+from app.schemas.insights import InsightReport, PairInfo, PairsResponse
 from app.services.anthropic_client import (
     AnthropicAPIError,
     AnthropicAuthError,
     AnthropicRateLimitError,
 )
 from app.services.insight_engine import (
+    INSIGHT_FREQUENCY_LABEL,
+    MARKETS_DISPLAY_ORDER,
     PAIRS,
     generate_and_persist_report,
     generate_weekly_report,
@@ -19,9 +21,60 @@ from app.services.insights import build_overview
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
 
+# Separate router so the URL is ``/api/pairs`` instead of nested under
+# ``/api/insights``. Same module to keep the PAIRS import single-source.
+pairs_router = APIRouter(prefix="/api", tags=["pairs"])
+
 
 def _enabled_pair_keys() -> list[str]:
     return sorted(k for k, v in PAIRS.items() if v.get("enabled", True))
+
+
+def _markets_for_pair(pair_def: dict) -> list[str]:
+    """Return the pair's unique market codes in DE → US → UK display order.
+
+    Reads from ``platforms`` (post-Sprint-4 source of truth) when present,
+    falls back to the ``channels`` mirror. Markets the pair does not cover
+    are skipped — Lionsgate (no DE) emits ``["US", "UK"]``.
+    """
+    seen: set[str] = set()
+    platforms = pair_def.get("platforms") or {}
+    if platforms:
+        for channel_list in platforms.values():
+            for channel in channel_list:
+                market = channel.get("market")
+                if market:
+                    seen.add(market)
+    else:
+        for channel in pair_def.get("channels", []) or []:
+            market = channel.get("market")
+            if market:
+                seen.add(market)
+    return [code for code in MARKETS_DISPLAY_ORDER if code in seen]
+
+
+@pairs_router.get("/pairs", response_model=PairsResponse)
+def pairs() -> PairsResponse:
+    """List enabled pairs with Frontend-ready metadata.
+
+    Drives the landing-page card grid. Returns only ``enabled=True`` pairs
+    in PAIRS-dict insertion order (Python 3.7+ guarantees order on dict
+    iteration). Markets are emitted in fixed DE → US → UK order.
+    """
+    items: list[PairInfo] = []
+    for pair_key, pair_def in PAIRS.items():
+        if not pair_def.get("enabled", False):
+            continue
+        items.append(
+            PairInfo(
+                pair_key=pair_key,
+                display_name=pair_def.get("display_name") or pair_key,
+                markets=_markets_for_pair(pair_def),
+                frequency_label=INSIGHT_FREQUENCY_LABEL,
+                enabled=True,
+            )
+        )
+    return PairsResponse(pairs=items)
 
 
 @router.get("/overview")
