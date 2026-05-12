@@ -86,6 +86,7 @@ logger = logging.getLogger(__name__)
 #   as the disable-explanation. May be None when ``enabled=True``.
 PAIRS: dict[str, dict[str, Any]] = {
     "warnerbros": {
+        "display_name": "Warner Bros",
         "label": "warnerbros DE+US",
         # Sprint-4 multi-platform v2a: ``platforms`` is the source of truth
         # going forward. Each key is a platform with a list of {handle, market}
@@ -135,6 +136,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
     "sonypictures": {
+        "display_name": "Sony Pictures",
         "label": "sonypictures DE+US",
         "platforms": {
             "tiktok": [
@@ -175,6 +177,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
     "primevideo": {
+        "display_name": "Prime Video",
         "label": "primevideo DE+US",
         "platforms": {
             "tiktok": [
@@ -209,6 +212,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
     "disney": {
+        "display_name": "Disney",
         "label": "disney DE+US",
         "platforms": {
             "tiktok": [
@@ -290,6 +294,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
     "netflix": {
+        "display_name": "Netflix",
         "label": "netflix DE+US",
         "platforms": {
             "tiktok": [
@@ -320,6 +325,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
     "paramountpictures": {
+        "display_name": "Paramount",
         "label": "paramountpictures DE+US",
         "platforms": {
             "tiktok": [
@@ -354,6 +360,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
     "universalpictures": {
+        "display_name": "Universal Pictures",
         "label": "universalpictures DE+US+UK",
         # Sprint 2026-05-12: voll-Pair reaktiviert nach Diagnose (DE 30
         # Posts/30d, US-Pool aktiv, UK seit Phase A registered). US-Seite
@@ -393,6 +400,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
     "paramountplus": {
+        "display_name": "Paramount+",
         "label": "paramountplus DE+US+UK",
         # Sprint 2026-05-12: voll-Pair über alle drei Märkte. Handle-
         # Casing der YT-Channels behalten wir aus der Wolf-SQL-Anlage,
@@ -424,6 +432,7 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
     "lionsgate": {
+        "display_name": "Lionsgate",
         "label": "lionsgate US+UK",
         # Sprint 2026-05-12: US+UK-only Pair. Lionsgate hat keinen
         # deutschen Social-Media-Auftritt — der DE-Vertrieb läuft via
@@ -454,6 +463,21 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
 }
+
+
+# ---------- Briefing cadence ------------------------------------------------
+
+# Global, pair-agnostic briefing cadence. Used by ``GET /api/pairs`` and any
+# future Frontend surface that needs to label a pair's rhythm. If a future
+# pair switches to bi-weekly or monthly, lift this to a per-pair field in
+# the PAIRS dict and keep this constant as the default.
+INSIGHT_FREQUENCY_LABEL = "wöchentlich"
+
+# Stable visualisation order for market codes on the landing-page card and
+# anywhere a "DE + US + UK"-style join is rendered. Independent of insertion
+# order in any ``channels`` list — what the user sees is what this constant
+# spells.
+MARKETS_DISPLAY_ORDER: tuple[str, ...] = ("DE", "US", "UK")
 
 
 # ---------- Model + cost ----------------------------------------------------

@@ -674,6 +674,11 @@ function App() {
   const [titles, setTitles] = useState([]);
   const [assets, setAssets] = useState([]);
   const [report, setReport] = useState(null);
+  // Pair registry for the landing-page card grid. ``null`` = not yet
+  // fetched (initial load state); ``[]`` = fetched but empty (treated as
+  // an error in Commit 5); ``[...]`` = ready to render.
+  const [pairs, setPairs] = useState(null);
+  const [pairsError, setPairsError] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -728,6 +733,25 @@ function App() {
   }
 
   useEffect(() => { run(load); }, []);
+
+  // Landing-page pair registry. Independent of the auth-gated ``load()``
+  // above because ``/api/pairs`` is public — the card grid must render
+  // even when the bearer token has not been hydrated yet.
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.pairs()
+      .then((data) => {
+        if (cancelled) return;
+        setPairs(Array.isArray(data?.pairs) ? data.pairs : []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load /api/pairs', err);
+        setPairsError(true);
+        setPairs([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   async function importChannelFile(event) {
     event.preventDefault();
@@ -908,39 +932,44 @@ function App() {
         <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Diese Woche im Schnitt</p>
         <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Studio-Briefings</h2>
         <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
-          Sechs Studio-Reviews pro Woche.
+          {pairs && pairs.length > 0
+            ? `${pairs.length} Studio-Reviews pro Woche.`
+            : 'Studio-Reviews pro Woche.'}
         </p>
-        <div className="pair-briefs-grid" style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '0.75rem',
-        }}>
-          {[
-            { slug: 'warnerbros', label: 'Warner Bros' },
-            { slug: 'sonypictures', label: 'Sony Pictures' },
-            { slug: 'primevideo', label: 'Prime Video' },
-            { slug: 'disney', label: 'Disney' },
-            { slug: 'netflix', label: 'Netflix' },
-            { slug: 'paramountpictures', label: 'Paramount' },
-          ].map((pair) => (
-            <a
-              key={pair.slug}
-              href={`/insights/weekly/${pair.slug}`}
-              className="card"
-              style={{
-                display: 'block',
-                padding: '1rem',
-                margin: 0,
-                textDecoration: 'none',
-                color: 'inherit',
-                cursor: 'pointer',
-              }}
-            >
-              <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.label}</strong>
-              <span className="muted small">DE + US, wöchentlich</span>
-            </a>
-          ))}
-        </div>
+        {pairs === null && (
+          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Studios …</p>
+        )}
+        {pairsError && (
+          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>
+            Studio-Liste momentan nicht verfügbar. Bitte später erneut versuchen.
+          </p>
+        )}
+        {pairs && pairs.length > 0 && (
+          <div className="pair-briefs-grid" style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: '0.75rem',
+          }}>
+            {pairs.map((pair) => (
+              <a
+                key={pair.pair_key}
+                href={`/insights/weekly/${pair.pair_key}`}
+                className="card"
+                style={{
+                  display: 'block',
+                  padding: '1rem',
+                  margin: 0,
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                }}
+              >
+                <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.display_name}</strong>
+                <span className="muted small">{`${pair.markets.join(' + ')}, ${pair.frequency_label}`}</span>
+              </a>
+            ))}
+          </div>
+        )}
       </section>
 
 
