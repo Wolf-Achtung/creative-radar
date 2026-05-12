@@ -497,15 +497,6 @@ MARKETS_DISPLAY_ORDER: tuple[str, ...] = ("DE", "US", "UK")
 # force a datestamped pin, but no override is wired today: one Opus, one call.
 OPUS_MODEL_ALIAS = "claude-opus-4-7"
 
-# Debounce-Window für ``generate_and_persist_report`` (Retry-Echo-Fix
-# 2026-05-12). Edge-Proxies und HTTP-Clients retried den ``GET
-# /api/insights/weekly``-Endpoint nach 60-90s Timeout — mit ``force=true``
-# führte das vor diesem Fix zu doppelten Opus-Generationen.
-# 120s sind kurz genug, dass eine absichtliche Re-Generation kurz nach
-# dem ersten Brief noch möglich ist, lang genug, um die typischen
-# Retry-Echo-Fenster (60-90s) zu blocken.
-_RECENT_BRIEF_WINDOW_SECONDS = 120
-
 # Opus 4.7 pricing reads from ``settings.anthropic_opus_*_per_1k_usd`` —
 # previously hardcoded here AND implicit in ``record_anthropic_call``,
 # which gave us a drift-window where the brief-frontend estimate and the
@@ -2527,7 +2518,7 @@ def generate_and_persist_report(
         # regardless of force. force=true bypasses the optional first-
         # read optimisation, not the composite PK. Manual delete is
         # the explicit overwrite path.
-        outcome = "cache_hit" if not force else "debounce_hit"
+        outcome = "cache_hit" if not force else "lock_dedup"
         logger.info(
             "brief_pipeline_done",
             extra={
