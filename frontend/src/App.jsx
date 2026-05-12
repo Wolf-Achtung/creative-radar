@@ -932,32 +932,44 @@ function App() {
         <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Diese Woche im Schnitt</p>
         <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Studio-Briefings</h2>
         <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
-          Sechs Studio-Reviews pro Woche.
+          {pairs && pairs.length > 0
+            ? `${pairs.length} Studio-Reviews pro Woche.`
+            : 'Studio-Reviews pro Woche.'}
         </p>
-        <div className="pair-briefs-grid" style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '0.75rem',
-        }}>
-          {(pairs || []).map((pair) => (
-            <a
-              key={pair.pair_key}
-              href={`/insights/weekly/${pair.pair_key}`}
-              className="card"
-              style={{
-                display: 'block',
-                padding: '1rem',
-                margin: 0,
-                textDecoration: 'none',
-                color: 'inherit',
-                cursor: 'pointer',
-              }}
-            >
-              <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.display_name}</strong>
-              <span className="muted small">{`${pair.markets.join(' + ')}, ${pair.frequency_label}`}</span>
-            </a>
-          ))}
-        </div>
+        {pairs === null && (
+          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Studios …</p>
+        )}
+        {pairsError && (
+          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>
+            Studio-Liste momentan nicht verfügbar. Bitte später erneut versuchen.
+          </p>
+        )}
+        {pairs && pairs.length > 0 && (
+          <div className="pair-briefs-grid" style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: '0.75rem',
+          }}>
+            {pairs.map((pair) => (
+              <a
+                key={pair.pair_key}
+                href={`/insights/weekly/${pair.pair_key}`}
+                className="card"
+                style={{
+                  display: 'block',
+                  padding: '1rem',
+                  margin: 0,
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                }}
+              >
+                <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.display_name}</strong>
+                <span className="muted small">{`${pair.markets.join(' + ')}, ${pair.frequency_label}`}</span>
+              </a>
+            ))}
+          </div>
+        )}
       </section>
 
 
