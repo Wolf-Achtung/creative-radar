@@ -2717,6 +2717,30 @@ def test_aggregate_pair_universalpictures_returns_data():
     assert ig.uk_channel.channel_found is False
 
 
+# ---------- Sprint 2026-05-12: Disney IG UK sub-brand gap ------------------
+
+
+def test_disney_pair_uk_ig_pool_includes_starwarsuk():
+    """Sprint 2026-05-12: @starwarsuk (108k Follower, IG-only) wurde
+    via sprint_disney_uk_subbrand_gap_2026_05_12 angelegt und muss im
+    disney-Pair IG-UK-Pool stehen. YT-Pool hat StarWarsUK schon, TT
+    hat kein StarWarsUK-Pendant — daher Edit nur auf IG."""
+    ig_uk_handles = {
+        c["handle"] for c in insight_engine.PAIRS["disney"]["platforms"]["instagram"]
+        if c["market"] == "UK"
+    }
+    assert ig_uk_handles == {"disneyuk", "disneystudiosuk", "marvel_uk", "starwarsuk"}, (
+        f"disney IG-UK-Pool muss 4 Channels enthalten (Master + 3 Sub-Brands) — "
+        f"gefunden: {ig_uk_handles}"
+    )
+    # TT-UK bleibt single-handle (kein @starwarsuk auf TikTok).
+    tt_uk_handles = {
+        c["handle"] for c in insight_engine.PAIRS["disney"]["platforms"]["tiktok"]
+        if c["market"] == "UK"
+    }
+    assert "starwarsuk" not in tt_uk_handles
+
+
 # ---------- Retry-Echo-Debounce (2026-05-12) -------------------------------
 
 

@@ -239,11 +239,16 @@ PAIRS: dict[str, dict[str, Any]] = {
                 # ``disneydeutschland`` on Instagram.
                 {"handle": "disneydeutschland", "market": "DE"},
                 # Sprint UK-B1: UK-Pool analog US (Master + Sub-Brands).
-                # Disney IG-UK = @disneyuk + @disneystudiosuk + @marvel_uk
+                # Sprint 2026-05-12: @starwarsuk via
+                # sprint_disney_uk_subbrand_gap_2026_05_12 nachgezogen
+                # (108k Follower, IG-only — kein TT-Pendant, YT-Pool hat
+                # StarWarsUK schon). Disney IG-UK = @disneyuk +
+                # @disneystudiosuk + @marvel_uk + @starwarsuk.
                 # (Underscore in marvel_uk ist der echte DB-Handle aus Phase A).
                 {"handle": "disneyuk", "market": "UK"},
                 {"handle": "disneystudiosuk", "market": "UK"},
                 {"handle": "marvel_uk", "market": "UK"},
+                {"handle": "starwarsuk", "market": "UK"},
             ],
             # Sprint 10j: US-Seite ist Multi-Channel-Pool analog TT/IG.
             # Marvel-Trailer landen auf @marvel, Pixar-Promos auf @pixar,
