@@ -128,10 +128,12 @@ def test_pairs_endpoint_excludes_disabled(
 # ---------- Markets: stable display order + per-pair correctness --------------
 
 
-def test_pairs_endpoint_lionsgate_markets_us_uk_only(client: TestClient):
-    """Lionsgate has no DE social-media presence — the brief calls this
-    out explicitly. Endpoint must emit ['US', 'UK'] (in that fixed
-    visualisation order), not include DE."""
+def test_pairs_endpoint_lionsgate_markets_us_only(client: TestClient):
+    """X1 (2026-05-12): surface = brief reality. Lionsgate has UK
+    channels in the pool but the LLM brief does not surface UK yet,
+    so the card promises only ['US']. When B2 brings UK into the
+    Lionsgate brief, the pair's ``markets`` field flips to
+    ['US', 'UK']."""
     response = client.get("/api/pairs")
     assert response.status_code == 200
     lionsgate = next(
@@ -139,18 +141,20 @@ def test_pairs_endpoint_lionsgate_markets_us_uk_only(client: TestClient):
         None,
     )
     assert lionsgate is not None, "lionsgate must be returned"
-    assert lionsgate["markets"] == ["US", "UK"]
+    assert lionsgate["markets"] == ["US"]
 
 
-def test_pairs_endpoint_paramountplus_markets_three_markets(client: TestClient):
-    """Paramount+ runs DE+US+UK after Phase A — emitted in DE → US → UK order."""
+def test_pairs_endpoint_paramountplus_markets_de_us(client: TestClient):
+    """X1: Paramount+ has DE/US/UK channels in the pool but the LLM
+    brief surfaces only DE+US until B2. The endpoint reflects the
+    brief reality, not the channel-pool reality."""
     response = client.get("/api/pairs")
     paramountplus = next(
         (p for p in response.json()["pairs"] if p["pair_key"] == "paramountplus"),
         None,
     )
     assert paramountplus is not None
-    assert paramountplus["markets"] == ["DE", "US", "UK"]
+    assert paramountplus["markets"] == ["DE", "US"]
 
 
 def test_pairs_endpoint_markets_always_in_fixed_display_order(client: TestClient):
