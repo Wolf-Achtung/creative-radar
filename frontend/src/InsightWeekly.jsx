@@ -4,17 +4,19 @@ import { endpoints } from './api/client';
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
 // ``backend/app/services/insight_engine.py`` 1:1; keep in sync when adding
-// or renaming pairs. The Sprint-2 set covers all seven Tier-A DE+US TT
-// pairs from migration ``e5d8f1a36b40`` — six enabled today, plus
-// ``universalpictures`` shipped as a disabled placeholder.
+// or renaming pairs. Sprint B3 (2026-05-12): alle Pairs sind 3-Markt
+// DE+US+UK seit Phase A + universalpictures-Reaktivierung. Lionsgate
+// ist US+UK-only (kein DE-Auftritt, Vertrieb via Leonine/Studiocanal).
 const FALLBACK_LABEL = {
-  warnerbros: 'Warner Bros · DE + US',
-  sonypictures: 'Sony Pictures · DE + US',
-  primevideo: 'Prime Video · DE + US',
-  disney: 'Disney · DE + US',
-  netflix: 'Netflix · DE + US',
-  paramountpictures: 'Paramount · DE + US',
-  universalpictures: 'Universal Pictures · DE + US',
+  warnerbros: 'Warner Bros · DE + US + UK',
+  sonypictures: 'Sony Pictures · DE + US + UK',
+  primevideo: 'Prime Video · DE + US + UK',
+  disney: 'Disney · DE + US + UK',
+  netflix: 'Netflix · DE + US + UK',
+  paramountpictures: 'Paramount · DE + US + UK',
+  universalpictures: 'Universal Pictures · DE + US + UK',
+  paramountplus: 'Paramount+ · DE + US + UK',
+  lionsgate: 'Lionsgate · US + UK',
 };
 
 // Try to recognise the structured 503 body the backend sends for disabled
@@ -237,6 +239,8 @@ function CrossMarketCard({ matches }) {
               {m.de_post_url && <a href={m.de_post_url} target="_blank" rel="noreferrer">DE-Post</a>}
               {m.us_post_url && <a href={m.us_post_url} target="_blank" rel="noreferrer">US-Post</a>}
             </div>
+            {/* UK cross-market = B2-Scope. Backend CrossMarketMatch ist
+                DE↔US-only (kein uk_engagement / uk_post_url im Schema). */}
           </li>
         ))}
       </ol>
@@ -769,12 +773,16 @@ function MultiPlatformStats({ aggregation }) {
   const perPlatform = Array.isArray(aggregation.per_platform) ? aggregation.per_platform : [];
 
   if (perPlatform.length === 0) {
-    // Legacy path — keep rendering exactly what Sprint-1/2/3 rendered.
+    // Legacy path — keep rendering exactly what Sprint-1/2/3 rendered,
+    // plus Sprint B3 (2026-05-12) die UK-Spalte. Backwards-Compat: bei
+    // Pre-B1-Briefs ist aggregation.uk_channel undefined/None und
+    // ChannelStatsCard rendert ein "Kein Channel"-Placeholder.
     return (
       <>
-        <div className="insight-grid-two">
+        <div className="insight-grid-three">
           <ChannelStatsCard stats={aggregation.de_channel} />
           <ChannelStatsCard stats={aggregation.us_channel} />
+          <ChannelStatsCard stats={aggregation.uk_channel} />
         </div>
         <CrossMarketCard matches={aggregation.cross_market_matches} />
       </>
@@ -784,7 +792,7 @@ function MultiPlatformStats({ aggregation }) {
   return (
     <div className="multiplatform-stats">
       {perPlatform.map((p) => {
-        const hasData = p.de_channel || p.us_channel;
+        const hasData = p.de_channel || p.us_channel || p.uk_channel;
         if (!hasData) return null;
         const label = PLATFORM_LABEL[p.platform] || p.platform;
         return (
@@ -792,9 +800,10 @@ function MultiPlatformStats({ aggregation }) {
             <h3 className="platform-block-title">
               <span className={`platform-pill platform-${p.platform}`}>{label}</span>
             </h3>
-            <div className="insight-grid-two">
+            <div className="insight-grid-three">
               {p.de_channel && <ChannelStatsCard stats={p.de_channel} />}
               {p.us_channel && <ChannelStatsCard stats={p.us_channel} />}
+              {p.uk_channel && <ChannelStatsCard stats={p.uk_channel} />}
             </div>
             {p.cross_market_matches?.length > 0 && (
               <CrossMarketCard matches={p.cross_market_matches} />
@@ -817,13 +826,13 @@ function collectRankedPosts(aggregation, market, platformFilter) {
     const posts = [];
     for (const plat of perPlatform) {
       if (platformFilter !== 'all' && plat.platform !== platformFilter) continue;
-      const channel = market === 'DE' ? plat.de_channel : plat.us_channel;
+      const channel = plat[`${market.toLowerCase()}_channel`];
       if (channel?.ranked_posts) posts.push(...channel.ranked_posts);
     }
     return posts;
   }
   // Legacy single-platform path for pre-Sprint-4 persisted briefs.
-  const channel = market === 'DE' ? aggregation.de_channel : aggregation.us_channel;
+  const channel = aggregation[`${market.toLowerCase()}_channel`];
   if (!channel?.ranked_posts) return [];
   if (platformFilter !== 'all' && (channel.ranked_posts[0]?.platform || aggregation.platform) !== platformFilter) {
     return [];
@@ -851,21 +860,27 @@ function TopRankingSection({ aggregation, pairKey }) {
     () => collectRankedPosts(aggregation, 'US', platformFilter),
     [aggregation, platformFilter],
   );
+  const ukList = useMemo(
+    () => collectRankedPosts(aggregation, 'UK', platformFilter),
+    [aggregation, platformFilter],
+  );
 
   // Graceful degrade for older persisted briefs (pre-Sprint-2).
-  if (deList.length === 0 && usList.length === 0) {
+  if (deList.length === 0 && usList.length === 0 && ukList.length === 0) {
     // If the filter hides everything but there's data on other platforms,
     // keep the section visible with an empty-state hint instead of a
     // sudden disappear-on-select.
     const hasAnyData = collectRankedPosts(aggregation, 'DE', 'all').length > 0
-      || collectRankedPosts(aggregation, 'US', 'all').length > 0;
+      || collectRankedPosts(aggregation, 'US', 'all').length > 0
+      || collectRankedPosts(aggregation, 'UK', 'all').length > 0;
     if (!hasAnyData) return null;
   }
 
   const visibleCount = expanded ? 10 : 5;
   const deSorted = [...deList].sort(sortFn).slice(0, visibleCount);
   const usSorted = [...usList].sort(sortFn).slice(0, visibleCount);
-  const showToggle = deList.length > 5 || usList.length > 5;
+  const ukSorted = [...ukList].sort(sortFn).slice(0, visibleCount);
+  const showToggle = deList.length > 5 || usList.length > 5 || ukList.length > 5;
 
   return (
     <section className="ranking-section card">
@@ -915,6 +930,14 @@ function TopRankingSection({ aggregation, pairKey }) {
                 <RankedPostCard key={p.post_url || `us-${i}`} post={p} rank={i + 1} sortKey={sortKey} platformFilter={platformFilter} />
               ))
             : <p className="ranking-empty">Keine Daten für US</p>}
+        </div>
+        <div className="ranking-column">
+          <h4>UK</h4>
+          {ukSorted.length > 0
+            ? ukSorted.map((p, i) => (
+                <RankedPostCard key={p.post_url || `uk-${i}`} post={p} rank={i + 1} sortKey={sortKey} platformFilter={platformFilter} />
+              ))
+            : <p className="ranking-empty">Keine Daten für UK</p>}
         </div>
       </div>
 
