@@ -674,6 +674,11 @@ function App() {
   const [titles, setTitles] = useState([]);
   const [assets, setAssets] = useState([]);
   const [report, setReport] = useState(null);
+  // Pair registry for the landing-page card grid. ``null`` = not yet
+  // fetched (initial load state); ``[]`` = fetched but empty (treated as
+  // an error in Commit 5); ``[...]`` = ready to render.
+  const [pairs, setPairs] = useState(null);
+  const [pairsError, setPairsError] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -728,6 +733,25 @@ function App() {
   }
 
   useEffect(() => { run(load); }, []);
+
+  // Landing-page pair registry. Independent of the auth-gated ``load()``
+  // above because ``/api/pairs`` is public — the card grid must render
+  // even when the bearer token has not been hydrated yet.
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.pairs()
+      .then((data) => {
+        if (cancelled) return;
+        setPairs(Array.isArray(data?.pairs) ? data.pairs : []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load /api/pairs', err);
+        setPairsError(true);
+        setPairs([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   async function importChannelFile(event) {
     event.preventDefault();
@@ -915,17 +939,10 @@ function App() {
           gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
           gap: '0.75rem',
         }}>
-          {[
-            { slug: 'warnerbros', label: 'Warner Bros' },
-            { slug: 'sonypictures', label: 'Sony Pictures' },
-            { slug: 'primevideo', label: 'Prime Video' },
-            { slug: 'disney', label: 'Disney' },
-            { slug: 'netflix', label: 'Netflix' },
-            { slug: 'paramountpictures', label: 'Paramount' },
-          ].map((pair) => (
+          {(pairs || []).map((pair) => (
             <a
-              key={pair.slug}
-              href={`/insights/weekly/${pair.slug}`}
+              key={pair.pair_key}
+              href={`/insights/weekly/${pair.pair_key}`}
               className="card"
               style={{
                 display: 'block',
@@ -936,8 +953,8 @@ function App() {
                 cursor: 'pointer',
               }}
             >
-              <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.label}</strong>
-              <span className="muted small">DE + US, wöchentlich</span>
+              <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.display_name}</strong>
+              <span className="muted small">{`${pair.markets.join(' + ')}, ${pair.frequency_label}`}</span>
             </a>
           ))}
         </div>

@@ -98,6 +98,7 @@ export const endpoints = {
   analyzeInstagramLink: (payload) => api('/api/posts/analyze-instagram-link', { method: 'POST', body: JSON.stringify(payload) }),
   runApifyMonitor: (payload) => api('/api/monitor/apify-instagram', { method: 'POST', body: JSON.stringify(payload) }),
   runTikTokMonitor: (payload) => api('/api/monitor/apify-tiktok', { method: 'POST', body: JSON.stringify(payload) }),
+  pairs: () => api('/api/pairs'),
   insightsOverview: () => api('/api/insights/overview'),
   insightsWeekly: (pair, { windowDays = 30, dryRun = false } = {}) => {
     const params = new URLSearchParams({ pair, window_days: String(windowDays), dry_run: String(dryRun) });
