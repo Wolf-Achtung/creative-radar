@@ -1,3 +1,6 @@
+import logging
+import sys
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,6 +9,20 @@ from app.config import settings
 from app.database import create_db_and_tables
 from app.auth import auth_middleware
 from app.api import health, channels, titles, posts, assets, reports, monitor, insights, proxy, admin, cron, thumbnails
+
+# Configure the root logger to stream INFO+ to stdout. Without this, Python's
+# default "lastResort" handler only emits WARNING+ to stderr, so every
+# ``logger.info(...)`` from PR #138 (brief_lock_attempt, brief_pipeline_*,
+# etc.) was being silently dropped. Railway captures container stdout, so
+# stream=sys.stdout is what gets us visibility in ``railway logs``. ``force=
+# True`` overrides any handler uvicorn may have installed on the root logger
+# before our import runs.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
 
 app = FastAPI(title="Creative Radar API", version="1.0.0")
 
