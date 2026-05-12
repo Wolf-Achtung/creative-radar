@@ -2087,18 +2087,11 @@ def generate_weekly_report(
             "prompt_chars": len(user_prompt),
         },
     )
-    # Idempotency-Key bündelt (pair, ISO-Woche, Stundenbucket der
-    # Generation) — zwei Retry-Echos innerhalb desselben Stundenbuckets
-    # senden den gleichen Key und können vom Anthropic-Gateway dedupliziert
-    # werden. Best-effort: primärer Schutz ist die DB-Debounce-Schicht.
-    idem_hour = generated_at.strftime("%Y%m%dT%H")
-    idem_key = f"weekly_brief-{agg.pair_key}-{agg.iso_year}W{agg.iso_week:02d}-{idem_hour}"
     message = messages_create_text(
         model=model,
         system=SYSTEM_PROMPT,
         user_message=user_prompt,
         max_tokens=max_tokens,
-        idempotency_key=idem_key,
     )
 
     raw_text = ""
@@ -2246,6 +2239,48 @@ def _persist_report(session: Session, report: InsightReport) -> None:
     session.commit()
 
 
+def _acquire_brief_lock(
+    session: Session,
+    *,
+    pair_key: str,
+    iso_year: int,
+    iso_week: int,
+) -> bool:
+    """Postgres advisory lock keyed by ``(pair_key, iso_year, iso_week)``.
+
+    Returns ``True`` if the dialect is Postgres and the lock was issued
+    (the caller now holds the lock until the transaction commits),
+    ``False`` for SQLite test paths where no advisory-lock mechanism
+    exists. The caller short-circuits the lock-protected re-check on the
+    ``False`` path and falls back to the plain pre-check semantics.
+
+    ``pg_advisory_xact_lock`` is the right choice over ``pg_try_*``
+    because we WANT the second concurrent worker to block until the
+    first has committed: that's how the re-check inside the lock sees
+    the persisted row and short-circuits the second LLM call. The
+    ``SET LOCAL lock_timeout`` cap prevents a stuck worker from
+    blocking the API forever — 300s covers worst-case Opus latency
+    (60-90s) plus a comfortable cushion. The lock is automatically
+    released when the transaction commits or rolls back, so the only
+    cleanup we need is the regular ``session.commit()`` later in the
+    code path.
+
+    Lock-key construction: a 31-bit signed integer derived from
+    ``hash((pair_key, iso_year, iso_week))``. The exact namespace of
+    advisory locks is global per database, so a hash collision would
+    serialise two unrelated pairs by accident — that's harmless (only
+    affects throughput, not correctness) and the 2**31 keyspace is
+    wide enough that collisions are astronomically rare in our
+    ~10-pair × ~52-week working set.
+    """
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        return False
+    lock_int = abs(hash((pair_key, iso_year, iso_week))) % (2**31)
+    session.exec(sa.text("SET LOCAL lock_timeout = '300s'"))
+    session.exec(sa.text("SELECT pg_advisory_xact_lock(:k)"), params={"k": lock_int})
+    return True
+
+
 def generate_and_persist_report(
     session: Session,
     pair_key: str,
@@ -2265,75 +2300,76 @@ def generate_and_persist_report(
       eventually carry. Computing them separately from
       ``datetime.now().isocalendar()`` would risk a mismatch around
       week-boundary calls.
+    - Acquire a Postgres advisory lock keyed by the persistence PK.
+      Concurrent requests for the same ``(pair, year, week)`` block
+      here until the holder commits, then the re-check inside the
+      lock returns the persisted row and short-circuits the second
+      LLM call. SQLite test paths skip the lock and rely on the
+      plain pre-check.
     - If ``force=False`` and a row exists for this (pair_key, iso_year,
       iso_week), hydrate and return it without an LLM call.
+    - With ``force=True`` and a row younger than
+      ``_RECENT_BRIEF_WINDOW_SECONDS``, hydrate and return — this
+      handles the secondary case where two requests arrive far enough
+      apart that the second one fires after the first has committed
+      but Wolf would still expect a single brief per click.
     - Otherwise call Opus, build the report, persist it (Last-Write-Wins
       on the composite PK), return the fresh report.
 
-    ``dry_run`` is intentionally not a parameter — the dry-run path stays
-    on the original ``generate_weekly_report`` and bypasses persistence
-    entirely. Callers (the GET endpoint) branch on ``dry_run`` before
-    invoking either function.
-
-    Anti-retry-echo (2026-05-12 diagnose follow-up): the GET endpoint is
-    idempotent, and a Brief takes 60-90s. Edge proxies / Railway / curl
-    that time out after 60s retry the GET — with ``force=true`` the
-    naive code path runs the LLM a second time. Cost-Tracking-Fix PR
-    #122 made the bug visible by logging both rows ($3.80 spent instead
-    of $1.90). The fix below short-circuits a recent persisted row even
-    when ``force=true``: if a brief for this week was committed within
-    the last ``_RECENT_BRIEF_WINDOW_SECONDS``, return it. Older rows
-    still respect the force semantic (Wolf can manually re-generate a
-    stale brief whenever he wants).
+    Anti-retry-echo (2026-05-12 sprint chain): TOCTOU-race fix follow-up
+    to PR #123. The original 120s pre-check window protected against
+    a SECOND retry that arrived AFTER the first persist; smoke-test
+    proved a SIMULTANEOUS race (5s apart, Opus ~6s) still got past the
+    pre-check because neither worker had persisted yet at the second's
+    look-up. The advisory lock closes that window by serialising both
+    workers on the same key.
     """
     agg = aggregate_pair(session, pair_key, window_days=window_days, now=now)
 
-    if not force:
-        existing = session.get(
-            InsightReportRow,
-            (pair_key, agg.iso_year, agg.iso_week),
-        )
-        if existing is not None:
+    has_lock = _acquire_brief_lock(
+        session,
+        pair_key=pair_key,
+        iso_year=agg.iso_year,
+        iso_week=agg.iso_week,
+    )
+
+    # Re-check inside the lock (Postgres) or single-check fallback (SQLite).
+    # When ``has_lock`` is True, a concurrent worker has already committed
+    # by the time we get here, so the SELECT inside this transaction
+    # observes the latest committed snapshot for our PK.
+    existing = session.get(
+        InsightReportRow,
+        (pair_key, agg.iso_year, agg.iso_week),
+    )
+    if existing is not None:
+        if not force:
             return _hydrate_from_persisted(existing, window_days=window_days)
-    else:
-        # force=true Pfad: prüfe trotzdem auf eine sehr frische Row, um
-        # den Retry-Echo-Bug (vor dem Fix doppelte Opus-Generation bei
-        # einem User-Trigger) zu blocken. Cutoff ist UTC-now minus
-        # 120s — kurz genug, dass eine bewusste Re-Generation nach 2min
-        # noch durchgeht; lang genug, um Edge-Proxy-Retries einzufangen,
-        # die typisch nach 60-90s eintrudeln.
+        # force=true Pfad: short-circuit nur für sehr frische Rows. Wolf
+        # behält das Recht, einen >120s alten Brief absichtlich zu
+        # überschreiben.
+        recent_generated_at = existing.generated_at
+        if recent_generated_at.tzinfo is None:
+            recent_generated_at = recent_generated_at.replace(tzinfo=timezone.utc)
         cutoff = (now or datetime.now(timezone.utc)) - timedelta(
             seconds=_RECENT_BRIEF_WINDOW_SECONDS
         )
-        recent = session.get(
-            InsightReportRow,
-            (pair_key, agg.iso_year, agg.iso_week),
-        )
-        if recent is not None:
-            recent_generated_at = recent.generated_at
-            # SQLite SQLModel kann naive datetimes liefern — auf UTC
-            # heben, sonst kracht der Vergleich gegen das aware ``cutoff``.
-            if recent_generated_at.tzinfo is None:
-                recent_generated_at = recent_generated_at.replace(tzinfo=timezone.utc)
-            if recent_generated_at >= cutoff:
-                logger.info(
-                    "insight-engine-debounce-hit",
-                    extra={
-                        "pair": pair_key,
-                        "iso_week": agg.iso_week,
-                        "age_seconds": (
-                            (now or datetime.now(timezone.utc)) - recent_generated_at
-                        ).total_seconds(),
-                    },
-                )
-                return _hydrate_from_persisted(recent, window_days=window_days)
+        if recent_generated_at >= cutoff:
+            logger.info(
+                "insight-engine-debounce-hit",
+                extra={
+                    "pair": pair_key,
+                    "iso_week": agg.iso_week,
+                    "lock_path": has_lock,
+                    "age_seconds": (
+                        (now or datetime.now(timezone.utc)) - recent_generated_at
+                    ).total_seconds(),
+                },
+            )
+            return _hydrate_from_persisted(existing, window_days=window_days)
 
-    # Cache miss (or force) → run the LLM. We re-call ``generate_weekly_report``
-    # which re-runs ``aggregate_pair`` internally. The duplicate aggregation
-    # is cheap (DB-only, fast), and keeping a single LLM-call code path
-    # simplifies maintenance over wiring a precomputed-aggregation kwarg
-    # through the call site. If aggregation cost ever becomes hot, this
-    # is a one-line refactor.
+    # Cache miss (or force on a stale row) → run the LLM. The advisory
+    # lock (when active) guarantees that no other worker is in this
+    # branch for the same ``(pair, year, week)`` right now.
     report = generate_weekly_report(
         session,
         pair_key,

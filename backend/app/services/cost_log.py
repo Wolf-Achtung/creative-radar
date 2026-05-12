@@ -70,14 +70,23 @@ def _persist(
             )
             session.commit()
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
+        # ERROR statt WARNING: ein verlorener costlog-Row ist
+        # audit-relevant — Wolf hat im 2026-05-12-Smoke-Test gesehen,
+        # dass eine silent-swallow-Anomalie genau das Doppel-Call-
+        # Tracking unbrauchbar gemacht hat. Log-Extras decken den
+        # vollen Recovery-Datensatz ab (provider, operation, USD-Cents
+        # + Millicents, plus ``meta`` mit Tokens/Modell), damit eine
+        # verlorene Row aus dem Log-Aggregator rekonstruierbar ist.
+        logger.error(
             "cost-log-write-failed",
             extra={
                 "provider": provider,
                 "operation": operation,
                 "usd_cents": usd_cents,
                 "usd_millicents": usd_millicents,
+                "meta": meta or {},
                 "error_class": type(exc).__name__,
+                "error_message": str(exc),
             },
         )
 

@@ -2581,11 +2581,12 @@ def test_generate_and_persist_no_recent_row_generates(monkeypatch):
         assert report.llm_output is not None
 
 
-def test_messages_create_text_sends_idempotency_key(monkeypatch):
-    """Defense-in-Depth-Garantie: messages_create_text MUSS den
-    Idempotency-Key per extra_headers an die Anthropic-SDK reichen
-    wenn idempotency_key übergeben wurde. Bei None: KEIN extra_headers
-    im SDK-Aufruf."""
+def test_messages_create_text_no_longer_sends_idempotency_header(monkeypatch):
+    """PR-#123-Idempotency-Key wurde nach Smoke-Test-Befund 2026-05-12
+    entfernt (Anthropic dedupliziert den Header nicht). Regression-
+    Guard: messages_create_text DARF KEINE extra_headers mehr an die
+    SDK reichen — der Aufruf bleibt minimal, alles über dem ist
+    dead code."""
     from app.config import settings
     from app.services import anthropic_client
 
@@ -2607,17 +2608,91 @@ def test_messages_create_text_sends_idempotency_key(monkeypatch):
         model="claude-opus-4-7",
         system="x",
         user_message="y",
-        idempotency_key="weekly_brief-disney-2026W19-20260512T08",
     )
-    assert captured.get("extra_headers") == {
-        "Idempotency-Key": "weekly_brief-disney-2026W19-20260512T08"
-    }
-
-    # Ohne idempotency_key darf der Header NICHT mitgeschickt werden.
-    captured.clear()
-    anthropic_client.messages_create_text(
-        model="claude-opus-4-7",
-        system="x",
-        user_message="y",
-    )
+    # Nach dem Cleanup darf der Header-Pfad nicht mehr existieren.
     assert "extra_headers" not in captured
+
+
+# ---------- Advisory-Lock race-condition fix (2026-05-12 follow-up) -------
+
+
+def test_advisory_lock_skipped_on_sqlite_dialect():
+    """SQLite-Test-Pfad: _acquire_brief_lock muss als no-op zurückkehren
+    (False), damit Pre-Check + LLM-Call wie bisher laufen. Postgres-
+    only feature — keine Lock-SQL gegen SQLite gesendet."""
+    with _session() as session:
+        acquired = insight_engine._acquire_brief_lock(
+            session,
+            pair_key="warnerbros",
+            iso_year=2026,
+            iso_week=20,
+        )
+    assert acquired is False
+
+
+def test_advisory_lock_issued_on_postgres_dialect(monkeypatch):
+    """Postgres-Pfad: _acquire_brief_lock muss SET LOCAL lock_timeout
+    UND pg_advisory_xact_lock(int) an die Session schicken. Wir
+    mocken den Dialect auf 'postgresql' und sammeln alle SQL-Texte,
+    die durch session.exec laufen."""
+    from sqlmodel import SQLModel, create_engine
+
+    engine = create_engine("sqlite://")
+    SQLModel.metadata.create_all(engine)
+    session = Session(engine)
+
+    # Dialect-Override: wir kaufen vor, dass session.bind.dialect.name
+    # auf 'postgresql' zeigt, damit der Lock-Pfad zündet.
+    monkeypatch.setattr(session.bind.dialect, "name", "postgresql", raising=False)
+
+    issued: list[tuple[str, dict | None]] = []
+
+    def _fake_exec(statement, params=None, **kwargs):
+        issued.append((str(statement), params))
+        # Return-Wert wird auf dem Postgres-Pfad nicht weiterverwendet
+        # für die Lock-Statements.
+        return None
+
+    monkeypatch.setattr(session, "exec", _fake_exec)
+
+    acquired = insight_engine._acquire_brief_lock(
+        session,
+        pair_key="warnerbros",
+        iso_year=2026,
+        iso_week=20,
+    )
+    assert acquired is True
+    # Erwartet: SET LOCAL lock_timeout VOR dem advisory lock.
+    sqls = [stmt for stmt, _ in issued]
+    assert any("SET LOCAL lock_timeout" in s for s in sqls)
+    assert any("pg_advisory_xact_lock" in s for s in sqls)
+
+
+def test_generate_and_persist_advisory_lock_short_circuits_second_call(monkeypatch):
+    """Hauptgarantie: ein zweiter Aufruf von generate_and_persist_report,
+    der erst NACH dem ersten an die Reihe kommt (das simulieren wir
+    durch sequenzielles Aufrufen mit force=True), MUSS den persistierten
+    Row sehen und KEINEN zweiten LLM-Call starten — auch wenn das
+    Postgres-Dialekt-Mocking nicht greift (SQLite-Pfad). Vor dem
+    Advisory-Lock-Fix: 2 LLM-Calls bei 5s curl-spacing weil die Pre-
+    Check-TOCTOU-Lücke offen war."""
+    state = _persist_a_warnerbros_brief(monkeypatch)
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        first = insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+        assert state["calls"] == 1
+        assert first.llm_output is not None
+
+        # Zweiter sequenzieller Call: Row bereits committed, Re-Check
+        # INNERHALB des Lock-Pfads (oder Pre-Check auf SQLite) muss
+        # die Row sehen und kurzschließen.
+        second = insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+        assert state["calls"] == 1, (
+            "Zweiter sequenzieller Call innerhalb 120s darf KEINEN "
+            f"neuen Opus-Call starten, war aber {state['calls']}."
+        )
+        assert second.pair_key == first.pair_key
