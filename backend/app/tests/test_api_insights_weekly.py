@@ -162,7 +162,17 @@ def test_enabled_pair_dry_run_returns_aggregation_only(
     """Dry-Run + leere DB: aggregate_pair liefert eine valide Aggregation
     mit Notes (Channels nicht in DB). Kein LLM-Call. Antwortet 200 für
     JEDEN aktivierten Pair-Key — schützt davor, dass eine neue Pair-Konfig
-    eine andere Code-Pfad-Nutzung triggert als warnerbros."""
+    eine andere Code-Pfad-Nutzung triggert als warnerbros.
+
+    Sprint 2026-05-12 paramountplus+lionsgate: DE ist seitdem optional.
+    Lionsgate hat keinen DE-Channel definiert, also entfällt die
+    DE-Channel-Note. US ist Pflicht in jedem Pair → US-Note wird auf
+    leerer DB immer generiert.
+    """
+    from app.services.insight_engine import PAIRS
+    pair_def = PAIRS[pair_key]
+    has_de = any(c["market"] == "DE" for c in pair_def["channels"])
+
     response = client.get(
         "/api/insights/weekly",
         params={"pair": pair_key, "dry_run": "true"},
@@ -172,9 +182,12 @@ def test_enabled_pair_dry_run_returns_aggregation_only(
     assert body["pair_key"] == pair_key
     assert body["dry_run"] is True
     assert body["llm_output"] is None
-    # Notes-Pfad: leere DB → beide Channels not_found
+    # Notes-Pfad: leere DB → Channels mit Spec aber ohne DB-Match
+    # tauchen als Notes auf. Channels ohne Spec (Lionsgate-DE) emittieren
+    # NICHTS und das ist absichtlich.
     notes = body.get("aggregation", {}).get("notes", [])
-    assert any("DE-Channel" in n for n in notes)
+    if has_de:
+        assert any("DE-Channel" in n for n in notes)
     assert any("US-Channel" in n for n in notes)
 
 

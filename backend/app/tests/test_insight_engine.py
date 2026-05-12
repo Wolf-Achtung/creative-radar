@@ -276,16 +276,21 @@ def test_missing_channels_record_notes_but_dont_crash():
 @pytest.mark.parametrize("pair_key", sorted(insight_engine.PAIRS.keys()))
 def test_pairs_registry_schema(pair_key: str):
     """Jeder PAIRS-Eintrag muss das Schema erfüllen: label, platform,
-    channels (mind. ein DE und mind. ein US, beide Märkte vertreten),
-    enabled, reason. Sprint 10d: ``channels`` darf mehrere US-Einträge
-    enthalten (Disney pooled disneystudios/marvelstudios/pixar/starwars/
-    20thcentury) — der DE+US-Markt-Invariant bleibt aber bindend, weil
-    sonst _aggregate_platform für eine Seite leer rendert.
+    channels (mind. einen Channel, US-Markt vertreten), enabled, reason.
+    Sprint 10d: ``channels`` darf mehrere US-Einträge enthalten (Disney
+    pooled disneystudios/marvelstudios/pixar/starwars/20thcentury).
 
     Sprint UK-B1 (2026-05-12): UK ist ab B1 erlaubt als 3. Markt, aber
-    optional — disabled Pairs (universalpictures) und Pairs vor Phase A
-    haben keinen UK-Eintrag und das ist ok. Der Invariant ``DE+US müssen
-    vertreten sein`` bleibt; UK darf zusätzlich auftauchen.
+    optional. Disabled Pairs (universalpictures) und Pairs vor Phase A
+    haben keinen UK-Eintrag und das ist ok.
+
+    Sprint 2026-05-12 paramountplus+lionsgate: DE ist seitdem ebenfalls
+    optional. Lionsgate ist US+UK-only (kein deutscher Social-Auftritt,
+    Vertrieb läuft via Leonine/Studiocanal). Neuer harter Invariant:
+    ``US ist Pflicht``, DE+UK sind optional, andere Märkte (INT,
+    UNKNOWN, MIXED) bleiben raus. Die Invariant-Lockerung folgt der
+    realen Marktrealität — wenn ein Studio in einem Land schlicht
+    nicht selbst auftritt, gibt es keinen sinnvollen Channel zu pinnen.
     """
     pair_def = insight_engine.PAIRS[pair_key]
     assert isinstance(pair_def.get("label"), str) and pair_def["label"]
@@ -294,10 +299,11 @@ def test_pairs_registry_schema(pair_key: str):
     if not pair_def["enabled"]:
         assert pair_def.get("reason"), "disabled pair muss reason haben"
     channels = pair_def.get("channels") or []
-    assert len(channels) >= 2, "Pair braucht mind. einen DE- und einen US-Channel"
+    assert len(channels) >= 1, "Pair braucht mind. einen Channel"
     markets = {c["market"] for c in channels}
-    assert {"DE", "US"} <= markets <= {"DE", "US", "UK"}, (
-        "DE+US müssen vertreten sein; UK ist seit B1 erlaubt aber optional"
+    assert "US" in markets, "US-Markt ist Pflicht in jedem Pair"
+    assert markets <= {"DE", "US", "UK"}, (
+        f"Nur DE/US/UK erlaubt — {pair_key} hat {markets}"
     )
     for c in channels:
         assert isinstance(c.get("handle"), str) and c["handle"], (
@@ -313,16 +319,27 @@ def test_aggregate_pair_handles_missing_channels_for_all_enabled_pairs(pair_key:
     """Pair-agnostische Sicherheit: aggregate_pair darf für JEDEN aktivierten
     Pair gegen eine leere DB laufen und liefert eine valide Aggregation mit
     Notes statt zu crashen. Schmale Garantie, aber sie greift, sobald eine
-    neue Pair-Konfig den Endpoint trifft, bevor die Channels onboarded sind."""
+    neue Pair-Konfig den Endpoint trifft, bevor die Channels onboarded sind.
+
+    Sprint 2026-05-12 paramountplus+lionsgate: ``de_channel`` ist nur
+    gesetzt, wenn der Pair einen DE-Channel definiert. Lionsgate hat
+    keinen DE-Auftritt, also bleibt ``de_channel`` legitim ``None``.
+    """
+    pair_def = insight_engine.PAIRS[pair_key]
+    has_de = any(c["market"] == "DE" for c in pair_def["channels"])
     with _session() as session:
         agg = insight_engine.aggregate_pair(session, pair_key, window_days=30)
         assert agg.pair_key == pair_key
         assert agg.platform == "tiktok"
-        assert agg.us_channel is not None and agg.de_channel is not None
+        assert agg.us_channel is not None
         assert agg.us_channel.channel_found is False
-        assert agg.de_channel.channel_found is False
-        assert any("DE-Channel" in n for n in agg.notes)
         assert any("US-Channel" in n for n in agg.notes)
+        if has_de:
+            assert agg.de_channel is not None
+            assert agg.de_channel.channel_found is False
+            assert any("DE-Channel" in n for n in agg.notes)
+        else:
+            assert agg.de_channel is None
 
 
 def test_window_filters_old_posts():
@@ -2463,6 +2480,97 @@ def test_pairs_registry_schema_accepts_uk_market():
     assert "UK" not in universal_markets, (
         "universalpictures ist B1-out-of-scope (disabled) — kein UK-Eintrag"
     )
+
+
+# ---------- Sprint 2026-05-12: paramountplus + lionsgate -------------------
+
+
+def test_paramountplus_pair_has_all_three_markets():
+    """paramountplus ist ein voll-Pair: DE+US+UK auf TT und IG. YT
+    fehlt UK (kein separater Paramount+ UK YouTube-Channel)."""
+    pair_def = insight_engine.PAIRS["paramountplus"]
+    assert pair_def["enabled"] is True
+    assert pair_def["reason"] is None
+
+    tt = pair_def["platforms"]["tiktok"]
+    ig = pair_def["platforms"]["instagram"]
+    yt = pair_def["platforms"]["youtube"]
+
+    assert {c["market"] for c in tt} == {"DE", "US", "UK"}
+    assert {c["market"] for c in ig} == {"DE", "US", "UK"}
+    # YT: nur DE+US, kein UK.
+    assert {c["market"] for c in yt} == {"DE", "US"}
+
+    # channels-Mirror == tiktok-Liste (Backwards-Compat-Konvention).
+    assert pair_def["channels"] == tt
+
+
+def test_lionsgate_pair_has_us_and_uk_only():
+    """lionsgate ist US+UK-only. Lionsgate hat keinen eigenen DE-
+    Social-Auftritt — Vertrieb läuft via Leonine/Studiocanal. KEIN
+    DE-Channel im Pair, das ist absichtlich und akzeptiert."""
+    pair_def = insight_engine.PAIRS["lionsgate"]
+    assert pair_def["enabled"] is True
+    assert pair_def["reason"] is None
+
+    tt = pair_def["platforms"]["tiktok"]
+    ig = pair_def["platforms"]["instagram"]
+    yt = pair_def["platforms"]["youtube"]
+
+    assert {c["market"] for c in tt} == {"US", "UK"}
+    assert {c["market"] for c in ig} == {"US", "UK"}
+    # YT: nur US, kein UK, kein DE.
+    assert {c["market"] for c in yt} == {"US"}
+
+    # DE darf NICHT auftauchen — Regression-Guard.
+    all_markets = {c["market"] for plat in pair_def["platforms"].values() for c in plat}
+    assert "DE" not in all_markets, "lionsgate hat keinen DE-Auftritt"
+
+
+def test_aggregate_pair_lionsgate_handles_missing_de_channel_gracefully():
+    """lionsgate hat keinen DE-Channel definiert. aggregate_pair darf
+    weder crashen noch eine 'DE-Channel fehlt'-Note generieren — der
+    DE-Block bleibt einfach komplett aus, weil der Pair so konfiguriert
+    ist."""
+    with _session() as session:
+        agg = insight_engine.aggregate_pair(session, "lionsgate", window_days=30)
+        assert agg.pair_key == "lionsgate"
+        assert agg.de_channel is None, (
+            "lionsgate definiert keinen DE-Channel — de_channel muss None bleiben"
+        )
+        # US und UK Specs sind da, aber gegen leere DB unresolved.
+        assert agg.us_channel is not None
+        assert agg.us_channel.channel_found is False
+        # KEINE 'DE-Channel fehlt'-Note: wir haben ja keinen DE-Spec.
+        assert not any("DE-Channel" in n for n in agg.notes), (
+            f"Unerwartete DE-Channel-Note für lionsgate: {agg.notes}"
+        )
+
+
+def test_aggregate_pair_paramountplus_uk_only_on_ig_tt_not_yt():
+    """paramountplus voll-Pair-Garantie: TT + IG haben alle drei Märkte,
+    YT hat keinen UK-Channel. aggregate_pair liefert eine
+    PairAggregation mit ``platforms: list[PlatformAggregation]`` — wir
+    iterieren über die per-Plattform-Slices und prüfen das
+    uk_channel-Vorhandensein."""
+    with _session() as session:
+        agg = insight_engine.aggregate_pair(
+            session, "paramountplus", window_days=30,
+        )
+    by_platform = {p.platform: p for p in agg.per_platform}
+    assert by_platform["tiktok"].uk_channel is not None, (
+        "paramountplus muss UK auf TikTok haben"
+    )
+    assert by_platform["instagram"].uk_channel is not None, (
+        "paramountplus muss UK auf Instagram haben"
+    )
+    assert by_platform["youtube"].uk_channel is None, (
+        "paramountplus hat keinen UK-YT-Channel — uk_channel muss None bleiben"
+    )
+    # DE und US sind auf allen drei Plattformen vorhanden.
+    for plat in ("tiktok", "instagram", "youtube"):
+        assert by_platform[plat].de_channel is not None
+        assert by_platform[plat].us_channel is not None
 
 
 # ---------- Retry-Echo-Debounce (2026-05-12) -------------------------------
