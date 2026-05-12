@@ -2195,7 +2195,7 @@ def generate_weekly_report(
 
     user_prompt = _build_user_prompt(agg)
     logger.info(
-        "insight-engine-call",
+        "brief_anthropic_call_start",
         extra={
             "pair": pair_key,
             "window_days": window_days,
