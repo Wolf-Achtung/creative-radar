@@ -191,8 +191,8 @@ class PlatformAggregation(BaseModel):
     de_channel: Optional[ChannelStats] = None
     us_channel: Optional[ChannelStats] = None
     # Sprint UK-B1 — UK als 3. Markt additiv. Default ``None`` damit
-    # Pairs ohne UK-Spec (universalpictures, ggf. Phase-A-Gaps) sowie
-    # persistierte Briefe vor B1 weiter sauber parsen. Frontend bleibt
+    # Pairs ohne UK-Spec (Phase-A-Gaps, ggf. künftige disabled Pairs)
+    # sowie persistierte Briefe vor B1 weiter sauber parsen. Frontend bleibt
     # in B1 2-Spalten (B3-Scope), das LLM sieht UK aber bereits im
     # Markdown- und JSON-Block.
     uk_channel: Optional[ChannelStats] = None
@@ -213,8 +213,8 @@ class PairAggregation(BaseModel):
     de_channel: Optional[ChannelStats]
     us_channel: Optional[ChannelStats]
     # Sprint UK-B1 — Mirror-Feld für UK. Default ``None`` damit alte
-    # persistierte Briefe parsen und Pairs ohne UK (universalpictures)
-    # keine speziellen Code-Pfade brauchen.
+    # persistierte Briefe parsen und Pairs ohne UK-Spec keine speziellen
+    # Code-Pfade brauchen.
     uk_channel: Optional[ChannelStats] = None
     cross_market_matches: list[CrossMarketMatch]
     title_coverage: TitleCoverage

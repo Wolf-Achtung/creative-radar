@@ -62,11 +62,12 @@ logger = logging.getLogger(__name__)
 # ---------- Pair registry ---------------------------------------------------
 
 # Sprint-2: registry expanded to the seven Tier-A DE+US TikTok pairs from the
-# whitelist-expansion migration ``e5d8f1a36b40``. Six pairs are enabled today;
-# ``universalpictures`` ships as a disabled placeholder until both channels
-# clear the activation threshold (>=3 posts/30d on each side). Endpoint logic
-# in ``api/insights.py`` returns 503 with the structured ``reason`` so the
-# Frontend can render a "coming soon" state without a config push.
+# whitelist-expansion migration ``e5d8f1a36b40``. Sprint 2026-05-12: alle
+# Pairs sind enabled — ``universalpictures`` reaktiviert nach DE/US/UK-
+# Channel-Aktivitäts-Check (DE-Seite 30 Posts/30d, US-Pool aktiv via
+# YT-Master + IG-Sub-Brand @universalhorror, UK seit Phase A registered).
+# Endpoint logic in ``api/insights.py`` returns 503 with the structured
+# ``reason`` für künftige disabled Pairs ohne Config-Push.
 #
 # Promotion to a DB-backed config table is still on the roadmap (Sprint-3+);
 # until then a new pair is a single PR touching this dict and the Frontend
@@ -348,19 +349,43 @@ PAIRS: dict[str, dict[str, Any]] = {
         "reason": None,
     },
     "universalpictures": {
-        "label": "universalpictures DE+US",
-        # Universal stays disabled — no platforms-dict yet. When the pair
-        # activates, fill in TT/IG/YT entries analogously to the others.
+        "label": "universalpictures DE+US+UK",
+        # Sprint 2026-05-12: voll-Pair reaktiviert nach Diagnose (DE 30
+        # Posts/30d, US-Pool aktiv, UK seit Phase A registered). US-Seite
+        # ist Multi-Channel-Pool analog warnerbros/disney/sonypictures —
+        # @universalpictures (Master) + @universalhorror (Sub-Brand für
+        # Horror-Slate, IG-only, kein TT/YT-Pendant). YT-Master ist sehr
+        # aktiv (10 Posts/30d), TT-Master tot (0 Posts) bleibt drin für
+        # Cron-Erfassung, falls reaktiviert. UK postet noch nicht (Cron
+        # Sa 17.05. wird Daten liefern), Channels sind aber registered.
+        "platforms": {
+            "tiktok": [
+                {"handle": "universalpictures", "market": "US"},
+                {"handle": "universalpicturesde", "market": "DE"},
+                {"handle": "universalpicturesuk", "market": "UK"},
+            ],
+            "instagram": [
+                {"handle": "universalpictures", "market": "US"},
+                # @universalhorror = Sub-Brand-Pool für Horror-Slate
+                # (Blumhouse/Monkeypaw-Releases). IG-only, kein TT/YT.
+                {"handle": "universalhorror", "market": "US"},
+                {"handle": "universalpicturesde", "market": "DE"},
+                {"handle": "universalpicturesuk", "market": "UK"},
+            ],
+            "youtube": [
+                {"handle": "UniversalPictures", "market": "US"},
+                {"handle": "UniversalPicturesDE", "market": "DE"},
+                {"handle": "UniversalPicturesUK", "market": "UK"},
+            ],
+        },
         "platform": "tiktok",
         "channels": [
             {"handle": "universalpictures", "market": "US"},
             {"handle": "universalpicturesde", "market": "DE"},
+            {"handle": "universalpicturesuk", "market": "UK"},
         ],
-        "enabled": False,
-        "reason": (
-            "US-Channel @universalpictures has 0 posts/30d, "
-            "pair will activate when both channels have >=3 posts/30d"
-        ),
+        "enabled": True,
+        "reason": None,
     },
     "paramountplus": {
         "label": "paramountplus DE+US+UK",
@@ -1683,8 +1708,8 @@ def _aggregate_platform(
     # one per cinema sub-brand for the Disney pair. Group by market and
     # resolve each pool with a single IN-query via _find_channels.
     # Sprint UK-B1: UK als 3. Markt additiv ergänzt; ``uk_specs`` ist
-    # leer für universalpictures + alle Pairs vor B1, dann bleibt
-    # ``uk_channel=None`` und kein Code-Pfad ändert sein Verhalten.
+    # leer für Pairs vor B1, dann bleibt ``uk_channel=None`` und kein
+    # Code-Pfad ändert sein Verhalten.
     de_specs = [c for c in channel_specs if c["market"] == "DE"]
     us_specs = [c for c in channel_specs if c["market"] == "US"]
     uk_specs = [c for c in channel_specs if c["market"] == "UK"]
@@ -1793,8 +1818,8 @@ def _aggregate_platform(
 def _platforms_dict_for(pair_def: dict) -> dict[str, list[dict]]:
     """Return the ``platforms`` dict for a pair, falling back to a synthetic
     single-platform entry built from the legacy ``platform``/``channels``
-    fields. Lets disabled pairs (universalpictures) and any future pair
-    that hasn't been migrated to the new structure still aggregate."""
+    fields. Lets any pair that hasn't been migrated to the new
+    structure still aggregate."""
     if "platforms" in pair_def and pair_def["platforms"]:
         return pair_def["platforms"]
     return {pair_def["platform"]: pair_def["channels"]}

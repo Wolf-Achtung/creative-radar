@@ -281,8 +281,7 @@ def test_pairs_registry_schema(pair_key: str):
     pooled disneystudios/marvelstudios/pixar/starwars/20thcentury).
 
     Sprint UK-B1 (2026-05-12): UK ist ab B1 erlaubt als 3. Markt, aber
-    optional. Disabled Pairs (universalpictures) und Pairs vor Phase A
-    haben keinen UK-Eintrag und das ist ok.
+    optional. Pairs vor Phase A haben keinen UK-Eintrag und das ist ok.
 
     Sprint 2026-05-12 paramountplus+lionsgate: DE ist seitdem ebenfalls
     optional. Lionsgate ist US+UK-only (kein deutscher Social-Auftritt,
@@ -2358,14 +2357,34 @@ def test_aggregate_pair_includes_uk_channel_when_specced():
         assert agg.uk_channel.handle == "warnerbrosuk"
 
 
-def test_aggregate_pair_uk_channel_none_when_pair_has_no_uk_specs():
-    """Sprint UK-B1: universalpictures ist disabled und hat keinen UK-Spec.
-    aggregate_pair muss ohne Crash laufen und ``uk_channel`` auf jeder
-    Plattform-Slice ``None`` lassen. Persistierte Briefe vor B1 enthalten
-    das Feld nicht — Default ``None`` deckt den Re-Hydrate-Pfad ab."""
+def test_aggregate_pair_uk_channel_none_when_pair_has_no_uk_specs(monkeypatch):
+    """Sprint UK-B1: ein Pair ohne UK-Spec auf irgendeiner Plattform
+    muss ``uk_channel`` auf jeder Plattform-Slice ``None`` lassen.
+    Persistierte Briefe vor B1 enthalten das Feld nicht — Default
+    ``None`` deckt den Re-Hydrate-Pfad ab.
+
+    Sprint 2026-05-12: universalpictures ist seit der Reaktivierung
+    selbst UK-aktiv, deshalb wird hier ein synthetischer DE+US-only-
+    Pair in die Registry geschoben."""
+    synthetic_pair = {
+        "label": "synthetic DE+US",
+        "platforms": {
+            "tiktok": [
+                {"handle": "synthetic_us", "market": "US"},
+                {"handle": "synthetic_de", "market": "DE"},
+            ],
+        },
+        "platform": "tiktok",
+        "channels": [
+            {"handle": "synthetic_us", "market": "US"},
+            {"handle": "synthetic_de", "market": "DE"},
+        ],
+        "enabled": True,
+        "reason": None,
+    }
+    monkeypatch.setitem(insight_engine.PAIRS, "_uk_less_synthetic", synthetic_pair)
     with _session() as session:
-        agg = insight_engine.aggregate_pair(session, "universalpictures", window_days=30)
-        # Pair ist disabled, hat aber Legacy ``channels`` (DE+US) — keine UK.
+        agg = insight_engine.aggregate_pair(session, "_uk_less_synthetic", window_days=30)
         for platform_agg in agg.per_platform:
             assert platform_agg.uk_channel is None, (
                 f"Pair ohne UK-Spec darf kein uk_channel produzieren "
@@ -2461,12 +2480,14 @@ def test_format_channel_section_renders_uk_header():
 
 
 def test_pairs_registry_schema_accepts_uk_market():
-    """Sprint UK-B1 expliziter Test zur Invariant-Lockerung: die 6
+    """Sprint UK-B1 expliziter Test zur Invariant-Lockerung: die
     enabled Pairs müssen ab B1 alle einen UK-Eintrag im channels-Mirror
-    haben. ``universalpictures`` bleibt out-of-scope (disabled)."""
+    haben. Sprint 2026-05-12: universalpictures ist reaktiviert mit
+    voller DE+US+UK-Spec, deshalb steht es jetzt mit in der Liste."""
     expected_uk_pairs = {
         "warnerbros", "sonypictures", "primevideo",
         "disney", "netflix", "paramountpictures",
+        "universalpictures",
     }
     for pair_key in expected_uk_pairs:
         pair_def = insight_engine.PAIRS[pair_key]
@@ -2475,11 +2496,6 @@ def test_pairs_registry_schema_accepts_uk_market():
             f"Pair {pair_key!r} muss seit B1 einen UK-Channel im "
             f"channels-Mirror haben — gefunden: {markets}"
         )
-    # universalpictures ist disabled und bleibt 2-Markt.
-    universal_markets = {c["market"] for c in insight_engine.PAIRS["universalpictures"]["channels"]}
-    assert "UK" not in universal_markets, (
-        "universalpictures ist B1-out-of-scope (disabled) — kein UK-Eintrag"
-    )
 
 
 # ---------- Sprint 2026-05-12: paramountplus + lionsgate -------------------
@@ -2571,6 +2587,134 @@ def test_aggregate_pair_paramountplus_uk_only_on_ig_tt_not_yt():
     for plat in ("tiktok", "instagram", "youtube"):
         assert by_platform[plat].de_channel is not None
         assert by_platform[plat].us_channel is not None
+
+
+# ---------- Sprint 2026-05-12: universalpictures reactivation ---------------
+
+
+def test_universalpictures_pair_enabled():
+    """Sprint 2026-05-12: universalpictures ist nach DE/US/UK-Channel-
+    Aktivitäts-Check reaktiviert. Pair muss enabled sein, ``reason`` =
+    None und das volle platforms-Dict mit TT/IG/YT mitbringen."""
+    pair_def = insight_engine.PAIRS["universalpictures"]
+    assert pair_def["enabled"] is True
+    assert pair_def["reason"] is None
+    assert "platforms" in pair_def
+    assert set(pair_def["platforms"].keys()) == {"tiktok", "instagram", "youtube"}
+
+
+def test_universalpictures_us_pool_on_instagram_contains_horror_sub_brand():
+    """Sprint 2026-05-12: US-Seite auf Instagram ist Multi-Channel-Pool
+    analog warnerbros/sonypictures/disney. @universalhorror ist die
+    Horror-Slate-Sub-Brand (Blumhouse/Monkeypaw-Releases) und IG-only,
+    es gibt sie nicht auf TT/YT."""
+    pair_def = insight_engine.PAIRS["universalpictures"]
+    ig_us_handles = {
+        c["handle"] for c in pair_def["platforms"]["instagram"]
+        if c["market"] == "US"
+    }
+    assert "universalpictures" in ig_us_handles, "IG-US-Master muss im Pool sein"
+    assert "universalhorror" in ig_us_handles, (
+        "@universalhorror als US-Sub-Brand-Pool muss IG-seitig im US-Pool sein"
+    )
+    # TT/YT haben kein @universalhorror-Pendant.
+    tt_us_handles = {
+        c["handle"] for c in pair_def["platforms"]["tiktok"]
+        if c["market"] == "US"
+    }
+    yt_us_handles = {
+        c["handle"].lower() for c in pair_def["platforms"]["youtube"]
+        if c["market"] == "US"
+    }
+    assert "universalhorror" not in tt_us_handles
+    assert "universalhorror" not in yt_us_handles
+
+
+def test_universalpictures_uk_present_on_all_platforms():
+    """Sprint 2026-05-12: UK-Channels seit Phase A registered (TT/IG/YT
+    alle mvp=True). Pair muss UK auf jeder Plattform-Spec mitbringen,
+    auch wenn UK-Seite Sa 17.05. ihre ersten Cron-Daten erst bekommt."""
+    pair_def = insight_engine.PAIRS["universalpictures"]
+    for platform in ("tiktok", "instagram", "youtube"):
+        uk_handles = [
+            c["handle"] for c in pair_def["platforms"][platform]
+            if c["market"] == "UK"
+        ]
+        assert len(uk_handles) == 1, (
+            f"universalpictures muss genau einen UK-Channel auf {platform} "
+            f"haben — gefunden: {uk_handles}"
+        )
+    # channels-Mirror == tiktok-Liste (Backwards-Compat-Konvention).
+    assert pair_def["channels"] == pair_def["platforms"]["tiktok"]
+
+
+def test_aggregate_pair_universalpictures_returns_data():
+    """Smoke-Test: aggregate_pair läuft für universalpictures gegen eine
+    Mini-DB mit DE+US-Posts ohne Crash und liefert eine valide
+    PairAggregation mit den erwarteten per-Plattform-Slices."""
+    with _session() as session:
+        us = Channel(
+            name="Universal Pictures",
+            platform="instagram",
+            url="https://www.instagram.com/universalpictures/",
+            handle="universalpictures",
+            market=Market.US,
+        )
+        horror = Channel(
+            name="Universal Horror",
+            platform="instagram",
+            url="https://www.instagram.com/universalhorror/",
+            handle="universalhorror",
+            market=Market.US,
+        )
+        de = Channel(
+            name="Universal Pictures DE",
+            platform="instagram",
+            url="https://www.instagram.com/universalpicturesde/",
+            handle="universalpicturesde",
+            market=Market.DE,
+        )
+        session.add_all([us, horror, de])
+        session.commit()
+        for ch in (us, horror, de):
+            session.refresh(ch)
+
+        _make_post(
+            session, us,
+            caption="New trailer drop #Trailer",
+            likes=8_000, comments=200, shares=80, saves=120,
+            days_ago=3, url_suffix="up-us-1", platform="instagram",
+        )
+        _make_post(
+            session, horror,
+            caption="Horror slate #Blumhouse",
+            likes=5_000, comments=120, shares=40, saves=60,
+            days_ago=4, url_suffix="up-horror-1", platform="instagram",
+        )
+        _make_post(
+            session, de,
+            caption="Im Kino diese Woche #Kino",
+            likes=1_200, comments=30, shares=10, saves=20,
+            days_ago=2, url_suffix="up-de-1", platform="instagram",
+        )
+
+        agg = insight_engine.aggregate_pair(
+            session, "universalpictures", window_days=30,
+        )
+
+    assert agg.pair_key == "universalpictures"
+    by_platform = {p.platform: p for p in agg.per_platform}
+    assert set(by_platform.keys()) == {"tiktok", "instagram", "youtube"}
+
+    ig = by_platform["instagram"]
+    assert ig.us_channel is not None
+    # Pool addiert Master + Horror-Sub-Brand → 2 Posts auf US-Seite IG.
+    assert ig.us_channel.posts_count == 2
+    assert ig.de_channel is not None
+    assert ig.de_channel.posts_count == 1
+    # UK-Spec da, aber DB ist UK-leer → channel_found=False, kein Crash.
+    assert ig.uk_channel is not None
+    assert ig.uk_channel.channel_found is False
 
 
 # ---------- Retry-Echo-Debounce (2026-05-12) -------------------------------

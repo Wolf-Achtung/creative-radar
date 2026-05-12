@@ -440,8 +440,7 @@ def regenerate_insights(
         "all",
         description=(
             "Pair-Key (z.B. 'netflix') oder 'all' für alle aktivierten Pairs. "
-            "Disabled Pairs (z.B. universalpictures) werden mit "
-            "status='skipped' übersprungen."
+            "Disabled Pairs werden mit status='skipped' übersprungen."
         ),
     ),
     window_days: int = Query(30, ge=7, le=90),
