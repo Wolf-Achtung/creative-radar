@@ -2463,3 +2463,161 @@ def test_pairs_registry_schema_accepts_uk_market():
     assert "UK" not in universal_markets, (
         "universalpictures ist B1-out-of-scope (disabled) — kein UK-Eintrag"
     )
+
+
+# ---------- Retry-Echo-Debounce (2026-05-12) -------------------------------
+
+
+def _persist_a_warnerbros_brief(monkeypatch) -> tuple[Session, dict]:
+    """Hilfsroutine: generiere via generate_and_persist_report einen Brief
+    mit gemocktem Opus-Call und gib (session, mock_state) zurück. Aus
+    mock_state.calls liest der Test, wie oft Opus tatsächlich gerufen
+    wurde."""
+    import json as _json
+
+    state = {"calls": 0}
+    sample = {
+        "headline": "H",
+        "tldr": "x",
+        "trends": [],
+        "actions": [],
+        "cross_market_insight": {"de_vs_us": "a", "transfer_opportunity": "b"},
+        "risks": [],
+        "data_caveats": [],
+    }
+    fake_message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=_json.dumps(sample))],
+        usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+    )
+
+    def _fake_call(**kwargs):
+        state["calls"] += 1
+        return fake_message
+
+    monkeypatch.setattr(insight_engine, "messages_create_text", _fake_call)
+    monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
+
+    return state
+
+
+def test_generate_and_persist_recent_force_returns_existing(monkeypatch):
+    """Retry-Echo-Fix: force=true innerhalb des 120s-Debounce-Window
+    MUSS die bereits persistierte Row zurückgeben, ohne einen zweiten
+    Opus-Call zu starten. Das ist die zentrale Garantie nach dem
+    2026-05-12-Diagnose-Befund (zwei Anthropic-Calls bei einem User-
+    Trigger durch Edge-Proxy-Retry)."""
+    state = _persist_a_warnerbros_brief(monkeypatch)
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+
+        first = insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+        assert state["calls"] == 1
+        assert first.llm_output is not None
+
+        # Zweiter Call innerhalb der 120s-Debounce — gleiche User-
+        # Trigger-Sekunde simuliert ein Retry-Echo.
+        second = insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+
+        assert state["calls"] == 1, (
+            "Zweiter force-Call innerhalb 120s darf KEINEN neuen Opus-"
+            f"Call starten, war aber {state['calls']}."
+        )
+        # Inhaltlich gleich: gleicher pair/iso_week.
+        assert second.pair_key == first.pair_key
+        assert second.iso_week == first.iso_week
+
+
+def test_generate_and_persist_recent_force_older_than_120s_regenerates(monkeypatch):
+    """Force-Semantik bleibt erhalten für Rows ÄLTER als 120s — Wolf
+    muss einen stale Brief jederzeit re-generieren können. Wir
+    persistieren eine Row mit generated_at=now-200s und prüfen, dass
+    force=true einen frischen Opus-Call macht."""
+    state = _persist_a_warnerbros_brief(monkeypatch)
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+
+        # Ein erster Brief, dann backdaten wir die persistierte Row.
+        first = insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+        assert state["calls"] == 1
+
+        from app.models.entities import InsightReport as InsightReportRow
+
+        stale_row = session.get(
+            InsightReportRow,
+            (first.pair_key, first.iso_year, first.iso_week),
+        )
+        stale_row.generated_at = datetime.now(timezone.utc) - timedelta(seconds=200)
+        session.add(stale_row)
+        session.commit()
+
+        # Nach Backdate: force=true MUSS frisch generieren.
+        insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+        assert state["calls"] == 2, (
+            f"force-Call gegen >120s alte Row muss frisch generieren, "
+            f"war aber {state['calls']}."
+        )
+
+
+def test_generate_and_persist_no_recent_row_generates(monkeypatch):
+    """Wenn gar keine persistierte Row existiert, MUSS force=true
+    einen Opus-Call starten — der Debounce-Check darf nicht
+    fälschlich kurzschließen."""
+    state = _persist_a_warnerbros_brief(monkeypatch)
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+
+        report = insight_engine.generate_and_persist_report(
+            session, "warnerbros", force=True,
+        )
+        assert state["calls"] == 1
+        assert report.llm_output is not None
+
+
+def test_messages_create_text_sends_idempotency_key(monkeypatch):
+    """Defense-in-Depth-Garantie: messages_create_text MUSS den
+    Idempotency-Key per extra_headers an die Anthropic-SDK reichen
+    wenn idempotency_key übergeben wurde. Bei None: KEIN extra_headers
+    im SDK-Aufruf."""
+    from app.config import settings
+    from app.services import anthropic_client
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "test-key", raising=False)
+
+    captured: dict = {}
+
+    class _FakeMessages:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(content=[], usage=None)
+
+    class _FakeClient:
+        messages = _FakeMessages()
+
+    monkeypatch.setattr(anthropic_client, "_client", lambda: _FakeClient())
+
+    anthropic_client.messages_create_text(
+        model="claude-opus-4-7",
+        system="x",
+        user_message="y",
+        idempotency_key="weekly_brief-disney-2026W19-20260512T08",
+    )
+    assert captured.get("extra_headers") == {
+        "Idempotency-Key": "weekly_brief-disney-2026W19-20260512T08"
+    }
+
+    # Ohne idempotency_key darf der Header NICHT mitgeschickt werden.
+    captured.clear()
+    anthropic_client.messages_create_text(
+        model="claude-opus-4-7",
+        system="x",
+        user_message="y",
+    )
+    assert "extra_headers" not in captured

@@ -372,6 +372,15 @@ PAIRS: dict[str, dict[str, Any]] = {
 # force a datestamped pin, but no override is wired today: one Opus, one call.
 OPUS_MODEL_ALIAS = "claude-opus-4-7"
 
+# Debounce-Window für ``generate_and_persist_report`` (Retry-Echo-Fix
+# 2026-05-12). Edge-Proxies und HTTP-Clients retried den ``GET
+# /api/insights/weekly``-Endpoint nach 60-90s Timeout — mit ``force=true``
+# führte das vor diesem Fix zu doppelten Opus-Generationen.
+# 120s sind kurz genug, dass eine absichtliche Re-Generation kurz nach
+# dem ersten Brief noch möglich ist, lang genug, um die typischen
+# Retry-Echo-Fenster (60-90s) zu blocken.
+_RECENT_BRIEF_WINDOW_SECONDS = 120
+
 # Opus 4.7 pricing reads from ``settings.anthropic_opus_*_per_1k_usd`` —
 # previously hardcoded here AND implicit in ``record_anthropic_call``,
 # which gave us a drift-window where the brief-frontend estimate and the
@@ -2078,11 +2087,18 @@ def generate_weekly_report(
             "prompt_chars": len(user_prompt),
         },
     )
+    # Idempotency-Key bündelt (pair, ISO-Woche, Stundenbucket der
+    # Generation) — zwei Retry-Echos innerhalb desselben Stundenbuckets
+    # senden den gleichen Key und können vom Anthropic-Gateway dedupliziert
+    # werden. Best-effort: primärer Schutz ist die DB-Debounce-Schicht.
+    idem_hour = generated_at.strftime("%Y%m%dT%H")
+    idem_key = f"weekly_brief-{agg.pair_key}-{agg.iso_year}W{agg.iso_week:02d}-{idem_hour}"
     message = messages_create_text(
         model=model,
         system=SYSTEM_PROMPT,
         user_message=user_prompt,
         max_tokens=max_tokens,
+        idempotency_key=idem_key,
     )
 
     raw_text = ""
@@ -2258,6 +2274,17 @@ def generate_and_persist_report(
     on the original ``generate_weekly_report`` and bypasses persistence
     entirely. Callers (the GET endpoint) branch on ``dry_run`` before
     invoking either function.
+
+    Anti-retry-echo (2026-05-12 diagnose follow-up): the GET endpoint is
+    idempotent, and a Brief takes 60-90s. Edge proxies / Railway / curl
+    that time out after 60s retry the GET — with ``force=true`` the
+    naive code path runs the LLM a second time. Cost-Tracking-Fix PR
+    #122 made the bug visible by logging both rows ($3.80 spent instead
+    of $1.90). The fix below short-circuits a recent persisted row even
+    when ``force=true``: if a brief for this week was committed within
+    the last ``_RECENT_BRIEF_WINDOW_SECONDS``, return it. Older rows
+    still respect the force semantic (Wolf can manually re-generate a
+    stale brief whenever he wants).
     """
     agg = aggregate_pair(session, pair_key, window_days=window_days, now=now)
 
@@ -2268,6 +2295,38 @@ def generate_and_persist_report(
         )
         if existing is not None:
             return _hydrate_from_persisted(existing, window_days=window_days)
+    else:
+        # force=true Pfad: prüfe trotzdem auf eine sehr frische Row, um
+        # den Retry-Echo-Bug (vor dem Fix doppelte Opus-Generation bei
+        # einem User-Trigger) zu blocken. Cutoff ist UTC-now minus
+        # 120s — kurz genug, dass eine bewusste Re-Generation nach 2min
+        # noch durchgeht; lang genug, um Edge-Proxy-Retries einzufangen,
+        # die typisch nach 60-90s eintrudeln.
+        cutoff = (now or datetime.now(timezone.utc)) - timedelta(
+            seconds=_RECENT_BRIEF_WINDOW_SECONDS
+        )
+        recent = session.get(
+            InsightReportRow,
+            (pair_key, agg.iso_year, agg.iso_week),
+        )
+        if recent is not None:
+            recent_generated_at = recent.generated_at
+            # SQLite SQLModel kann naive datetimes liefern — auf UTC
+            # heben, sonst kracht der Vergleich gegen das aware ``cutoff``.
+            if recent_generated_at.tzinfo is None:
+                recent_generated_at = recent_generated_at.replace(tzinfo=timezone.utc)
+            if recent_generated_at >= cutoff:
+                logger.info(
+                    "insight-engine-debounce-hit",
+                    extra={
+                        "pair": pair_key,
+                        "iso_week": agg.iso_week,
+                        "age_seconds": (
+                            (now or datetime.now(timezone.utc)) - recent_generated_at
+                        ).total_seconds(),
+                    },
+                )
+                return _hydrate_from_persisted(recent, window_days=window_days)
 
     # Cache miss (or force) → run the LLM. We re-call ``generate_weekly_report``
     # which re-runs ``aggregate_pair`` internally. The duplicate aggregation
