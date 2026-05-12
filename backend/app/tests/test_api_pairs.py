@@ -128,10 +128,12 @@ def test_pairs_endpoint_excludes_disabled(
 # ---------- Markets: stable display order + per-pair correctness --------------
 
 
-def test_pairs_endpoint_lionsgate_markets_us_uk_only(client: TestClient):
-    """Lionsgate has no DE social-media presence — the brief calls this
-    out explicitly. Endpoint must emit ['US', 'UK'] (in that fixed
-    visualisation order), not include DE."""
+def test_pairs_endpoint_lionsgate_markets_us_only(client: TestClient):
+    """X1 (2026-05-12): surface = brief reality. Lionsgate has UK
+    channels in the pool but the LLM brief does not surface UK yet,
+    so the card promises only ['US']. When B2 brings UK into the
+    Lionsgate brief, the pair's ``markets`` field flips to
+    ['US', 'UK']."""
     response = client.get("/api/pairs")
     assert response.status_code == 200
     lionsgate = next(
@@ -139,18 +141,20 @@ def test_pairs_endpoint_lionsgate_markets_us_uk_only(client: TestClient):
         None,
     )
     assert lionsgate is not None, "lionsgate must be returned"
-    assert lionsgate["markets"] == ["US", "UK"]
+    assert lionsgate["markets"] == ["US"]
 
 
-def test_pairs_endpoint_paramountplus_markets_three_markets(client: TestClient):
-    """Paramount+ runs DE+US+UK after Phase A — emitted in DE → US → UK order."""
+def test_pairs_endpoint_paramountplus_markets_de_us(client: TestClient):
+    """X1: Paramount+ has DE/US/UK channels in the pool but the LLM
+    brief surfaces only DE+US until B2. The endpoint reflects the
+    brief reality, not the channel-pool reality."""
     response = client.get("/api/pairs")
     paramountplus = next(
         (p for p in response.json()["pairs"] if p["pair_key"] == "paramountplus"),
         None,
     )
     assert paramountplus is not None
-    assert paramountplus["markets"] == ["DE", "US", "UK"]
+    assert paramountplus["markets"] == ["DE", "US"]
 
 
 def test_pairs_endpoint_markets_always_in_fixed_display_order(client: TestClient):
@@ -167,3 +171,56 @@ def test_pairs_endpoint_markets_always_in_fixed_display_order(client: TestClient
             f"{pair['pair_key']!r} emitted markets {markets} not in "
             f"DE → US → UK order"
         )
+
+
+# ---------- X1 surface override --------------------------------------------
+
+
+def test_pairs_endpoint_surface_override_warnerbros_de_us_only(client: TestClient):
+    """X1 invariant: warnerbros has UK channels in its PAIRS pool
+    (Phase A added @warnerbrosuk on TT/IG/YT), but the explicit
+    ``markets`` field is ['DE', 'US'] and the endpoint must emit
+    exactly that — no leakage of pool-derived UK back into the
+    surface response. Guards the override mechanism itself."""
+    pool_markets = {
+        channel["market"]
+        for platform in insight_engine.PAIRS["warnerbros"]["platforms"].values()
+        for channel in platform
+    }
+    assert "UK" in pool_markets, (
+        "Precondition: warnerbros must have UK channels in its pool, "
+        "otherwise this test is testing nothing"
+    )
+
+    response = client.get("/api/pairs")
+    warnerbros = next(
+        (p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros"),
+        None,
+    )
+    assert warnerbros is not None
+    assert warnerbros["markets"] == ["DE", "US"]
+
+
+def test_pairs_endpoint_falls_back_to_pool_when_markets_field_absent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Backwards-compat: a pair entered before the X1 ``markets``
+    convention catches up should fall back to the channel-pool union
+    (the pre-X1 derivation). Verified by stripping the field from
+    one pair in-place and asserting the endpoint still returns a
+    sensible markets list derived from its channels."""
+    pair_def = insight_engine.PAIRS["warnerbros"]
+    original_markets = pair_def.pop("markets")
+    try:
+        response = client.get("/api/pairs")
+        assert response.status_code == 200
+        warnerbros = next(
+            (p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros"),
+            None,
+        )
+        assert warnerbros is not None
+        # Pool union for warnerbros covers DE/US/UK (Phase A), emitted
+        # in fixed display order.
+        assert warnerbros["markets"] == ["DE", "US", "UK"]
+    finally:
+        pair_def["markets"] = original_markets

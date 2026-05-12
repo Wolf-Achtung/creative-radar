@@ -31,12 +31,28 @@ def _enabled_pair_keys() -> list[str]:
 
 
 def _markets_for_pair(pair_def: dict) -> list[str]:
-    """Return the pair's unique market codes in DE → US → UK display order.
+    """Return the pair's surface market codes in DE → US → UK display order.
 
-    Reads from ``platforms`` (post-Sprint-4 source of truth) when present,
-    falls back to the ``channels`` mirror. Markets the pair does not cover
-    are skipped — Lionsgate (no DE) emits ``["US", "UK"]``.
+    Primary source: the explicit ``markets`` field on the PAIRS entry —
+    the curated set of markets the LLM brief actually covers. This is
+    what the landing-page card grid promises, and it stays decoupled
+    from the channel-pool so the cron can keep harvesting UK channels
+    without the surface claiming the brief covers them. When B2 brings
+    a market into the brief output, the pair's ``markets`` field flips
+    to include it.
+
+    Fallback: if a pair has no ``markets`` field (future pairs added
+    before the X1 convention catches up), derive from the channel-pool
+    union, matching the pre-X1 behaviour.
+
+    Markets the pair does not cover are skipped — Lionsgate emits
+    ``["US"]`` (X1) instead of ``["US", "UK"]`` even though the UK
+    channels exist in the pool.
     """
+    explicit_markets = pair_def.get("markets")
+    if explicit_markets:
+        return [code for code in MARKETS_DISPLAY_ORDER if code in explicit_markets]
+
     seen: set[str] = set()
     platforms = pair_def.get("platforms") or {}
     if platforms:

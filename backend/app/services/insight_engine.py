@@ -87,6 +87,7 @@ logger = logging.getLogger(__name__)
 PAIRS: dict[str, dict[str, Any]] = {
     "warnerbros": {
         "display_name": "Warner Bros",
+        "markets": ["DE", "US"],
         "label": "warnerbros DE+US",
         # Sprint-4 multi-platform v2a: ``platforms`` is the source of truth
         # going forward. Each key is a platform with a list of {handle, market}
@@ -137,6 +138,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "sonypictures": {
         "display_name": "Sony Pictures",
+        "markets": ["DE", "US"],
         "label": "sonypictures DE+US",
         "platforms": {
             "tiktok": [
@@ -178,6 +180,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "primevideo": {
         "display_name": "Prime Video",
+        "markets": ["DE", "US"],
         "label": "primevideo DE+US",
         "platforms": {
             "tiktok": [
@@ -213,6 +216,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "disney": {
         "display_name": "Disney",
+        "markets": ["DE", "US"],
         "label": "disney DE+US",
         "platforms": {
             "tiktok": [
@@ -295,6 +299,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "netflix": {
         "display_name": "Netflix",
+        "markets": ["DE", "US"],
         "label": "netflix DE+US",
         "platforms": {
             "tiktok": [
@@ -326,6 +331,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "paramountpictures": {
         "display_name": "Paramount",
+        "markets": ["DE", "US"],
         "label": "paramountpictures DE+US",
         "platforms": {
             "tiktok": [
@@ -361,6 +367,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "universalpictures": {
         "display_name": "Universal Pictures",
+        "markets": ["DE", "US"],
         "label": "universalpictures DE+US+UK",
         # Sprint 2026-05-12: voll-Pair reaktiviert nach Diagnose (DE 30
         # Posts/30d, US-Pool aktiv, UK seit Phase A registered). US-Seite
@@ -401,6 +408,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "paramountplus": {
         "display_name": "Paramount+",
+        "markets": ["DE", "US"],
         "label": "paramountplus DE+US+UK",
         # Sprint 2026-05-12: voll-Pair über alle drei Märkte. Handle-
         # Casing der YT-Channels behalten wir aus der Wolf-SQL-Anlage,
@@ -433,6 +441,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     },
     "lionsgate": {
         "display_name": "Lionsgate",
+        "markets": ["US"],
         "label": "lionsgate US+UK",
         # Sprint 2026-05-12: US+UK-only Pair. Lionsgate hat keinen
         # deutschen Social-Media-Auftritt — der DE-Vertrieb läuft via
