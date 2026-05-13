@@ -46,3 +46,10 @@ Posts in den letzten 30 Tagen, alle `mvp=true`:
 ## Aktualisierung dieses Docs
 
 Bei künftigen Channel-Inventory-Sprints: wenn eine Hypothese geprüft und negativ ausfällt, hier eintragen mit Datum + Sprint-Referenz + kurzer Begründung. Verhindert Doppel-Recherche.
+
+## 2026-05-13 — Wolf Browser-Verifikation
+
+- **`paramountpicturesuk` Instagram** — Profilseite nicht verfügbar. UK-Erweiterung Phase A hatte den Channel angelegt, aber das Konto existiert nicht auf der Plattform. Deactivated 2026-05-13.
+- **`sonypictures.uk` Instagram** — Profilseite nicht verfügbar. Deactivated 2026-05-13.
+
+Note: Die TikTok-Versionen beider Channels (`tiktok.com/@paramountpicturesuk`, `tiktok.com/@sonypictures.uk`) existieren — bleiben aktiv.
