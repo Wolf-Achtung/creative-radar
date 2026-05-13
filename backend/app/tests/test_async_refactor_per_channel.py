@@ -223,6 +223,59 @@ async def test_all_three_channels_raise_status_completed_failed_channels_three(
 
 
 # --------------------------------------------------------------------------
+# Sprint FU-1 (B2-α follow-up) — zero-yield channels surface in the summary.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_zero_yield_channels_reported(engine, monkeypatch):
+    """Sprint FU-1: channels passed to the Apify actor run that came back
+    with no items in the batched dataset must surface in
+    ``summary["zero_yield_channels"]`` + ``summary["zero_yield_count"]``.
+
+    Pre-FU-1 they vanished silently in ``_group_items_by_channel``. The
+    motivating case is the UK-Zombie pattern from May 2026: 25 of 29
+    UK-Channels returned 0 Posts in 14d, with no failed_channels entry
+    and no logger.warning — undebuggable from cron summary alone.
+
+    Three channels seeded, Apify-mock returns items for only one. We
+    expect the other two in ``zero_yield_channels`` (disjoint from
+    ``failed_channels``, which stays empty because there was no actual
+    runtime error)."""
+    seeded = _seed_channels(engine, ["yields_a", "zero_b", "zero_c"])
+    raw_items = [
+        _ig_raw("a-1", "yields_a"),
+        _ig_raw("a-2", "yields_a"),
+    ]
+
+    monkeypatch.setattr(persistence_mod, "capture_asset_screenshot_async", _stub_capture_async)
+
+    summary = await _run_apify_sync_for_platform_async(
+        engine=engine,
+        channels=seeded,
+        raw_items=raw_items,
+        platform="instagram",
+        normalize=normalize_public_item,
+        only_whitelist_matches=False,
+    )
+
+    assert summary["created_assets"] == 2
+    assert summary["failed_channels"] == []
+    assert summary["zero_yield_count"] == 2
+
+    zero_yield_handles = {z["handle"] for z in summary["zero_yield_channels"]}
+    assert zero_yield_handles == {"zero_b", "zero_c"}
+
+    # Audit payload contract: each entry carries enough metadata to
+    # identify the channel without needing a DB join.
+    for entry in summary["zero_yield_channels"]:
+        assert set(entry.keys()) == {"channel_id", "handle", "platform", "market", "url"}
+        assert entry["platform"] == "instagram"
+        assert entry["market"] == "Market.US"  # str(channel.market) on the enum
+        assert entry["url"].endswith(f"{entry['handle']}/")
+
+
+# --------------------------------------------------------------------------
 # Block-2 Test 3 — asyncio.gather actually runs items concurrently.
 # --------------------------------------------------------------------------
 

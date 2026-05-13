@@ -102,7 +102,8 @@ def _run_timeout_minutes() -> int:
 def _summarize(summary: dict) -> dict:
     """Strip the heavy in-memory artefacts (asset_ids stay sized; the
     grouped-channel ORM list, if present, is dropped) — counters and the
-    Block-2 ``failed_channels`` block are kept for the persisted log."""
+    Block-2 ``failed_channels`` plus Sprint-FU-1 ``zero_yield_channels``
+    blocks are kept for the persisted log."""
     return {k: v for k, v in summary.items() if k not in {"assets", "asset_ids"}}
 
 
@@ -149,6 +150,9 @@ async def _execute_platform_sync(session: Session, run_index: int) -> tuple[dict
                 only_whitelist_matches=False,
             )
             created_asset_ids.extend(aid for aid in sync.get("asset_ids", []) if aid is not None)
+            # Sprint FU-1: ``zero_yield_channels`` + ``zero_yield_count`` flow
+            # through ``_summarize`` automatically — surfaces the silent
+            # 0-Yield-Channels per the B2-α diagnose.
             summary["platforms"]["instagram"] = {
                 "channels_checked": len(ig_channels),
                 "raw_items": len(raw_items),
@@ -177,6 +181,8 @@ async def _execute_platform_sync(session: Session, run_index: int) -> tuple[dict
                     only_whitelist_matches=False,
                 )
                 created_asset_ids.extend(aid for aid in sync.get("asset_ids", []) if aid is not None)
+                # Sprint FU-1: see IG-block comment — ``zero_yield_channels``
+                # surfaces via the same ``_summarize`` spread.
                 summary["platforms"]["tiktok"] = {
                     "channels_checked": len(tt_channels),
                     "raw_items": len(raw_items),

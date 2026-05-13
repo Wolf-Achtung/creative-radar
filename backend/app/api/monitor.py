@@ -356,6 +356,16 @@ async def _run_apify_sync_for_platform_async(
     - ``failed_channels``: list[{handle, market, error_class, error_message, failed_items}]
     - ``processed_channels``: int
 
+    Sprint FU-1 (B2-α follow-up) addition:
+    - ``zero_yield_channels``: list[{channel_id, handle, platform, market, url}]
+      — channels that were passed to the Apify actor run but had no items
+      in the returned dataset. Closes the observability gap from the
+      ``apify-uk-zombie-channels`` diagnose (May 2026): batched Apify runs
+      return ONE dataset per platform, so channels with empty yields used
+      to vanish silently. Now they're enumerated for audit. ``failed_channels``
+      keeps its narrower contract (per-channel runtime errors / AllItemsFailed),
+      so the two sets are disjoint by construction.
+
     The ``assets`` key now carries Asset IDs (UUIDs), not ORM instances —
     the only consumer (cron's vision step) already only reads ``a.id``.
     """
@@ -367,6 +377,25 @@ async def _run_apify_sync_for_platform_async(
     httpx_sem = asyncio.Semaphore(httpx_concurrency)
 
     grouped = _group_items_by_channel(raw_items, channels, normalize)
+    channel_ids_with_items = {channel.id for channel, _ in grouped}
+    zero_yield_channels: list[dict[str, Any]] = [
+        {
+            "channel_id": str(c.id),
+            "handle": c.handle,
+            "platform": c.platform,
+            "market": str(c.market) if c.market else None,
+            "url": c.url,
+        }
+        for c in channels
+        if c.id not in channel_ids_with_items
+    ]
+    if zero_yield_channels:
+        logger.info(
+            "zero_yield_detected platform=%s count=%d handles=%s",
+            platform,
+            len(zero_yield_channels),
+            [z["handle"] for z in zero_yield_channels],
+        )
     processed_channels = 0
 
     for channel, channel_items in grouped:
@@ -437,6 +466,8 @@ async def _run_apify_sync_for_platform_async(
         "asset_ids": asset_ids,
         "failed_channels": failed_channels,
         "processed_channels": processed_channels,
+        "zero_yield_channels": zero_yield_channels,
+        "zero_yield_count": len(zero_yield_channels),
     }
 
 
