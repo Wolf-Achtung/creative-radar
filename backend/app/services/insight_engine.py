@@ -2461,6 +2461,7 @@ def generate_and_persist_report(
     *,
     window_days: int = 30,
     force: bool = False,
+    replace: bool = False,
     model: str = OPUS_MODEL_ALIAS,
     max_tokens: int = 12000,
     now: Optional[datetime] = None,
@@ -2486,10 +2487,14 @@ def generate_and_persist_report(
       an LLM call. ``force=true`` semantics: "ignore the optional
       pre-lock first-read", **not** "ignore the composite PK". A
       caller who actually wants to overwrite a persisted brief
-      deletes the row before retrying. This closes the Sprint-3b
-      race where two parallel ``force=true`` curls both committed
-      LLM calls because the older 120s-window short-circuit failed
-      when the brief took longer than 120s to generate.
+      passes ``replace=True`` (Sprint Force-Regenerate 2026-05-17,
+      PR #150), which is the explicit UPSERT pathway.
+    - ``replace=True`` bypasses the composite-PK existence check
+      entirely. ``_persist_report`` then handles the actual UPSERT
+      via delete-then-insert (Postgres ``ON CONFLICT (pair_key,
+      iso_year, iso_week) DO UPDATE`` semantics). Sprint-3c's
+      anti-retry-echo race for ``force=True`` callers stays closed:
+      ``replace`` is the opt-in destructive path, not the default.
     - Otherwise call Opus, build the report, persist it (Last-Write-Wins
       on the composite PK), return the fresh report.
 
@@ -2499,11 +2504,21 @@ def generate_and_persist_report(
     fresh brief to C2 once Opus latency exceeded the 120s window.
     Dropping the age gate and always honouring the composite PK
     fixes the leak without changing the rest of the lock contract.
+    The ``replace`` parameter sidesteps the protection for callers
+    that *want* a destructive overwrite (admin manual regenerate);
+    parallel ``replace=True`` calls can race and produce two LLM
+    calls within the same lock-window. Operator-triggered only,
+    $0.40 worst-case double-spend on rapid re-clicks.
     """
     pipeline_started = time.perf_counter()
     logger.info(
         "brief_pipeline_start",
-        extra={"pair": pair_key, "force": force, "window_days": window_days},
+        extra={
+            "pair": pair_key,
+            "force": force,
+            "replace": replace,
+            "window_days": window_days,
+        },
     )
 
     agg = aggregate_pair(session, pair_key, window_days=window_days, now=now)
@@ -2531,14 +2546,15 @@ def generate_and_persist_report(
             "iso_year": agg.iso_year,
             "exists": existing is not None,
             "force": force,
+            "replace": replace,
             "lock_path": has_lock,
         },
     )
-    if existing is not None:
+    if existing is not None and not replace:
         # Double-check locking: same PK after lock → return existing,
         # regardless of force. force=true bypasses the optional first-
-        # read optimisation, not the composite PK. Manual delete is
-        # the explicit overwrite path.
+        # read optimisation, not the composite PK. ``replace=True`` is
+        # the explicit overwrite path (PR #150).
         outcome = "cache_hit" if not force else "lock_dedup"
         logger.info(
             "brief_pipeline_done",
@@ -2551,9 +2567,9 @@ def generate_and_persist_report(
         )
         return _hydrate_from_persisted(existing, window_days=window_days)
 
-    # Cache miss (or force on a stale row) → run the LLM. The advisory
-    # lock (when active) guarantees that no other worker is in this
-    # branch for the same ``(pair, year, week)`` right now.
+    # Cache miss, force on a stale row, OR replace=True with existing row.
+    # The advisory lock (when active) guarantees that no other worker is
+    # in this branch for the same ``(pair, year, week)`` right now.
     logger.info(
         "brief_llm_call_start",
         extra={"pair": pair_key, "iso_week": agg.iso_week, "model": model},
@@ -2607,13 +2623,17 @@ def generate_and_persist_report(
         },
     )
 
+    # Outcome flag distinguishes a first-time generation from a
+    # replace=True overwrite — both run Opus, but the post-Sprint-3c
+    # contract treats them differently in the audit trail. PR #150.
+    outcome = "replace_overwrite" if (replace and existing is not None) else "fresh_generation"
     logger.info(
         "brief_pipeline_done",
         extra={
             "pair": pair_key,
             "iso_week": agg.iso_week,
             "total_ms": int((time.perf_counter() - pipeline_started) * 1000),
-            "outcome": "fresh_generation",
+            "outcome": outcome,
         },
     )
     return report
