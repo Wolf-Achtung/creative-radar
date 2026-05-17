@@ -15,8 +15,36 @@ main { max-width: 1200px; margin: 0 auto; padding: 30px 24px 48px; }
   padding: 38px;
   display: flex;
   justify-content: space-between;
+  align-items: stretch;
   gap: 28px;
   margin-bottom: 22px;
+}
+.hero__left {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hero__meta {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  text-align: right;
+  flex-shrink: 0;
+}
+.hero__meta-week {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  font-size: 12px;
+  font-weight: 700;
+}
+.hero__meta-updated {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 0.02em;
 }
 .hero h1 { margin: 0 0 10px; font-size: 56px; letter-spacing: -0.03em; }
 .hero p { margin: 0; max-width: 700px; line-height: 1.5; }
@@ -285,6 +313,14 @@ a:hover { text-decoration: underline; }
   main { padding: 18px 14px 34px; }
   .hero { flex-direction: column; padding: 26px; }
   .hero h1 { font-size: 42px; }
+  .hero__meta {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    text-align: left;
+    width: 100%;
+  }
+  .week-banner { position: static; }
   .tabs { overflow-x: auto; }
   .workflow-steps, .todo-grid, .find-grid, .source-grid, .form-grid, .compare-columns, .filterbar, .review-guide { grid-template-columns: 1fr; }
   .asset-card { grid-template-columns: 1fr; }
@@ -296,12 +332,31 @@ a:hover { text-decoration: underline; }
 /* ---- Insight-Engine MVP (Sprint 1) ---- */
 .insight-page { display: flex; flex-direction: column; gap: 18px; }
 .insight-page .hero h1 { font-style: italic; }
-.insight-meta-stand {
-  margin-top: 8px !important;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.65);
-  letter-spacing: 0.02em;
+
+/* Brief-Header UX-Sprint (17.05.2026) — Sticky-Sub-Banner unter dem
+   Hero. Brand-Beige aus dem coverage-banner-Pattern (PR #148), eigene
+   Klasse fuer eindeutige Sticky-Semantik. Sticky nur auf Desktop, auf
+   Mobile statisch (Sticky-Element im engen Viewport stoert eher als
+   dass es hilft). */
+.week-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: #f4eee3;
+  border: 1px solid #e6ded1;
+  color: #1d2330;
+  font-size: 14px;
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
+.week-banner__range { font-weight: 600; }
+.week-banner__updated { color: rgba(29, 35, 48, 0.7); }
 .coverage-banner {
   display: flex;
   flex-wrap: wrap;

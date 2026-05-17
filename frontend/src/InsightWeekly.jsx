@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { endpoints } from './api/client';
 import StaleWarning from './StaleWarning';
+import WeekBanner, { formatDateShort } from './WeekBanner';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
@@ -53,20 +54,6 @@ function formatDateISO(value) {
   try { return new Date(value).toLocaleDateString('de-DE'); } catch (_) { return String(value); }
 }
 
-// Sprint 1 (Persistenz): "Stand: 08.05.2026, 14:30" im Studio-Brief-Header.
-// Macht für den GF sichtbar, ob er einen frischen oder einen aus dem Cache
-// geladenen Brief liest. Format: dd.mm.yyyy, hh:mm in lokaler Zeit.
-function formatStand(value) {
-  if (!value) return '';
-  try {
-    const d = new Date(value);
-    const date = d.toLocaleDateString('de-DE');
-    const time = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-    return `${date}, ${time}`;
-  } catch (_) {
-    return String(value);
-  }
-}
 
 // ---- Sprint 3: HelpTooltip --------------------------------------------
 //
@@ -997,13 +984,30 @@ export default function InsightWeekly({ pair }) {
   return (
     <main className="page insight-page">
       <header className="hero">
-        <p className="eyebrow">STUDIO-REVIEW</p>
-        <h1>{label}</h1>
-        <p>Was diese Woche funktioniert, was nicht und wie wir's nutzen.</p>
-        {report?.generated_at && (
-          <p className="insight-meta-stand">Stand: {formatStand(report.generated_at)}</p>
+        <div className="hero__left">
+          <p className="eyebrow">STUDIO-REVIEW</p>
+          <h1>{label}</h1>
+          <p>Was diese Woche funktioniert, was nicht und wie wir's nutzen.</p>
+        </div>
+        {report && (
+          <div className="hero__meta">
+            <p className="hero__meta-week">KW {report.iso_week}</p>
+            {report.generated_at && (
+              <p className="hero__meta-updated">
+                Aktualisiert: {formatDateShort(report.generated_at)}
+              </p>
+            )}
+          </div>
         )}
       </header>
+
+      {report && (
+        <WeekBanner
+          isoYear={report.iso_year}
+          isoWeek={report.iso_week}
+          generatedAt={report.generated_at}
+        />
+      )}
 
       {status === 'slow' && (
         <div className="card insight-slow-hint">
