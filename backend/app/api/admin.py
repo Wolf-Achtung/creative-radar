@@ -444,6 +444,16 @@ def regenerate_insights(
         ),
     ),
     window_days: int = Query(30, ge=7, le=90),
+    replace: bool = Query(
+        False,
+        description=(
+            "PR #150: bypassed den Sprint-3c-Composite-PK-Check und triggert "
+            "eine echte Neugenerierung mit UPSERT. Ohne ``replace=true`` "
+            "respektiert der Endpoint den Cache-Hit-Vertrag und liefert den "
+            "existierenden Brief unverändert zurück. Operator-only — pro Pair "
+            "~$0.40 Opus-Cost pro Aufruf."
+        ),
+    ),
     session: Session = Depends(get_session),
 ):
     """Sprint 1 (Persistenz) — manueller Regenerate-Trigger.
@@ -453,11 +463,17 @@ def regenerate_insights(
     Cron-Lauf folgt im Cadence-Sprint; bis dahin füllt Wolf den Cache
     manuell über diesen Endpoint.
 
-    Pro Pair wird ``generate_and_persist_report(force=True)`` aufgerufen
-    — Last-Write-Wins auf der Composite-PK. Per-Pair-Fehler werden im
-    ``results``-Array isoliert reportet, der Loop läuft weiter (ein
-    einzelner Anthropic-401 für einen Pair stoppt die anderen fünf
+    Pro Pair wird ``generate_and_persist_report(force=True, replace=replace)``
+    aufgerufen — Last-Write-Wins auf der Composite-PK. Per-Pair-Fehler
+    werden im ``results``-Array isoliert reportet, der Loop läuft weiter
+    (ein einzelner Anthropic-401 für einen Pair stoppt die anderen fünf
     nicht).
+
+    PR #150 (Force-Regenerate Bug-Fix): ``force=True`` allein behält den
+    Sprint-3c-Vertrag (Cache-Hit-Schutz gegen Sprint-3b-Race). Für eine
+    echte Neugenerierung muss zusätzlich ``replace=true`` gesetzt werden.
+    Der ``replace``-Param wird per Pair durchgereicht — bei ``pair=all``
+    wirkt er auf alle iterierten Pairs gleichermassen.
     """
     if pair == "all":
         pairs_to_run = [k for k, v in PAIRS.items() if v.get("enabled", False)]
@@ -489,6 +505,7 @@ def regenerate_insights(
                 p,
                 window_days=window_days,
                 force=True,
+                replace=replace,
             )
         except (AnthropicAuthError, AnthropicRateLimitError, AnthropicAPIError) as exc:
             logger.warning("regenerate-insight failed for pair=%s: %s", p, exc)
