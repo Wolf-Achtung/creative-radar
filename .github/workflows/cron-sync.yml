@@ -1,20 +1,30 @@
 name: Cron Sync
 
-# Triggers the Apify cron-sync endpoint every Sunday at 06:00 UTC.
+# Triggers the Apify cron-sync endpoint every Monday at 06:00 UTC.
 # Schedule expression: minute hour day-of-month month day-of-week
-#   "0 6 * * 0"  — Sunday (0) at 06:00 UTC
-# Berlin time: 08:00 CET (winter) / 07:00 CEST (summer).
-# B-Class channel rotation cycles through 3 buckets — sunday picks one bucket per week,
-# the other two get picked up in the following weeks.
+#   "0 6 * * 1"  — Monday (1) at 06:00 UTC
+# Berlin time: 07:00 CET (winter) / 08:00 CEST (summer).
+#
+# Cadence-Sprint 2026-05-17: Schedule von Sonntag auf Montag verschoben,
+# damit Brief-Generation in derselben Cron-Stage läuft, in der Cutter Montag
+# früh ins Office kommen. Sonntag-Variante hatte Scrape ohne Briefs erzeugt
+# → Cutter sahen montags den Mittwochs-Brief vom Lazy-Generate-Burst.
+# B-Class channel rotation cycles through 3 buckets — Monday picks one bucket
+# per week, the other two get picked up in the following weeks.
 #
 # Setup once (Wolf-Aktion, see PR body):
 #   Settings -> Secrets and variables -> Actions
 #     CR_API_URL    = https://api.creative-radar.de
 #     CR_API_TOKEN  = <bearer token used for manual curl>
+#
+# ``workflow_dispatch`` ist seit Sprint 5.3.5 aktiv und erlaubt manuelle
+# Test-Runs über die GitHub-Actions-UI (Actions → "Cron Sync" → "Run
+# workflow"). Nach Merge des Cadence-Sprints nutzt Wolf das für den
+# Verifikations-Lauf, siehe PR-Body Phase-C-Plan.
 
 on:
   schedule:
-    - cron: '0 6 * * 0'
+    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 jobs:
