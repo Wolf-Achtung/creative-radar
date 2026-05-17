@@ -2431,10 +2431,45 @@ def generate_weekly_report(
     raw_for_response: Optional[str] = None
     try:
         parsed = json.loads(cleaned)
-        llm_output = LLMReport.model_validate(parsed)
-    except (json.JSONDecodeError, ValueError) as exc:
-        logger.error("insight-engine-json-parse-failed: %s", exc)
+    except json.JSONDecodeError as exc:
+        # PR #154 Diagnose 2026-05-17 (Anti-Repetition-Bug Follow-up):
+        # bei Disney-replace=true mit Previous-Context-Block produziert
+        # Anthropic invalides JSON (Bug-Reproduktion 17:19 UTC: char 6950,
+        # "Expecting ',' delimiter"). Wir loggen den Response-Slice um die
+        # Fehlerposition fuer den Postmortem, ohne den ganzen 7k-Response
+        # auf Railway zu spammen. ``cleaned`` ist post-_strip_codefence —
+        # exakt das, was json.loads gesehen hat.
+        pos = exc.pos if exc.pos is not None else 0
+        logger.error(
+            "insight-engine-json-parse-failed",
+            extra={
+                "error_message": str(exc),
+                "char_position": pos,
+                "raw_response_length": len(cleaned),
+                "raw_response_first_500": cleaned[:500],
+                "raw_response_around_error": cleaned[max(0, pos - 200): pos + 200],
+            },
+        )
         raw_for_response = raw_text  # surface to caller, don't swallow
+    else:
+        try:
+            llm_output = LLMReport.model_validate(parsed)
+        except ValueError as exc:
+            # JSON ist valide, aber Pydantic-Schema schlaegt fehl (z.B.
+            # fehlende Required-Felder, falsche Typen). Andere Failure-
+            # Mode als JSONDecodeError — kein ``.pos`` verfuegbar, also
+            # nur first_500 zur Diagnose. Strukturell-getrenntes Log-Event
+            # damit Railway-Filter zwischen "Anthropic gibt Mist" und
+            # "unser Schema passt nicht" unterscheiden kann.
+            logger.error(
+                "insight-engine-schema-validation-failed",
+                extra={
+                    "error_message": str(exc)[:500],
+                    "raw_response_length": len(cleaned),
+                    "raw_response_first_500": cleaned[:500],
+                },
+            )
+            raw_for_response = raw_text
 
     usage = getattr(message, "usage", None)
     input_tokens = int(getattr(usage, "input_tokens", 0) or 0)

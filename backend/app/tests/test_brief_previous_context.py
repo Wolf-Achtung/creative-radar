@@ -421,6 +421,112 @@ def test_corrupt_previous_headline_skips_block_and_warns(db, monkeypatch, caplog
 # Test 6 (bonus) — _compute_top_post_diff direkt: Set-Semantik + Examples.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# PR #154 Bug-Diagnose-Logging (Sprint 17.05.2026): bei Disney-replace=true
+# mit Previous-Context-Block produziert Anthropic invalides JSON. Die
+# erweiterte Diagnostik loggt jetzt Response-Slice + Char-Position, damit
+# Wolf die Root-Cause an der Raw-Response im Railway-Log ablesen kann.
+# Diese zwei Tests verifizieren, dass die Log-Events korrekt gefired werden
+# BEVOR der Production-Test laeuft — sonst riskieren wir, $2 auszugeben und
+# am Ende eine kaputte Log-Erweiterung zu haben.
+# ---------------------------------------------------------------------------
+
+def test_json_parse_failure_logs_raw_response_context(db, monkeypatch, caplog):
+    """Bei JSONDecodeError muss das neue ``insight-engine-json-parse-failed``-
+    Log-Event ``char_position``, ``raw_response_length`` und einen Slice
+    um die Fehler-Position als ``extra`` mitgeben."""
+    _seed_pair_in_pairs(monkeypatch, "test_pair_bad_json")
+
+    # Anthropic-Mock liefert kaputtes JSON: zwei Objekte hintereinander
+    # ohne Comma — exakt das Fehler-Muster aus dem Disney-17:19-Vorfall
+    # ("Expecting ',' delimiter").
+    bad_json = '{"headline": "valid prefix",\n  "tldr": "first object"}\n{"second": "object"}'
+    text_block = SimpleNamespace(type="text", text=bad_json)
+    usage = SimpleNamespace(input_tokens=8000, output_tokens=3000)
+    message = SimpleNamespace(content=[text_block], usage=usage)
+    anthropic_mock = MagicMock(return_value=message)
+    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "is_anthropic_configured", lambda: True)
+    monkeypatch.setattr(
+        engine_module, "record_anthropic_call",
+        lambda *args, **kwargs: None,
+    )
+
+    def fake_aggregate_pair(session, pair_key, *, window_days=30, now=None):
+        return _build_aggregation(pair_key, 2026, 20, de_post_specs=[("asset_x", "x")])
+    monkeypatch.setattr(engine_module, "aggregate_pair", fake_aggregate_pair)
+
+    with caplog.at_level(logging.ERROR, logger="app.services.insight_engine"):
+        with Session(db) as session:
+            # generate_weekly_report (nicht generate_and_persist) — wir testen
+            # die Parse-Stelle, nicht die Persistenz-Pipeline.
+            engine_module.generate_weekly_report(
+                session, "test_pair_bad_json", window_days=30,
+            )
+
+    parse_failed = [
+        r for r in caplog.records
+        if r.levelname == "ERROR"
+        and "insight-engine-json-parse-failed" in r.getMessage()
+    ]
+    assert len(parse_failed) == 1
+    rec = parse_failed[0]
+    assert isinstance(rec.char_position, int)
+    assert rec.char_position > 0
+    assert rec.raw_response_length == len(bad_json)
+    assert "raw_response_first_500" in rec.__dict__
+    assert rec.raw_response_first_500.startswith('{"headline"')
+    # Slice um die Fehler-Position muss den zweiten "{" enthalten
+    assert "{" in rec.raw_response_around_error
+
+
+def test_schema_validation_failure_logs_distinct_event(db, monkeypatch, caplog):
+    """Bei Pydantic-ValueError (valides JSON, falsches Schema) muss das
+    neue ``insight-engine-schema-validation-failed``-Log-Event gefired
+    werden — strukturell-getrennt von JSONDecodeError, damit Railway-
+    Filter zwischen 'Anthropic gibt Mist' und 'Schema-Mismatch' trennt."""
+    _seed_pair_in_pairs(monkeypatch, "test_pair_bad_schema")
+
+    # Valides JSON, aber LLMReport.headline ist required und fehlt hier
+    bad_schema = json.dumps({"tldr": "ohne headline"})
+    text_block = SimpleNamespace(type="text", text=bad_schema)
+    usage = SimpleNamespace(input_tokens=8000, output_tokens=3000)
+    message = SimpleNamespace(content=[text_block], usage=usage)
+    anthropic_mock = MagicMock(return_value=message)
+    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "is_anthropic_configured", lambda: True)
+    monkeypatch.setattr(
+        engine_module, "record_anthropic_call",
+        lambda *args, **kwargs: None,
+    )
+
+    def fake_aggregate_pair(session, pair_key, *, window_days=30, now=None):
+        return _build_aggregation(pair_key, 2026, 20, de_post_specs=[("asset_x", "x")])
+    monkeypatch.setattr(engine_module, "aggregate_pair", fake_aggregate_pair)
+
+    with caplog.at_level(logging.ERROR, logger="app.services.insight_engine"):
+        with Session(db) as session:
+            engine_module.generate_weekly_report(
+                session, "test_pair_bad_schema", window_days=30,
+            )
+
+    schema_failed = [
+        r for r in caplog.records
+        if r.levelname == "ERROR"
+        and "insight-engine-schema-validation-failed" in r.getMessage()
+    ]
+    assert len(schema_failed) == 1
+    rec = schema_failed[0]
+    assert rec.raw_response_length == len(bad_schema)
+    assert "raw_response_first_500" in rec.__dict__
+    # Verifiziere, dass das JSONDecodeError-Event NICHT zusaetzlich fired
+    parse_failed = [
+        r for r in caplog.records
+        if "insight-engine-json-parse-failed" in r.getMessage()
+    ]
+    assert parse_failed == []
+
+
 def test_compute_top_post_diff_set_semantics():
     current = _build_aggregation(
         "test_pair", 2026, 20,
