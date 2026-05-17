@@ -32,7 +32,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import engine, get_session
-from app.models.entities import Asset, CronRun
+from app.models.entities import Asset, CronRun, InsightReport as InsightReportRow
 from app.services.apify_connector import (
     is_apify_configured,
     is_tiktok_configured,
@@ -48,6 +48,7 @@ from app.services.budget_check import (
     compute_apify_monthly_spend,
 )
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
+from app.services.insight_engine import PAIRS, generate_and_persist_report
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.visual_analysis import analyze_asset_visual
 from app.services.youtube_connector import (
@@ -420,6 +421,98 @@ def _run_rematch_after_sync(session: Session) -> dict:
     return summary.to_dict()
 
 
+def _run_brief_generation_after_sync(session: Session) -> dict:
+    """Cadence-Sprint 2026-05-17 — Brief-Generation als Cron-Stage.
+
+    Iteriert über alle ``enabled=True``-Pairs aus ``PAIRS`` und ruft je Pair
+    ``generate_and_persist_report`` für die *gerade abgeschlossene* ISO-
+    Woche auf (``now - 1 day`` als ISO-Anker, siehe Aufrufer-Kommentar).
+    Per-Pair-Try/Except, damit ein fehlschlagender Pair die anderen nicht
+    killt — der gleiche Robustness-Vertrag wie bei
+    ``_run_rematch_after_sync``.
+
+    Kill-Switch: ENV ``ENABLE_BRIEF_GEN_IN_CRON`` (Default ``true``). Bei
+    Incidents (Cost-Explosion, Mock-Leak, LLM-Outage) setzt Wolf den Wert im
+    Railway-UI auf ``false``; Brief-Gen wird dann übersprungen, Scrape und
+    Rematch laufen normal weiter. Kein Code-Deploy nötig.
+
+    Cache-Hit-Detection: vor jedem Aufruf wird die PK
+    ``(pair, iso_year, iso_week)`` direkt geprüft. Bei Treffer wird
+    ``skipped_cache_hit`` inkrementiert und ``generate_and_persist_report``
+    gar nicht aufgerufen — die Funktion würde dasselbe Ergebnis liefern,
+    aber die Pre-Check-Variante erlaubt uns einen sauberen Counter ohne
+    Return-Value-Diskriminanz (die Funktion liefert in beiden Pfaden ein
+    ``InsightReport``-Objekt zurück).
+
+    Cost-Counter: nur frisch generierte Briefs zählen in
+    ``cost_usd_cents`` ein (Cache-Hits verursachen keinen LLM-Call).
+    """
+    brief_gen_enabled = os.getenv("ENABLE_BRIEF_GEN_IN_CRON", "true").lower() == "true"
+    briefs_summary: dict = {
+        "enabled": brief_gen_enabled,
+        "generated": 0,
+        "skipped_cache_hit": 0,
+        "failed": 0,
+        "cost_usd_cents": 0,
+        "errors": [],
+    }
+    if not brief_gen_enabled:
+        logger.info("brief_gen.skipped reason=env_disabled")
+        return briefs_summary
+
+    brief_now = datetime.now(timezone.utc) - timedelta(days=1)
+    iso_cal = brief_now.isocalendar()
+    target_iso_year, target_iso_week = iso_cal.year, iso_cal.week
+    enabled_pairs = [k for k, v in PAIRS.items() if v.get("enabled", False)]
+
+    logger.info(
+        "brief_gen.start",
+        extra={
+            "pairs": len(enabled_pairs),
+            "target_iso_year": target_iso_year,
+            "target_iso_week": target_iso_week,
+        },
+    )
+
+    for pair_key in enabled_pairs:
+        existing_row = session.get(
+            InsightReportRow,
+            (pair_key, target_iso_year, target_iso_week),
+        )
+        if existing_row is not None:
+            briefs_summary["skipped_cache_hit"] += 1
+            continue
+        try:
+            report = generate_and_persist_report(
+                session,
+                pair_key,
+                window_days=30,
+                now=brief_now,
+            )
+            briefs_summary["generated"] += 1
+            if report.cost_usd_estimate:
+                briefs_summary["cost_usd_cents"] += int(round(report.cost_usd_estimate * 100))
+        except Exception as exc:  # noqa: BLE001 — per-pair isolation, see docstring
+            logger.exception("brief_gen.failed pair=%s", pair_key)
+            briefs_summary["failed"] += 1
+            briefs_summary["errors"].append({
+                "pair": pair_key,
+                "error_class": type(exc).__name__,
+                "error_message": str(exc)[:200],
+            })
+
+    logger.info(
+        "brief_gen.complete",
+        extra={
+            "generated": briefs_summary["generated"],
+            "skipped_cache_hit": briefs_summary["skipped_cache_hit"],
+            "failed": briefs_summary["failed"],
+            "cost_usd_cents": briefs_summary["cost_usd_cents"],
+        },
+    )
+    return briefs_summary
+
+
 async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
     """Background task body. Owns its own Session — the request session is
     closed by the time this runs."""
@@ -461,6 +554,23 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             if created_asset_ids:
                 summary["vision"] = _run_vision_after_sync(session, created_asset_ids, cap)
             summary["rematch"] = _run_rematch_after_sync(session)
+            # Cadence-Sprint 2026-05-17 — Brief-Generation für die gerade
+            # abgeschlossene ISO-Woche. Vor diesem Sprint hat der Sonntag-Cron
+            # nur Scrape gemacht; Briefs entstanden ausschließlich lazy beim
+            # ersten UI-Aufruf (oder manuell via admin.py). Cutter sahen am
+            # Montag den Brief vom Mittwoch (Lazy-Generate-Burst). Jetzt:
+            # Schedule auf Mo 06:00 UTC verschoben (workflow.yml), Brief-Gen
+            # hier eingebaut.
+            #
+            # H4-Mitigation: ``brief_now = utcnow - 1 day``. Ein Lauf am Montag
+            # 06:00 UTC will Briefs für die *gerade abgeschlossene* KW
+            # generieren. ``now.isocalendar()`` am Montag 00-23:59 UTC liefert
+            # bereits die neue KW; ``now - 1 day`` zieht uns garantiert in
+            # den Sonntag der Vorwoche zurück, also die KW, deren Daten-
+            # Aggregation tatsächlich vollständig vorliegt. Selbe Logik wie
+            # ``aggregate_pair`` (insight_engine.py:1880), nur explizit
+            # ein Tag zurück.
+            summary["briefs"] = _run_brief_generation_after_sync(session)
             # Tech-Debt A5 — Apify-Cost dieses Runs ins summary_json.
             # ``record_apify_run`` läuft synchron im ``_run_actor``-Pfad ab
             # und stempelt UTC-now-Timestamps, also liegen alle Rows des
@@ -479,6 +589,29 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             summary["budget"] = budget.to_dict()
             if budget.soft_warn_exceeded:
                 summary["budget_warning"] = True
+            # Cadence-Sprint 2026-05-17 — Frühwarnsignal #2 aus dem Premortem
+            # (PR #147, Failure-Mode #2 "Bug regrediert nach Refactor"). Ein
+            # Cron-Run mit aktivierter Brief-Gen, aber 0 generierten Briefs UND
+            # <$5 Anthropic-Cost ist ein klares Signal: irgendetwas hat den
+            # Pfad lautlos blockiert (Mock-Leak, ENV-Toggle-Race, Code-Pfad-
+            # Regression). Logger.critical landet rot in Railway-Logs.
+            briefs = summary.get("briefs", {})
+            anthropic_cost_usd = summary.get("anthropic", {}).get("estimated_cost_usd", 0.0)
+            if (
+                briefs.get("enabled")
+                and briefs.get("generated", 0) == 0
+                and anthropic_cost_usd < 5.0
+            ):
+                logger.critical(
+                    "cron_brief_gen.silent_failure",
+                    extra={
+                        "run_id": str(run.id),
+                        "briefs_enabled": briefs.get("enabled"),
+                        "briefs_generated": briefs.get("generated", 0),
+                        "briefs_failed": briefs.get("failed", 0),
+                        "anthropic_cost_usd": anthropic_cost_usd,
+                    },
+                )
             run.summary_json = summary
             run.status = "completed"
             run.completed_at = datetime.now(timezone.utc)
