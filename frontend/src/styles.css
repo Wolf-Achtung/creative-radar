@@ -853,3 +853,33 @@ a:hover { text-decoration: underline; }
   .ranking-controls { width: 100%; gap: 6px; }
   .ranking-controls .ranking-sort-select { flex: 1 1 calc(50% - 3px); min-width: 0; }
 }
+
+/* ---- Stale-Brief-Warning (Sprint Frontend Defensive, 17.05.2026) ----
+   Wird im InsightWeekly oben in der Success-Branche gerendert, sobald
+   ein Brief älter als AGED_THRESHOLD_DAYS ist. Farben spiegeln das
+   etablierte ``coverage-banner.cov-warn``/``cov-bad``-Pattern, damit
+   der Stale-Banner stilistisch zum Rest der Seite passt. */
+.stale-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.stale-warning__icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.stale-warning--aged {
+  background: #fff1dd;
+  border: 1px solid #f2c489;
+  color: #6b3a00;
+}
+.stale-warning--critical {
+  background: #fdecea;
+  border: 1px solid #e7a39c;
+  color: #7a1212;
+}

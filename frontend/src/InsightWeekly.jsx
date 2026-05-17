@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { endpoints } from './api/client';
+import StaleWarning from './StaleWarning';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
@@ -1037,6 +1038,7 @@ export default function InsightWeekly({ pair }) {
 
       {report && status !== 'error' && (
         <>
+          <StaleWarning generatedAt={report.generated_at} />
 
           {report.aggregation?.notes?.length > 0 && (
             <div className="card insight-notes">
