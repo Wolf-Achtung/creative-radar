@@ -987,7 +987,7 @@ export default function InsightWeekly({ pair }) {
         <div className="hero__left">
           <p className="eyebrow">STUDIO-REVIEW</p>
           <h1>{label}</h1>
-          <p>Was diese Woche funktioniert, was nicht und wie wir's nutzen.</p>
+          <p>Was letzte Woche funktioniert hat, was nicht – und was wir diese Woche daraus machen.</p>
         </div>
         {report && (
           <div className="hero__meta">

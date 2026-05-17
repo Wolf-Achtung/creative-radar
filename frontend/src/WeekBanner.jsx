@@ -41,7 +41,7 @@ function formatGermanDateRange(start, end) {
   return `${sD}. ${sM} ${sY} – ${eD}. ${eM} ${eY}`;
 }
 
-// "17.5." — Tag.Monat ohne fuehrende Null, ohne Jahr (Jahr steht im
+// "17.05." — Tag.Monat mit fuehrender Null, ohne Jahr (Jahr steht im
 // Wochenbereich-Slot direkt nebendran). Lokale Zeitzone — die User-
 // Wahrnehmung von "wann wurde der Brief erstellt" folgt der Wall-Clock-
 // Zeit, nicht UTC. Konsistent mit ``formatDateISO`` in InsightWeekly.jsx.
@@ -50,7 +50,9 @@ export function formatDateShort(value) {
   try {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return String(value);
-    return `${d.getDate()}.${d.getMonth() + 1}.`;
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${day}.${month}.`;
   } catch (_) {
     return String(value);
   }
