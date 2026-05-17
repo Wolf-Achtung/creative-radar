@@ -2015,7 +2015,181 @@ def _format_cross_market_block(matches: list[CrossMarketMatch]) -> str:
 _PLATFORM_HEADER_LABEL = {"tiktok": "TikTok", "instagram": "Instagram", "youtube": "YouTube"}
 
 
-def _build_user_prompt(agg: PairAggregation) -> str:
+# ---- Anti-Repetition: Vorgaenger-Brief-Kontext (Sprint 17.05.2026) -------
+# Reduziert Headline-Repetition zwischen aufeinanderfolgenden Briefs
+# desselben Pairs. Hintergrund: das 30-Tage-Rolling-Window haelt dominante
+# Top-Posts (Mandalorian-Kampagne, Muttertag etc.) mehrere Briefs lang an
+# der Performance-Spitze. Anthropic schreibt aktuell jeden Brief from
+# scratch und reproduziert das Frame der Vorwoche fast 1:1. Mit dem
+# Previous-Context-Block bekommt der LLM (a) die Vorgaenger-Headline und
+# (b) einen Set-Diff der Top-Post-Identitaeten als "Anker, wovon du dich
+# absetzen sollst". Out-of-Scope laut Sprint-Briefing: Persona-Voice (SYSTEM_
+# PROMPT), Brief-Body-Sektionen ausserhalb Headline/TL;DR, Schema-Aenderungen.
+
+
+def _extract_ranked_post_identities(agg: PairAggregation) -> dict[str, str]:
+    """Walkt eine ``PairAggregation`` ueber alle Plattformen und Channels
+    und liefert einen ordered ``{identity: caption_excerpt}``-Map zurueck.
+    Identitaet ist ``RankedPost.asset_id`` (Sprint 5c, Asset-UUID) mit
+    ``post_url`` als Fallback fuer Pre-Sprint-5c-Briefe. Posts ohne beides
+    werden ausgelassen — sie sind ueber zwei Briefs nicht korrelierbar.
+
+    Insertion-Order bleibt erhalten (Python-Dict-Garantie seit 3.7), damit
+    die Beispiel-Auswahl in ``_compute_top_post_diff`` deterministisch wird:
+    erste 3 Carried/New aus der natuerlichen Top-Post-Sortierung des
+    aktuellen Briefs.
+    """
+    out: dict[str, str] = {}
+    for pa in (agg.per_platform or []):
+        for channel in (pa.de_channel, pa.us_channel, pa.uk_channel):
+            if channel is None:
+                continue
+            for post in (channel.ranked_posts or []):
+                identity = post.asset_id or post.post_url
+                if not identity:
+                    continue
+                if identity in out:
+                    continue
+                out[identity] = post.caption_excerpt or ""
+    return out
+
+
+def _compute_top_post_diff(
+    current_agg: PairAggregation,
+    previous_agg: PairAggregation,
+    *,
+    max_examples: int = 3,
+) -> dict:
+    """Set-Diff der Top-Post-Identitaeten zwischen aktuellem und vorherigem
+    Brief. Beispiele werden aus dem CURRENT-Map gezogen (insertion-ordered),
+    weil das die natuerliche Top-Post-Reihenfolge dieses Briefs spiegelt
+    — wir wollen die wichtigsten Carried/New oben, nicht alphabetisch."""
+    current = _extract_ranked_post_identities(current_agg)
+    previous = _extract_ranked_post_identities(previous_agg)
+    current_ids = set(current.keys())
+    previous_ids = set(previous.keys())
+    carried = current_ids & previous_ids
+    new = current_ids - previous_ids
+    dropped = previous_ids - current_ids
+    examples_carried: list[str] = []
+    examples_new: list[str] = []
+    for ident in current:
+        if ident in carried and len(examples_carried) < max_examples:
+            label = _excerpt(current[ident], max_len=60)
+            if label:
+                examples_carried.append(label)
+        elif ident in new and len(examples_new) < max_examples:
+            label = _excerpt(current[ident], max_len=60)
+            if label:
+                examples_new.append(label)
+    return {
+        "carried_count": len(carried),
+        "new_count": len(new),
+        "dropped_count": len(dropped),
+        "examples_carried": examples_carried,
+        "examples_new": examples_new,
+    }
+
+
+def _format_example_suffix(samples: list[str]) -> str:
+    if not samples:
+        return ""
+    quoted = ", ".join(f"„{s}\"" for s in samples)
+    return f" (z.B. {quoted})"
+
+
+def _format_previous_context_block(
+    *,
+    prev_iso_year: int,
+    prev_iso_week: int,
+    prev_headline: str,
+    diff: dict,
+) -> str:
+    """Rendert den Anti-Repetition-Block fuer den User-Prompt.
+    Wolf-Ping-#1-Final-Wortlaut (Sprint 17.05.2026): "benenne die zeitliche
+    Entwicklung" statt "finde", erweiterte Beispielliste (Release,
+    Kampagnen-Phasenwechsel, Mechanik-Shift, Plattform-Asymmetrie).
+
+    Wenn weder Carried noch New Posts existieren, wird der gesamte
+    "Top-Post-Bewegung"-Mid-Block weggelassen — der Diff hat nichts
+    Bewegungs-Aussagefaehiges zu zeigen, die Headline-Anweisung bleibt
+    trotzdem stehen, weil die Vorgaenger-Headline allein schon ein
+    Frame-Anker ist."""
+    lines = [
+        f"## Bezug zur Vorwoche (KW {prev_iso_week}/{prev_iso_year})",
+        "",
+        "Vorgänger-Headline:",
+        f"> {prev_headline}",
+        "",
+    ]
+    has_movement = diff["carried_count"] > 0 or diff["new_count"] > 0
+    if has_movement:
+        lines.extend([
+            "Top-Post-Bewegung gegenüber dem Vorgänger (Identität via Asset-ID,",
+            "Beispiele in Klammern):",
+            "",
+        ])
+        if diff["carried_count"] > 0:
+            suffix = _format_example_suffix(diff["examples_carried"])
+            lines.append(f"- {diff['carried_count']} Posts übernommen{suffix}")
+        if diff["new_count"] > 0:
+            suffix = _format_example_suffix(diff["examples_new"])
+            lines.append(f"- {diff['new_count']} neu{suffix}")
+        if diff["dropped_count"] > 0:
+            lines.append(
+                f"- {diff['dropped_count']} aus dem Vorgänger nicht mehr unter den Top-Performern"
+            )
+        lines.append("")
+    lines.extend([
+        "Für Headline und TL;DR:",
+        "",
+        "Wiederhole nicht das narrative Frame des Vorgängers. Wenn dieselben",
+        "Posts weiter oben stehen, benenne die zeitliche Entwicklung — Annäherung",
+        "an einen Release, Phasenwechsel der Kampagne, Mechanik-Shift im Content",
+        "(Reichweite → Engagement, statisch → bewegt), neue Plattform-Asymmetrie.",
+        "„Dieselbe Welle trägt weiter\" ist als Beobachtung okay; dieselbe",
+        "Verpackung wie letzte Woche nicht. Die Detail-Sektionen dürfen sich",
+        "wiederholen, wo die Daten es erzwingen — nur Headline und TL;DR brauchen",
+        "narrative Bewegung.",
+    ])
+    return "\n".join(lines)
+
+
+def _load_previous_brief(
+    session: Session,
+    pair_key: str,
+    iso_year: int,
+    iso_week: int,
+) -> Optional[InsightReportRow]:
+    """Anti-Repetition-Sprint (17.05.2026): laedt den naechstaelteren Brief
+    desselben Pairs. Strikt ``< (iso_year, iso_week)`` — bei einem
+    ``replace=True``-Aufruf auf der gleichen KW findet die Query NICHT
+    die zu ueberschreibende Row selbst, sondern den echten Vorgaenger.
+    Returns None, wenn kein Vorgaenger existiert (erster Brief des Pairs).
+    """
+    stmt = (
+        select(InsightReportRow)
+        .where(InsightReportRow.pair_key == pair_key)
+        .where(
+            (InsightReportRow.iso_year < iso_year)
+            | (
+                (InsightReportRow.iso_year == iso_year)
+                & (InsightReportRow.iso_week < iso_week)
+            )
+        )
+        .order_by(
+            InsightReportRow.iso_year.desc(),
+            InsightReportRow.iso_week.desc(),
+        )
+    )
+    return session.exec(stmt).first()
+
+
+def _build_user_prompt(
+    agg: PairAggregation,
+    *,
+    previous_context: Optional[str] = None,
+) -> str:
     """Sprint 6 — strukturierter Multi-Plattform-Datenblock plus JSON-Anhang.
 
     Aufbau:
@@ -2066,6 +2240,15 @@ def _build_user_prompt(agg: PairAggregation) -> str:
     )
 
     sections: list[str] = [framing]
+
+    # Anti-Repetition (Sprint 17.05.2026): Vorgaenger-Kontext direkt nach
+    # dem Framing, vor den Plattform-Datenbloecken. Die Headline-Generierung
+    # scannt den Markdown-Teil oben (siehe Framing-Block), also greift der
+    # Anti-Repetition-Anker upfront, bevor Anthropic die Daten liest. Bei
+    # erstem Brief eines Pairs oder bei fehlender Vorgaenger-Headline ist
+    # ``previous_context`` ``None`` und der Block wird ausgelassen.
+    if previous_context:
+        sections.append(previous_context)
 
     per_platform = agg.per_platform or []
     for platform_agg in per_platform:
@@ -2158,6 +2341,7 @@ def generate_weekly_report(
     # the data_caveats tail at 8k.
     max_tokens: int = 12000,
     now: Optional[datetime] = None,
+    previous_context: Optional[str] = None,
 ) -> InsightReport:
     """Build the aggregation, call Opus 4.7 once, return the merged report.
 
@@ -2193,7 +2377,7 @@ def generate_weekly_report(
             "Setze den Schlüssel in Railway oder ruf den Endpoint mit ?dry_run=true auf."
         )
 
-    user_prompt = _build_user_prompt(agg)
+    user_prompt = _build_user_prompt(agg, previous_context=previous_context)
     call_extra = {
         "pair": pair_key,
         "window_days": window_days,
@@ -2570,6 +2754,53 @@ def generate_and_persist_report(
     # Cache miss, force on a stale row, OR replace=True with existing row.
     # The advisory lock (when active) guarantees that no other worker is
     # in this branch for the same ``(pair, year, week)`` right now.
+    #
+    # Anti-Repetition (Sprint 17.05.2026): vor dem LLM-Call den naechst-
+    # aelteren Brief laden und einen Previous-Context-Block fuer den Prompt
+    # bauen. Bei strict ``< (iso_year, iso_week)`` faengt der Lookup auch
+    # ``replace=True``-Aufrufe sauber ab — der Vorgaenger ist die KW-1,
+    # nicht der zu ueberschreibende Brief selbst. Bei fehlender/leerer
+    # Vorgaenger-Headline wird der ganze Block ausgelassen (Wolf-Ping-#1-
+    # Default: ohne Headline-Anker hilft der Diff allein nicht beim
+    # Narrative-Wechsel). Erstgang fuer ein Pair → previous=None → Block
+    # ausgelassen, Brief verhaelt sich wie vor dem Sprint.
+    previous_context_block: Optional[str] = None
+    previous_context_info: dict = {"has_previous_context": False}
+    previous = _load_previous_brief(session, pair_key, agg.iso_year, agg.iso_week)
+    if previous is not None:
+        try:
+            previous_headline_raw = (previous.llm_output or {}).get("headline")
+            if not previous_headline_raw or not str(previous_headline_raw).strip():
+                raise ValueError("empty headline")
+            previous_agg = PairAggregation.model_validate(previous.aggregation)
+            diff = _compute_top_post_diff(agg, previous_agg)
+            previous_context_block = _format_previous_context_block(
+                prev_iso_year=previous.iso_year,
+                prev_iso_week=previous.iso_week,
+                prev_headline=str(previous_headline_raw).strip(),
+                diff=diff,
+            )
+            previous_context_info = {
+                "has_previous_context": True,
+                "previous_iso_year": previous.iso_year,
+                "previous_iso_week": previous.iso_week,
+                "diff_carried_count": diff["carried_count"],
+                "diff_new_count": diff["new_count"],
+                "diff_dropped_count": diff["dropped_count"],
+            }
+        except (KeyError, ValueError, TypeError, AttributeError) as exc:
+            logger.warning(
+                "previous_context_skipped",
+                extra={
+                    "reason": "headline_unavailable",
+                    "pair_key": pair_key,
+                    "previous_iso_year": previous.iso_year,
+                    "previous_iso_week": previous.iso_week,
+                    "error_class": type(exc).__name__,
+                    "error_message": str(exc)[:200],
+                },
+            )
+
     logger.info(
         "brief_llm_call_start",
         extra={"pair": pair_key, "iso_week": agg.iso_week, "model": model},
@@ -2583,6 +2814,7 @@ def generate_and_persist_report(
         model=model,
         max_tokens=max_tokens,
         now=now,
+        previous_context=previous_context_block,
     )
     llm_duration_ms = int((time.perf_counter() - llm_started) * 1000)
     logger.info(
@@ -2634,6 +2866,7 @@ def generate_and_persist_report(
             "iso_week": agg.iso_week,
             "total_ms": int((time.perf_counter() - pipeline_started) * 1000),
             "outcome": outcome,
+            **previous_context_info,
         },
     )
     return report
