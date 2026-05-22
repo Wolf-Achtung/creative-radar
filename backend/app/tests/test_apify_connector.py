@@ -32,9 +32,10 @@ from app.services import apify_connector
 class _FakeResponse:
     """Minimal stand-in for httpx.Response — just the bits _run_actor uses."""
 
-    def __init__(self, payload: Any, status_code: int = 200):
+    def __init__(self, payload: Any, status_code: int = 200, headers: dict | None = None):
         self._payload = payload
         self.status_code = status_code
+        self.headers = headers or {}
 
     def json(self) -> Any:
         return self._payload
@@ -238,6 +239,151 @@ def test_run_actor_returns_empty_when_succeeded_run_has_no_dataset(monkeypatch):
     assert items == []
     # 1 poll, no dataset read.
     assert len(client.gets) == 1
+
+
+# --- Sprint Z1: transient-failure retry tests -----------------------------
+
+
+@pytest.fixture
+def _no_sleep(monkeypatch: pytest.MonkeyPatch):
+    """Skip the retry helper's backoff sleeps. Returns the captured wait
+    list so tests can assert on the number of retries."""
+    waits: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    monkeypatch.setattr(apify_connector.asyncio, "sleep", _fake_sleep)
+    return waits
+
+
+def test_run_actor_retries_on_transient_502_during_poll(monkeypatch, _no_sleep):
+    """Z1: 502 -> 502 -> 200 on the status-poll endpoint must surface as a
+    successful run after retries. Pins the fix for the 2026-05-18 cron abort."""
+    client = _FakeAsyncClient(
+        post_responses=[
+            _FakeResponse({"data": {"id": "RUN1", "status": "READY"}}),
+        ],
+        get_responses=[
+            _FakeResponse({}, status_code=502),
+            _FakeResponse({}, status_code=502),
+            _FakeResponse({"data": {
+                "id": "RUN1",
+                "status": "SUCCEEDED",
+                "defaultDatasetId": "DS1",
+                "actId": "actor",
+            }}),
+            _FakeResponse([{"a": 1}]),
+        ],
+    )
+    _patch_client(monkeypatch, client)
+
+    items = asyncio.run(apify_connector._run_actor("actor", {}))
+
+    assert items == [{"a": 1}]
+    # 2 failed polls + 1 successful poll + 1 dataset read.
+    assert len(client.gets) == 4
+    assert len(client.posts) == 1
+
+
+def test_run_actor_does_not_retry_post_on_502(monkeypatch, _no_sleep):
+    """Z1: the actor-run POST is non-idempotent. A 502 might mean the run
+    was already created upstream — retry would double-start the actor and
+    double-bill under the F0.6 budget cap. Must surface immediately."""
+    client = _FakeAsyncClient(
+        post_responses=[
+            _FakeResponse({}, status_code=502),
+        ],
+        get_responses=[],
+    )
+    _patch_client(monkeypatch, client)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(apify_connector._run_actor("actor", {}))
+
+    # Critically: exactly one POST attempt, no retry.
+    assert len(client.posts) == 1
+
+
+class _PostConnectFailsOnce(_FakeAsyncClient):
+    """POST raises ConnectError on the first attempt, succeeds on the second."""
+
+    def __init__(self, *, post_responses, get_responses):
+        super().__init__(post_responses=post_responses, get_responses=get_responses)
+        self._post_attempts = 0
+
+    async def post(self, url, **kwargs):
+        self._post_attempts += 1
+        self.posts.append((url, kwargs))
+        if self._post_attempts == 1:
+            raise httpx.ConnectError("simulated TCP-level connect failure")
+        return self._post_responses.pop(0)
+
+
+def test_run_actor_retries_post_on_connect_error(monkeypatch, _no_sleep):
+    """Z1: ConnectError on POST is TCP-level provably-unreached, so it IS
+    safe to retry the non-idempotent endpoint — the upstream couldn't have
+    started a run we didn't know about."""
+    client = _PostConnectFailsOnce(
+        post_responses=[
+            _FakeResponse({"data": {"id": "RUN1", "status": "READY"}}),
+        ],
+        get_responses=[
+            _FakeResponse({"data": {
+                "id": "RUN1",
+                "status": "SUCCEEDED",
+                "defaultDatasetId": "DS1",
+                "actId": "actor",
+            }}),
+            _FakeResponse([]),
+        ],
+    )
+    _patch_client(monkeypatch, client)
+
+    items = asyncio.run(apify_connector._run_actor("actor", {}))
+    assert items == []
+    assert client._post_attempts == 2  # one retry after the ConnectError
+
+
+def test_run_actor_does_not_retry_on_4xx(monkeypatch, _no_sleep):
+    """Z1: 4xx (except 429) is a permanent client error. Must propagate on
+    the first response, no retry burn."""
+    client = _FakeAsyncClient(
+        post_responses=[
+            _FakeResponse({"data": {"id": "RUN1", "status": "READY"}}),
+        ],
+        get_responses=[
+            _FakeResponse({}, status_code=404),
+        ],
+    )
+    _patch_client(monkeypatch, client)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(apify_connector._run_actor("actor", {}))
+
+    assert len(client.gets) == 1  # no retry on 404
+
+
+def test_run_actor_exhausts_retries_on_persistent_502_during_poll(monkeypatch, _no_sleep):
+    """Z1: after the configured retry budget is spent, the final 502
+    surfaces via raise_for_status — the run does not silently succeed."""
+    client = _FakeAsyncClient(
+        post_responses=[
+            _FakeResponse({"data": {"id": "RUN1", "status": "READY"}}),
+        ],
+        get_responses=[
+            _FakeResponse({}, status_code=502),
+            _FakeResponse({}, status_code=502),
+            _FakeResponse({}, status_code=502),
+        ],
+    )
+    _patch_client(monkeypatch, client)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(apify_connector._run_actor("actor", {}))
+
+    # 3 total attempts (1 initial + 2 retries).
+    assert len(client.gets) == 3
 
 
 def test_run_actor_explicit_wait_seconds_overrides_settings(monkeypatch):

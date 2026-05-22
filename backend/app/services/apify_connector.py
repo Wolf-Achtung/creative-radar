@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import random
 from datetime import datetime
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 
 from app.config import settings
 from app.services.cost_log import record_apify_run
 
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.apify.com/v2"
 
@@ -18,6 +22,117 @@ BASE_URL = "https://api.apify.com/v2"
 # defensively in case Apify normalises to the underscore form in the future.
 TERMINAL_STATUSES = frozenset({"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT", "TIMED_OUT"})
 SUCCESS_STATUS = "SUCCEEDED"
+
+# Sprint Z1 — transient-failure retry knobs. The 2026-05-18 cron failed on a
+# single Apify edge 502 during status polling; the helper below absorbs that
+# class of fault. Knobs intentionally const, not settings — these are tuned
+# against the cron's poll-budget (apify_wait_seconds=1800) and the F0.6 budget
+# cap, not user-facing.
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BASE_DELAY_SECONDS = 2.0
+_RETRY_JITTER_PCT = 0.20
+_RETRY_AFTER_MAX_SECONDS = 10.0
+_RETRYABLE_5XX = frozenset({502, 503, 504})
+
+
+def _backoff_delay(attempt: int) -> float:
+    """Exponential backoff with +/-20% jitter. ``attempt`` is 1-indexed,
+    so attempt=1 -> ~2s, attempt=2 -> ~4s. Jitter avoids the thundering-herd
+    pattern if Apify's edge bounces several pollers simultaneously."""
+    base = _RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+    jitter = base * _RETRY_JITTER_PCT
+    return base + random.uniform(-jitter, jitter)
+
+
+async def _request_with_retry(
+    request_fn: Callable[[], Awaitable[httpx.Response]],
+    *,
+    url: str,
+    retry_after_send: bool,
+) -> httpx.Response:
+    """Run ``request_fn`` with bounded retries for transient Apify faults.
+
+    The 18.05.2026 cron aborted on a single edge-502 during ``/actor-runs/{id}``
+    polling. This helper absorbs that class of fault. Non-transient failures
+    (4xx, terminal actor-run status FAILED/ABORTED/TIMED-OUT) pass through
+    untouched: the helper inspects only HTTP-transport signals, never the
+    parsed ``data.status`` field.
+
+    Idempotency split — critical for non-doubling actor runs:
+
+    * ``retry_after_send=True``  -> retry on 5xx/ReadTimeout/RemoteProtocolError
+      /429 as well as ConnectError. Use for idempotent GETs (status poll,
+      dataset fetch).
+    * ``retry_after_send=False`` -> retry ONLY on ConnectError. Use for the
+      actor-run POST. ConnectError is TCP-level provably-unreached; a 5xx or
+      read-timeout could mean the run was already created server-side, so a
+      blind retry would double-start the actor (verwaister Run, F0.6 double-
+      bill, falscher run_id getrackt).
+
+    Returns the (possibly still-failing) ``httpx.Response`` on the final
+    attempt; the caller's ``raise_for_status()`` surfaces the error as before.
+    Exceptions on the final attempt re-raise.
+    """
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        last_attempt = attempt == _RETRY_MAX_ATTEMPTS
+        try:
+            response = await request_fn()
+        except httpx.ConnectError as exc:
+            if last_attempt:
+                raise
+            wait = _backoff_delay(attempt)
+            logger.warning(
+                "apify-retry attempt=%d status=connect-error wait=%.1fs url=%s err=%s",
+                attempt, wait, url, exc,
+            )
+            await asyncio.sleep(wait)
+            continue
+        except (httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
+            # Provably-after-send: only retry on idempotent calls.
+            if not retry_after_send or last_attempt:
+                raise
+            wait = _backoff_delay(attempt)
+            logger.warning(
+                "apify-retry attempt=%d status=%s wait=%.1fs url=%s",
+                attempt, type(exc).__name__, wait, url,
+            )
+            await asyncio.sleep(wait)
+            continue
+
+        status = response.status_code
+        # POST path and last attempt always return the response to the caller;
+        # raise_for_status() then surfaces any error.
+        if last_attempt or not retry_after_send:
+            return response
+
+        if status == 429:
+            retry_after_hdr = response.headers.get("Retry-After") if response.headers else None
+            wait = _backoff_delay(attempt)
+            if retry_after_hdr is not None:
+                try:
+                    wait = min(float(retry_after_hdr), _RETRY_AFTER_MAX_SECONDS)
+                except ValueError:
+                    pass  # malformed header -> fall back to plain backoff
+            logger.warning(
+                "apify-retry attempt=%d status=429 wait=%.1fs url=%s",
+                attempt, wait, url,
+            )
+            await asyncio.sleep(wait)
+            continue
+
+        if status in _RETRYABLE_5XX:
+            wait = _backoff_delay(attempt)
+            logger.warning(
+                "apify-retry attempt=%d status=%d wait=%.1fs url=%s",
+                attempt, status, wait, url,
+            )
+            await asyncio.sleep(wait)
+            continue
+
+        # 2xx, 3xx, 4xx-not-429: not a retry case -> hand back to caller.
+        return response
+
+    raise RuntimeError("apify retry loop exited unexpectedly")  # unreachable
 
 
 def is_apify_configured() -> bool:
@@ -33,11 +148,18 @@ async def _poll_until_terminal(client: httpx.AsyncClient, run_id: str, poll_inte
     final run-data dict. Caller wraps this in ``asyncio.wait_for`` for the
     total-timeout guarantee.
     """
+    poll_url = f"{BASE_URL}/actor-runs/{run_id}"
     while True:
         await asyncio.sleep(poll_interval)
-        response = await client.get(
-            f"{BASE_URL}/actor-runs/{run_id}",
-            params={"token": settings.apify_api_token},
+
+        async def _do_poll() -> httpx.Response:
+            return await client.get(
+                poll_url,
+                params={"token": settings.apify_api_token},
+            )
+
+        response = await _request_with_retry(
+            _do_poll, url=poll_url, retry_after_send=True,
         )
         response.raise_for_status()
         data = response.json().get("data", {})
@@ -71,10 +193,20 @@ async def _run_actor(actor_id: str, actor_input: dict[str, Any], wait_seconds: i
     async with httpx.AsyncClient(timeout=request_timeout) as client:
         # Step 1: kick off the run. No waitForFinish — server-side cap of
         # 60s would silently truncate the wait for long-running actors.
-        run_response = await client.post(
-            f"{BASE_URL}/acts/{actor_id}/runs",
-            params={"token": settings.apify_api_token},
-            json=actor_input,
+        # Retry policy: POST is non-idempotent, so we only retry when the
+        # request provably never reached Apify (httpx.ConnectError). A 5xx
+        # or read-timeout could mean the run was created upstream already.
+        run_start_url = f"{BASE_URL}/acts/{actor_id}/runs"
+
+        async def _do_run_start() -> httpx.Response:
+            return await client.post(
+                run_start_url,
+                params={"token": settings.apify_api_token},
+                json=actor_input,
+            )
+
+        run_response = await _request_with_retry(
+            _do_run_start, url=run_start_url, retry_after_send=False,
         )
         run_response.raise_for_status()
         run_data = run_response.json().get("data", {})
@@ -105,9 +237,16 @@ async def _run_actor(actor_id: str, actor_input: dict[str, Any], wait_seconds: i
         dataset_id = run_data.get("defaultDatasetId")
         if not dataset_id:
             return []
-        items_response = await client.get(
-            f"{BASE_URL}/datasets/{dataset_id}/items",
-            params={"token": settings.apify_api_token, "clean": "true", "format": "json"},
+        items_url = f"{BASE_URL}/datasets/{dataset_id}/items"
+
+        async def _do_items() -> httpx.Response:
+            return await client.get(
+                items_url,
+                params={"token": settings.apify_api_token, "clean": "true", "format": "json"},
+            )
+
+        items_response = await _request_with_retry(
+            _do_items, url=items_url, retry_after_send=True,
         )
         items_response.raise_for_status()
         items = items_response.json()
