@@ -155,7 +155,12 @@ jobs:
         # closing the residual gap that today's pytest run does not
         # exercise the postgres dialect.
         env:
-          DATABASE_URL: sqlite:///:memory:
+          # Quote required: the bare ``sqlite:///:memory:`` value ends with
+          # a colon, which the YAML scanner misreads as a mapping
+          # separator (ScannerError "mapping values are not allowed here"
+          # at the trailing colon). Always quote env values that contain
+          # colons.
+          DATABASE_URL: "sqlite:///:memory:"
         # --maxfail=1 stops at the first failing test so the log isn't a wall
         # of red. -v keeps the test names readable in the GitHub UI without
         # spamming the diff view.
