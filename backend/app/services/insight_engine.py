@@ -2319,6 +2319,48 @@ def _strip_codefence(text: str) -> str:
     return t.strip()
 
 
+def _try_parse_llm_json(
+    raw_text: str,
+) -> tuple[Optional[Any], Optional[json.JSONDecodeError], str]:
+    """Sprint M2 lenient JSON parsing — single source of truth for the
+    LLM-response parse step.
+
+    Returns ``(parsed, error, parse_path)``:
+    - ``parsed`` is the decoded Python object on success, else ``None``.
+    - ``error`` is the *last* JSONDecodeError seen, retained so the caller
+      can surface ``.pos`` in the final diagnostic log on total failure.
+    - ``parse_path`` is ``"strict"`` (codefence-strip + json.loads worked),
+      ``"lenient"`` (substring between first ``{`` and last ``}`` was
+      required to parse), or ``""`` when nothing parsed.
+
+    Variants tried in order:
+    1. Strict: ``_strip_codefence`` then ``json.loads`` — covers (a)
+       Markdown-Fences from prior behaviour.
+    2. Lenient: extract the substring from the first ``{`` to the last
+       ``}`` and re-parse — covers (b) preamble/postamble around an
+       otherwise-valid object. The double extraction is cheap; we still
+       fall through to the caller's re-call loop for (d)-style
+       mid-document syntax errors that no string surgery can repair.
+    """
+    cleaned = _strip_codefence(raw_text)
+    try:
+        return json.loads(cleaned), None, "strict"
+    except json.JSONDecodeError as strict_exc:
+        first = cleaned.find("{")
+        last = cleaned.rfind("}")
+        if first != -1 and last > first:
+            substring = cleaned[first : last + 1]
+            if substring != cleaned:
+                try:
+                    return json.loads(substring), None, "lenient"
+                except json.JSONDecodeError:
+                    # Fall through with the strict error — its ``.pos`` is
+                    # measured against ``cleaned`` (what we log), which is
+                    # the most useful diagnostic for downstream analysis.
+                    pass
+        return None, strict_exc, ""
+
+
 def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
     in_rate = settings.anthropic_opus_input_per_1k_usd or 0.0
     out_rate = settings.anthropic_opus_output_per_1k_usd or 0.0
@@ -2384,74 +2426,119 @@ def generate_weekly_report(
         "model": model,
         "prompt_chars": len(user_prompt),
     }
-    logger.info("brief_anthropic_call_start", extra=call_extra)
-    anthropic_started = time.monotonic()
-    try:
-        message = messages_create_text(
-            model=model,
-            system=SYSTEM_PROMPT,
-            user_message=user_prompt,
-            max_tokens=max_tokens,
-        )
-    except Exception as exc:
-        anthropic_duration_ms = int((time.monotonic() - anthropic_started) * 1000)
-        logger.error(
+
+    def _call_and_extract(attempt_index: int) -> tuple[Any, str]:
+        """One Anthropic call + text-block extraction. ``attempt_index``
+        is 0 for the initial call, 1..N for retries — surfaced in the
+        ``brief_anthropic_call_*`` events so retries are correlatable in
+        Railway alongside the original cron line."""
+        attempt_extra = {**call_extra, "attempt": attempt_index}
+        logger.info("brief_anthropic_call_start", extra=attempt_extra)
+        started = time.monotonic()
+        try:
+            msg = messages_create_text(
+                model=model,
+                system=SYSTEM_PROMPT,
+                user_message=user_prompt,
+                max_tokens=max_tokens,
+            )
+        except Exception as call_exc:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            logger.error(
+                "brief_anthropic_call_done",
+                extra={
+                    **attempt_extra,
+                    "duration_ms": duration_ms,
+                    "outcome": "error",
+                    "error_type": type(call_exc).__name__,
+                },
+            )
+            raise
+        duration_ms = int((time.monotonic() - started) * 1000)
+        logger.info(
             "brief_anthropic_call_done",
             extra={
-                **call_extra,
-                "duration_ms": anthropic_duration_ms,
-                "outcome": "error",
-                "error_type": type(exc).__name__,
+                **attempt_extra,
+                "duration_ms": duration_ms,
+                "outcome": "success",
             },
         )
-        raise
-    anthropic_duration_ms = int((time.monotonic() - anthropic_started) * 1000)
-    logger.info(
-        "brief_anthropic_call_done",
-        extra={
-            **call_extra,
-            "duration_ms": anthropic_duration_ms,
-            "outcome": "success",
-        },
-    )
+        text = ""
+        try:
+            for block in msg.content or []:
+                if getattr(block, "type", None) == "text":
+                    text += getattr(block, "text", "")
+        except Exception as extract_exc:  # pragma: no cover — defensive
+            logger.warning("insight-engine-content-extract-failed: %s", extract_exc)
+        return msg, text
 
-    raw_text = ""
-    try:
-        # Anthropic SDK Message objects expose ``content`` as a list of
-        # content blocks; the text block has ``.text``. For a plain
-        # text-only response there is exactly one block.
-        for block in message.content or []:
-            if getattr(block, "type", None) == "text":
-                raw_text += getattr(block, "text", "")
-    except Exception as exc:  # pragma: no cover — defensive
-        logger.warning("insight-engine-content-extract-failed: %s", exc)
+    # Sprint M2 — JSON-Parse-Retry-Logic. The 17.05 Disney + 25.05
+    # warnerbros incidents showed Anthropic intermittently returns a 200
+    # with invalid JSON mid-document (Fall (d) — no truncation). The flow
+    # below tries strict parse, falls back to a lenient substring extract
+    # (covers preamble/postamble), and re-issues up to ``MAX_RECALLS``
+    # fresh ``messages_create_text`` calls if the response still won't
+    # parse. Each re-call is a real Anthropic call (Anthropic doesn't
+    # honor idempotency keys — see anthropic_client.py:140 docstring) so
+    # ``record_anthropic_call`` fires per call: F0.7 cost cap captures
+    # every retry without special-casing. If all attempts fail, the
+    # function returns ``llm_output=None`` exactly as before and
+    # ``_persist_report`` skips persistence — the cron loop survives.
+    MAX_RECALLS = 2
+    call_attempts: list[tuple[Any, str]] = []
 
-    cleaned = _strip_codefence(raw_text)
+    message, raw_text = _call_and_extract(attempt_index=0)
+    call_attempts.append((message, raw_text))
+    parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
+
+    for retry_n in range(1, MAX_RECALLS + 1):
+        if parsed is not None:
+            break
+        logger.warning(
+            "insight-engine-json-parse-retry",
+            extra={
+                "pair": pair_key,
+                "attempt": retry_n,
+                "max_attempts": MAX_RECALLS,
+                "error_type": type(parse_error).__name__ if parse_error else "Unknown",
+                "error_message": str(parse_error)[:200] if parse_error else "",
+            },
+        )
+        try:
+            message, raw_text = _call_and_extract(attempt_index=retry_n)
+        except Exception as call_exc:
+            # A re-call itself raised (rate-limit exhaustion, API error).
+            # Stop retrying — finaler Fallback (persist-skip) übernimmt.
+            logger.error(
+                "insight-engine-json-parse-recall-aborted",
+                extra={
+                    "pair": pair_key,
+                    "attempt": retry_n,
+                    "error_type": type(call_exc).__name__,
+                    "error_message": str(call_exc)[:200],
+                },
+            )
+            break
+        call_attempts.append((message, raw_text))
+        parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
+
     llm_output: Optional[LLMReport] = None
     raw_for_response: Optional[str] = None
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        # PR #154 Diagnose 2026-05-17 (Anti-Repetition-Bug Follow-up):
-        # bei Disney-replace=true mit Previous-Context-Block produziert
-        # Anthropic invalides JSON (Bug-Reproduktion 17:19 UTC: char 6950,
-        # "Expecting ',' delimiter"). Wir loggen den Response-Slice um die
-        # Fehlerposition fuer den Postmortem, ohne den ganzen 7k-Response
-        # auf Railway zu spammen. ``cleaned`` ist post-_strip_codefence —
-        # exakt das, was json.loads gesehen hat.
-        pos = exc.pos if exc.pos is not None else 0
-        logger.error(
-            "insight-engine-json-parse-failed",
-            extra={
-                "error_message": str(exc),
-                "char_position": pos,
-                "raw_response_length": len(cleaned),
-                "raw_response_first_500": cleaned[:500],
-                "raw_response_around_error": cleaned[max(0, pos - 200): pos + 200],
-            },
-        )
-        raw_for_response = raw_text  # surface to caller, don't swallow
-    else:
+
+    if parsed is not None:
+        # Surface which path rescued the parse — strict vs lenient (A) vs
+        # re-call (B) vs A-after-B. Only logged when something non-trivial
+        # happened so the happy-path log stream stays quiet.
+        if parse_path == "lenient" or len(call_attempts) > 1:
+            logger.info(
+                "insight-engine-json-parse-recovered",
+                extra={
+                    "pair": pair_key,
+                    "parse_path": parse_path,
+                    "anthropic_calls": len(call_attempts),
+                    "recall_count": len(call_attempts) - 1,
+                },
+            )
         try:
             llm_output = LLMReport.model_validate(parsed)
         except ValueError as exc:
@@ -2460,30 +2547,62 @@ def generate_weekly_report(
             # Mode als JSONDecodeError — kein ``.pos`` verfuegbar, also
             # nur first_500 zur Diagnose. Strukturell-getrenntes Log-Event
             # damit Railway-Filter zwischen "Anthropic gibt Mist" und
-            # "unser Schema passt nicht" unterscheiden kann.
+            # "unser Schema passt nicht" unterscheiden kann. Schema-Fehler
+            # werden NICHT erneut gecallt — das ist ein deterministischer
+            # Prompt-/Schema-Drift, kein transienter Anthropic-Glitch.
+            cleaned_for_log = _strip_codefence(raw_text)
             logger.error(
                 "insight-engine-schema-validation-failed",
                 extra={
                     "error_message": str(exc)[:500],
-                    "raw_response_length": len(cleaned),
-                    "raw_response_first_500": cleaned[:500],
+                    "raw_response_length": len(cleaned_for_log),
+                    "raw_response_first_500": cleaned_for_log[:500],
                 },
             )
             raw_for_response = raw_text
+    else:
+        # Finaler Fallback nach allen Retries. PR #154 hatte diesen Log
+        # angelegt; M2 zieht ihn unverändert nach hinten (nach allen
+        # Retries) und ergänzt ``anthropic_calls`` + ``recall_count``
+        # damit künftige Postmortems sehen, ob die Re-Calls schon gelaufen
+        # sind oder ob der Erstfehler durchschlug. Die ``raw_response_*``-
+        # Felder kommen aus dem LETZTEN Versuch — am informativsten für
+        # die "kommt das wieder?"-Frage.
+        cleaned = _strip_codefence(raw_text)
+        pos = parse_error.pos if parse_error and parse_error.pos is not None else 0
+        logger.error(
+            "insight-engine-json-parse-failed",
+            extra={
+                "pair": pair_key,
+                "error_message": str(parse_error) if parse_error else "",
+                "char_position": pos,
+                "raw_response_length": len(cleaned),
+                "raw_response_first_500": cleaned[:500],
+                "raw_response_around_error": cleaned[max(0, pos - 200): pos + 200],
+                "anthropic_calls": len(call_attempts),
+                "recall_count": len(call_attempts) - 1,
+            },
+        )
+        raw_for_response = raw_text
 
-    usage = getattr(message, "usage", None)
-    input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-    output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
-    cost = _estimate_cost_usd(input_tokens, output_tokens) if (input_tokens or output_tokens) else None
-
-    # Persist the brief-path Anthropic call so F0.6 cost-summary sees it.
-    # Before today's fix this was missed entirely — the weekly brief was
-    # the single most expensive Anthropic call we make ($0.30+/brief) but
-    # never landed in the costlog because the post_analyzer-path was the
-    # only caller of ``record_anthropic_call``. We pass the SDK usage
-    # object directly; the cost_log helper handles both attribute- and
-    # dict-shaped usage.
-    if usage is not None and (input_tokens or output_tokens):
+    # Cost accounting: jeder Call wird einzeln in costlog erfasst, damit
+    # F0.7-Cap die wahre Spend-Summe sieht (eine Pair-Generation kann
+    # jetzt bis zu MAX_RECALLS+1 Calls produzieren). Die Token-Summe wird
+    # für ``InsightReport.cost_usd_estimate`` aggregiert — auf der
+    # Persist-Skip-Strecke spiegelt sie damit den echten "bezahlter
+    # Leerlauf" wider, nicht nur den letzten Call.
+    input_tokens_total = 0
+    output_tokens_total = 0
+    for msg_attempt, _ in call_attempts:
+        usage = getattr(msg_attempt, "usage", None)
+        if usage is None:
+            continue
+        in_t = int(getattr(usage, "input_tokens", 0) or 0)
+        out_t = int(getattr(usage, "output_tokens", 0) or 0)
+        if not (in_t or out_t):
+            continue
+        input_tokens_total += in_t
+        output_tokens_total += out_t
         record_anthropic_call(
             usage,
             model=model,
@@ -2494,6 +2613,14 @@ def generate_weekly_report(
                 "iso_year": agg.iso_year,
             },
         )
+
+    input_tokens = input_tokens_total
+    output_tokens = output_tokens_total
+    cost = (
+        _estimate_cost_usd(input_tokens, output_tokens)
+        if (input_tokens or output_tokens)
+        else None
+    )
 
     return InsightReport(
         pair_key=agg.pair_key,
