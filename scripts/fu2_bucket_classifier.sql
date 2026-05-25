@@ -15,6 +15,22 @@
 --   B = Channel existiert, Apify scrapt silent 0 → bleibt aktiv (noch)
 --       Bekannt: netflixuk IG/TT, warnerbrosuk IG/TT, paramountpicturesuk TT
 --   C = Unbekannt → Browser-Check nötig, dann in Bucket A oder B einordnen
+--
+-- Fix 2026-05-25: zwei Schema-Drifts korrigiert, die das Skript seit
+-- 13.05. silently brach:
+--   1. ``status = 'success'`` → ``status = 'completed'``. ``CronRun.status``
+--      (entities.py:425-441, docstring) kennt nur die Werte
+--      ``running``, ``completed``, ``failed``, ``budget_exceeded``. Der
+--      Wert ``'success'`` wurde nie geschrieben — das WHERE matched
+--      konsequenz null Zeilen, der erste Block lieferte (0 rows).
+--   2. ``summary_json`` ist Postgres-Typ ``json``, nicht ``jsonb``
+--      (entities.py:440, ``sa_column=Column(JSON)`` → SQLAlchemys
+--      generischer ``JSON``-Type, der auf Postgres ``json`` erzeugt,
+--      NICHT ``jsonb``). Die ``->``-Verkettung erbt den Json-Typ, und
+--      eine COALESCE gegen ``'[]'::jsonb`` warf in Postgres 13+
+--      ``could not convert type jsonb to json``. Konsequente Umstellung
+--      auf ``::json`` + ``json_array_elements`` matched die echte
+--      Spaltenrealität.
 -- ============================================================
 
 SET search_path TO creative_radar, public;
@@ -33,7 +49,7 @@ SELECT
     (summary_json->'platforms'->'instagram'->>'zero_yield_count')::int AS ig_zero,
     (summary_json->'platforms'->'tiktok'->>'zero_yield_count')::int AS tt_zero
 FROM cron_run
-WHERE status = 'success'
+WHERE status = 'completed'
   AND started_at >= NOW() - INTERVAL '7 days'
 ORDER BY started_at DESC
 LIMIT 1;
@@ -45,7 +61,7 @@ LIMIT 1;
 WITH latest_run AS (
     SELECT id, started_at, summary_json
     FROM cron_run
-    WHERE status = 'success'
+    WHERE status = 'completed'
       AND started_at >= NOW() - INTERVAL '7 days'
     ORDER BY started_at DESC
     LIMIT 1
@@ -58,8 +74,8 @@ zero_yield_ig AS (
         item->>'market'     AS market,
         item->>'url'        AS url
     FROM latest_run,
-         jsonb_array_elements(
-             COALESCE(summary_json->'platforms'->'instagram'->'zero_yield_channels', '[]'::jsonb)
+         json_array_elements(
+             COALESCE(summary_json->'platforms'->'instagram'->'zero_yield_channels', '[]'::json)
          ) AS item
 ),
 zero_yield_tt AS (
@@ -70,8 +86,8 @@ zero_yield_tt AS (
         item->>'market'     AS market,
         item->>'url'        AS url
     FROM latest_run,
-         jsonb_array_elements(
-             COALESCE(summary_json->'platforms'->'tiktok'->'zero_yield_channels', '[]'::jsonb)
+         json_array_elements(
+             COALESCE(summary_json->'platforms'->'tiktok'->'zero_yield_channels', '[]'::json)
          ) AS item
 ),
 all_zero AS (
@@ -116,7 +132,7 @@ ORDER BY bucket, platform, handle;
 WITH latest_run AS (
     SELECT summary_json
     FROM cron_run
-    WHERE status = 'success'
+    WHERE status = 'completed'
       AND started_at >= NOW() - INTERVAL '7 days'
     ORDER BY started_at DESC
     LIMIT 1
@@ -124,15 +140,15 @@ WITH latest_run AS (
 zero_yield_ig AS (
     SELECT 'instagram' AS platform, item->>'handle' AS handle
     FROM latest_run,
-         jsonb_array_elements(
-             COALESCE(summary_json->'platforms'->'instagram'->'zero_yield_channels', '[]'::jsonb)
+         json_array_elements(
+             COALESCE(summary_json->'platforms'->'instagram'->'zero_yield_channels', '[]'::json)
          ) AS item
 ),
 zero_yield_tt AS (
     SELECT 'tiktok' AS platform, item->>'handle' AS handle
     FROM latest_run,
-         jsonb_array_elements(
-             COALESCE(summary_json->'platforms'->'tiktok'->'zero_yield_channels', '[]'::jsonb)
+         json_array_elements(
+             COALESCE(summary_json->'platforms'->'tiktok'->'zero_yield_channels', '[]'::json)
          ) AS item
 ),
 all_zero AS (
