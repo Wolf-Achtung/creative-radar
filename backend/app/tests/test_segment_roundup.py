@@ -329,50 +329,63 @@ def test_parse_cron_roundup_segments_whitespace_and_trailing_comma(caplog):
     assert result == [ChannelSegment.US_MAJOR, ChannelSegment.DE_VERLEIH]
 
 
-def test_parse_cron_roundup_segments_unknown_token_warns_and_skips(caplog):
+def test_parse_cron_roundup_segments_unknown_token_warns_and_skips(monkeypatch):
     """Unbekannter Token → Warning-Log + skip, gueltige Tokens kommen
-    durch."""
-    import logging
-    from app.services.segment_roundup import parse_cron_roundup_segments
-    with caplog.at_level(logging.WARNING, logger="app.services.segment_roundup"):
-        result = parse_cron_roundup_segments("us_major,fr_major,de_verleih")
+    durch.
+
+    Direkter Logger-Mock statt caplog: andere Tests in der Full-Suite
+    koennen propagate/handler-State des Loggers manipulieren und
+    vergessen zurueckzubauen, dann sieht caplog nichts. Direct-Mock auf
+    ``logger.warning`` ist immun dagegen.
+    """
+    from unittest.mock import MagicMock
+    from app.services import segment_roundup as srm
+    mock_warning = MagicMock()
+    monkeypatch.setattr(srm.logger, "warning", mock_warning)
+
+    result = srm.parse_cron_roundup_segments("us_major,fr_major,de_verleih")
+
     assert result == [ChannelSegment.US_MAJOR, ChannelSegment.DE_VERLEIH]
-    warnings = [
-        r for r in caplog.records
-        if "cron_roundup_segments_unknown_value" in r.getMessage()
-    ]
-    assert len(warnings) == 1
-    assert warnings[0].token == "fr_major"
+    # genau ein Warning fuer den unknown token
+    assert mock_warning.call_count == 1
+    args, kwargs = mock_warning.call_args
+    assert args[0] == "cron_roundup_segments_unknown_value"
+    assert kwargs["extra"]["token"] == "fr_major"
 
 
-def test_parse_cron_roundup_segments_empty_value_errors(caplog):
+def test_parse_cron_roundup_segments_empty_value_errors(monkeypatch):
     """Wolf-Festlegung: leerer Gesamtwert darf NICHT still in
     'keine Roundups' kippen — ERROR-Log und leere Liste."""
-    import logging
-    from app.services.segment_roundup import parse_cron_roundup_segments
-    with caplog.at_level(logging.ERROR, logger="app.services.segment_roundup"):
-        result = parse_cron_roundup_segments("")
+    from unittest.mock import MagicMock
+    from app.services import segment_roundup as srm
+    mock_error = MagicMock()
+    monkeypatch.setattr(srm.logger, "error", mock_error)
+
+    result = srm.parse_cron_roundup_segments("")
+
     assert result == []
-    errors = [
-        r for r in caplog.records
-        if "cron_roundup_segments_empty" in r.getMessage()
-    ]
-    assert len(errors) == 1
+    assert mock_error.call_count == 1
+    args, _ = mock_error.call_args
+    assert args[0] == "cron_roundup_segments_empty"
 
 
-def test_parse_cron_roundup_segments_all_unknown_errors(caplog):
+def test_parse_cron_roundup_segments_all_unknown_errors(monkeypatch):
     """Wenn ALLE Tokens unbekannt sind, ist das ebenfalls ein
     leerer/unparsebarer Gesamtwert — ERROR-Log."""
-    import logging
-    from app.services.segment_roundup import parse_cron_roundup_segments
-    with caplog.at_level(logging.ERROR, logger="app.services.segment_roundup"):
-        result = parse_cron_roundup_segments("fr_major,it_major")
+    from unittest.mock import MagicMock
+    from app.services import segment_roundup as srm
+    mock_error = MagicMock()
+    monkeypatch.setattr(srm.logger, "error", mock_error)
+    # warning silenced damit es keine token-Warnings stoert (wir checken
+    # nur den finalen Error)
+    monkeypatch.setattr(srm.logger, "warning", MagicMock())
+
+    result = srm.parse_cron_roundup_segments("fr_major,it_major")
+
     assert result == []
-    errors = [
-        r for r in caplog.records
-        if "cron_roundup_segments_empty" in r.getMessage()
-    ]
-    assert len(errors) == 1
+    # finaler "alle Tokens unbekannt"-Error fired
+    error_messages = [call.args[0] for call in mock_error.call_args_list]
+    assert "cron_roundup_segments_empty" in error_messages
 
 
 def test_silent_channel_list_uses_platform_suffix_for_multi_platform_handles(db):
