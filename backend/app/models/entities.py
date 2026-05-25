@@ -143,6 +143,25 @@ class AcquisitionStrategy(str, Enum):
     MANUAL = "manual"
 
 
+class ChannelSegment(str, Enum):
+    """Klassifizierungs-Steuerfeld fuer Non-Pair-Channels (Master-Plan-
+    Schritt 2, Migrationen e1c93a4d7f08 + b8f2a7c40e91). Pair-Pool-Channels
+    bleiben ``segment = NULL`` und tauchen in keinem Roundup auf — Pair-
+    und Roundup-Pfad sind disjunkt. Die sechs Werte spiegeln Wolfs
+    Klassifizierungs-Regel (Content-Positionierung schlaegt Konzern-
+    Eigentum): Mainstream/Wide-Release → ``*_major``, Arthouse/Specialty
+    → ``*_independent``. Streamer zaehlen als ``*_major`` bzw.
+    ``de_verleih``. Reihenfolge identisch mit der ENUM-Werteliste in
+    der Migration e1c93a4d7f08; pyenum.value ist die DB-Repraesentation.
+    """
+    US_MAJOR = "us_major"
+    US_INDEPENDENT = "us_independent"
+    UK_MAJOR = "uk_major"
+    UK_INDEPENDENT = "uk_independent"
+    DE_VERLEIH = "de_verleih"
+    DE_INDEPENDENT = "de_independent"
+
+
 def _enum_column(enum_cls, name: str, *, nullable: bool, server_default: Optional[str] = None) -> Column:
     """Build a column for one of the channel-registry enums. Postgres uses the
     native ENUM type defined in migration 7e3b2c4a8f51 (creative_radar schema);
@@ -198,6 +217,17 @@ class Channel(SQLModel, table=True):
     monitoring_enabled: bool = Field(
         default=True,
         sa_column=Column(sa.Boolean(), nullable=False, server_default=sa.true()),
+    )
+    # Master-Plan-Schritt-2: Klassifizierungs-Steuerfeld fuer den
+    # Non-Pair-Roundup-Pfad. Pair-Pool-Channels haben ``segment = NULL``
+    # und sind aus jedem Roundup-Generator-Lauf disjunkt ausgeschlossen.
+    # Migrationen e1c93a4d7f08 (Spalte) + b8f2a7c40e91 (Backfill).
+    # Lazy-Mirror bis hier: Schritt 2 hat die Spalte produktiv ohne
+    # ORM-Spiegelung gefuellt; Schritt 3 (Roundup-Generator) ist der
+    # erste Read-Pfad und braucht das Feld typed im ORM.
+    segment: Optional[ChannelSegment] = Field(
+        default=None,
+        sa_column=_enum_column(ChannelSegment, "channel_segment", nullable=True),
     )
     # Audit-Felder, befüllt nur durch scripts/import_channels.py
     # (Sprint 5.3.X Perplexity-seed bulk-import). Read-only-by-convention
