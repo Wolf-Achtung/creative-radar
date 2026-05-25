@@ -150,10 +150,10 @@ jobs:
         # creative_radar`` at fixture-setup. Step-level env wins over
         # job-level env, so this single override flips the resolver back
         # to the no-schema sqlite mode that the existing fixtures expect.
-        # Tech-debt: PHASE_5_BACKLOG.md has the follow-up sprint to move
-        # the fixtures themselves onto the postgres service container —
-        # closing the residual gap that today's pytest run does not
-        # exercise the postgres dialect.
+        # ``--ignore=app/tests/integration`` keeps the Postgres-only
+        # integration suite (Variante-Z Phase 1) out of this step — those
+        # tests run in their own pytest invocation below with the postgres
+        # URL restored.
         env:
           # Quote required: the bare ``sqlite:///:memory:`` value ends with
           # a colon, which the YAML scanner misreads as a mapping
@@ -164,4 +164,20 @@ jobs:
         # --maxfail=1 stops at the first failing test so the log isn't a wall
         # of red. -v keeps the test names readable in the GitHub UI without
         # spamming the diff view.
-        run: pytest -v --maxfail=1
+        run: pytest -v --maxfail=1 --ignore=app/tests/integration
+
+      - name: Run Postgres integration suite
+        working-directory: backend
+        # Variante-Z Phase 1 (Sprint 2026-05-25): focused integration
+        # tests for the Postgres-only code paths that the SQLite suite
+        # cannot exercise — ``pg_advisory_xact_lock`` semantics in
+        # ``_acquire_brief_lock`` and the ``creative_radar``-schema
+        # attachment in ``entities._CR_TABLE_ARGS``. Inherits the
+        # job-level ``DATABASE_URL=postgresql://...`` because this is
+        # exactly the dialect we want to test. Bootstrap + alembic stamp
+        # already ran above; the integration conftest does its own
+        # DROP SCHEMA + CREATE SCHEMA per test so leftover state is not
+        # a concern. Running locally without Postgres? The pg_engine
+        # fixture skips cleanly — no infra dependency for the laptop
+        # workflow.
+        run: pytest app/tests/integration/ -v
