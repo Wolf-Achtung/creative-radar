@@ -91,6 +91,18 @@ def _utc_naive(dt: datetime) -> datetime:
     return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
 
 
+def _current_iso_year_week() -> tuple[int, int]:
+    """Heutige ISO (year, week) — die ``/api/admin/insights/regenerate``-
+    Route reicht kein ``now``-Argument an ``generate_and_persist_report``
+    durch, daher fällt ``aggregate_pair`` auf ``datetime.now(timezone.utc)``
+    zurück und der Composite-PK-Lookup geht gegen die heutige ISO-Woche.
+    Tests müssen ihren Seed an dieselbe Woche binden, sonst kippt der
+    ``existing is not None``-Pfad sobald der Wandkalender umblättert
+    (genau das ist mit PR #150 zwischen 2026-05-17 und 2026-05-18 passiert)."""
+    iso = datetime.now(timezone.utc).isocalendar()
+    return iso.year, iso.week
+
+
 def _empty_title_coverage() -> TitleCoverage:
     return TitleCoverage.model_construct(
         titles_in_both_markets=[],
@@ -235,9 +247,10 @@ def test_regenerate_with_force_alone_returns_cached_brief(client, db, monkeypatc
     ``replace=true`` triggert keinen LLM-Call und returnt den existierenden
     Brief."""
     pair = "disney"
+    iso_year, iso_week = _current_iso_year_week()
     old_generated_at = datetime(2026, 5, 13, 8, 31, 0, tzinfo=timezone.utc)
     _seed_existing_brief(
-        db, pair, iso_year=2026, iso_week=20,
+        db, pair, iso_year=iso_year, iso_week=iso_week,
         generated_at=old_generated_at, cost_cents=99,
     )
 
@@ -267,7 +280,7 @@ def test_regenerate_with_force_alone_returns_cached_brief(client, db, monkeypatc
 
     # Row in DB unchanged.
     with Session(db) as session:
-        row = session.get(InsightReportRow, (pair, 2026, 20))
+        row = session.get(InsightReportRow, (pair, iso_year, iso_week))
         assert row is not None
         assert _utc_naive(row.generated_at) == _utc_naive(old_generated_at)
         assert row.cost_usd_cents == 99
@@ -278,16 +291,17 @@ def test_regenerate_with_replace_triggers_new_generation(client, db, monkeypatch
     ``generate_weekly_report`` und schreibt die Row neu (UPSERT via
     ``_persist_report``-delete-then-insert)."""
     pair = "disney"
+    iso_year, iso_week = _current_iso_year_week()
     old_generated_at = datetime(2026, 5, 13, 8, 31, 0, tzinfo=timezone.utc)
     _seed_existing_brief(
-        db, pair, iso_year=2026, iso_week=20,
+        db, pair, iso_year=iso_year, iso_week=iso_week,
         generated_at=old_generated_at, cost_cents=99,
     )
 
     # Freezed "new" timestamp so the test is deterministic.
     new_generated_at = datetime(2026, 5, 17, 14, 0, 0, tzinfo=timezone.utc)
     fresh_report = _build_synthetic_report(
-        pair, 2026, 20,
+        pair, iso_year, iso_week,
         generated_at=new_generated_at, cost_cents=187,
     )
     call_counter = {"count": 0, "kwargs": []}
@@ -318,7 +332,7 @@ def test_regenerate_with_replace_triggers_new_generation(client, db, monkeypatch
     assert body["total_cost_cents"] == 187
 
     with Session(db) as session:
-        row = session.get(InsightReportRow, (pair, 2026, 20))
+        row = session.get(InsightReportRow, (pair, iso_year, iso_week))
         assert row is not None
         # Row wurde überschrieben — neue generated_at, neue cost.
         # SQLite stripped tzinfo on persist; compare as naive UTC.
@@ -328,8 +342,8 @@ def test_regenerate_with_replace_triggers_new_generation(client, db, monkeypatch
         all_rows = session.exec(
             __import__("sqlmodel").select(InsightReportRow).where(
                 InsightReportRow.pair_key == pair,
-                InsightReportRow.iso_year == 2026,
-                InsightReportRow.iso_week == 20,
+                InsightReportRow.iso_year == iso_year,
+                InsightReportRow.iso_week == iso_week,
             )
         ).all()
         assert len(all_rows) == 1
@@ -339,11 +353,12 @@ def test_regenerate_all_with_replace_triggers_all_enabled_pairs(client, db, monk
     """``pair=all&replace=true`` propagiert ``replace`` an jeden Pair.
     Jeder enabled Pair triggert einen LLM-Call."""
     n_pairs = _enabled_pair_count()
+    iso_year, iso_week = _current_iso_year_week()
     old_generated_at = datetime(2026, 5, 13, 9, 0, 0, tzinfo=timezone.utc)
     for pair_key, pair_def in PAIRS.items():
         if pair_def.get("enabled", False):
             _seed_existing_brief(
-                db, pair_key, iso_year=2026, iso_week=20,
+                db, pair_key, iso_year=iso_year, iso_week=iso_week,
                 generated_at=old_generated_at, cost_cents=99,
             )
 
@@ -354,7 +369,7 @@ def test_regenerate_all_with_replace_triggers_all_enabled_pairs(client, db, monk
         call_counter["count"] += 1
         call_counter["pairs"].append(pair_key)
         return _build_synthetic_report(
-            pair_key, 2026, 20,
+            pair_key, iso_year, iso_week,
             generated_at=new_generated_at, cost_cents=150,
         )
 
@@ -386,7 +401,7 @@ def test_regenerate_all_with_replace_triggers_all_enabled_pairs(client, db, monk
         for pair_key, pair_def in PAIRS.items():
             if not pair_def.get("enabled", False):
                 continue
-            row = session.get(InsightReportRow, (pair_key, 2026, 20))
+            row = session.get(InsightReportRow, (pair_key, iso_year, iso_week))
             assert row is not None
             assert _utc_naive(row.generated_at) == _utc_naive(new_generated_at), (
                 f"pair {pair_key} should have new generated_at after "
