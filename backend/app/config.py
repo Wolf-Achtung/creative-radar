@@ -130,6 +130,22 @@ class Settings(BaseSettings):
     # Versicherung im Normalbetrieb greift.
     apify_budget_enforced: bool = True
 
+    # Sprint F0.7 Hard-Cap-Vollausbau (2026-05-25) — Anthropic-Monatsbudget.
+    # Datenpunkte vor Launch: 17.05 Force-Lauf 9 Pairs = $17.27;
+    # 25.05 Cadence-Lauf 8 Pairs (mit M2-Retry-Aufschlag warnerbros) = $17.90.
+    # Hochrechnung auf wöchentlichen Cron-Rhythmus: ~$70-90/Monat.
+    # Default $100 gibt ~5× Cushion über die beobachtete Wochenlast —
+    # genug für Prompt-Erweiterungen, mehr Pairs, oder eine schlechte
+    # Woche mit intermittenten JSON-Parse-Retries. Mechanik exakt analog
+    # F0.6: ``compute_anthropic_monthly_spend`` summiert über alle fünf
+    # ``anthropic_*``-Provider-Buckets (Opus-Brief + Haiku/Sonnet-Vision-
+    # Post-Analyzer + Generic-Fallback), Pre-Flight im Cron bricht den
+    # ganzen Run mit ``status='budget_exceeded'`` ab, Kill-Switch via ENV.
+    anthropic_monthly_budget_usd: float = 100.0
+    anthropic_soft_warn_pct: float = 0.80
+    anthropic_hard_cap_pct: float = 1.00
+    anthropic_budget_enforced: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

@@ -42,7 +42,10 @@ from app.services.anthropic_client import (
     AnthropicAuthError,
     AnthropicRateLimitError,
 )
-from app.services.budget_check import compute_apify_monthly_spend
+from app.services.budget_check import (
+    compute_anthropic_monthly_spend,
+    compute_apify_monthly_spend,
+)
 from app.services.insight_engine import PAIRS, generate_and_persist_report
 
 logger = logging.getLogger(__name__)
@@ -152,6 +155,19 @@ def budget_status(session: Session = Depends(get_session)) -> dict:
     through the global middleware — no separate ADMIN token here.
     """
     return compute_apify_monthly_spend(session).to_dict()
+
+
+@router.get("/anthropic-budget-status")
+def anthropic_budget_status(session: Session = Depends(get_session)) -> dict:
+    """Sprint F0.7 — current Anthropic monthly budget snapshot.
+
+    Mirror of ``/budget-status`` for the Anthropic side, separate endpoint
+    to avoid breaking the existing single-flat-dict contract. Aggregates
+    across all five ``anthropic_*``-provider buckets so Opus brief calls,
+    Haiku/Sonnet post-analyzer calls, and the Sonnet vision pathway all
+    show in the same monthly figure that the cron pre-flight evaluates.
+    """
+    return compute_anthropic_monthly_spend(session).to_dict()
 
 
 # ---------- YouTube sync (Sprint 5.2.3) -------------------------------

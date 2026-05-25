@@ -45,6 +45,7 @@ from app.services.budget_check import (
     aggregate_anthropic_costs_since,
     aggregate_apify_costs_since,
     aggregate_openai_costs_since,
+    compute_anthropic_monthly_spend,
     compute_apify_monthly_spend,
 )
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
@@ -549,6 +550,37 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
                 )
                 return
 
+            # Sprint F0.7 — Anthropic-Monatsbudget-Pre-Flight. Exakt analog
+            # zur Apify-Logik darüber: separater Hard-Cap-Wert ($100 default)
+            # mit eigenem Kill-Switch (``anthropic_budget_enforced``), gleiche
+            # Abort-Semantik (``status='budget_exceeded'``, CronRun bleibt
+            # als Audit-Trail). Reason-Feld unterscheidet die zwei Caps
+            # (``apify_budget_exceeded`` vs ``anthropic_budget_exceeded``)
+            # damit Postmortems sofort sehen welcher Provider die Bremse
+            # war. Beide Budgets landen im Summary, damit Wolf in der
+            # Admin-UI auch nach Apify-Abort sieht, wo Anthropic gerade
+            # steht (und umgekehrt).
+            anthropic_budget = compute_anthropic_monthly_spend(session)
+            if anthropic_budget.hard_cap_exceeded and anthropic_budget.enforced:
+                summary = {
+                    "skipped": True,
+                    "reason": "anthropic_budget_exceeded",
+                    "budget": budget.to_dict(),
+                    "anthropic_budget": anthropic_budget.to_dict(),
+                }
+                run.summary_json = summary
+                run.status = "budget_exceeded"
+                run.completed_at = datetime.now(timezone.utc)
+                session.add(run)
+                session.commit()
+                logger.warning(
+                    "cron run %s aborted: anthropic budget %d/%d cents (%.1f%%)",
+                    run_id, anthropic_budget.spent_usd_cents,
+                    anthropic_budget.budget_usd_cents,
+                    anthropic_budget.pct_used * 100,
+                )
+                return
+
             summary, created_asset_ids = await _execute_platform_sync(session, run_index)
             cap = settings.cron_vision_max_assets_per_run
             if created_asset_ids:
@@ -589,6 +621,14 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             summary["budget"] = budget.to_dict()
             if budget.soft_warn_exceeded:
                 summary["budget_warning"] = True
+            # F0.7 surface: same shape as ``budget``, separate key so the
+            # admin dashboard (and any operator-side grep) can tell at a
+            # glance which provider is approaching its cap. Soft-warn
+            # ($80) goes via a separate flag so the Apify-only legacy
+            # ``budget_warning`` semantics keep their meaning.
+            summary["anthropic_budget"] = anthropic_budget.to_dict()
+            if anthropic_budget.soft_warn_exceeded:
+                summary["anthropic_budget_warning"] = True
             # Cadence-Sprint 2026-05-17 — Frühwarnsignal #2 aus dem Premortem
             # (PR #147, Failure-Mode #2 "Bug regrediert nach Refactor"). Ein
             # Cron-Run mit aktivierter Brief-Gen, aber 0 generierten Briefs UND
