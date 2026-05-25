@@ -306,6 +306,75 @@ def test_generate_and_persist_roundup_is_last_write_wins(db, monkeypatch):
 # Test 6 — Disjunkt: Pair-Pool-Channel (segment=NULL) wird nie aggregiert
 # ---------------------------------------------------------------------------
 
+def test_parse_cron_roundup_segments_default(caplog):
+    """Default-CSV (alle vier produktiven Segmente) → vier ChannelSegment-
+    Werte in der CSV-Reihenfolge."""
+    from app.services.segment_roundup import parse_cron_roundup_segments
+    result = parse_cron_roundup_segments(
+        "us_major,us_independent,de_verleih,de_independent"
+    )
+    assert result == [
+        ChannelSegment.US_MAJOR,
+        ChannelSegment.US_INDEPENDENT,
+        ChannelSegment.DE_VERLEIH,
+        ChannelSegment.DE_INDEPENDENT,
+    ]
+
+
+def test_parse_cron_roundup_segments_whitespace_and_trailing_comma(caplog):
+    """Tolerant fuer Whitespace und trailing comma (analog
+    is_uk_enabled_for_pair-Parsing)."""
+    from app.services.segment_roundup import parse_cron_roundup_segments
+    result = parse_cron_roundup_segments("  us_major , de_verleih ,")
+    assert result == [ChannelSegment.US_MAJOR, ChannelSegment.DE_VERLEIH]
+
+
+def test_parse_cron_roundup_segments_unknown_token_warns_and_skips(caplog):
+    """Unbekannter Token → Warning-Log + skip, gueltige Tokens kommen
+    durch."""
+    import logging
+    from app.services.segment_roundup import parse_cron_roundup_segments
+    with caplog.at_level(logging.WARNING, logger="app.services.segment_roundup"):
+        result = parse_cron_roundup_segments("us_major,fr_major,de_verleih")
+    assert result == [ChannelSegment.US_MAJOR, ChannelSegment.DE_VERLEIH]
+    warnings = [
+        r for r in caplog.records
+        if "cron_roundup_segments_unknown_value" in r.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert warnings[0].token == "fr_major"
+
+
+def test_parse_cron_roundup_segments_empty_value_errors(caplog):
+    """Wolf-Festlegung: leerer Gesamtwert darf NICHT still in
+    'keine Roundups' kippen — ERROR-Log und leere Liste."""
+    import logging
+    from app.services.segment_roundup import parse_cron_roundup_segments
+    with caplog.at_level(logging.ERROR, logger="app.services.segment_roundup"):
+        result = parse_cron_roundup_segments("")
+    assert result == []
+    errors = [
+        r for r in caplog.records
+        if "cron_roundup_segments_empty" in r.getMessage()
+    ]
+    assert len(errors) == 1
+
+
+def test_parse_cron_roundup_segments_all_unknown_errors(caplog):
+    """Wenn ALLE Tokens unbekannt sind, ist das ebenfalls ein
+    leerer/unparsebarer Gesamtwert — ERROR-Log."""
+    import logging
+    from app.services.segment_roundup import parse_cron_roundup_segments
+    with caplog.at_level(logging.ERROR, logger="app.services.segment_roundup"):
+        result = parse_cron_roundup_segments("fr_major,it_major")
+    assert result == []
+    errors = [
+        r for r in caplog.records
+        if "cron_roundup_segments_empty" in r.getMessage()
+    ]
+    assert len(errors) == 1
+
+
 def test_silent_channel_list_uses_platform_suffix_for_multi_platform_handles(db):
     """Schritt-4 Dedupe-Fix: Multi-Plattform-Handles im Silent-Block muessen
     ``@handle (platform)`` zeigen — ohne Plattform-Suffix erscheinen sie

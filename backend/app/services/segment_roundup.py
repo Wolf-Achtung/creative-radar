@@ -80,6 +80,68 @@ ROUNDUP_DEFAULT_TOP_POSTS_N = 5
 ROUNDUP_DEFAULT_MAX_TOKENS = 8000
 
 
+def parse_cron_roundup_segments(raw: str) -> list[ChannelSegment]:
+    """Parst die ``cron_roundup_segments``-Setting (CSV) in eine
+    geordnete Liste von ``ChannelSegment``-Werten.
+
+    Wolf-Festlegung Ping 1, 25.05.:
+    - Tolerant fuer Whitespace, leere Tokens (z.B. trailing comma).
+    - Unbekannter Einzelwert → Warning-Log + skip (Cron laeuft mit
+      Rest weiter).
+    - Komplett leerer oder durchgehend unparsebarer Gesamtwert →
+      ERROR-Log und leere Liste zurueck. **NICHT** still in
+      "keine Roundups" kippen — der Caller (Cron) muss die leere
+      Liste als Stop-Signal interpretieren und ``skipped_reason=
+      no_parseable_segments`` ins Summary schreiben.
+
+    Erhaltung der Reihenfolge: dieselbe wie in der CSV — Wolf kann
+    damit Prioritaet steuern (wichtigstes Segment zuerst), falls
+    F0.7-Cap im Cron mitten im Roundup-Block zuschlaegt.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        logger.error(
+            "cron_roundup_segments_empty",
+            extra={"reason": "config value is empty or whitespace-only"},
+        )
+        return []
+
+    tokens = [t.strip() for t in raw.split(",") if t.strip()]
+    if not tokens:
+        # raw war z.B. "," oder ",,, " — nur Trenner ohne Werte.
+        logger.error(
+            "cron_roundup_segments_empty",
+            extra={"reason": "no non-empty tokens after split", "raw": raw[:200]},
+        )
+        return []
+
+    parsed: list[ChannelSegment] = []
+    unknowns: list[str] = []
+    for token in tokens:
+        try:
+            parsed.append(ChannelSegment(token))
+        except ValueError:
+            unknowns.append(token)
+            logger.warning(
+                "cron_roundup_segments_unknown_value",
+                extra={"token": token, "allowed": [s.value for s in ChannelSegment]},
+            )
+
+    if not parsed:
+        # Alle Tokens waren unparsebar — gleicher Failure-Mode wie
+        # leere CSV. Wolf-Vorgabe: nicht still in "keine Roundups"
+        # kippen.
+        logger.error(
+            "cron_roundup_segments_empty",
+            extra={
+                "reason": "all tokens unknown",
+                "unknown_tokens": unknowns,
+                "allowed": [s.value for s in ChannelSegment],
+            },
+        )
+    return parsed
+
+
 ROUNDUP_SYSTEM_PROMPT = """Du schreibst einen kurzen wöchentlichen Roundup für ein
 Segment des deutschen/internationalen Film-Marketing-Markts. Stil: Trade-
 Briefing für Cutter und Creative Producer im Trailerhaus-Stil — nüchtern,
@@ -558,4 +620,5 @@ __all__ = [
     "aggregate_segment",
     "generate_segment_roundup",
     "generate_and_persist_roundup",
+    "parse_cron_roundup_segments",
 ]
