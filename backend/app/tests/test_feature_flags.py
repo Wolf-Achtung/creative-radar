@@ -9,7 +9,7 @@ import pytest
 
 from app.core.feature_flags import (
     is_independents_enabled,
-    is_single_market_schema_enabled,
+    is_segment_roundups_enabled,
     is_uk_enabled_for_pair,
 )
 
@@ -78,9 +78,9 @@ class TestIndependentsFlag:
 
 class TestSingleMarketSchemaFlag:
     def test_default_returns_false(self, monkeypatch):
-        monkeypatch.delenv("FEATURE_SINGLE_MARKET_SCHEMA", raising=False)
-        assert is_single_market_schema_enabled() is False
+        monkeypatch.delenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", raising=False)
+        assert is_segment_roundups_enabled() is False
 
     def test_explicit_true(self, monkeypatch):
-        monkeypatch.setenv("FEATURE_SINGLE_MARKET_SCHEMA", "true")
-        assert is_single_market_schema_enabled() is True
+        monkeypatch.setenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", "true")
+        assert is_segment_roundups_enabled() is True

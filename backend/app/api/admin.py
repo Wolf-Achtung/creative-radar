@@ -46,7 +46,7 @@ from app.services.budget_check import (
     compute_anthropic_monthly_spend,
     compute_apify_monthly_spend,
 )
-from app.core.feature_flags import is_single_market_schema_enabled
+from app.core.feature_flags import is_segment_roundups_enabled
 from app.models.entities import ChannelSegment
 from app.services.insight_engine import PAIRS, generate_and_persist_report
 from app.services.segment_roundup import (
@@ -600,7 +600,7 @@ def trigger_segment_roundup(
     Synthese, kein Vergleich). Last-Write-Wins auf
     ``(segment, iso_year, iso_week)``.
 
-    Gate: ``FEATURE_SINGLE_MARKET_SCHEMA``-Env-Var (PR #155, default off).
+    Gate: ``FEATURE_SEGMENT_ROUNDUPS_ENABLED``-Env-Var (PR #155, default off).
     Off → 503. Wolf kann den Pilot in Production via Railway-ENV-Toggle
     ein-/ausschalten ohne Code-Deploy. **Hinweis Wolf 25.05.: Die Flag-
     Zuordnung ist vorlaeufig; die endgueltige Benennung faellt in
@@ -611,12 +611,12 @@ def trigger_segment_roundup(
     Anthropic-Cap-Aggregation. Pilot-Hochrechnung erfolgt nach dem
     ersten Real-Lauf gegen Production-Daten.
     """
-    if not is_single_market_schema_enabled():
+    if not is_segment_roundups_enabled():
         raise HTTPException(
             status_code=503,
             detail=(
                 "Segment-Roundup-Pilot ist deaktiviert. "
-                "FEATURE_SINGLE_MARKET_SCHEMA muss in Railway-ENV auf 'true' gesetzt sein."
+                "FEATURE_SEGMENT_ROUNDUPS_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
             ),
         )
 

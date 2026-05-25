@@ -3,7 +3,7 @@
 
 Vier Garantien:
 
-1. Feature-Flag-Gate: bei ``FEATURE_SINGLE_MARKET_SCHEMA != "true"``
+1. Feature-Flag-Gate: bei ``FEATURE_SEGMENT_ROUNDUPS_ENABLED != "true"``
    liefert der Endpoint 503. Wolf-Festlegung 25.05.: Pilot-Auslosse-
    Pfad ist via Env-Toggle ein-/ausschaltbar ohne Deploy.
 2. Unbekanntes Segment liefert 404 mit klarer Fehlermeldung.
@@ -62,7 +62,7 @@ def client(db, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "api_token", "TESTTOKEN", raising=False)
     # Feature-Flag konsequent off, damit Tests ihre eigene Einstellung
     # explizit machen (default-off entspricht Production-Default).
-    monkeypatch.delenv("FEATURE_SINGLE_MARKET_SCHEMA", raising=False)
+    monkeypatch.delenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", raising=False)
 
     def _override():
         with Session(db) as session:
@@ -144,14 +144,14 @@ def _patch_anthropic_ok(monkeypatch) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 def test_endpoint_returns_503_when_feature_flag_off(client, db, monkeypatch):
-    monkeypatch.delenv("FEATURE_SINGLE_MARKET_SCHEMA", raising=False)
+    monkeypatch.delenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", raising=False)
     response = client.post(
         "/api/admin/roundups/generate",
         params={"segment": "us_major"},
         headers={"Authorization": "Bearer TESTTOKEN"},
     )
     assert response.status_code == 503
-    assert "FEATURE_SINGLE_MARKET_SCHEMA" in response.text
+    assert "FEATURE_SEGMENT_ROUNDUPS_ENABLED" in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ def test_endpoint_returns_503_when_feature_flag_off(client, db, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_endpoint_returns_404_for_unknown_segment(client, monkeypatch):
-    monkeypatch.setenv("FEATURE_SINGLE_MARKET_SCHEMA", "true")
+    monkeypatch.setenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", "true")
     response = client.post(
         "/api/admin/roundups/generate",
         params={"segment": "fr_major"},
@@ -177,7 +177,7 @@ def test_endpoint_returns_404_for_unknown_segment(client, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_endpoint_runs_roundup_end_to_end(client, db, monkeypatch):
-    monkeypatch.setenv("FEATURE_SINGLE_MARKET_SCHEMA", "true")
+    monkeypatch.setenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", "true")
     ch = _seed_channel(db, handle="a24", segment=ChannelSegment.US_INDEPENDENT)
     _seed_post(db, ch.id, days_ago=3, engagement=500)
     mock_anthropic = _patch_anthropic_ok(monkeypatch)
@@ -214,7 +214,7 @@ def test_endpoint_runs_roundup_end_to_end(client, db, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_endpoint_requires_bearer_auth(client, monkeypatch):
-    monkeypatch.setenv("FEATURE_SINGLE_MARKET_SCHEMA", "true")
+    monkeypatch.setenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", "true")
     response = client.post(
         "/api/admin/roundups/generate",
         params={"segment": "us_major"},

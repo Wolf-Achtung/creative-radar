@@ -24,14 +24,23 @@ Helper-Modul: `backend/app/core/feature_flags.py` (PR #155)
 - **Einführung:** PR #155 (Pattern), Nutzung kommt mit Independents-Sprint (Phase 3a Roadmap)
 - **Entfernung:** Nach Independents-Full-Rollout (Phase 3b Roadmap)
 
-### `FEATURE_SINGLE_MARKET_SCHEMA`
+### `FEATURE_SEGMENT_ROUNDUPS_ENABLED`
 
 - **Typ:** `"true"` oder `"false"` (case-insensitive)
 - **Default:** `"false"`
-- **Helper:** `is_single_market_schema_enabled()`
-- **Zweck:** Aktiviert `single_market_insight`-Schema-Branch im Brief-Generator
-- **Einführung:** PR #155 (Pattern), Nutzung kommt mit Independents-Sprint
-- **Entfernung:** Wenn `single_market`-Schema die Standard-Branch für entsprechende Pair-Types geworden ist
+- **Helper:** `is_segment_roundups_enabled()`
+- **Zweck:** Aktiviert den Non-Pair-Segment-Roundup-Pfad — Gate für den
+  Pilot-Endpoint `POST /api/admin/roundups/generate` UND den Cron-Block in
+  `_run_cron_sync_background`. Off → Cron-Lauf verhält sich exakt wie ohne
+  Roundup-Erweiterung; Endpoint liefert 503.
+- **Einführung:** PR #155 (Pattern als `FEATURE_SINGLE_MARKET_SCHEMA`),
+  Master-Plan-Schritt-4 (2026-05-25) umbenannt + im Cron verdrahtet.
+- **Entfernung:** Wenn Segment-Roundups Standardbestandteil des Cron-Laufs
+  sind und kein Rollback-Hebel mehr nötig ist.
+- **Migrations-Hinweis Deploy 2026-05-25:** Beim Deploy von Schritt 4 muss
+  in Railway die alte Variable `FEATURE_SINGLE_MARKET_SCHEMA` gelöscht und
+  die neue `FEATURE_SEGMENT_ROUNDUPS_ENABLED` gesetzt werden — sonst
+  greift das Gate nicht.
 
 ## Hinzufügen neuer Flags
 
