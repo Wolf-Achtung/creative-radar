@@ -133,6 +133,29 @@ jobs:
 
       - name: Run pytest
         working-directory: backend
+        # Step-level DATABASE_URL override (PR #143 setup-fix):
+        # The job-level ``DATABASE_URL=postgresql://...`` is needed by the
+        # bootstrap + alembic-stamp steps above so they exercise the
+        # production Postgres dialect (schema-qualified tables, enum
+        # types, advisory-lock SQL). Pytest itself must NOT see the
+        # postgres URL, because the per-test fixtures (e.g.
+        # test_admin_regenerate_replace.py:db, test_brief_previous_context.py:db,
+        # test_json_parse_retry.py:db, ...) each create a tempfile sqlite
+        # engine and call ``SQLModel.metadata.create_all`` on it.
+        # ``entities.py:_resolve_table_schema`` decides at module-import
+        # time whether the metadata carries ``schema='creative_radar'``
+        # based on ``settings.database_url``. If pytest imports the
+        # entities while DATABASE_URL is postgres, every test fixture
+        # crashes with ``sqlite3.OperationalError: unknown database
+        # creative_radar`` at fixture-setup. Step-level env wins over
+        # job-level env, so this single override flips the resolver back
+        # to the no-schema sqlite mode that the existing fixtures expect.
+        # Tech-debt: PHASE_5_BACKLOG.md has the follow-up sprint to move
+        # the fixtures themselves onto the postgres service container —
+        # closing the residual gap that today's pytest run does not
+        # exercise the postgres dialect.
+        env:
+          DATABASE_URL: sqlite:///:memory:
         # --maxfail=1 stops at the first failing test so the log isn't a wall
         # of red. -v keeps the test names readable in the GitHub UI without
         # spamming the diff view.
