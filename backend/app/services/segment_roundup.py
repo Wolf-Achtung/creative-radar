@@ -299,12 +299,22 @@ def _build_user_prompt(agg: SegmentAggregation) -> str:
         f"## Channels mit Aktivitaet\n"
     )
     blocks = [_format_channel_block(s) for s in agg.channels if s.posts_count > 0]
-    silent = [s.handle for s in agg.channels if s.posts_count == 0]
+    # Schritt-4 Dedupe-Fix (Wolf-Ping-1, 25.05.): Channel-Rows mit dem
+    # gleichen Handle auf mehreren Plattformen erschienen im Pilot-Output
+    # mehrfach als ``@disney`` ohne Plattform-Unterscheidung. Fix Option
+    # (ii) — Platform-Suffix ``@handle (platform)`` macht jeden Eintrag
+    # eindeutig, verliert keine Information und gibt dem LLM den
+    # Plattform-Kontext fuer eine ggf. plattform-spezifische Caveat-
+    # Formulierung. Beispiel: ``@disney (instagram), @disney (tiktok)``.
+    silent_entries = [
+        f"@{s.handle} ({s.platform})"
+        for s in agg.channels if s.posts_count == 0
+    ]
     silent_note = ""
-    if silent:
+    if silent_entries:
         silent_note = (
-            f"\n\n## Channels ohne Posts im Fenster ({len(silent)})\n"
-            + ", ".join(f"@{h}" for h in silent)
+            f"\n\n## Channels ohne Posts im Fenster ({len(silent_entries)})\n"
+            + ", ".join(silent_entries)
         )
     return header + "\n\n".join(blocks) + silent_note
 

@@ -306,6 +306,32 @@ def test_generate_and_persist_roundup_is_last_write_wins(db, monkeypatch):
 # Test 6 — Disjunkt: Pair-Pool-Channel (segment=NULL) wird nie aggregiert
 # ---------------------------------------------------------------------------
 
+def test_silent_channel_list_uses_platform_suffix_for_multi_platform_handles(db):
+    """Schritt-4 Dedupe-Fix: Multi-Plattform-Handles im Silent-Block muessen
+    ``@handle (platform)`` zeigen — ohne Plattform-Suffix erscheinen sie
+    mehrfach als ``@disney`` und der LLM-Prompt verliert die
+    Plattform-Unterscheidung."""
+    from app.services.segment_roundup import _build_user_prompt
+    # Gleicher Handle auf drei Plattformen, alle silent
+    _seed_channel(db, handle="disney", platform="instagram",
+                  segment=ChannelSegment.US_MAJOR)
+    _seed_channel(db, handle="disney", platform="tiktok",
+                  segment=ChannelSegment.US_MAJOR)
+    _seed_channel(db, handle="disney", platform="youtube",
+                  segment=ChannelSegment.US_MAJOR)
+
+    with Session(db) as session:
+        agg = aggregate_segment(session, ChannelSegment.US_MAJOR, window_days=14)
+    prompt = _build_user_prompt(agg)
+
+    assert "@disney (instagram)" in prompt
+    assert "@disney (tiktok)" in prompt
+    assert "@disney (youtube)" in prompt
+    # Kein bare "@disney," ohne Plattform-Suffix
+    assert "@disney," not in prompt
+    assert "ohne Posts im Fenster (3)" in prompt
+
+
 def test_pair_pool_channel_segment_null_is_disjoint(db, monkeypatch):
     pair_ch = _seed_channel(db, handle="warnerbros", platform="instagram",
                             segment=None)  # Pair-Pool
