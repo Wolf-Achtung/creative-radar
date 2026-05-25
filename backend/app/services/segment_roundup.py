@@ -58,8 +58,8 @@ from app.schemas.insights import (
 )
 from app.services.anthropic_client import (
     AnthropicAuthError,
+    call_with_json_retry,
     is_anthropic_configured,
-    messages_create_text,
 )
 from app.services.cost_log import record_anthropic_call
 from app.services.insight_engine import (
@@ -68,7 +68,6 @@ from app.services.insight_engine import (
     _estimate_cost_usd,
     _extract_hashtags,
     _ranked_posts_for_channel,
-    _try_parse_llm_json,
 )
 
 logger = logging.getLogger(__name__)
@@ -320,15 +319,19 @@ def generate_segment_roundup(
     max_tokens: int = ROUNDUP_DEFAULT_MAX_TOKENS,
     now: Optional[datetime] = None,
 ) -> SegmentRoundupReport:
-    """Baut die Aggregation, ruft das LLM einmal, gibt den fertigen
-    Roundup-Report zurueck. Persistenz separat via
+    """Baut die Aggregation, ruft das LLM mit M2-Retry-Loop, gibt den
+    fertigen Roundup-Report zurueck. Persistenz separat via
     ``generate_and_persist_roundup``.
 
-    Bei JSON-Parse-Fehler bleibt ``llm_output = None`` und ``raw_llm_text``
-    surface — analog zur Pair-Brief-M2-Konvention, persist-skip im
-    Caller. M2-Retry-Loop wird im Pilot bewusst NICHT mitgezogen
-    (Scope-Begrenzung): wenn das LLM unparseable JSON liefert, ist der
-    Pilot dieser eine Lauf eben verloren, das ist explizit beobachtbar.
+    Schritt-4-Erweiterung (2026-05-25): nutzt ``call_with_json_retry``
+    aus ``anthropic_client`` — bis zu 2 Re-Calls bei JSON-Parse-Fehler,
+    analog Pair-Brief-M2. Jeder Anthropic-Call landet einzeln im
+    costlog (``operation='segment_roundup'``), F0.7-Cap erfasst die
+    wahre Spend-Summe inkl. Retries.
+
+    Bei totalem Parse-Fehler nach allen Retries bleibt ``llm_output = None``
+    und ``raw_llm_text`` surface — Caller (``_persist_roundup``) skippt
+    dann die DB-Row.
     """
     agg = aggregate_segment(
         session, segment,
@@ -355,30 +358,39 @@ def generate_segment_roundup(
             "prompt_chars": len(user_prompt),
         },
     )
-    message = messages_create_text(
+
+    retry_result = call_with_json_retry(
         model=model,
         system=ROUNDUP_SYSTEM_PROMPT,
         user_message=user_prompt,
         max_tokens=max_tokens,
+        max_recalls=2,
+        log_prefix="roundup",
+        log_extra={
+            "segment": segment.value,
+            "iso_year": agg.iso_year,
+            "iso_week": agg.iso_week,
+        },
     )
 
-    raw_text = ""
-    for block in message.content or []:
-        if getattr(block, "type", None) == "text":
-            raw_text += getattr(block, "text", "")
+    # Letzter raw_text aus call_attempts fuer raw_for_response / Diagnose.
+    last_raw_text = (
+        retry_result.call_attempts[-1][1]
+        if retry_result.call_attempts else ""
+    )
 
-    parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
     llm_output: Optional[SegmentRoundupLLMReport] = None
     raw_for_response: Optional[str] = None
-    if parsed is not None:
+    if retry_result.parsed is not None:
         try:
-            llm_output = SegmentRoundupLLMReport.model_validate(parsed)
+            llm_output = SegmentRoundupLLMReport.model_validate(retry_result.parsed)
             logger.info(
                 "roundup_llm_call_ok",
                 extra={
                     "segment": segment.value,
                     "iso_week": agg.iso_week,
-                    "parse_path": parse_path,
+                    "parse_path": retry_result.parse_path,
+                    "anthropic_calls": len(retry_result.call_attempts),
                 },
             )
         except ValueError as exc:
@@ -387,29 +399,46 @@ def generate_segment_roundup(
                 extra={
                     "segment": segment.value,
                     "error_message": str(exc)[:500],
-                    "raw_response_first_500": raw_text[:500],
+                    "raw_response_first_500": last_raw_text[:500],
                 },
             )
-            raw_for_response = raw_text
+            raw_for_response = last_raw_text
     else:
-        pos = parse_error.pos if parse_error and parse_error.pos is not None else 0
+        pos = (
+            retry_result.parse_error.pos
+            if retry_result.parse_error and retry_result.parse_error.pos is not None
+            else 0
+        )
         logger.error(
             "roundup-json-parse-failed",
             extra={
                 "segment": segment.value,
                 "char_position": pos,
-                "raw_response_length": len(raw_text),
-                "raw_response_first_500": raw_text[:500],
+                "raw_response_length": len(last_raw_text),
+                "raw_response_first_500": last_raw_text[:500],
+                "raw_response_around_error": last_raw_text[max(0, pos - 200): pos + 200],
+                "anthropic_calls": len(retry_result.call_attempts),
+                "recall_count": len(retry_result.call_attempts) - 1,
             },
         )
-        raw_for_response = raw_text
+        raw_for_response = last_raw_text
 
-    # Cost-Erfassung: pro Call ein costlog-Eintrag (F0.7-Cap erfasst
-    # Roundup-Spend automatisch ueber die anthropic_*-Provider-Buckets).
-    usage = getattr(message, "usage", None)
-    input_tokens = int(getattr(usage, "input_tokens", 0) or 0) if usage else 0
-    output_tokens = int(getattr(usage, "output_tokens", 0) or 0) if usage else 0
-    if usage is not None and (input_tokens or output_tokens):
+    # Cost-Erfassung: jeder Call wird einzeln in costlog erfasst
+    # (F0.7-Cap erfasst Roundup-Spend automatisch ueber die anthropic_*-
+    # Provider-Buckets). Token-Summe ueber alle Versuche, damit auch
+    # bezahlte Re-Calls bei Total-Parse-Fail im Report sichtbar bleiben.
+    input_tokens_total = 0
+    output_tokens_total = 0
+    for msg_attempt, _ in retry_result.call_attempts:
+        usage = getattr(msg_attempt, "usage", None)
+        if usage is None:
+            continue
+        in_t = int(getattr(usage, "input_tokens", 0) or 0)
+        out_t = int(getattr(usage, "output_tokens", 0) or 0)
+        if not (in_t or out_t):
+            continue
+        input_tokens_total += in_t
+        output_tokens_total += out_t
         record_anthropic_call(
             usage,
             model=model,
@@ -420,6 +449,8 @@ def generate_segment_roundup(
                 "iso_week": agg.iso_week,
             },
         )
+    input_tokens = input_tokens_total
+    output_tokens = output_tokens_total
     cost = (
         _estimate_cost_usd(input_tokens, output_tokens)
         if (input_tokens or output_tokens)

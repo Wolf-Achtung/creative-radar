@@ -31,6 +31,7 @@ from app.config import settings
 from app.database import get_session
 from app.main import app
 from app.models.entities import Channel, ChannelSegment, Post, SegmentRoundup
+from app.services import anthropic_client as anthropic_module
 from app.services import segment_roundup as roundup_module
 
 
@@ -130,7 +131,7 @@ def _patch_anthropic_ok(monkeypatch) -> MagicMock:
     usage = SimpleNamespace(input_tokens=2500, output_tokens=400)
     message = SimpleNamespace(content=[text_block], usage=usage)
     mock = MagicMock(return_value=message)
-    monkeypatch.setattr(roundup_module, "messages_create_text", mock)
+    monkeypatch.setattr(anthropic_module, "messages_create_text", mock)
     monkeypatch.setattr(roundup_module, "is_anthropic_configured", lambda: True)
     monkeypatch.setattr(
         roundup_module, "record_anthropic_call",

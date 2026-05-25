@@ -34,6 +34,7 @@ from app.models.entities import (
     Post,
     SegmentRoundup as SegmentRoundupRow,
 )
+from app.services import anthropic_client as anthropic_module
 from app.services import segment_roundup as roundup_module
 from app.services.segment_roundup import (
     _select_channels_for_segment,
@@ -114,7 +115,13 @@ def _seed_post(
 
 
 def _mock_anthropic_response(monkeypatch, body: dict, usage: dict | None = None) -> MagicMock:
-    """Patches messages_create_text + record_anthropic_call. Returns the mock."""
+    """Patches messages_create_text + record_anthropic_call. Returns the mock.
+
+    Schritt-4-Hinweis: ``messages_create_text`` wird ab Commit 2/N vom
+    ``call_with_json_retry``-Helper im ``anthropic_client``-Modul
+    aufgerufen — Patch muss am defining-Modul ansetzen, sonst trifft der
+    Mock den Helper-Call nicht.
+    """
     usage_ns = SimpleNamespace(
         input_tokens=(usage or {}).get("input_tokens", 1000),
         output_tokens=(usage or {}).get("output_tokens", 300),
@@ -124,7 +131,7 @@ def _mock_anthropic_response(monkeypatch, body: dict, usage: dict | None = None)
         usage=usage_ns,
     )
     mock = MagicMock(return_value=message)
-    monkeypatch.setattr(roundup_module, "messages_create_text", mock)
+    monkeypatch.setattr(anthropic_module, "messages_create_text", mock)
     monkeypatch.setattr(roundup_module, "is_anthropic_configured", lambda: True)
     monkeypatch.setattr(
         roundup_module, "record_anthropic_call",
@@ -327,11 +334,13 @@ def test_bad_json_response_persists_nothing(db, monkeypatch):
                        segment=ChannelSegment.US_INDEPENDENT)
     _seed_post(db, ch.id, days_ago=3, engagement=500)
 
-    # Mock returns malformed JSON
+    # Mock returns malformed JSON — Helper repeats the call up to 2 times
+    # (M2-retry pattern), all attempts return the same broken text, so
+    # ``parsed`` stays None and persist-skip greift.
     text_block = SimpleNamespace(type="text", text='{"headline": "broken')
     usage_ns = SimpleNamespace(input_tokens=1000, output_tokens=100)
     message = SimpleNamespace(content=[text_block], usage=usage_ns)
-    monkeypatch.setattr(roundup_module, "messages_create_text",
+    monkeypatch.setattr(anthropic_module, "messages_create_text",
                         MagicMock(return_value=message))
     monkeypatch.setattr(roundup_module, "is_anthropic_configured", lambda: True)
     monkeypatch.setattr(roundup_module, "record_anthropic_call",
