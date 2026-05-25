@@ -20,6 +20,12 @@ flip the kill-switch); no deploy needed.
 Failure policy: a DB error during the read returns a "permissive"
 status — better to let a cron run rather than block on a stat-query
 hiccup. The audit log surfaces the failure for follow-up.
+
+Sprint F0.7 (2026-05-25) — ``compute_anthropic_monthly_spend`` adds the
+Anthropic-Monthly-Cap with the same shape and semantics. Settings split
+between the two providers so they can be raised/lowered/disabled
+independently; the cron pre-flight runs both checks sequentially and
+aborts on whichever fires first.
 """
 from __future__ import annotations
 
@@ -34,6 +40,23 @@ from app.config import settings
 from app.models.entities import CostLog
 
 logger = logging.getLogger(__name__)
+
+
+# Sprint F0.7 — single source of truth for "every CostLog row that
+# counts toward Anthropic spend". ``record_anthropic_call`` routes into
+# one of these five buckets based on model family / operation; the
+# Monthly-Cap query must filter on the full set so haiku, opus, sonnet
+# (text), sonnet (vision), and the generic-fallback bucket all roll up.
+# Kept here next to the cap query so future bucket additions land in one
+# obvious place — ``aggregate_anthropic_costs_since`` below references
+# the same tuple.
+ANTHROPIC_PROVIDER_BUCKETS: tuple[str, ...] = (
+    "anthropic",
+    "anthropic_haiku",
+    "anthropic_sonnet",
+    "anthropic_sonnet_vision",
+    "anthropic_opus",
+)
 
 
 @dataclass
@@ -124,6 +147,76 @@ def compute_apify_monthly_spend(
     )
 
 
+def compute_anthropic_monthly_spend(
+    session: Session,
+    *,
+    now: datetime | None = None,
+) -> BudgetStatus:
+    """Aggregate Anthropic USD spend over the current calendar month (UTC).
+
+    Sprint F0.7 (2026-05-25). Same shape and semantics as
+    ``compute_apify_monthly_spend`` — calendar-month window, half-open
+    interval, permissive failure policy — but bucketed across the five
+    Anthropic provider strings (see ``ANTHROPIC_PROVIDER_BUCKETS``) so
+    Opus brief generation, Haiku/Sonnet post-analyzer calls, and the
+    Sonnet vision pathway all roll into one monthly figure.
+
+    Sub-cent precision: the brief path's M2-Retry-Logic (PR #157) can
+    fire up to three Opus calls per pair-week, but Haiku post-analyzer
+    calls land at fractions of a cent each. We sum
+    ``cost_usd_millicents`` (1 cent = 1000 millicents — the precision-
+    safe column added in the 2026-05-12 cost-tracking-fix) and floor-
+    divide to cents at the boundary. The ``BudgetStatus`` shape stays
+    identical to F0.6 so the cron summary block and admin endpoint can
+    handle both providers without branching.
+
+    Wolf-spec baseline (two data points pre-launch): 17.05 force run of
+    9 pairs = $17.27; 25.05 regular run of 8 pairs incl. one M2-retry
+    warnerbros = $17.90. Default cap $100/month gives ~5× cushion over
+    the observed weekly cost — enough for prompt expansions, more pairs,
+    or a bad week of intermittent JSON-parse retries.
+    """
+    window_start, window_end = _month_window_utc(now)
+
+    budget_usd = float(settings.anthropic_monthly_budget_usd or 0.0)
+    budget_usd_cents = int(round(budget_usd * 100))
+
+    try:
+        spent_millicents = int(session.exec(
+            select(func.coalesce(func.sum(CostLog.cost_usd_millicents), 0))
+            .where(CostLog.provider.in_(ANTHROPIC_PROVIDER_BUCKETS))
+            .where(CostLog.timestamp >= window_start)
+            .where(CostLog.timestamp < window_end)
+        ).one())
+    except Exception as exc:  # noqa: BLE001
+        # Permissive fallback — same reasoning as the Apify path.
+        # A cap query that hiccups must not silently block the cron.
+        logger.warning("anthropic-budget-read-failed: %s", exc)
+        spent_millicents = 0
+
+    # Floor-divide millicents → cents. At $100 budget scale, sub-cent
+    # rounding never crosses the boundary in either direction — a $99.9999
+    # spend reads as 9999 cents (under cap), a $100.001 reads as 10000
+    # cents (at cap). Reporting in cents keeps the BudgetStatus shape
+    # interchangeable with the Apify path.
+    spent_usd_cents = spent_millicents // 1000
+
+    pct_used = (spent_usd_cents / budget_usd_cents) if budget_usd_cents > 0 else 0.0
+    soft_pct = float(settings.anthropic_soft_warn_pct or 0.0)
+    hard_pct = float(settings.anthropic_hard_cap_pct or 0.0)
+
+    return BudgetStatus(
+        window_start=window_start,
+        window_end=window_end,
+        spent_usd_cents=spent_usd_cents,
+        budget_usd_cents=budget_usd_cents,
+        pct_used=pct_used,
+        soft_warn_exceeded=pct_used >= soft_pct,
+        hard_cap_exceeded=pct_used >= hard_pct,
+        enforced=bool(settings.anthropic_budget_enforced),
+    )
+
+
 def _aggregate_costs_by_provider_prefix(
     session: Session,
     *,
@@ -190,13 +283,7 @@ def aggregate_anthropic_costs_since(session: Session, since: datetime) -> dict:
     """
     return _aggregate_costs_by_provider_prefix(
         session,
-        providers=(
-            "anthropic",
-            "anthropic_haiku",
-            "anthropic_sonnet",
-            "anthropic_sonnet_vision",
-            "anthropic_opus",
-        ),
+        providers=ANTHROPIC_PROVIDER_BUCKETS,
         since=since,
         log_tag="anthropic",
     )
