@@ -98,3 +98,121 @@ Note: Die TikTok-Versionen beider Channels (`tiktok.com/@paramountpicturesuk`, `
 - **Total: ~$1.13**
 - Budget: 0% von $200 Monatscap
 
+## 2026-05-25 — FU-2 Bucket-Klassifizierung (post-Cron-Lauf)
+
+Klassifizierungsbasis: Cron-Run-ID `49f96238-e474-4e42-8d23-1357e5274893`
+(2026-05-25 07:30 Berlin, status=completed). IG zero-yield: 2, TT zero-yield: 0.
+
+**Befund:** Keine neuen Bucket-A-Channels. Beide Zero-Yield-Channels sind
+browser-verifiziert lebende, aktiv postende Accounts:
+- `disneystudios` (US IG) — verifiziert, 6.947 Beiträge, aktuelle Posts
+- `hbo` (US IG) — verifiziert, 9.761 Beiträge, aktuelle Posts
+
+Beide → Kategorie scrape-blocked (Profil aktiv, Apify scrapt 0).
+NICHT deaktiviert — Content ist real und wertvoll.
+
+**Keine DB-Änderung in diesem Lauf.**
+
+Hinweis: Das Skript scripts/fu2_bucket_classifier.sql war vor diesem Lauf
+zweifach veraltet (siehe Eintrag unten) und musste erst repariert werden.
+
+## 2026-05-25 — fu2_bucket_classifier.sql: zwei Schema-Drifts (PR #162)
+
+Das FU-2-Klassifizierungs-Skript (vom 13.05.) lief am 25.05. nicht mehr —
+zwei stille Schema-Drifts seit Erstellung:
+
+1. **status-Wert:** Skript filterte `WHERE status = 'success'`. CronRun.status
+   kennt aber nur running/completed/failed/budget_exceeded — 'success' wird
+   nie geschrieben (geändert durch Cadence-Sprint PR #149). Folge: erste
+   Query lieferte (0 rows). Fix: → 'completed'.
+2. **json/jsonb-Mismatch:** Skript castete `'[]'::jsonb` + jsonb_array_elements.
+   summary_json ist real Typ `json` (nicht jsonb) — SQLAlchemys Column(JSON)
+   resolvet auf Postgres-json. Fix: → '[]'::json + json_array_elements.
+
+Lehre: Side-Skripte in scripts/ werden von Schema-ändernden PRs nicht
+automatisch mitgezogen und driften unbemerkt. Gefixt in PR #162.
+
+## 2026-05-25 — scrape-blocked: disneystudios + hbo (Beobachtung, offen)
+
+Zwei lebende US-IG-Major-Accounts liefern bei Apify 0 Posts (scrape-blocked).
+Zero-Yield-Historie aus cron_run.summary_json (verlässlich erst ab 17.05.,
+da FU-1 Zero-Yield-Surface erst mit PR #146 ~13.05. eingeführt):
+
+- `disneystudios` (US IG, Disney-Pair-Pool, "Lead-Cinema-Master"):
+  17.05. NICHT betroffen → 25.05. in BEIDEN Läufen Zero-Yield.
+  Neu seit dieser Woche, ein betroffener Cadence-Zyklus.
+- `hbo` (US IG, in KEINEM Pair-Pool): nur 25.05., nur ein Lauf.
+- `bad_robot` (INT IG): durchgehend Zero-Yield seit 17.05. — bekannter
+  Dauerfall, scrape-blocked-Präzedenz.
+
+**Brief-Impact:** Disney-Pool federt ab — fällt disneystudios aus, liefern
+4 weitere US-IG-Channels (marvelstudios, pixar, starwars, 20thcenturystudios).
+Geschätzt ~20% Verlust im US-IG-Teil des Disney-Briefs; DE/UK unbetroffen.
+hbo ist in keinem Pool → Brief-Impact null; offene Frage, ob hbo ein
+bewusster Observation-Channel oder ein Artefakt ist.
+
+**Status: offen, Beobachtung.** Nachprüfung nach dem 01.06.-Cadence-Lauf
+via Zero-Yield-Query über cron_run.summary_json. Entscheidungsregel:
+disneystudios am 01.06. erneut betroffen → bestätigtes Muster, Apify-
+Actor-Fix-Sprint definieren. Nicht mehr betroffen → temporärer Throttle,
+erledigt. Liste gewachsen → Eskalation.
+
+Mögliche Ursache (Hypothese, unbestätigt): Anti-Scraping-Throttle für
+große verifizierte Marken-Accounts; tagesabhängig/account-spezifisch,
+da andere große verifizierte Accounts (marvelstudios etc.) am 25.05.
+normal lieferten.
+
+## 2026-05-25 — Klarstellung: Cron-Skip-Logik ist PK-Lookup, kein Zeitfenster
+
+Korrektur einer im Handover verbreiteten Fehlannahme: Die Skip-Entscheidung
+des Cadence-Crons (cron.py:477-484) ist ein reiner Composite-PK-Lookup auf
+(pair_key, target_iso_year, target_iso_week). Es gibt KEIN "≤7d"-Zeitfenster
+und keine generated_at-Vergleichslogik.
+
+Ein Pair wird übersprungen, wenn für die ANSTEHENDE Ziel-ISO-Woche bereits
+ein insight_report-Eintrag existiert — sonst generiert. Vorwochen-Briefs
+lösen nie einen Skip aus.
+
+Das "≤7d/8-14d/>14d"-Wording betrifft ausschließlich die Frontend-Stale-
+Warnung (PR #148) — eine reine Anzeige-Logik, NICHT die Generierungs-Skip-
+Entscheidung. Beides wurde im Handover fälschlich vermischt.
+
+## 2026-05-25 — regenerate-Endpoint generiert nur die aktuelle ISO-Woche
+
+POST /api/admin/insights/regenerate (admin.py) akzeptiert pair + replace +
+window_days, aber KEINEN Zielwochen-Parameter. generate_and_persist_report
+läuft mit now=None → aggregate_pair fällt auf datetime.now() zurück. Der
+Endpoint generiert daher IMMER für die aktuelle ISO-Woche.
+
+Praxisfolge (25.05.): Ein Versuch, Disney für KW 21 zu aktualisieren,
+erzeugte stattdessen einen KW-22-Brief (heute = KW 22). Für vergangene
+Wochen ist der Endpoint ungeeignet. Disney hat dadurch jetzt einen
+KW-22-Brief vom 25.05.; der reguläre Cron am 01.06. (Zielwoche KW 23)
+ist davon unberührt — andere PK-Row, kein Skip.
+
+## 2026-05-25 — M2 JSON-Parse-Retry: (c)/(d)-Vorbehalt aufgelöst
+
+Beim M2-Sprint (PR #157) blieb offen, ob der warnerbros-JSON-Parse-Fehler
+vom 25.05. Fall (c) Truncation oder (d) transient-kaputtes-JSON war —
+mangels abrufbarer PR-#154-Diagnostik nicht verifizierbar.
+
+Auflösung: Der warnerbros-Re-Run nach M2-Merge war erfolgreich (KW-21-Brief
+generiert, cost 453 ct = mit Retry-Aufschlag). Ein Re-Call hätte gegen
+echte Truncation wieder abgeschnittenes JSON geliefert — der Brief entstand
+aber. Also Fall (d), transient. KEIN Truncation-Problem, keine separate
+max_tokens-Untersuchung nötig. M2-Retry hat in der Praxis funktioniert.
+
+## 2026-05-25 — SQLite/Postgres-Test-Dialekt: Variante Z umgesetzt
+
+Aus PR #143 bekannt: Backend-Suite läuft gegen SQLite, produktiv ist
+PostgreSQL 18. Variante Z (PR #160) hat eine additive Postgres-Integration-
+Suite (app/tests/integration/) ergänzt — echte Coverage für Advisory-Lock-
+Semantik und Schema-Resolution.
+
+Empirischer Befund: Die 8 Integration-Tests liefen direkt grün — KEINE
+Bugs gefangen, die SQLite durchgelassen hätte. Heißt: Die produktiven
+Postgres-Pfade sind dialekt-korrekt. Die breitere Migration der gesamten
+Suite auf Postgres (Variante X) ist damit NICHT gerechtfertigt — die
+Datenbasis spricht dagegen. Integration-Suite ist der gezielte
+Erweiterungs-Ort, falls künftig ein Postgres-Incident auftaucht.
+
