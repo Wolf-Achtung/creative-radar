@@ -142,3 +142,53 @@ B1 and B2 are the *real* failure sources observed in the smoke test. B3 and
 B4 are hardening — they make the failure shape image-tauglich in the browser
 but do not fix the underlying 404/502 conditions. Land all four in Sprint
 5.4; sequencing is B1, B2 (parallel) → B3 → B4.
+
+## Sprint Tech-Debt-CI (Backend-CI) — side findings
+
+### Move per-test DB fixtures from SQLite to the Postgres service
+
+**Found:** PR #143 final-fix sprint, while scharfschalten des Backend-CI-Workflows.
+
+**Mechanic:** The CI workflow runs a Postgres-13 service container, but
+the per-test DB fixtures in the existing suite (≥ 25 test files: e.g.
+`test_admin_regenerate_replace.py:db`, `test_brief_previous_context.py:db`,
+`test_json_parse_retry.py:db`, every `tempfile.mkstemp(..., suffix=".db")`)
+each instantiate their own tempfile **SQLite** engine. `entities.py:_resolve_table_schema`
+flips the `schema='creative_radar'` clause on/off at module-import time
+based on `settings.database_url`; if pytest sees `DATABASE_URL=postgresql://...`,
+the entity metadata carries the schema and the fixtures' sqlite engines
+crash on `SQLModel.metadata.create_all` with
+`sqlite3.OperationalError: unknown database creative_radar`.
+
+PR #143 final fix sets a step-level `DATABASE_URL=sqlite:///:memory:`
+override for the pytest step. That makes CI green and meaningful **for
+the test code as it stands**, but the residual gap is honest:
+
+- Bootstrap + `alembic stamp head` exercise Postgres dialect (schema-
+  qualified DDL, Enum types, migration apply on a real PG instance).
+- The 606 pytest tests themselves run against SQLite — Postgres-specific
+  paths (advisory locks via `pg_try_advisory_lock`, the
+  `creative_radar.*`-schema-qualified queries, JSONB column behaviour,
+  composite-PK ON CONFLICT semantics) are **not** exercised in CI.
+
+**Owner sprint:** dedicated Tech-Debt-CI follow-up. Not a single-commit
+fix.
+
+**Scope (rough sketch, to be refined when the sprint starts):**
+- Replace the per-test sqlite-tempfile fixture pattern with a fixture
+  that wraps the CI Postgres service in a per-test transaction (rollback
+  on teardown) or per-test schema (drop on teardown).
+- Audit `entities.py:_resolve_table_schema` for race conditions when
+  multiple test modules import in different orders.
+- Verify advisory-lock tests (`generate_and_persist_report`'s
+  double-check-locking path) actually execute the Postgres branch, not
+  the SQLite fallback.
+- Local dev experience: keep an opt-in fast path for sqlite so `pytest`
+  without infra still works on a laptop without Docker.
+
+**Why now (the note, not the fix):** logged here so the gap is visible
+and tracked, not invisible. The 12.05 CI-failures and the 2026-05-17/25
+Disney/warnerbros JSON-parse incidents both rode through a green-but-
+not-meaningful test suite; this is the structural lever to make
+future "CI is green" claims actually carry weight on Postgres-only code
+paths.
