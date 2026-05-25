@@ -1,0 +1,520 @@
+"""Segment-Roundup-Generator (Master-Plan-Schritt-3, Pilot).
+
+Erzeugt fuer ein Segment einen deskriptiven Wochen-Roundup: Top-Material
+aller zugehoerigen Channels im Zeitfenster, aggregiert und durch eine
+LLM-Synthese in Brief-Form gegossen.
+
+Disjunktheit zur Pair-Pipeline (Brief-Vorgabe 25.05.):
+- Eigenes Persistenz-Schema (``segment_roundup``-Tabelle, Migration
+  c7d4e8f3a9b2).
+- Eigene Pydantic-Schemas (``SegmentAggregation``, ``SegmentRoundupReport``,
+  ``SegmentRoundupLLMReport`` in ``app.schemas.insights``).
+- Eigener LLM-Prompt — deskriptiv, kein Markt-Vergleich, kein Cross-
+  Segment-Insight.
+- Filtert ueber ``Channel.segment`` (Pair-Pool-Channels haben
+  ``segment = NULL`` → disjunkt).
+
+Wiederverwendet aus ``insight_engine`` (read-only, kein Touch des
+Pair-Pfads):
+- ``_engagement_sum``, ``_extract_hashtags``, ``compute_activation_rate``,
+  ``_duration_bucket``, ``_excerpt`` — generische Post-Helper.
+- ``_ranked_posts_for_channel`` — Top-N-Sortier-Pipeline mit Asset/Title-
+  Anreicherung.
+- ``_try_parse_llm_json`` — robustes JSON-Parsing inkl. Codefence-Stripping
+  und Lenient-Substring-Fallback (M2-Lehre).
+
+Pilot-Defaults (Wolf-Festlegung 25.05.):
+- Pilot-Segment: ``us_major`` (33 Channels — groesstes Segment).
+- Zeitfenster: 14 Tage (bewusste Abweichung vom Pair-30d-Default).
+- Top-N pro Channel: 5 Posts (analog Sprint-6-Konvention im Pair-Prompt).
+- LLM-Modell: Opus 4.7 (gleicher Modus wie Pair-Brief).
+"""
+from __future__ import annotations
+
+import json
+import logging
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
+
+import sqlalchemy as sa
+from sqlmodel import Session, select
+
+from app.models.entities import (
+    Asset,
+    Channel,
+    ChannelSegment,
+    Post,
+    SegmentRoundup as SegmentRoundupRow,
+    Title,
+)
+from app.schemas.insights import (
+    ChannelRoundupStats,
+    HashtagFrequency,
+    RankedPost,
+    SegmentAggregation,
+    SegmentRoundupLLMReport,
+    SegmentRoundupReport,
+)
+from app.services.anthropic_client import (
+    AnthropicAuthError,
+    is_anthropic_configured,
+    messages_create_text,
+)
+from app.services.cost_log import record_anthropic_call
+from app.services.insight_engine import (
+    OPUS_MODEL_ALIAS,
+    _engagement_sum,
+    _estimate_cost_usd,
+    _extract_hashtags,
+    _ranked_posts_for_channel,
+    _try_parse_llm_json,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# Pilot-Defaults (Wolf 25.05.) — parametrisiert, kein hartkodiertes
+# Verhalten. Wolf kann via API/Skript-Param ueberschreiben.
+ROUNDUP_DEFAULT_WINDOW_DAYS = 14
+ROUNDUP_DEFAULT_TOP_POSTS_N = 5
+ROUNDUP_DEFAULT_MAX_TOKENS = 8000
+
+
+ROUNDUP_SYSTEM_PROMPT = """Du schreibst einen kurzen wöchentlichen Roundup für ein
+Segment des deutschen/internationalen Film-Marketing-Markts. Stil: Trade-
+Briefing für Cutter und Creative Producer im Trailerhaus-Stil — nüchtern,
+beobachtend, fakten-nah.
+
+WICHTIG — was dieser Brief NICHT ist:
+- KEIN Vergleich zwischen Channels (keine Bestenliste, kein "X war besser als Y").
+- KEIN Markt-Vergleich (DE vs US vs UK).
+- KEIN Cross-Segment-Insight.
+- KEINE Empfehlungen oder Aktions-Vorschläge.
+
+Was dieser Brief IST: deskriptiv. Was lief im Segment in der Woche?
+Welche Themen tauchten wiederholt auf? Welche Channels fielen quantitativ
+auf (im Sinne von Aktivität, nicht im Sinne von "Bewertung")?
+
+Output strikt als JSON mit folgendem Schema:
+{
+  "headline": "1 kurzer Satz, segment-typisch",
+  "tldr": "2-3 Sätze, beobachtend",
+  "what_ran": ["3-7 Bullets: was lief konkret"],
+  "channels_in_focus": ["Optional, 1-3: Channels mit auffallender Aktivität — neutral formulieren, keine Wertung"],
+  "themes": ["Optional, 2-5: wiederkehrende Themen/Motive über Channels hinweg"],
+  "data_caveats": ["Lautstärke-Hinweise: wie viele Channels lieferten überhaupt Posts, welche Lücken"]
+}
+
+Antworte ausschließlich mit dem JSON-Objekt, ohne Markdown-Codefences."""
+
+
+def _select_channels_for_segment(session: Session, segment: ChannelSegment) -> list[Channel]:
+    """Liefert alle aktiven Channels mit dem gegebenen Segment.
+
+    Disjunktheits-Vertrag: Pair-Pool-Channels haben ``segment = NULL`` und
+    werden hier nie gefunden — keine Doppelabdeckung mit dem Pair-Pfad.
+    """
+    rows = session.exec(
+        select(Channel)
+        .where(Channel.active == True)  # noqa: E712 — SQL-side bool compare
+        .where(Channel.segment == segment)
+        .order_by(Channel.platform, Channel.handle)
+    ).all()
+    return list(rows)
+
+
+def _channel_roundup_stats(
+    session: Session,
+    channel: Channel,
+    window_start: datetime,
+    window_end: datetime,
+    *,
+    top_posts_n: int = ROUNDUP_DEFAULT_TOP_POSTS_N,
+) -> ChannelRoundupStats:
+    """Per-Channel-Aggregation fuer den Roundup. Wiederverwendet die
+    generischen Post-Helper aus ``insight_engine`` (read-only Import),
+    aber schlankere Output-Form: keine title_coverage, keine cross-market-
+    Felder, keine historical_top_posts."""
+    posts_stmt = (
+        select(Post)
+        .where(Post.channel_id == channel.id)
+        .where(
+            sa.or_(
+                sa.and_(
+                    Post.published_at.is_not(None),
+                    Post.published_at >= window_start,
+                    Post.published_at <= window_end,
+                ),
+                sa.and_(
+                    Post.published_at.is_(None),
+                    Post.detected_at >= window_start,
+                    Post.detected_at <= window_end,
+                ),
+            )
+        )
+    )
+    posts: list[Post] = list(session.exec(posts_stmt).all())
+
+    if not posts:
+        return ChannelRoundupStats(
+            channel_id=str(channel.id),
+            handle=channel.handle or channel.name,
+            platform=channel.platform,
+            market=str(channel.market) if channel.market else None,
+            posts_count=0,
+            avg_engagement=0.0,
+            avg_caption_length=0.0,
+            avg_duration_seconds=None,
+            top_hashtags=[],
+            top_posts=[],
+        )
+
+    # Hashtag- und Caption-Aggregation
+    tag_counter: Counter[str] = Counter()
+    caption_lens: list[int] = []
+    durations: list[int] = []
+    for p in posts:
+        caption_lens.append(len(p.caption or ""))
+        for tag in _extract_hashtags(p.caption, p.raw_payload):
+            tag_counter[tag] += 1
+        if p.duration_seconds is not None:
+            durations.append(int(p.duration_seconds))
+
+    avg_caption = sum(caption_lens) / len(caption_lens) if caption_lens else 0.0
+    avg_duration = sum(durations) / len(durations) if durations else None
+    avg_engagement = sum(_engagement_sum(p) for p in posts) / len(posts) if posts else 0.0
+
+    # Top-N pro Channel (Wolf-Festlegung: 5). Wiederverwendung des
+    # ``_ranked_posts_for_channel``-Helpers mit Asset+Title-Anreicherung —
+    # gleiche Sortier- und Tiebreaker-Semantik wie der Pair-Brief.
+    top_posts: list[RankedPost] = _ranked_posts_for_channel(
+        posts,
+        channel.platform,
+        session=session,
+        limit=top_posts_n,
+    )
+
+    return ChannelRoundupStats(
+        channel_id=str(channel.id),
+        handle=channel.handle or channel.name,
+        platform=channel.platform,
+        market=str(channel.market) if channel.market else None,
+        posts_count=len(posts),
+        avg_engagement=round(avg_engagement, 1),
+        avg_caption_length=round(avg_caption, 1),
+        avg_duration_seconds=round(avg_duration, 1) if avg_duration is not None else None,
+        top_hashtags=[
+            HashtagFrequency(tag=tag, count=count)
+            for tag, count in tag_counter.most_common(5)
+        ],
+        top_posts=top_posts,
+    )
+
+
+def aggregate_segment(
+    session: Session,
+    segment: ChannelSegment,
+    *,
+    window_days: int = ROUNDUP_DEFAULT_WINDOW_DAYS,
+    top_posts_n: int = ROUNDUP_DEFAULT_TOP_POSTS_N,
+    now: Optional[datetime] = None,
+) -> SegmentAggregation:
+    """Baut die deterministische Segment-Aggregation fuer ein Zeitfenster.
+
+    Nutzt ``isocalendar`` analog Pair-Pipeline. ``now`` injectable fuer
+    Tests; Production-Caller liefern nichts.
+    """
+    now = now or datetime.now(timezone.utc)
+    window_end = now
+    window_start = now - timedelta(days=window_days)
+    iso_year, iso_week, _ = now.isocalendar()
+
+    channels = _select_channels_for_segment(session, segment)
+    stats: list[ChannelRoundupStats] = [
+        _channel_roundup_stats(
+            session, c, window_start, window_end, top_posts_n=top_posts_n,
+        )
+        for c in channels
+    ]
+    channels_with_posts = sum(1 for s in stats if s.posts_count > 0)
+    total_posts = sum(s.posts_count for s in stats)
+
+    return SegmentAggregation(
+        segment=segment.value,
+        iso_year=iso_year,
+        iso_week=iso_week,
+        window_days=window_days,
+        window_start=window_start,
+        window_end=window_end,
+        channels_evaluated=len(channels),
+        channels_with_posts=channels_with_posts,
+        total_posts=total_posts,
+        channels=stats,
+    )
+
+
+def _format_post_line(idx: int, p: RankedPost) -> str:
+    """Eine Post-Zeile fuer den LLM-Prompt — knapp, ohne Metrik-Lärm."""
+    bits = []
+    if p.title_local:
+        bits.append(f"[*{p.title_local}*]")
+    bits.append(f"@{p.post_url}" if p.post_url else "")
+    if p.caption_excerpt:
+        bits.append(f"„{p.caption_excerpt}\"")
+    bits.append(f"({p.engagement_sum} eng, {p.views} views)")
+    return f"  {idx}. " + " — ".join(b for b in bits if b)
+
+
+def _format_channel_block(stats: ChannelRoundupStats) -> str:
+    """Pro Channel ein Markdown-Block fuer den LLM-Prompt. Keine
+    JSON-Anhang am Promptende — Wolf-Festlegung 25.05.: schlanker als
+    Pair-Brief, weil 33 Channels sonst Token-Explosion produzieren.
+    """
+    if stats.posts_count == 0:
+        return f"### @{stats.handle} ({stats.platform}, {stats.market or '–'})\n  *(keine Posts im Fenster)*"
+
+    header = (
+        f"### @{stats.handle} ({stats.platform}, {stats.market or '–'}) — "
+        f"{stats.posts_count} Posts, "
+        f"avg engagement {stats.avg_engagement:.0f}"
+    )
+    if stats.top_hashtags:
+        tags = ", ".join(f"#{h.tag} ({h.count})" for h in stats.top_hashtags[:5])
+        header += f"\n  Top-Hashtags: {tags}"
+    posts_block = "\n".join(_format_post_line(i + 1, p) for i, p in enumerate(stats.top_posts))
+    return f"{header}\n{posts_block}"
+
+
+def _build_user_prompt(agg: SegmentAggregation) -> str:
+    """LLM-User-Prompt fuer den Roundup. Strukturell schlank: Segment-
+    Header + Channel-Bloecke. Kein JSON-Anhang (Wolf 25.05.).
+    """
+    header = (
+        f"# Segment-Roundup: {agg.segment} — KW {agg.iso_week}/{agg.iso_year}\n\n"
+        f"Zeitfenster: {agg.window_days} Tage "
+        f"({agg.window_start.date().isoformat()} bis {agg.window_end.date().isoformat()}).\n"
+        f"Channels ausgewertet: {agg.channels_evaluated} "
+        f"(davon mit Posts im Fenster: {agg.channels_with_posts}).\n"
+        f"Posts gesamt: {agg.total_posts}.\n\n"
+        f"## Channels mit Aktivitaet\n"
+    )
+    blocks = [_format_channel_block(s) for s in agg.channels if s.posts_count > 0]
+    silent = [s.handle for s in agg.channels if s.posts_count == 0]
+    silent_note = ""
+    if silent:
+        silent_note = (
+            f"\n\n## Channels ohne Posts im Fenster ({len(silent)})\n"
+            + ", ".join(f"@{h}" for h in silent)
+        )
+    return header + "\n\n".join(blocks) + silent_note
+
+
+def generate_segment_roundup(
+    session: Session,
+    segment: ChannelSegment,
+    *,
+    window_days: int = ROUNDUP_DEFAULT_WINDOW_DAYS,
+    top_posts_n: int = ROUNDUP_DEFAULT_TOP_POSTS_N,
+    model: str = OPUS_MODEL_ALIAS,
+    max_tokens: int = ROUNDUP_DEFAULT_MAX_TOKENS,
+    now: Optional[datetime] = None,
+) -> SegmentRoundupReport:
+    """Baut die Aggregation, ruft das LLM einmal, gibt den fertigen
+    Roundup-Report zurueck. Persistenz separat via
+    ``generate_and_persist_roundup``.
+
+    Bei JSON-Parse-Fehler bleibt ``llm_output = None`` und ``raw_llm_text``
+    surface — analog zur Pair-Brief-M2-Konvention, persist-skip im
+    Caller. M2-Retry-Loop wird im Pilot bewusst NICHT mitgezogen
+    (Scope-Begrenzung): wenn das LLM unparseable JSON liefert, ist der
+    Pilot dieser eine Lauf eben verloren, das ist explizit beobachtbar.
+    """
+    agg = aggregate_segment(
+        session, segment,
+        window_days=window_days,
+        top_posts_n=top_posts_n,
+        now=now,
+    )
+    generated_at = datetime.now(timezone.utc)
+
+    if not is_anthropic_configured():
+        raise AnthropicAuthError(
+            "ANTHROPIC_API_KEY ist nicht gesetzt — Segment-Roundup kann nicht generieren."
+        )
+
+    user_prompt = _build_user_prompt(agg)
+    logger.info(
+        "roundup_anthropic_call_start",
+        extra={
+            "segment": segment.value,
+            "iso_week": agg.iso_week,
+            "channels_evaluated": agg.channels_evaluated,
+            "channels_with_posts": agg.channels_with_posts,
+            "total_posts": agg.total_posts,
+            "prompt_chars": len(user_prompt),
+        },
+    )
+    message = messages_create_text(
+        model=model,
+        system=ROUNDUP_SYSTEM_PROMPT,
+        user_message=user_prompt,
+        max_tokens=max_tokens,
+    )
+
+    raw_text = ""
+    for block in message.content or []:
+        if getattr(block, "type", None) == "text":
+            raw_text += getattr(block, "text", "")
+
+    parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
+    llm_output: Optional[SegmentRoundupLLMReport] = None
+    raw_for_response: Optional[str] = None
+    if parsed is not None:
+        try:
+            llm_output = SegmentRoundupLLMReport.model_validate(parsed)
+            logger.info(
+                "roundup_llm_call_ok",
+                extra={
+                    "segment": segment.value,
+                    "iso_week": agg.iso_week,
+                    "parse_path": parse_path,
+                },
+            )
+        except ValueError as exc:
+            logger.error(
+                "roundup-schema-validation-failed",
+                extra={
+                    "segment": segment.value,
+                    "error_message": str(exc)[:500],
+                    "raw_response_first_500": raw_text[:500],
+                },
+            )
+            raw_for_response = raw_text
+    else:
+        pos = parse_error.pos if parse_error and parse_error.pos is not None else 0
+        logger.error(
+            "roundup-json-parse-failed",
+            extra={
+                "segment": segment.value,
+                "char_position": pos,
+                "raw_response_length": len(raw_text),
+                "raw_response_first_500": raw_text[:500],
+            },
+        )
+        raw_for_response = raw_text
+
+    # Cost-Erfassung: pro Call ein costlog-Eintrag (F0.7-Cap erfasst
+    # Roundup-Spend automatisch ueber die anthropic_*-Provider-Buckets).
+    usage = getattr(message, "usage", None)
+    input_tokens = int(getattr(usage, "input_tokens", 0) or 0) if usage else 0
+    output_tokens = int(getattr(usage, "output_tokens", 0) or 0) if usage else 0
+    if usage is not None and (input_tokens or output_tokens):
+        record_anthropic_call(
+            usage,
+            model=model,
+            operation="segment_roundup",
+            meta={
+                "segment": segment.value,
+                "iso_year": agg.iso_year,
+                "iso_week": agg.iso_week,
+            },
+        )
+    cost = (
+        _estimate_cost_usd(input_tokens, output_tokens)
+        if (input_tokens or output_tokens)
+        else None
+    )
+
+    return SegmentRoundupReport(
+        segment=segment.value,
+        iso_year=agg.iso_year,
+        iso_week=agg.iso_week,
+        window_days=window_days,
+        generated_at=generated_at,
+        model=model,
+        aggregation=agg,
+        llm_output=llm_output,
+        cost_usd_estimate=cost,
+        input_tokens=input_tokens or None,
+        output_tokens=output_tokens or None,
+        raw_llm_text=raw_for_response,
+    )
+
+
+def _persist_roundup(session: Session, report: SegmentRoundupReport) -> None:
+    """Upsert eine ``segment_roundup``-Row keyed auf
+    ``(segment, iso_year, iso_week)``. Last-Write-Wins (delete-then-insert)
+    analog ``_persist_report`` der Pair-Pipeline.
+
+    Skippt bei ``llm_output = None`` — analog Pair-Brief-Konvention, kein
+    leerer Row.
+    """
+    if report.llm_output is None:
+        logger.warning(
+            "segment-roundup-persist-skipped: segment=%s week=%d/%d (no llm_output)",
+            report.segment, report.iso_year, report.iso_week,
+        )
+        return
+
+    cost_cents: Optional[int] = (
+        int(round(report.cost_usd_estimate * 100)) if report.cost_usd_estimate else None
+    )
+
+    # PK ist (segment, iso_year, iso_week). Wir nutzen den enum-value direkt
+    # fuer die PK-Lookup.
+    existing = session.get(
+        SegmentRoundupRow,
+        (ChannelSegment(report.segment), report.iso_year, report.iso_week),
+    )
+    if existing is not None:
+        session.delete(existing)
+        session.flush()
+
+    row = SegmentRoundupRow(
+        segment=ChannelSegment(report.segment),
+        iso_year=report.iso_year,
+        iso_week=report.iso_week,
+        window_days=report.window_days,
+        channels_aggregation=report.aggregation.model_dump(mode="json"),
+        llm_output=report.llm_output.model_dump(mode="json"),
+        generated_at=report.generated_at,
+        model=report.model,
+        cost_usd_cents=cost_cents,
+        input_tokens=report.input_tokens,
+        output_tokens=report.output_tokens,
+    )
+    session.add(row)
+    session.commit()
+
+
+def generate_and_persist_roundup(
+    session: Session,
+    segment: ChannelSegment,
+    *,
+    window_days: int = ROUNDUP_DEFAULT_WINDOW_DAYS,
+    top_posts_n: int = ROUNDUP_DEFAULT_TOP_POSTS_N,
+    model: str = OPUS_MODEL_ALIAS,
+    now: Optional[datetime] = None,
+) -> SegmentRoundupReport:
+    """End-to-End: aggregieren → LLM-Call → persistieren (idempotent
+    Last-Write-Wins). Pilot-Auslosse-Pfad ruft das hier auf.
+    """
+    report = generate_segment_roundup(
+        session, segment,
+        window_days=window_days,
+        top_posts_n=top_posts_n,
+        model=model,
+        now=now,
+    )
+    _persist_roundup(session, report)
+    return report
+
+
+__all__ = [
+    "ROUNDUP_DEFAULT_WINDOW_DAYS",
+    "ROUNDUP_DEFAULT_TOP_POSTS_N",
+    "aggregate_segment",
+    "generate_segment_roundup",
+    "generate_and_persist_roundup",
+]
