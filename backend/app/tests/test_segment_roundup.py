@@ -34,6 +34,7 @@ from app.models.entities import (
     Post,
     SegmentRoundup as SegmentRoundupRow,
 )
+from app.services import anthropic_client as anthropic_module
 from app.services import segment_roundup as roundup_module
 from app.services.segment_roundup import (
     _select_channels_for_segment,
@@ -114,7 +115,13 @@ def _seed_post(
 
 
 def _mock_anthropic_response(monkeypatch, body: dict, usage: dict | None = None) -> MagicMock:
-    """Patches messages_create_text + record_anthropic_call. Returns the mock."""
+    """Patches messages_create_text + record_anthropic_call. Returns the mock.
+
+    Schritt-4-Hinweis: ``messages_create_text`` wird ab Commit 2/N vom
+    ``call_with_json_retry``-Helper im ``anthropic_client``-Modul
+    aufgerufen — Patch muss am defining-Modul ansetzen, sonst trifft der
+    Mock den Helper-Call nicht.
+    """
     usage_ns = SimpleNamespace(
         input_tokens=(usage or {}).get("input_tokens", 1000),
         output_tokens=(usage or {}).get("output_tokens", 300),
@@ -124,7 +131,7 @@ def _mock_anthropic_response(monkeypatch, body: dict, usage: dict | None = None)
         usage=usage_ns,
     )
     mock = MagicMock(return_value=message)
-    monkeypatch.setattr(roundup_module, "messages_create_text", mock)
+    monkeypatch.setattr(anthropic_module, "messages_create_text", mock)
     monkeypatch.setattr(roundup_module, "is_anthropic_configured", lambda: True)
     monkeypatch.setattr(
         roundup_module, "record_anthropic_call",
@@ -299,6 +306,114 @@ def test_generate_and_persist_roundup_is_last_write_wins(db, monkeypatch):
 # Test 6 — Disjunkt: Pair-Pool-Channel (segment=NULL) wird nie aggregiert
 # ---------------------------------------------------------------------------
 
+def test_parse_cron_roundup_segments_default(caplog):
+    """Default-CSV (alle vier produktiven Segmente) → vier ChannelSegment-
+    Werte in der CSV-Reihenfolge."""
+    from app.services.segment_roundup import parse_cron_roundup_segments
+    result = parse_cron_roundup_segments(
+        "us_major,us_independent,de_verleih,de_independent"
+    )
+    assert result == [
+        ChannelSegment.US_MAJOR,
+        ChannelSegment.US_INDEPENDENT,
+        ChannelSegment.DE_VERLEIH,
+        ChannelSegment.DE_INDEPENDENT,
+    ]
+
+
+def test_parse_cron_roundup_segments_whitespace_and_trailing_comma(caplog):
+    """Tolerant fuer Whitespace und trailing comma (analog
+    is_uk_enabled_for_pair-Parsing)."""
+    from app.services.segment_roundup import parse_cron_roundup_segments
+    result = parse_cron_roundup_segments("  us_major , de_verleih ,")
+    assert result == [ChannelSegment.US_MAJOR, ChannelSegment.DE_VERLEIH]
+
+
+def test_parse_cron_roundup_segments_unknown_token_warns_and_skips(monkeypatch):
+    """Unbekannter Token → Warning-Log + skip, gueltige Tokens kommen
+    durch.
+
+    Direkter Logger-Mock statt caplog: andere Tests in der Full-Suite
+    koennen propagate/handler-State des Loggers manipulieren und
+    vergessen zurueckzubauen, dann sieht caplog nichts. Direct-Mock auf
+    ``logger.warning`` ist immun dagegen.
+    """
+    from unittest.mock import MagicMock
+    from app.services import segment_roundup as srm
+    mock_warning = MagicMock()
+    monkeypatch.setattr(srm.logger, "warning", mock_warning)
+
+    result = srm.parse_cron_roundup_segments("us_major,fr_major,de_verleih")
+
+    assert result == [ChannelSegment.US_MAJOR, ChannelSegment.DE_VERLEIH]
+    # genau ein Warning fuer den unknown token
+    assert mock_warning.call_count == 1
+    args, kwargs = mock_warning.call_args
+    assert args[0] == "cron_roundup_segments_unknown_value"
+    assert kwargs["extra"]["token"] == "fr_major"
+
+
+def test_parse_cron_roundup_segments_empty_value_errors(monkeypatch):
+    """Wolf-Festlegung: leerer Gesamtwert darf NICHT still in
+    'keine Roundups' kippen — ERROR-Log und leere Liste."""
+    from unittest.mock import MagicMock
+    from app.services import segment_roundup as srm
+    mock_error = MagicMock()
+    monkeypatch.setattr(srm.logger, "error", mock_error)
+
+    result = srm.parse_cron_roundup_segments("")
+
+    assert result == []
+    assert mock_error.call_count == 1
+    args, _ = mock_error.call_args
+    assert args[0] == "cron_roundup_segments_empty"
+
+
+def test_parse_cron_roundup_segments_all_unknown_errors(monkeypatch):
+    """Wenn ALLE Tokens unbekannt sind, ist das ebenfalls ein
+    leerer/unparsebarer Gesamtwert — ERROR-Log."""
+    from unittest.mock import MagicMock
+    from app.services import segment_roundup as srm
+    mock_error = MagicMock()
+    monkeypatch.setattr(srm.logger, "error", mock_error)
+    # warning silenced damit es keine token-Warnings stoert (wir checken
+    # nur den finalen Error)
+    monkeypatch.setattr(srm.logger, "warning", MagicMock())
+
+    result = srm.parse_cron_roundup_segments("fr_major,it_major")
+
+    assert result == []
+    # finaler "alle Tokens unbekannt"-Error fired
+    error_messages = [call.args[0] for call in mock_error.call_args_list]
+    assert "cron_roundup_segments_empty" in error_messages
+
+
+def test_silent_channel_list_uses_platform_suffix_for_multi_platform_handles(db):
+    """Schritt-4 Dedupe-Fix: Multi-Plattform-Handles im Silent-Block muessen
+    ``@handle (platform)`` zeigen — ohne Plattform-Suffix erscheinen sie
+    mehrfach als ``@disney`` und der LLM-Prompt verliert die
+    Plattform-Unterscheidung."""
+    from app.services.segment_roundup import _build_user_prompt
+    # Gleicher Handle auf drei Plattformen, alle silent
+    _seed_channel(db, handle="disney", platform="instagram",
+                  segment=ChannelSegment.US_MAJOR)
+    _seed_channel(db, handle="disney", platform="tiktok",
+                  segment=ChannelSegment.US_MAJOR)
+    _seed_channel(db, handle="disney", platform="youtube",
+                  segment=ChannelSegment.US_MAJOR)
+
+    with Session(db) as session:
+        agg = aggregate_segment(session, ChannelSegment.US_MAJOR, window_days=14)
+    prompt = _build_user_prompt(agg)
+
+    assert "@disney (instagram)" in prompt
+    assert "@disney (tiktok)" in prompt
+    assert "@disney (youtube)" in prompt
+    # Kein bare "@disney," ohne Plattform-Suffix
+    assert "@disney," not in prompt
+    assert "ohne Posts im Fenster (3)" in prompt
+
+
 def test_pair_pool_channel_segment_null_is_disjoint(db, monkeypatch):
     pair_ch = _seed_channel(db, handle="warnerbros", platform="instagram",
                             segment=None)  # Pair-Pool
@@ -327,11 +442,13 @@ def test_bad_json_response_persists_nothing(db, monkeypatch):
                        segment=ChannelSegment.US_INDEPENDENT)
     _seed_post(db, ch.id, days_ago=3, engagement=500)
 
-    # Mock returns malformed JSON
+    # Mock returns malformed JSON — Helper repeats the call up to 2 times
+    # (M2-retry pattern), all attempts return the same broken text, so
+    # ``parsed`` stays None and persist-skip greift.
     text_block = SimpleNamespace(type="text", text='{"headline": "broken')
     usage_ns = SimpleNamespace(input_tokens=1000, output_tokens=100)
     message = SimpleNamespace(content=[text_block], usage=usage_ns)
-    monkeypatch.setattr(roundup_module, "messages_create_text",
+    monkeypatch.setattr(anthropic_module, "messages_create_text",
                         MagicMock(return_value=message))
     monkeypatch.setattr(roundup_module, "is_anthropic_configured", lambda: True)
     monkeypatch.setattr(roundup_module, "record_anthropic_call",

@@ -6,13 +6,21 @@ erfolgt durch Leeren oder Entfernen der Env-Var — kein Re-Deploy, keine
 DB-Migration, keine Code-Aenderung. Edit im Railway-Dashboard, Service
 liest die neue Env auf dem naechsten Worker-Restart (~10s).
 
-Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Drei Patterns sind dokumentiert:
+Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Drei aktive Flags:
 
 - ``FEATURE_UK_SECTION_PAIRS`` (csv): Pair-Liste, kommagetrennt — pro Pair
   feinkoernig aktivierbar (Beispiel: ``"disney,lionsgate"``).
 - ``FEATURE_INDEPENDENTS_ENABLED`` (bool): einfacher An/Aus-Schalter.
-- ``FEATURE_SINGLE_MARKET_SCHEMA`` (bool): einfacher An/Aus-Schalter
-  fuer einen Schema-Branch im Brief-Generator.
+- ``FEATURE_SEGMENT_ROUNDUPS_ENABLED`` (bool): An/Aus-Schalter fuer den
+  Non-Pair-Segment-Roundup-Pfad (Pilot-Endpoint + Cron-Block).
+
+Schritt-4-Rename 2026-05-25: vorher ``FEATURE_SINGLE_MARKET_SCHEMA`` — Name
+stammt aus PR #155 als Schema-Branch-Idee. Die finale Funktion ist breiter
+(Cron-Roundup-Pipeline fuer alle vier Default-Segmente, nicht nur Single-
+Market-Schema). Umbenennung als reines Rename-ohne-Verhaltens-Change. Wolf-
+Aktion beim Deploy: alte Env-Var ``FEATURE_SINGLE_MARKET_SCHEMA`` in
+Railway loeschen, neue ``FEATURE_SEGMENT_ROUNDUPS_ENABLED`` anlegen — sonst
+greift das Gate nicht.
 
 Verwendung (in spaeteren Feature-Sprints):
 
@@ -21,10 +29,6 @@ Verwendung (in spaeteren Feature-Sprints):
     if is_uk_enabled_for_pair("disney"):
         # UK-Sektion in Brief-Generation einfuegen
         ...
-
-Dieser Sprint (PR #155) liefert nur das Pattern + Tests. Keine Production-
-Code-Stelle nutzt die Helper. Aktivierung erfolgt erst, wenn die UK- und
-Independents-Sprints die jeweilige Feature-Logik einbauen.
 """
 from __future__ import annotations
 
@@ -59,14 +63,20 @@ def is_independents_enabled() -> bool:
     return os.getenv("FEATURE_INDEPENDENTS_ENABLED", "false").lower() == "true"
 
 
-def is_single_market_schema_enabled() -> bool:
-    """Returns True wenn die ``single_market_insight``-Schema-Branch im
-    Brief-Generator fuer Pairs mit ``pair_type='single_market'`` genutzt
-    werden soll.
+def is_segment_roundups_enabled() -> bool:
+    """Returns True wenn der Non-Pair-Segment-Roundup-Pfad aktiv ist —
+    Gate fuer Pilot-Endpoint ``POST /api/admin/roundups/generate`` UND
+    den Cron-Block in ``_run_cron_sync_background``.
 
-    Env-Var: ``FEATURE_SINGLE_MARKET_SCHEMA``
+    Env-Var: ``FEATURE_SEGMENT_ROUNDUPS_ENABLED``
     Format: ``"true"`` oder ``"false"`` (case-insensitive). Andere Werte
     werden defensiv als ``False`` interpretiert.
     Default: ``"false"``.
+
+    Master-Plan-Schritt-4-Rename: vorher ``FEATURE_SINGLE_MARKET_SCHEMA``.
+    Funktion war von Anfang an Roundup-spezifisch, der Name aus PR #155
+    war historisch enger. Wolf-Action beim Deploy: alte Env-Var
+    ``FEATURE_SINGLE_MARKET_SCHEMA`` loeschen, neue
+    ``FEATURE_SEGMENT_ROUNDUPS_ENABLED`` setzen.
     """
-    return os.getenv("FEATURE_SINGLE_MARKET_SCHEMA", "false").lower() == "true"
+    return os.getenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", "false").lower() == "true"

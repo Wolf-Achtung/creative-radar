@@ -27,7 +27,11 @@ returns the raw Message so the caller has access to the usage.
 """
 from __future__ import annotations
 
+import json
 import logging
+import time
+from dataclasses import dataclass, field
+from typing import Any, Optional
 import time
 from typing import Any, Callable, TypeVar
 
@@ -189,3 +193,227 @@ def messages_create_vision(
         )
 
     return call_with_retry(_do)
+
+
+# ---------- M2 JSON-parse-retry helper (Master-Plan-Schritt-4) ---------
+
+# Bewusste Code-Duplikation des Pair-Pfad-M2-Retry-Helpers
+# (Wolf-Festlegung Ping 1, 25.05.). Die Logik existiert seit Schritt M2 in
+# ``insight_engine.generate_weekly_report`` als inline-Closure + Retry-Loop;
+# der Pair-Pfad bleibt davon unberuehrt (Pair-Tabu). Der Helper hier ist
+# additiv, wird vom Roundup-Pfad konsumiert. Wenn die Pair-Logik spaeter
+# evolviert (z.B. MAX_RECALLS-Tuning, neue Log-Felder), muss diese Kopie
+# explizit nachgezogen werden — kein automatischer DRY-Sync.
+
+
+def _strip_codefence(text: str) -> str:
+    """Tolerate a ```json ... ``` wrap if the model adds one despite the
+    "no Markdown" instruction. Duplikat von ``insight_engine._strip_codefence``;
+    siehe Modul-Doku oben fuer den Pair-Tabu-Hintergrund.
+    """
+    t = text.strip()
+    if t.startswith("```"):
+        first_nl = t.find("\n")
+        if first_nl != -1:
+            t = t[first_nl + 1:]
+        if t.endswith("```"):
+            t = t[:-3]
+    return t.strip()
+
+
+def _try_parse_llm_json(
+    raw_text: str,
+) -> tuple[Optional[Any], Optional[json.JSONDecodeError], str]:
+    """Strict + lenient JSON-Parsing. Duplikat von
+    ``insight_engine._try_parse_llm_json``; semantisch identisch.
+
+    Returns ``(parsed, error, parse_path)``:
+    - ``parsed``: Python-Objekt bei Erfolg, sonst ``None``.
+    - ``error``: letzter ``json.JSONDecodeError`` bei Total-Fehler.
+    - ``parse_path``: ``"strict"`` / ``"lenient"`` / ``""``.
+    """
+    cleaned = _strip_codefence(raw_text)
+    try:
+        return json.loads(cleaned), None, "strict"
+    except json.JSONDecodeError as strict_exc:
+        first = cleaned.find("{")
+        last = cleaned.rfind("}")
+        if first != -1 and last > first:
+            substring = cleaned[first:last + 1]
+            if substring != cleaned:
+                try:
+                    return json.loads(substring), None, "lenient"
+                except json.JSONDecodeError:
+                    pass
+        return None, strict_exc, ""
+
+
+@dataclass
+class JsonRetryResult:
+    """Ergebnis von ``call_with_json_retry``.
+
+    - ``parsed``: ``dict``/``list`` (geparstes JSON-Objekt) oder ``None``
+      wenn alle Versuche fehlschlugen.
+    - ``call_attempts``: Liste von ``(message, raw_text)``-Tupeln in der
+      Reihenfolge der Aufrufe. Caller iteriert hier durch, um pro Call
+      ``record_anthropic_call(usage, operation=..., meta=...)`` zu fahren —
+      damit landet jeder Retry im costlog, F0.7-Cap erfasst die wahre
+      Spend-Summe.
+    - ``parse_error``: letzter beobachteter ``JSONDecodeError`` (None,
+      wenn ``parsed`` gesetzt).
+    - ``parse_path``: ``"strict"`` (codefence-strip + ``json.loads``
+      reichte), ``"lenient"`` (Substring-Extraktion vom ersten ``{``
+      bis letzten ``}`` rettete), ``""`` (nichts ging).
+    """
+    parsed: Optional[Any]
+    call_attempts: list[tuple[Any, str]] = field(default_factory=list)
+    parse_error: Optional[json.JSONDecodeError] = None
+    parse_path: str = ""
+
+
+def call_with_json_retry(
+    *,
+    model: str,
+    system: str,
+    user_message: str,
+    max_tokens: int = 12000,
+    max_recalls: int = 2,
+    log_prefix: str = "anthropic-json",
+    log_extra: Optional[dict] = None,
+) -> JsonRetryResult:
+    """LLM-Call mit JSON-Parse-Retry-Loop.
+
+    Mechanik (analog ``insight_engine.generate_weekly_report``-M2-Pfad):
+    1. ``messages_create_text`` mit den uebergebenen Parametern.
+    2. Text aus content-Blocks extrahieren.
+    3. ``_try_parse_llm_json`` (strict → lenient).
+    4. Bei Parse-Fehler bis zu ``max_recalls`` frische
+       ``messages_create_text``-Calls. Anthropic honoriert keine
+       Idempotency-Keys (siehe ``messages_create_text``-Doc), jeder Call
+       liefert eine echte neue Completion.
+    5. Falls ein Re-Call selbst raised (Rate-Limit, API-Error), break
+       und log ``{log_prefix}-recall-aborted``.
+
+    Logging:
+    - ``{log_prefix}-call-start`` / ``-call-done`` pro Attempt (mit
+      ``log_extra`` + ``attempt`` + ``duration_ms``).
+    - ``{log_prefix}-parse-retry`` pro Retry-Versuch.
+    - ``{log_prefix}-parse-recovered`` wenn parse_path=lenient ODER
+      recall_count > 0.
+
+    Return ``JsonRetryResult``. Caller:
+    - validiert ``parsed`` gegen sein Pydantic-Schema.
+    - iteriert ``call_attempts`` fuer Cost-Tracking
+      (``record_anthropic_call`` pro usage).
+    - extrahiert ``raw_text`` aus dem LETZTEN ``call_attempts``-Tupel
+      fuer ``raw_for_response`` bei Schema-Fail oder Total-Parse-Fail.
+    - logged sein eigenes ``{log_prefix}-parse-failed``-Event mit den
+      ``raw_response_*``-Diagnose-Feldern (Caller kennt seinen Kontext
+      besser — pair_key, segment, etc. — und packt das passend in
+      ``extra``).
+    """
+    extra_base: dict = dict(log_extra or {})
+
+    def _call_and_extract(attempt_index: int) -> tuple[Any, str]:
+        attempt_extra = {**extra_base, "attempt": attempt_index}
+        logger.info(f"{log_prefix}-call-start", extra=attempt_extra)
+        started = time.monotonic()
+        try:
+            msg = messages_create_text(
+                model=model,
+                system=system,
+                user_message=user_message,
+                max_tokens=max_tokens,
+            )
+        except Exception as call_exc:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            logger.error(
+                f"{log_prefix}-call-done",
+                extra={
+                    **attempt_extra,
+                    "duration_ms": duration_ms,
+                    "outcome": "error",
+                    "error_type": type(call_exc).__name__,
+                },
+            )
+            raise
+        duration_ms = int((time.monotonic() - started) * 1000)
+        logger.info(
+            f"{log_prefix}-call-done",
+            extra={
+                **attempt_extra,
+                "duration_ms": duration_ms,
+                "outcome": "success",
+            },
+        )
+        text = ""
+        try:
+            for block in msg.content or []:
+                if getattr(block, "type", None) == "text":
+                    text += getattr(block, "text", "")
+        except Exception as extract_exc:  # pragma: no cover — defensive
+            logger.warning(
+                f"{log_prefix}-content-extract-failed: %s", extract_exc,
+            )
+        return msg, text
+
+    result = JsonRetryResult(parsed=None)
+
+    message, raw_text = _call_and_extract(attempt_index=0)
+    result.call_attempts.append((message, raw_text))
+    parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
+    result.parsed = parsed
+    result.parse_error = parse_error
+    result.parse_path = parse_path
+
+    for retry_n in range(1, max_recalls + 1):
+        if result.parsed is not None:
+            break
+        logger.warning(
+            f"{log_prefix}-parse-retry",
+            extra={
+                **extra_base,
+                "attempt": retry_n,
+                "max_attempts": max_recalls,
+                "error_type": (
+                    type(result.parse_error).__name__
+                    if result.parse_error else "Unknown"
+                ),
+                "error_message": (
+                    str(result.parse_error)[:200] if result.parse_error else ""
+                ),
+            },
+        )
+        try:
+            message, raw_text = _call_and_extract(attempt_index=retry_n)
+        except Exception as call_exc:
+            logger.error(
+                f"{log_prefix}-parse-recall-aborted",
+                extra={
+                    **extra_base,
+                    "attempt": retry_n,
+                    "error_type": type(call_exc).__name__,
+                    "error_message": str(call_exc)[:200],
+                },
+            )
+            break
+        result.call_attempts.append((message, raw_text))
+        parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
+        result.parsed = parsed
+        result.parse_error = parse_error
+        result.parse_path = parse_path
+
+    if result.parsed is not None and (
+        result.parse_path == "lenient" or len(result.call_attempts) > 1
+    ):
+        logger.info(
+            f"{log_prefix}-parse-recovered",
+            extra={
+                **extra_base,
+                "parse_path": result.parse_path,
+                "anthropic_calls": len(result.call_attempts),
+                "recall_count": len(result.call_attempts) - 1,
+            },
+        )
+
+    return result

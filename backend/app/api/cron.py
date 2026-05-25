@@ -49,7 +49,13 @@ from app.services.budget_check import (
     compute_apify_monthly_spend,
 )
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
+from app.core.feature_flags import is_segment_roundups_enabled
+from app.models.entities import SegmentRoundup as SegmentRoundupRow
 from app.services.insight_engine import PAIRS, generate_and_persist_report
+from app.services.segment_roundup import (
+    generate_and_persist_roundup,
+    parse_cron_roundup_segments,
+)
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.visual_analysis import analyze_asset_visual
 from app.services.youtube_connector import (
@@ -514,6 +520,151 @@ def _run_brief_generation_after_sync(session: Session) -> dict:
     return briefs_summary
 
 
+def _run_segment_roundups_after_briefs(session: Session) -> dict:
+    """Master-Plan-Schritt-4 — Segment-Roundup-Block additiv NACH dem
+    Pair-Brief-Block. Reihenfolge ist Pflicht (Wolf-Konzept §6): Pair-
+    Briefs zuerst, Roundups danach, damit bei mid-Run-Cap-Abbruch
+    zuerst die Roundups entfallen, nie ein Pair-Brief.
+
+    Mechanik (analog ``_run_brief_generation_after_sync``):
+    1. Feature-Flag-Gate ``FEATURE_SEGMENT_ROUNDUPS_ENABLED``. Off →
+       skipped block mit ``enabled=False``.
+    2. Segment-Liste aus ``settings.cron_roundup_segments`` parsen.
+       Leerer/unparsebarer Gesamtwert → skipped block mit
+       ``reason="no_parseable_segments"`` (Wolf-Festlegung Ping 1:
+       nicht still in keine Roundups kippen).
+    3. **Zweiter F0.7-Cap-Check** (PFLICHT laut Wolf-Festlegung Ping 1):
+       ``compute_anthropic_monthly_spend`` re-compute — der Run-Start-
+       Pre-Flight sah die Pair-Brief-Kosten noch nicht. Wenn jetzt
+       ``hard_cap_exceeded and enforced``, ueberspringt der ganze
+       Roundup-Block mit ``reason="anthropic_budget_exceeded"`` und
+       Budget-Snapshot im Summary. Pair-Briefs sind dann sicher schon
+       persistiert.
+    4. ``brief_now = utcnow - 1 day`` analog Pair-Pfad — Roundups gehen
+       fuer die *gerade abgeschlossene* ISO-Woche.
+    5. Pro Segment in CSV-Reihenfolge:
+       - Cache-Hit-Check auf PK ``(segment, iso_year, iso_week)``. Wenn
+         existing-Row → ``skipped_cache_hit++``, kein LLM-Call.
+       - Sonst ``generate_and_persist_roundup`` mit ``now=brief_now``,
+         ``window_days=14``, ``top_posts_n=5``.
+       - Per-Segment-Try/Except: ein scheiternder Segment-Lauf killt
+         nicht die anderen (gleicher Robustness-Vertrag wie Pair-Brief-
+         Block).
+
+    Returns: dict fuer ``summary["roundups"]``.
+    """
+    roundup_enabled = is_segment_roundups_enabled()
+    roundups_summary: dict = {
+        "enabled": roundup_enabled,
+        "skipped": False,
+        "generated": 0,
+        "skipped_cache_hit": 0,
+        "failed": 0,
+        "cost_usd_cents": 0,
+        "results": [],
+        "errors": [],
+    }
+    if not roundup_enabled:
+        roundups_summary["skipped"] = True
+        roundups_summary["reason"] = "feature_flag_off"
+        logger.info("roundups.skipped reason=feature_flag_off")
+        return roundups_summary
+
+    segments = parse_cron_roundup_segments(settings.cron_roundup_segments)
+    roundups_summary["segments_configured"] = len(segments)
+    if not segments:
+        # Parser hat schon einen ERROR-Log gefahren (cron_roundup_segments_empty);
+        # hier setzen wir den Skip-Marker, der das im summary_json sichtbar
+        # macht.
+        roundups_summary["skipped"] = True
+        roundups_summary["reason"] = "no_parseable_segments"
+        return roundups_summary
+
+    # Zweiter F0.7-Cap-Check — PFLICHT-Anforderung Ping 1.
+    cap_check = compute_anthropic_monthly_spend(session)
+    if cap_check.hard_cap_exceeded and cap_check.enforced:
+        roundups_summary["skipped"] = True
+        roundups_summary["reason"] = "anthropic_budget_exceeded"
+        roundups_summary["anthropic_budget"] = cap_check.to_dict()
+        logger.warning(
+            "roundups.skipped reason=anthropic_budget_exceeded spent=%d/%d cents (%.1f%%)",
+            cap_check.spent_usd_cents, cap_check.budget_usd_cents,
+            cap_check.pct_used * 100,
+        )
+        return roundups_summary
+
+    brief_now = datetime.now(timezone.utc) - timedelta(days=1)
+    iso_cal = brief_now.isocalendar()
+    target_iso_year, target_iso_week = iso_cal.year, iso_cal.week
+
+    logger.info(
+        "roundups.start",
+        extra={
+            "segments": [s.value for s in segments],
+            "target_iso_year": target_iso_year,
+            "target_iso_week": target_iso_week,
+        },
+    )
+
+    for segment in segments:
+        existing_row = session.get(
+            SegmentRoundupRow,
+            (segment, target_iso_year, target_iso_week),
+        )
+        if existing_row is not None:
+            roundups_summary["skipped_cache_hit"] += 1
+            roundups_summary["results"].append({
+                "segment": segment.value,
+                "status": "cache_hit",
+                "iso_year": target_iso_year,
+                "iso_week": target_iso_week,
+            })
+            continue
+        try:
+            report = generate_and_persist_roundup(
+                session,
+                segment,
+                window_days=14,
+                top_posts_n=5,
+                now=brief_now,
+            )
+            roundups_summary["generated"] += 1
+            cost_cents = (
+                int(round(report.cost_usd_estimate * 100))
+                if report.cost_usd_estimate else 0
+            )
+            roundups_summary["cost_usd_cents"] += cost_cents
+            roundups_summary["results"].append({
+                "segment": segment.value,
+                "status": "ok" if report.llm_output is not None else "persist_skipped",
+                "iso_year": report.iso_year,
+                "iso_week": report.iso_week,
+                "cost_cents": cost_cents,
+                "channels_evaluated": report.aggregation.channels_evaluated,
+                "channels_with_posts": report.aggregation.channels_with_posts,
+                "total_posts": report.aggregation.total_posts,
+            })
+        except Exception as exc:  # noqa: BLE001 — per-segment isolation
+            logger.exception("roundups.failed segment=%s", segment.value)
+            roundups_summary["failed"] += 1
+            roundups_summary["errors"].append({
+                "segment": segment.value,
+                "error_class": type(exc).__name__,
+                "error_message": str(exc)[:200],
+            })
+
+    logger.info(
+        "roundups.complete",
+        extra={
+            "generated": roundups_summary["generated"],
+            "skipped_cache_hit": roundups_summary["skipped_cache_hit"],
+            "failed": roundups_summary["failed"],
+            "cost_usd_cents": roundups_summary["cost_usd_cents"],
+        },
+    )
+    return roundups_summary
+
+
 async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
     """Background task body. Owns its own Session — the request session is
     closed by the time this runs."""
@@ -603,6 +754,14 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             # ``aggregate_pair`` (insight_engine.py:1880), nur explizit
             # ein Tag zurück.
             summary["briefs"] = _run_brief_generation_after_sync(session)
+            # Master-Plan-Schritt-4 — Segment-Roundup-Block additiv NACH
+            # den Pair-Briefs (Konzept §6, Wolf-Festlegung 25.05.). Der
+            # zweite F0.7-Cap-Check im Roundup-Block stellt sicher, dass
+            # bei mid-Run-Cap-Triggern ausschliesslich die Roundups
+            # entfallen — Pair-Briefs sind hier bereits persistiert.
+            # Hinter ``FEATURE_SEGMENT_ROUNDUPS_ENABLED``: Flag off =
+            # Cron-Verhalten exakt wie vor Schritt 4.
+            summary["roundups"] = _run_segment_roundups_after_briefs(session)
             # Tech-Debt A5 — Apify-Cost dieses Runs ins summary_json.
             # ``record_apify_run`` läuft synchron im ``_run_actor``-Pfad ab
             # und stempelt UTC-now-Timestamps, also liegen alle Rows des

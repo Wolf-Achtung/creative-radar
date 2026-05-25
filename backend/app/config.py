@@ -146,6 +146,18 @@ class Settings(BaseSettings):
     anthropic_hard_cap_pct: float = 1.00
     anthropic_budget_enforced: bool = True
 
+    # Master-Plan-Schritt-4 (2026-05-25) — Roll-out-Steuerung der
+    # Segment-Roundups im Montags-Cron. CSV der Segment-Werte, kommagetrennt.
+    # Default: die vier datenreichen Segmente (Wolf 25.05.). UK ausgesetzt
+    # bis das UK-Inventar waechst — Zuschalten spaeter = ENV-Edit, kein
+    # Code-Deploy. Parser im Cron-Block (``_run_segment_roundups_after_briefs``)
+    # tolerant: unbekannter Einzelwert → Warning-Log + skip; leerer oder
+    # komplett unparsebarer Gesamtwert → ERROR-Log und kein Roundup-Lauf
+    # (Wolf-Festlegung Ping 1: nicht still in "keine Roundups" kippen).
+    cron_roundup_segments: str = (
+        "us_major,us_independent,de_verleih,de_independent"
+    )
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property
