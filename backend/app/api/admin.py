@@ -46,7 +46,14 @@ from app.services.budget_check import (
     compute_anthropic_monthly_spend,
     compute_apify_monthly_spend,
 )
+from app.core.feature_flags import is_single_market_schema_enabled
+from app.models.entities import ChannelSegment
 from app.services.insight_engine import PAIRS, generate_and_persist_report
+from app.services.segment_roundup import (
+    ROUNDUP_DEFAULT_TOP_POSTS_N,
+    ROUNDUP_DEFAULT_WINDOW_DAYS,
+    generate_and_persist_roundup,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -550,3 +557,106 @@ def regenerate_insights(
         })
 
     return {"results": results, "total_cost_cents": total_cost_cents}
+
+
+# ---------- Segment-Roundup-Trigger (Master-Plan-Schritt-3 Pilot) -----
+
+
+@router.post("/roundups/generate")
+def trigger_segment_roundup(
+    segment: str = Query(
+        ...,
+        description=(
+            "Segment-Key — einer der sechs Werte aus ``creative_radar.channel_segment``: "
+            "``us_major``, ``us_independent``, ``uk_major``, ``uk_independent``, "
+            "``de_verleih``, ``de_independent``. Pilot in Master-Plan-Schritt-3 laeuft "
+            "ausschliesslich gegen ``us_major``."
+        ),
+    ),
+    window_days: int = Query(
+        ROUNDUP_DEFAULT_WINDOW_DAYS,
+        ge=1, le=90,
+        description=(
+            "Zeitfenster in Tagen. Default 14 (Wolf 25.05., bewusste Abweichung vom "
+            "30d-Pair-Default). Audit-Wert wird pro Row in ``segment_roundup.window_days`` "
+            "persistiert."
+        ),
+    ),
+    top_posts_n: int = Query(
+        ROUNDUP_DEFAULT_TOP_POSTS_N,
+        ge=1, le=20,
+        description=(
+            "Top-N Posts pro Channel im LLM-Prompt. Default 5 — entspricht der "
+            "Sprint-6-Konvention im Pair-Prompt. Hoehere Werte erhoehen Input-Tokens "
+            "und damit Lauf-Kosten direkt proportional."
+        ),
+    ),
+    session: Session = Depends(get_session),
+):
+    """Master-Plan-Schritt-3 Pilot — manueller Roundup-Trigger.
+
+    Eigene Code-Bahn, beruehrt keinen Pair-Pipeline-Code. Eigene Persistenz
+    (``segment_roundup``-Tabelle), eigenes LLM-Schema (deskriptive
+    Synthese, kein Vergleich). Last-Write-Wins auf
+    ``(segment, iso_year, iso_week)``.
+
+    Gate: ``FEATURE_SINGLE_MARKET_SCHEMA``-Env-Var (PR #155, default off).
+    Off → 503. Wolf kann den Pilot in Production via Railway-ENV-Toggle
+    ein-/ausschalten ohne Code-Deploy. **Hinweis Wolf 25.05.: Die Flag-
+    Zuordnung ist vorlaeufig; die endgueltige Benennung faellt in
+    Schritt 4 (Konzept §8), das Gate wird dann ggf. umgehaengt.**
+
+    Kosten: pro Lauf eine Opus-Call-Erfassung in costlog mit
+    ``operation='segment_roundup'``. Faellt automatisch in die F0.7-
+    Anthropic-Cap-Aggregation. Pilot-Hochrechnung erfolgt nach dem
+    ersten Real-Lauf gegen Production-Daten.
+    """
+    if not is_single_market_schema_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Segment-Roundup-Pilot ist deaktiviert. "
+                "FEATURE_SINGLE_MARKET_SCHEMA muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+
+    try:
+        segment_enum = ChannelSegment(segment)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Unbekanntes Segment: {segment!r}. "
+                f"Erlaubt: {[s.value for s in ChannelSegment]}."
+            ),
+        )
+
+    try:
+        report = generate_and_persist_roundup(
+            session,
+            segment_enum,
+            window_days=window_days,
+            top_posts_n=top_posts_n,
+        )
+    except (AnthropicAuthError, AnthropicRateLimitError, AnthropicAPIError) as exc:
+        logger.warning("segment-roundup failed for segment=%s: %s", segment, exc)
+        raise HTTPException(status_code=502, detail=f"Anthropic-API: {exc}")
+
+    cost_cents = (
+        int(round(report.cost_usd_estimate * 100))
+        if report.cost_usd_estimate
+        else 0
+    )
+    return {
+        "segment": report.segment,
+        "iso_year": report.iso_year,
+        "iso_week": report.iso_week,
+        "window_days": report.window_days,
+        "channels_evaluated": report.aggregation.channels_evaluated,
+        "channels_with_posts": report.aggregation.channels_with_posts,
+        "total_posts": report.aggregation.total_posts,
+        "llm_output_present": report.llm_output is not None,
+        "cost_usd_cents": cost_cents,
+        "input_tokens": report.input_tokens,
+        "output_tokens": report.output_tokens,
+    }

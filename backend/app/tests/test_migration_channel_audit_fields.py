@@ -83,7 +83,7 @@ def test_upgrade_adds_audit_columns(sqlite_url, alembic_cfg):
         f"baseline already contains new columns: {NEW_COLUMNS & baseline}"
     )
 
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
 
     after_up = _channel_columns(sqlite_url)
     missing = NEW_COLUMNS - after_up
@@ -95,7 +95,7 @@ def test_upgrade_adds_audit_columns(sqlite_url, alembic_cfg):
 
 
 def test_roundtrip_up_down_up(sqlite_url, alembic_cfg):
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
     assert NEW_COLUMNS.issubset(_channel_columns(sqlite_url))
 
     # Downgrade to the revision *before* channel_audit (= PRIOR_REVISION).
@@ -111,7 +111,7 @@ def test_roundtrip_up_down_up(sqlite_url, alembic_cfg):
         "downgrade unexpectedly removed pre-existing columns"
     )
 
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
     after_reup = _channel_columns(sqlite_url)
     missing = NEW_COLUMNS - after_reup
     assert not missing, f"second upgrade did not re-add: {missing}"

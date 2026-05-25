@@ -498,3 +498,86 @@ class PairInfo(BaseModel):
 
 class PairsResponse(BaseModel):
     pairs: list[PairInfo]
+
+
+# ---------- Segment-Roundup (Master-Plan-Schritt-3, non-pair) -------------
+
+class ChannelRoundupStats(BaseModel):
+    """Per-Channel-Sicht im Roundup. Schlankere Form als ``ChannelStats``
+    aus der Pair-Pipeline: keine cross-market-Felder, keine
+    title_coverage (Roundup-Charakter ist deskriptiv, kein Vergleich).
+    Enthaelt genug Material, dass der LLM-Prompt pro Channel einen
+    Aktivitaets-Abriss formulieren kann."""
+    channel_id: Optional[str]
+    handle: str
+    platform: str
+    market: Optional[str]
+    posts_count: int
+    avg_engagement: float
+    avg_caption_length: float
+    avg_duration_seconds: Optional[float]
+    top_hashtags: list[HashtagFrequency]
+    top_posts: list[RankedPost]
+
+
+class SegmentAggregation(BaseModel):
+    """Header + Channel-Slate fuer einen Segment-Roundup. Wird im
+    ``segment_roundup.channels_aggregation``-JSON-Blob persistiert.
+    Audit-Trail + Frontend-Render-Material in einem Pass.
+    """
+    segment: str
+    iso_year: int
+    iso_week: int
+    window_days: int
+    window_start: datetime
+    window_end: datetime
+    channels_evaluated: int
+    channels_with_posts: int
+    total_posts: int
+    channels: list[ChannelRoundupStats]
+
+
+class SegmentRoundupLLMReport(BaseModel):
+    """Deskriptive LLM-Synthese fuer einen Segment-Roundup. Eigenes
+    Schema, **kein** Markt-Vergleich, **keine** Cross-Segment-Aussagen
+    (Wolf-Festlegung 25.05.). Strukturell schlanker als ``LLMReport``
+    aus der Pair-Pipeline.
+
+    - ``headline`` und ``tldr``: Segment-Kopf, 1 Satz / 2-3 Saetze.
+    - ``what_ran`` (3-7 Bullets): was lief im Segment in der Woche.
+    - ``channels_in_focus`` (Optional, 1-3 Eintraege): herausstechende
+      Channels mit kurzer Begruendung. Keine Rankings, kein Best/Worst —
+      Roundup ist deskriptiv.
+    - ``themes`` (Optional, 2-5 Bullets): wiederkehrende Themen/Motive
+      ueber Channels hinweg.
+    - ``data_caveats``: Lautstaerke-Hinweise (z.B. "12 von 33 Channels
+      ohne Posts in diesem Fenster").
+    """
+    headline: str
+    tldr: str
+    what_ran: list[str]
+    channels_in_focus: Optional[list[str]] = None
+    themes: Optional[list[str]] = None
+    data_caveats: list[str]
+
+
+class SegmentRoundupReport(BaseModel):
+    """Vollstaendiger Roundup-Bericht — Persistenz-Stand + LLM-Synthese.
+    Pendant zu ``InsightReport`` der Pair-Pipeline, aber strikt disjunkt:
+    teilt keinen Code, kein Schema, keine Tabelle.
+    """
+    segment: str
+    iso_year: int
+    iso_week: int
+    window_days: int
+    generated_at: datetime
+    model: str
+    aggregation: SegmentAggregation
+    llm_output: Optional[SegmentRoundupLLMReport] = None
+    cost_usd_estimate: Optional[float] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    raw_llm_text: Optional[str] = Field(
+        default=None,
+        description="Raw assistant text — populated only when JSON parsing fails.",
+    )

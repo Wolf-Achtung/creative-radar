@@ -143,13 +143,45 @@ class AcquisitionStrategy(str, Enum):
     MANUAL = "manual"
 
 
-def _enum_column(enum_cls, name: str, *, nullable: bool, server_default: Optional[str] = None) -> Column:
+class ChannelSegment(str, Enum):
+    """Klassifizierungs-Steuerfeld fuer Non-Pair-Channels (Master-Plan-
+    Schritt 2, Migrationen e1c93a4d7f08 + b8f2a7c40e91). Pair-Pool-Channels
+    bleiben ``segment = NULL`` und tauchen in keinem Roundup auf — Pair-
+    und Roundup-Pfad sind disjunkt. Die sechs Werte spiegeln Wolfs
+    Klassifizierungs-Regel (Content-Positionierung schlaegt Konzern-
+    Eigentum): Mainstream/Wide-Release → ``*_major``, Arthouse/Specialty
+    → ``*_independent``. Streamer zaehlen als ``*_major`` bzw.
+    ``de_verleih``. Reihenfolge identisch mit der ENUM-Werteliste in
+    der Migration e1c93a4d7f08; pyenum.value ist die DB-Repraesentation.
+    """
+    US_MAJOR = "us_major"
+    US_INDEPENDENT = "us_independent"
+    UK_MAJOR = "uk_major"
+    UK_INDEPENDENT = "uk_independent"
+    DE_VERLEIH = "de_verleih"
+    DE_INDEPENDENT = "de_independent"
+
+
+def _enum_column(
+    enum_cls,
+    name: str,
+    *,
+    nullable: bool,
+    server_default: Optional[str] = None,
+    primary_key: bool = False,
+) -> Column:
     """Build a column for one of the channel-registry enums. Postgres uses the
     native ENUM type defined in migration 7e3b2c4a8f51 (creative_radar schema);
     SQLite falls back to VARCHAR so the in-memory test DB and alembic-roundtrip
     test stay green. ``values_callable`` is critical — without it SQLAlchemy
     would write member NAMES (uppercase) to the DB instead of the lowercase
     enum values defined in the migration.
+
+    ``primary_key`` is needed by ``SegmentRoundup.segment`` (Master-Plan-
+    Schritt-3): SQLModel verbietet ``primary_key=True`` als Field-kwarg, wenn
+    auch ``sa_column=...`` gesetzt ist — der PK-Flag muss in den
+    ``Column``-Konstruktor selbst. ``segment`` als PK heisst ``nullable=False``
+    implizit (alle Caller setzen das auch explizit, defensiv).
     """
     schema = _resolve_table_schema()
     if schema:
@@ -167,6 +199,8 @@ def _enum_column(enum_cls, name: str, *, nullable: bool, server_default: Optiona
     kwargs: dict = {"nullable": nullable}
     if server_default is not None:
         kwargs["server_default"] = server_default
+    if primary_key:
+        kwargs["primary_key"] = True
     return Column(col_type, **kwargs)
 
 
@@ -198,6 +232,17 @@ class Channel(SQLModel, table=True):
     monitoring_enabled: bool = Field(
         default=True,
         sa_column=Column(sa.Boolean(), nullable=False, server_default=sa.true()),
+    )
+    # Master-Plan-Schritt-2: Klassifizierungs-Steuerfeld fuer den
+    # Non-Pair-Roundup-Pfad. Pair-Pool-Channels haben ``segment = NULL``
+    # und sind aus jedem Roundup-Generator-Lauf disjunkt ausgeschlossen.
+    # Migrationen e1c93a4d7f08 (Spalte) + b8f2a7c40e91 (Backfill).
+    # Lazy-Mirror bis hier: Schritt 2 hat die Spalte produktiv ohne
+    # ORM-Spiegelung gefuellt; Schritt 3 (Roundup-Generator) ist der
+    # erste Read-Pfad und braucht das Feld typed im ORM.
+    segment: Optional[ChannelSegment] = Field(
+        default=None,
+        sa_column=_enum_column(ChannelSegment, "channel_segment", nullable=True),
     )
     # Audit-Felder, befüllt nur durch scripts/import_channels.py
     # (Sprint 5.3.X Perplexity-seed bulk-import). Read-only-by-convention
@@ -439,6 +484,56 @@ class CronRun(SQLModel, table=True):
     run_index: int = 0
     summary_json: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     error_message: Optional[str] = None
+
+
+class SegmentRoundup(SQLModel, table=True):
+    """Persisted weekly Segment-Roundup — one row per (segment, iso_year, iso_week).
+
+    Master-Plan-Schritt-3 (2026-05-25). Disjunkt zur Pair-Brief-Pipeline:
+    Roundup-Pfad und Pair-Pfad teilen keinen Code, keine Tabelle, keine
+    LLM-Prompt-Form. ``insight_report`` hat ``pair_key NOT NULL`` im PK,
+    was eine Erweiterung mit Typ-Diskriminator zu invasiv gemacht haette
+    (Lock-Pfad ``_acquire_brief_lock`` ist auch pair_key-keyed) — daher
+    eigene Tabelle (Wolf-Ping-1 (a), 25.05.).
+
+    Composite-PK ``(segment, iso_year, iso_week)`` spiegelt die natuerliche
+    Cache-Lookup-Semantik: ein Roundup pro Segment pro Woche. Last-Write-
+    Wins beim Regenerate (analog ``insight_report``).
+
+    JSON-Blobs:
+    - ``channels_aggregation`` ist eine ``SegmentAggregation``-Pydantic-
+      Form (siehe ``app.schemas.insights``) mit Segment-Header + per-
+      Channel-Stats + Top-N Posts. Liefert Audit-Trail und Frontend-
+      Render-Material in einem Pass.
+    - ``llm_output`` ist die deskriptive Synthese — eigenes Schema, keine
+      Vergleichs- oder Cross-Segment-Aussagen (Roundup-Charakter laut
+      Wolf-Festlegung 25.05.).
+
+    ``window_days`` als Audit-Spalte: das Roundup-Default-Fenster ist
+    14d (Wolf-Festlegung, bewusste Abweichung vom 30d-Pair-Fenster),
+    parametrisiert. Wenn Wolf das Fenster spaeter aendert, sieht man
+    pro Row, mit welchem Fenster der Brief generiert wurde.
+    """
+    __tablename__ = "segment_roundup"
+    __table_args__ = _CR_TABLE_ARGS
+    segment: ChannelSegment = Field(
+        sa_column=_enum_column(
+            ChannelSegment,
+            "channel_segment",
+            nullable=False,
+            primary_key=True,
+        ),
+    )
+    iso_year: int = Field(primary_key=True)
+    iso_week: int = Field(primary_key=True)
+    window_days: int = Field(nullable=False)
+    channels_aggregation: dict = Field(sa_column=Column(JSON, nullable=False))
+    llm_output: dict = Field(sa_column=Column(JSON, nullable=False))
+    generated_at: datetime = Field(default_factory=utc_now, index=True)
+    model: str = Field(max_length=64)
+    cost_usd_cents: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
 
 
 class InsightReport(SQLModel, table=True):
