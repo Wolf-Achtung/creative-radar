@@ -120,7 +120,7 @@ def test_upgrade_adds_partial_unique_index(sqlite_url, alembic_cfg):
         "baseline must not already carry the new index"
     )
 
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
 
     after = _channel_indexes(sqlite_url)
     idx = _find_partial_index(after)
@@ -136,7 +136,7 @@ def test_partial_predicate_visible_in_index_definition(sqlite_url, alembic_cfg):
     "deactivated duplicates are legal" rule isn't enforced and the test
     suite below would be passing on a normal full UNIQUE index. Read the
     raw SQL from sqlite_master to assert the predicate text is there."""
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
 
     engine = create_engine(sqlite_url)
     try:
@@ -167,7 +167,7 @@ def test_active_duplicate_handle_platform_fails(sqlite_url, alembic_cfg):
     """Inserting a second active row with the same (handle, platform)
     pair raises IntegrityError. The actual contract the partial index
     exists for."""
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
 
     engine = create_engine(sqlite_url)
     try:
@@ -193,7 +193,7 @@ def test_inactive_duplicate_allowed(sqlite_url, alembic_cfg):
     for starwars/IG (older INT row deactivated, newer US row active).
     A full UNIQUE constraint would have rejected this; the partial
     index permits it."""
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
 
     engine = create_engine(sqlite_url)
     try:
@@ -210,7 +210,7 @@ def test_both_inactive_allowed(sqlite_url, alembic_cfg):
     might arise if a channel ping-pongs through multiple inventory
     sweeps; that's a separate data-quality issue, not a constraint
     violation."""
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
 
     engine = create_engine(sqlite_url)
     try:
@@ -224,7 +224,7 @@ def test_same_handle_different_platform_allowed(sqlite_url, alembic_cfg):
     """Composite uniqueness: ``disney`` active on Instagram and ``disney``
     active on TikTok stay legal. Guards against accidental
     over-tightening to a single-column unique on handle."""
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
 
     engine = create_engine(sqlite_url)
     try:
@@ -240,11 +240,11 @@ def test_same_handle_different_platform_allowed(sqlite_url, alembic_cfg):
 def test_roundtrip_up_down_up(sqlite_url, alembic_cfg):
     """Downgrade removes the index; subsequent upgrade re-applies it.
     Catches a one-way migration."""
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
     assert _find_partial_index(_channel_indexes(sqlite_url)) is not None
 
     command.downgrade(alembic_cfg, PRIOR_REVISION)
     assert _find_partial_index(_channel_indexes(sqlite_url)) is None
 
-    command.upgrade(alembic_cfg, "head")
+    command.upgrade(alembic_cfg, NEW_REVISION)
     assert _find_partial_index(_channel_indexes(sqlite_url)) is not None
