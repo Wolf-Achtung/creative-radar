@@ -36,14 +36,57 @@ function formatActivity(roundup) {
   return `${channels} aktive Channels · ${posts} Posts`;
 }
 
+function RoundupDetails({ llm }) {
+  // Voller llm_output im Aufklapp-Bereich: tldr, themes, what_ran,
+  // channels_in_focus, data_caveats. data_caveats bewusst sichtbar —
+  // bei duennen Segmenten macht das aus 'duenner Brief' eine erklaerte
+  // 'ruhige Woche'. Reihenfolge: tldr (Kontext) -> what_ran (Substanz)
+  // -> themes -> channels_in_focus -> data_caveats (Lautstaerke-Hinweis).
+  if (!llm) return null;
+  const sections = [
+    { label: 'Worum es ging',          value: llm.tldr,              kind: 'text' },
+    { label: 'Was lief',               value: llm.what_ran,          kind: 'list' },
+    { label: 'Themen',                 value: llm.themes,            kind: 'list' },
+    { label: 'Channels im Fokus',     value: llm.channels_in_focus, kind: 'list' },
+    { label: 'Datenhinweise',          value: llm.data_caveats,      kind: 'list' },
+  ];
+  return (
+    <details style={{ marginTop: '0.75rem' }}>
+      <summary style={{ cursor: 'pointer', fontSize: '13px' }}>Mehr Details</summary>
+      <div style={{ marginTop: '0.5rem' }}>
+        {sections.map((section) => {
+          if (section.kind === 'list') {
+            const items = Array.isArray(section.value) ? section.value.filter(Boolean) : [];
+            if (items.length === 0) return null;
+            return (
+              <div key={section.label} style={{ marginBottom: '0.5rem' }}>
+                <p className="small" style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>{section.label}</p>
+                <ul className="small" style={{ margin: 0, paddingLeft: '1.1rem' }}>
+                  {items.map((item, index) => <li key={index}>{item}</li>)}
+                </ul>
+              </div>
+            );
+          }
+          if (!section.value) return null;
+          return (
+            <div key={section.label} style={{ marginBottom: '0.5rem' }}>
+              <p className="small" style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>{section.label}</p>
+              <p className="small" style={{ margin: 0 }}>{section.value}</p>
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
 function RoundupTile({ segmentLabel, roundup }) {
   // Kurzform der Kachel: Segment-Label, KW + Jahr, Headline (oder TLDR-
   // Anriss als Fallback), Aktivitaets-Strip. Muss stark schwankende
   // Dichte aushalten — us_major 171 Posts vs us_independent 10. Die
   // Headline kommt vom LLM und traegt unabhaengig von der Dichte; der
   // Kontext (channels_with_posts/total_posts) macht die Lautstaerke
-  // transparent. Erklaerende data_caveats kommen erst im Aufklapp-
-  // Bereich (Folge-Commit).
+  // transparent. Erklaerende data_caveats stehen im <details>-Aufklapp.
   if (!roundup) {
     return (
       <div
@@ -68,6 +111,7 @@ function RoundupTile({ segmentLabel, roundup }) {
         {`KW ${roundup.iso_week}/${roundup.iso_year} · ${formatActivity(roundup)}`}
       </span>
       <p style={{ margin: 0 }}>{headlineOrTldr}</p>
+      <RoundupDetails llm={roundup.llm_output} />
     </div>
   );
 }
