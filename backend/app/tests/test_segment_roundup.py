@@ -150,7 +150,6 @@ def _minimal_llm_body() -> dict:
                 "channel": "@a24",
                 "format_typ": "BTS",
                 "kennzahl": "24s, 5.000 Reaktionen",
-                "verdict": "funktioniert",
             }
         ],
         "themes": ["Indie-Releases", "Festival-Vorbereitung"],
@@ -553,12 +552,17 @@ def test_user_prompt_contains_per_post_metrics(db):
     assert "akt." in prompt
 
 
-def test_system_prompt_forces_titles_schema_with_verdict():
-    """Drift-Schutz fuer den Prompt-Vertrag (Wolf 26.05.):
-    Der System-Prompt MUSS das neue ``titles``-Schema mit ``verdict``,
-    ``channel``, ``format_typ``, ``kennzahl`` benennen. Wenn jemand
-    spaeter den Prompt umschreibt und das Schema-Beispiel verliert,
-    schlaegt dieser Test sofort an.
+def test_system_prompt_forces_titles_schema_without_verdict():
+    """Drift-Schutz fuer den Prompt-Vertrag (Wolf 26.05., Schritt 3d):
+    Der System-Prompt MUSS das ``titles``-Schema mit den Kern-Feldern
+    benennen (titel, channel, format_typ, kennzahl). Wenn jemand das
+    Schema-Beispiel umschreibt und ein Pflichtfeld verliert, schlaegt
+    dieser Test an.
+
+    Schritt 3d: ``verdict`` darf NICHT mehr im Prompt-Schema stehen —
+    das Schema hat das Feld verloren, der Prompt darf es nicht mehr
+    anfordern (sonst produziert das LLM ein Feld, das Pydantic
+    anschliessend stillschweigend verwirft).
     """
     from app.services.segment_roundup import ROUNDUP_SYSTEM_PROMPT
     # Schema-Felder im Beispiel-JSON
@@ -566,17 +570,19 @@ def test_system_prompt_forces_titles_schema_with_verdict():
     assert '"channel":' in ROUNDUP_SYSTEM_PROMPT
     assert '"format_typ":' in ROUNDUP_SYSTEM_PROMPT
     assert '"kennzahl":' in ROUNDUP_SYSTEM_PROMPT
-    assert '"verdict":' in ROUNDUP_SYSTEM_PROMPT
-    # Verdict-Vokabular im Klartext genannt
-    assert "funktioniert" in ROUNDUP_SYSTEM_PROMPT
-    assert "kommt nicht an" in ROUNDUP_SYSTEM_PROMPT
-    assert "noch ausbaufähig" in ROUNDUP_SYSTEM_PROMPT
+    # Schritt 3d: verdict raus aus Schema und Vokabular-Sektion.
+    assert '"verdict":' not in ROUNDUP_SYSTEM_PROMPT
+    assert "VERDICT-VOKABULAR" not in ROUNDUP_SYSTEM_PROMPT
 
 
 def test_system_prompt_drops_pre_3c_bewertungs_verbot():
-    """Wolf-Festlegung 26.05.: Der alte Verbots-Satz
+    """Wolf-Festlegung 26.05. (Schritt 3c): Der alte Verbots-Satz
     ('KEINE Empfehlungen', '... nicht im Sinne von Bewertung') muss
-    raus — Bewertung pro Titel ist ab Schritt 3c erwuenscht."""
+    raus.
+
+    Schritt 3d: Bewertung wird vom LLM nicht mehr in ein Etikett
+    gegossen, aber Konkretheit (Titel, Channel, Kennzahl, Headline mit
+    Haltung) bleibt das Soll — also weiter kein Verbots-Satz aus 3c."""
     from app.services.segment_roundup import ROUNDUP_SYSTEM_PROMPT
     assert "KEINE Empfehlungen" not in ROUNDUP_SYSTEM_PROMPT
     assert "nicht im Sinne von" not in ROUNDUP_SYSTEM_PROMPT
@@ -588,3 +594,19 @@ def test_system_prompt_keeps_no_market_comparison_anchor():
     from app.services.segment_roundup import ROUNDUP_SYSTEM_PROMPT
     assert "KEIN Markt-Vergleich" in ROUNDUP_SYSTEM_PROMPT
     assert "Cross-Segment" in ROUNDUP_SYSTEM_PROMPT
+
+
+def test_system_prompt_keeps_concrete_titles_anchor():
+    """Schritt 3d (Wolf 26.05.): das Verdict-Etikett ist raus, aber die
+    Konkretheits-Anker bleiben. Der Prompt MUSS weiter benennen, dass
+    Filme/Serien und Channels namentlich + mit Kennzahlen erscheinen
+    sollen. Sonst kippt der Roundup-Output zurueck in die nuechterne
+    Aktivitaets-Aufzaehlung von Schritt 3."""
+    from app.services.segment_roundup import ROUNDUP_SYSTEM_PROMPT
+    # Konkretheit
+    assert "Konkret und namentlich" in ROUNDUP_SYSTEM_PROMPT
+    assert "Filme/Serien" in ROUNDUP_SYSTEM_PROMPT
+    # Headline mit Haltung
+    assert "Headline mit Pointe" in ROUNDUP_SYSTEM_PROMPT
+    # Kennzahlen-Sektion
+    assert "KENNZAHLEN" in ROUNDUP_SYSTEM_PROMPT

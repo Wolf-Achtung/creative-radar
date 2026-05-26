@@ -925,17 +925,15 @@ function App() {
         <div>
           <p className="eyebrow">Creative Intelligence Workspace</p>
           <h1>Creative Radar</h1>
-          <p>Diese Woche neu bei den Majors und Streamern — was funktioniert, was nicht und wie wir's nutzen.</p>
+          <p>Diese Woche neu bei Studios, Majors, Independents und Streamern — was funktioniert, was nicht und wie wir's nutzen.</p>
         </div>
       </header>
 
       <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
         <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Diese Woche im Schnitt</p>
-        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Studio-Briefings</h2>
+        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Die großen Studios</h2>
         <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
-          {pairs && pairs.length > 0
-            ? `${pairs.length} Studio-Reviews pro Woche.`
-            : 'Studio-Reviews pro Woche.'}
+          Was die großen Studios diese Woche gepostet haben — und wie es ankam.
         </p>
         {pairs === null && (
           <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Studios …</p>
