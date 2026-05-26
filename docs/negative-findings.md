@@ -216,3 +216,99 @@ Suite auf Postgres (Variante X) ist damit NICHT gerechtfertigt — die
 Datenbasis spricht dagegen. Integration-Suite ist der gezielte
 Erweiterungs-Ort, falls künftig ein Postgres-Incident auftaucht.
 
+
+## 2026-05-26 — Mixed-Content auf globalen Studio-Accounts (`hbo`, `hulu`): bewusst nicht gefixt
+
+Daten-Hygiene-Sprint, Problem 2. Roundup-`data_caveats` der KW 22 meldeten
+deutschsprachige Posts auf US-Major-Accounts (z. B. „ZIRKUSKIND" auf
+`@hbo`, „OBSESSION – DU SOLLST MICH LIEBEN" auf `@hulu`). Hypothesen:
+(A) Apify-Channel-Verwechslung, (B) falsche Markt-Klassifizierung, (C)
+echter globaler Account mit gemischtem Content.
+
+**Befund per `psql`-Diagnose (Queries 2.3 + 2.4 + 2.5):**
+
+| Channel | `channel.url` | `de_share_pct` (30d) |
+|---|---|---|
+| `hbo` | `instagram.com/hbo` | 11,1 % |
+| `hulu` | `instagram.com/hulu` | 16,7 % |
+
+Beides klar **Hypothese (C)**: die echten globalen Hauptaccounts (URL
+bestätigt), Klassifizierung `us_major` / `market=US` ist korrekt. DE-
+Anteil unter der 30-%-Rauschschwelle.
+
+**Wolf-Entscheidung 26.05.: kein Fix.** Aufwand (Sprachfilter im
+Roundup-Generator oder Channel-Aufspaltung in DE-/US-Rows) steht nicht
+im Verhältnis zum 11–17-%-Mixed-Effekt. Das LLM benennt den Mixed-
+Content ohnehin korrekt in `data_caveats` — der Brief weiß, was er hat.
+
+**Anker für künftige `data_caveats`-Befunde:** Wenn ein späterer
+Roundup-Lauf wieder „DE-Content auf US-Major-Account" als Caveat
+meldet, hier nachsehen statt erneut die Diagnose-Schleife zu fahren.
+Erst bei einer der folgenden Schwellen erneut prüfen:
+- `de_share_pct` auf einem dieser Channels ≥ 30 % → könnte Strategie-
+  Wechsel des Accounts sein, dann neu einordnen.
+- Ein neuer Channel mit `de_share_pct` ≥ 30 % erscheint im Befund.
+- `hbomaxmovies`-Rauschpegel (1 DE-Signal/24 Posts, < 5 %) wandert
+  signifikant nach oben.
+
+## 2026-05-26 — Korrupte Post-Row mit Profil-URL als `post_url`
+
+Daten-Hygiene-Sprint, Nebenbefund aus Query 2.3 (hbo-Stichprobe). Eine
+`post`-Row trägt `post_url = https://www.instagram.com/disney` (eine
+Profil-URL, keine Post-URL), Caption/Datum/Likes leer. Klar ein
+Scrape-Artefakt: der Apify-Connector hat ein Profil-Objekt in den
+Post-Pfad geschoben, statt es zu verwerfen.
+
+**Frage offen:** Einzelfall oder Muster?
+
+**Diagnose-Query** (kein Fix ohne Wolf-Rückmeldung):
+
+```sql
+-- Verdacht: post_url enthält statt eines Post-Pfads (/p/<shortcode>,
+-- /reel/<shortcode>, /share/<token>) eine bare Profil-URL.
+-- Postgres-Regex prüft drei legitime Post-Pfad-Marker. Alles, was
+-- nicht matched, ist Verdacht.
+SELECT
+  c.platform,
+  c.handle,
+  COUNT(*) AS suspicious_post_rows,
+  COUNT(*) FILTER (WHERE p.caption IS NULL OR p.caption = '') AS without_caption,
+  COUNT(*) FILTER (WHERE p.published_at IS NULL) AS without_published_at,
+  COUNT(*) FILTER (WHERE p.visible_likes IS NULL AND p.visible_views IS NULL) AS without_any_metric,
+  MIN(p.detected_at)::date AS first_seen,
+  MAX(p.detected_at)::date AS last_seen
+FROM post p
+JOIN channel c ON c.id = p.channel_id
+WHERE c.platform = 'instagram'
+  AND p.post_url !~ '/(p|reel|share)/'
+GROUP BY c.platform, c.handle
+ORDER BY suspicious_post_rows DESC
+LIMIT 30;
+```
+
+**Sample-Rows zur Inspektion** (welche URLs sehen verdächtig aus?):
+
+```sql
+SELECT
+  c.handle,
+  p.post_url,
+  p.detected_at,
+  LEFT(COALESCE(p.caption, ''), 60) AS caption_preview
+FROM post p
+JOIN channel c ON c.id = p.channel_id
+WHERE c.platform = 'instagram'
+  AND p.post_url !~ '/(p|reel|share)/'
+ORDER BY p.detected_at DESC
+LIMIT 20;
+```
+
+**Interpretation:**
+
+| Zähler | Lesart |
+|---|---|
+| 1–5 Einzelfälle, alle aus einem alten Zeitraum | Bekannter Apify-Glitch, einmaliger Cleanup als Soft-Delete (`status = 'rejected'`-Markierung) reicht. |
+| 1–5 Einzelfälle, aktuell | Apify-Connector hat einen subtilen Edge-Case, Fix in `normalize_instagram_item` lohnt. |
+| 10+ Rows, mehrere Channels, kontinuierlich | Systematischer Connector-Bug — eigener Mini-Sprint. |
+
+**Wolf-Aufgabe:** Query fahren, Ergebnis hier nachtragen, dann
+entscheiden. Kein Fix ohne diese Rückmeldung.
