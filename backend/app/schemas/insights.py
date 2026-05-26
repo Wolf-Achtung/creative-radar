@@ -539,28 +539,29 @@ class SegmentAggregation(BaseModel):
 
 class RoundupTitelImFokus(BaseModel):
     """Ein Titel-/Kampagnen-Block im Segment-Roundup. Pendant zu
-    ``TitelImFokus`` aus der Pair-Pipeline (Schema 1:1 uebernommen),
-    eine Abweichung: ``channel`` statt ``markt``.
+    ``TitelImFokus`` aus der Pair-Pipeline, eine Abweichung: ``channel``
+    statt ``markt``.
 
     Begruendung der Abweichung (Wolf-Ping-1, 26.05.): der Markt ist im
     Single-Segment-Roundup informationslos (im ``us_major``-Roundup ist
     alles "US"). Die nuetzliche Achse ist, **welcher Channel** den Post
-    abgesetzt hat — Verleiher-/Handle-Identifikation. Ansonsten gleiches
-    Feldset wie im Pair-Brief, damit der Frontend-Render dieselbe
-    Card-Form nutzen kann.
+    abgesetzt hat — Verleiher-/Handle-Identifikation.
 
-    ``verdict`` nutzt dasselbe ``VerdictEnum`` wie der Pair-Brief
-    (funktioniert / kommt nicht an / noch ausbaufaehig). Wiederverwendung
-    statt Duplikat. Backwards-Compat-Mapping via ``normalize_old_verdict``
-    ist nicht noetig — es gibt noch keine persistierten Roundup-Rows mit
-    alten Verdict-Werten (Schritt-3-Schema hatte gar kein Verdict-Feld).
+    Schritt-3d (26.05.): ``verdict`` ist aus dem Roundup-Schema entfernt.
+    Begruendung Wolf: Die Pills behaupten ein Urteil, fuer das kein
+    definierter Massstab existiert; das LLM erfindet implizit eine
+    Schwelle. Die konkrete ``kennzahl`` pro Titel spricht fuer sich.
+    Der Pair-Brief nutzt ``VerdictEnum`` weiterhin — Pair-Pipeline
+    bleibt unangetastet. Pydantic-Default: unbekannte Felder in der
+    Roundup-Row (z.B. ein ``verdict`` in einer KW-22-Pre-3d-Row) werden
+    bei ``model_validate`` ignoriert, das Frontend muss in seinem
+    Pfad robust dagegen sein.
     """
     titel: str
     channel: str
     format_typ: str
     kennzahl: str
     release_datum: Optional[str] = None
-    verdict: Optional[VerdictEnum] = None
     post_url: Optional[str] = None
 
 
@@ -569,8 +570,12 @@ class SegmentRoundupLLMReport(BaseModel):
 
     Master-Plan-Schritt-3c (2026-05-26 — Qualitaets-Anhebung): Schema
     rueckt stilistisch an den Pair-Brief heran, ohne den Markt-Vergleich.
-    "Deskriptiv" heisst ab jetzt **kein Markt-Vergleich**, nicht "keine
-    Bewertung". Titel-Bewertung (``verdict``) ist erwuenscht.
+    "Deskriptiv" heisst **kein Markt-Vergleich**.
+
+    Schritt-3d (26.05.): Das ``verdict``-Feld in jedem Titel-Block ist
+    entfernt — die Pills behaupten ein Urteil, fuer das kein definierter
+    Massstab existiert. Die konkrete ``kennzahl`` pro Titel spricht
+    fuer sich.
 
     - ``headline`` und ``tldr``: Segment-Kopf mit Haltung, Pair-Brief-
       Stil. 1 Satz / 2-3 Saetze.

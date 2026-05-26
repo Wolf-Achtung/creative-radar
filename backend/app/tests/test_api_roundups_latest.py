@@ -83,7 +83,6 @@ def _llm_output_payload(headline: str = "Headline") -> dict:
                 "format_typ": "Kino-Reminder",
                 "kennzahl": "82s, 24.000 Views, 8% Aktivierung",
                 "release_datum": "22. Mai",
-                "verdict": "funktioniert",
                 "post_url": "https://example.com/p/1",
             }
         ],
@@ -225,8 +224,11 @@ def test_roundups_latest_full_payload_shape(client: TestClient, db):
     assert title["format_typ"] == "Kino-Reminder"
     assert title["kennzahl"] == "82s, 24.000 Views, 8% Aktivierung"
     assert title["release_datum"] == "22. Mai"
-    assert title["verdict"] == "funktioniert"
     assert title["post_url"] == "https://example.com/p/1"
+    # Schritt-3d (26.05.): verdict ist aus dem Schema. Eine Pre-3d-Row
+    # mit verdict im LLM-Output wuerde von Pydantic still verworfen —
+    # der Wire-Payload enthaelt das Feld nicht mehr.
+    assert "verdict" not in title
 
 
 # ---------- One row per segment + ENUM-order ------------------------------

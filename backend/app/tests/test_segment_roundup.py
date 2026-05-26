@@ -150,7 +150,6 @@ def _minimal_llm_body() -> dict:
                 "channel": "@a24",
                 "format_typ": "BTS",
                 "kennzahl": "24s, 5.000 Reaktionen",
-                "verdict": "funktioniert",
             }
         ],
         "themes": ["Indie-Releases", "Festival-Vorbereitung"],

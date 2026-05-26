@@ -128,7 +128,6 @@ def _patch_anthropic_ok(monkeypatch) -> MagicMock:
                 "channel": "@a24",
                 "format_typ": "Festival-BTS",
                 "kennzahl": "32s, 8.000 Reaktionen",
-                "verdict": "funktioniert",
             }
         ],
         "themes": ["festival"],
