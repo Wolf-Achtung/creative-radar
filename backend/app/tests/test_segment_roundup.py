@@ -513,6 +513,90 @@ def test_format_post_line_includes_rich_metrics():
     assert "https://example.com/p/1" in line
 
 
+def test_format_post_line_image_post_no_views_only_likes():
+    """Daten-Hygiene-Sprint, A1 (Wolf 26.05.): Bild-Posts und Carousels
+    landen mit ``views = None``/``0`` in der DB — Instagram liefert
+    fuer Foto-Posts keine View-Zahl, Apify mapped die video-only-Felder.
+
+    Erwartung: bei ``views == 0 && likes > 0`` faellt die Post-Zeile auf
+    eine Like-only-Form zurueck. Kein '0 views', kein '0,0% akt.', kein
+    irrefuehrender Schwaechen-Eindruck — die Like-Zahl ist der
+    Daten-Anker, den das LLM als ``kennzahl`` uebernimmt.
+    """
+    from app.schemas.insights import RankedPost
+    from app.services.segment_roundup import _format_post_line
+
+    p = RankedPost(
+        post_url="https://example.com/p/img",
+        caption_excerpt="The End of Oak Street",
+        views=0, likes=2_710, comments=85,
+        engagement_sum=2_795, activation_rate=0.0,
+        # duration_seconds bewusst None — Bild-Post hat keine Laufzeit.
+        title_local="The End of Oak Street", platform="instagram",
+    )
+    line = _format_post_line(1, p)
+    # Like-only-Form: keine views, keine akt.-Prozent, keine Sekunden.
+    assert "0 views" not in line
+    assert "0.0% akt." not in line
+    assert "0% akt." not in line
+    # Likes erscheinen mit Tausender-Komma und 'likes'-Suffix.
+    assert "2,710 likes" in line
+    # Titel-Marker bleibt erhalten.
+    assert "[*The End of Oak Street*]" in line
+    # Caption + URL bleiben unveraendert nachgezogen.
+    assert "The End of Oak Street" in line
+    assert "https://example.com/p/img" in line
+
+
+def test_format_post_line_video_post_keeps_full_metrics():
+    """Komplement zum Bild-Post-Branch: Video-Posts mit echten Views
+    behalten die volle Form (views, likes, akt., Sekunden). Sicherheits-
+    netz gegen einen ueberbreiten Branch-Match."""
+    from app.schemas.insights import RankedPost
+    from app.services.segment_roundup import _format_post_line
+
+    p = RankedPost(
+        views=12_000, likes=800, engagement_sum=900, activation_rate=0.075,
+        duration_seconds=45, title_local="Trailer Drop",
+        platform="instagram",
+    )
+    line = _format_post_line(1, p)
+    assert "12,000 views" in line
+    assert "800 likes" in line
+    assert "7.5% akt." in line
+    assert "45s" in line
+
+
+def test_format_post_line_dead_post_with_zero_likes_uses_default_branch():
+    """Edge-Case: views=0 UND likes=0 (kompletter toter Post).
+    Soll den DEFAULT-Branch nehmen, nicht den Bild-Post-Branch — der
+    Bild-Post-Branch ist gezielt fuer ``views == 0 && likes > 0``."""
+    from app.schemas.insights import RankedPost
+    from app.services.segment_roundup import _format_post_line
+
+    p = RankedPost(
+        views=0, likes=0, engagement_sum=0, activation_rate=0.0,
+        platform="instagram",
+    )
+    line = _format_post_line(1, p)
+    # Default-Branch zeigt das volle Null-Bild — bewusst, weil dort
+    # nichts passiert ist.
+    assert "0 views" in line
+    assert "0 likes" in line
+
+
+def test_system_prompt_explains_image_post_no_views():
+    """Schritt-Daten-Hygiene-A1 (Wolf 26.05.): der System-Prompt MUSS
+    dem LLM erklaeren, dass Bild-Post-Zeilen ohne Views korrekt sind
+    (nicht 'kommt nicht an'). Sonst fehlt der semantische Hintergrund
+    zur neuen Like-only-Post-Form."""
+    from app.services.segment_roundup import ROUNDUP_SYSTEM_PROMPT
+    assert "Bild-Posts" in ROUNDUP_SYSTEM_PROMPT
+    assert "Carousels" in ROUNDUP_SYSTEM_PROMPT
+    # Klartext-Hinweis, dass das LLM die Like-Zahl als Kennzahl nehmen soll
+    assert "Like-Zahl als Kennzahl" in ROUNDUP_SYSTEM_PROMPT
+
+
 def test_format_post_line_marks_series_content_type():
     """Schritt-3c uebernimmt den Pair-Brief-Marker: bei content_type
     'Series' wird der Titel als ``[*Title* — Serie]`` markiert, damit
@@ -537,7 +621,10 @@ def test_user_prompt_contains_per_post_metrics(db):
 
     ch = _seed_channel(db, handle="warnerbros", platform="instagram",
                        segment=ChannelSegment.US_MAJOR)
-    _seed_post(db, ch.id, days_ago=2, engagement=1200,
+    # views=10_000 erzwingt den vollen Metrik-Branch der Post-Zeile;
+    # mit dem Default views=0 wuerde das Like-only-Branch greifen
+    # (Daten-Hygiene-A1, Wolf 26.05.).
+    _seed_post(db, ch.id, days_ago=2, engagement=1200, views=10_000,
                caption="reveal trailer dropping today")
 
     with Session(db) as session:

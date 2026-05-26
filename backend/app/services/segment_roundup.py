@@ -184,6 +184,12 @@ Pro Titel-Block gib eine konkrete Kennzahl an, die du im Material findest —
 Form analog Pair-Brief, z.B. "82s, 24.000 Views, 8% Aktivierung". Erfinde
 nichts, zitiere wörtlich aus den Top-Post-Zeilen.
 
+Hinweis zu Bild-Posts und Carousels: Instagram liefert für Foto-Posts
+keine View-Zahl. Solche Post-Zeilen erscheinen mit Likes (und ggf.
+Sekunden bei Video) **ohne** Views/Aktivierung — das ist korrekt, kein
+schwacher Post. Übernimm die Like-Zahl als Kennzahl, statt einen Post
+mit 0 Views als "kommt nicht an" zu lesen.
+
 OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein
 Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
 
@@ -357,12 +363,26 @@ def _format_post_line(idx: int, p: RankedPost) -> str:
 
     Schritt-3c (26.05.): an die Pair-Brief-Form (``_format_ranked_post_line``
     in ``insight_engine``) angeglichen — views, likes, activation-rate,
-    duration werden jetzt mitgegeben, damit das LLM **echte Zahlen** in
-    den ``titles[*].kennzahl`` zitieren kann. Vorher: nur engagement_sum
-    + views, dadurch hat das LLM in Schritt 3 keine Datengrundlage fuer
-    konkrete Kennzahlen gehabt.
+    duration werden mitgegeben, damit das LLM **echte Zahlen** in den
+    ``titles[*].kennzahl`` zitieren kann.
 
-    Format:
+    Daten-Hygiene-Sprint, Option A1 (Wolf 26.05.): Instagram liefert
+    fuer Foto-Posts und Carousels keine View-Zahl — Apify mapped
+    ``visible_views`` nur aus video-only-Feldern (``videoViewCount`` /
+    ``videoPlayCount``), Bild-Posts landen mit ``views = None`` in der
+    DB und mit ``views = 0`` im Prompt. Wenn das LLM ``0 Views, X Likes,
+    0,0% Aktivierung`` zitiert, wirkt der Post schwach, ist es aber
+    nicht. Der Fix laesst views/akt./Sekunden in genau diesem Fall weg
+    (``views == 0 && likes > 0``) und gibt nur die Like-Zahl als
+    Kennzahl-Datenanker mit. Der Hinweis im System-Prompt erklaert dem
+    LLM den Mechanismus zusaetzlich.
+
+    Format-Branch fuer Bild-Posts/Carousels:
+        ``  i. {likes} likes [*Titel*]``
+        ``     "{caption_excerpt}"``
+        ``     URL: {post_url}``
+
+    Format-Branch fuer Video-/Standard-Posts:
         ``  i. {views} views, {likes} likes, {pct}% akt., {dur}s [*Titel*]``
         ``     "{caption_excerpt}"``
         ``     URL: {post_url}``
@@ -378,10 +398,16 @@ def _format_post_line(idx: int, p: RankedPost) -> str:
             title_marker = f" [*{p.title_local}*]"
     else:
         title_marker = ""
-    line = (
-        f"  {idx}. {views:,} views, {likes:,} likes, "
-        f"{akt_pct:.1f}% akt.{duration}{title_marker}"
-    )
+    if views == 0 and likes > 0:
+        # Bild-Post / Carousel — Plattform liefert keine View-Zahl.
+        # views, akt. und Sekunden bewusst weglassen, damit das LLM
+        # die Like-Zahl als Datenanker nimmt.
+        line = f"  {idx}. {likes:,} likes{title_marker}"
+    else:
+        line = (
+            f"  {idx}. {views:,} views, {likes:,} likes, "
+            f"{akt_pct:.1f}% akt.{duration}{title_marker}"
+        )
     if p.caption_excerpt:
         excerpt = p.caption_excerpt.strip()
         if len(excerpt) > 100:
