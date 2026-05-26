@@ -122,8 +122,15 @@ def _patch_anthropic_ok(monkeypatch) -> MagicMock:
     body = {
         "headline": "endpoint test",
         "tldr": "kurze Synthese",
-        "what_ran": ["trailer", "still"],
-        "channels_in_focus": ["@a24"],
+        "titles": [
+            {
+                "titel": "A Real Pain",
+                "channel": "@a24",
+                "format_typ": "Festival-BTS",
+                "kennzahl": "32s, 8.000 Reaktionen",
+                "verdict": "funktioniert",
+            }
+        ],
         "themes": ["festival"],
         "data_caveats": ["1 channel ohne posts"],
     }

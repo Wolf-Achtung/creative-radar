@@ -233,8 +233,8 @@ def roundups_latest(
     zurueckgegeben; tiebreak ist ``generated_at`` (Last-Write-Wins, der
     juengste Lauf einer Woche gewinnt).
 
-    Antwort enthaelt das volle ``llm_output`` (headline, tldr, themes,
-    what_ran, channels_in_focus, data_caveats) — das Frontend zeigt den
+    Antwort enthaelt das volle ``llm_output`` (Schritt-3c: headline,
+    tldr, titles, themes, data_caveats) — das Frontend zeigt den
     Aufklapp-Bereich der Kachel aus dieser Antwort, ohne weiteren Call.
     Aggregations-Audit-Material (``channels_aggregation``) wandert
     bewusst **nicht** ueber den Wire — bleibt fuer DB-Inspektion und

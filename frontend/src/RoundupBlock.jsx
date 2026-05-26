@@ -36,45 +36,115 @@ function formatActivity(roundup) {
   return `${channels} aktive Channels · ${posts} Posts`;
 }
 
+// Verdict-Pill-Farben spiegeln das Voice-2.5-Vokabular aus dem Pair-Brief.
+// Wenn der LLM einen neuen, nicht-erwarteten Wert liefert, faellt die Pill
+// auf einen neutralen Grauton zurueck — defensiv gegen Drift.
+const VERDICT_STYLE = {
+  'funktioniert':     { bg: '#e7f3ec', fg: '#1f6a3c', label: 'funktioniert' },
+  'noch ausbaufähig': { bg: '#fdf4e3', fg: '#7a5b16', label: 'noch ausbaufähig' },
+  'kommt nicht an':   { bg: '#f7e3e0', fg: '#7a2218', label: 'kommt nicht an' },
+};
+
+function VerdictPill({ verdict }) {
+  if (!verdict) return null;
+  const style = VERDICT_STYLE[verdict] || { bg: '#eee', fg: '#444', label: verdict };
+  return (
+    <span style={{
+      display: 'inline-block',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      background: style.bg,
+      color: style.fg,
+      fontSize: '11px',
+      fontWeight: 600,
+      letterSpacing: '0.02em',
+    }}>{style.label}</span>
+  );
+}
+
+function TitleCard({ entry }) {
+  // Eine Card pro Titel — analog zu den Pair-Brief-'Worum geht's'-Bloecken.
+  // Layout: Titel + Verdict-Pill in der Topline, darunter Channel/Format/
+  // Datum als Meta-Zeile, dann Kennzahl als Datenanker, abschliessend der
+  // Link zum Original-Post (falls vorhanden). Schritt-3c-Wolf-Vorgabe:
+  // 'visuell ansprechender als die bisherige Textwand'.
+  const meta = [entry.channel, entry.format_typ, entry.release_datum]
+    .filter(Boolean).join(' · ');
+  return (
+    <div style={{
+      background: '#fff',
+      borderRadius: '8px',
+      border: '1px solid #ece4d8',
+      padding: '0.625rem 0.75rem',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <strong style={{ flex: '1 1 auto', minWidth: 0 }}>{entry.titel}</strong>
+        <VerdictPill verdict={entry.verdict} />
+      </div>
+      {meta && (
+        <p className="muted small" style={{ margin: '0.125rem 0 0.375rem' }}>{meta}</p>
+      )}
+      {entry.kennzahl && (
+        <p className="small" style={{ margin: 0 }}>{entry.kennzahl}</p>
+      )}
+      {entry.post_url && (
+        <p className="small" style={{ margin: '0.375rem 0 0' }}>
+          <a href={entry.post_url} target="_blank" rel="noreferrer">Post öffnen</a>
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RoundupDetails({ llm }) {
-  // Voller llm_output im Aufklapp-Bereich: tldr, themes, what_ran,
-  // channels_in_focus, data_caveats. data_caveats bewusst sichtbar —
-  // bei duennen Segmenten macht das aus 'duenner Brief' eine erklaerte
-  // 'ruhige Woche'. Reihenfolge: tldr (Kontext) -> what_ran (Substanz)
-  // -> themes -> channels_in_focus -> data_caveats (Lautstaerke-Hinweis).
+  // Schritt-3c Aufklapp-Reihenfolge (Wolf-Vorgabe):
+  //   tldr (Kontext) -> titles (Substanz, Block-Grid)
+  //   -> themes (Optional, kurz) -> data_caveats (Lautstaerke-Hinweis).
+  // Die Schritt-3-Sektionen what_ran und channels_in_focus sind weg —
+  // ihr Inhalt liegt jetzt in titles (konkret) bzw. im channel-Feld
+  // jeder Title-Card.
   if (!llm) return null;
-  const sections = [
-    { label: 'Worum es ging',          value: llm.tldr,              kind: 'text' },
-    { label: 'Was lief',               value: llm.what_ran,          kind: 'list' },
-    { label: 'Themen',                 value: llm.themes,            kind: 'list' },
-    { label: 'Channels im Fokus',     value: llm.channels_in_focus, kind: 'list' },
-    { label: 'Datenhinweise',          value: llm.data_caveats,      kind: 'list' },
-  ];
+  const titles = Array.isArray(llm.titles) ? llm.titles.filter(Boolean) : [];
+  const themes = Array.isArray(llm.themes) ? llm.themes.filter(Boolean) : [];
+  const caveats = Array.isArray(llm.data_caveats) ? llm.data_caveats.filter(Boolean) : [];
   return (
     <details style={{ marginTop: '0.75rem' }}>
       <summary style={{ cursor: 'pointer', fontSize: '13px' }}>Mehr Details</summary>
       <div style={{ marginTop: '0.5rem' }}>
-        {sections.map((section) => {
-          if (section.kind === 'list') {
-            const items = Array.isArray(section.value) ? section.value.filter(Boolean) : [];
-            if (items.length === 0) return null;
-            return (
-              <div key={section.label} style={{ marginBottom: '0.5rem' }}>
-                <p className="small" style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>{section.label}</p>
-                <ul className="small" style={{ margin: 0, paddingLeft: '1.1rem' }}>
-                  {items.map((item, index) => <li key={index}>{item}</li>)}
-                </ul>
-              </div>
-            );
-          }
-          if (!section.value) return null;
-          return (
-            <div key={section.label} style={{ marginBottom: '0.5rem' }}>
-              <p className="small" style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>{section.label}</p>
-              <p className="small" style={{ margin: 0 }}>{section.value}</p>
+        {llm.tldr && (
+          <div style={{ marginBottom: '0.75rem' }}>
+            <p className="small" style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>Worum es ging</p>
+            <p className="small" style={{ margin: 0 }}>{llm.tldr}</p>
+          </div>
+        )}
+        {titles.length > 0 && (
+          <div style={{ marginBottom: '0.75rem' }}>
+            <p className="small" style={{ margin: '0 0 0.375rem', fontWeight: 600 }}>Titel im Fokus</p>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr',
+              gap: '0.5rem',
+            }}>
+              {titles.map((entry, index) => <TitleCard key={index} entry={entry} />)}
             </div>
-          );
-        })}
+          </div>
+        )}
+        {themes.length > 0 && (
+          <div style={{ marginBottom: '0.5rem' }}>
+            <p className="small" style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>Themen</p>
+            <ul className="small" style={{ margin: 0, paddingLeft: '1.1rem' }}>
+              {themes.map((item, index) => <li key={index}>{item}</li>)}
+            </ul>
+          </div>
+        )}
+        {caveats.length > 0 && (
+          <div style={{ marginBottom: '0.5rem' }}>
+            <p className="small" style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>Datenhinweise</p>
+            <ul className="small" style={{ margin: 0, paddingLeft: '1.1rem' }}>
+              {caveats.map((item, index) => <li key={index}>{item}</li>)}
+            </ul>
+          </div>
+        )}
       </div>
     </details>
   );

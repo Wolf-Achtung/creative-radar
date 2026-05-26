@@ -144,8 +144,15 @@ def _minimal_llm_body() -> dict:
     return {
         "headline": "Roundup headline",
         "tldr": "Drei Sätze über das Segment.",
-        "what_ran": ["Trailer", "Stills", "BTS-Clip"],
-        "channels_in_focus": ["@a24", "@neonrated"],
+        "titles": [
+            {
+                "titel": "Sample Title",
+                "channel": "@a24",
+                "format_typ": "BTS",
+                "kennzahl": "24s, 5.000 Reaktionen",
+                "verdict": "funktioniert",
+            }
+        ],
         "themes": ["Indie-Releases", "Festival-Vorbereitung"],
         "data_caveats": ["2 von 5 Channels ohne Posts im Fenster"],
     }
@@ -467,3 +474,117 @@ def test_bad_json_response_persists_nothing(db, monkeypatch):
             __import__("sqlmodel").select(SegmentRoundupRow)
         ).all())
         assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# Schritt-3c (26.05.) — Generator-Erweiterungen: reichere Post-Metriken
+# im Prompt, System-Prompt erzwingt titles + verdict, Top-N default 8.
+# ---------------------------------------------------------------------------
+
+
+def test_default_top_posts_n_is_eight():
+    """Schritt-3c Wolf-Ping 1 (b): Top-N von 5 auf 8 erhoeht — der LLM
+    braucht mehr Material fuer aussagekraeftige Titel-Bloecke."""
+    from app.services.segment_roundup import ROUNDUP_DEFAULT_TOP_POSTS_N
+    assert ROUNDUP_DEFAULT_TOP_POSTS_N == 8
+
+
+def test_format_post_line_includes_rich_metrics():
+    """Schritt-3c: Post-Zeile muss views, likes, activation-rate, duration
+    fuehren — damit das LLM echte Zahlen in ``titles[*].kennzahl`` zitieren
+    kann. Vorher: nur engagement_sum + views."""
+    from app.schemas.insights import RankedPost
+    from app.services.segment_roundup import _format_post_line
+
+    p = RankedPost(
+        post_url="https://example.com/p/1",
+        caption_excerpt="Reveal trailer",
+        views=24_000, likes=1_800, comments=120, saves=40, shares=15,
+        engagement_sum=1_975, activation_rate=0.082,
+        duration_seconds=82, title_local="Mandalorian", platform="instagram",
+    )
+    line = _format_post_line(1, p)
+    # Pair-Brief-Stil-Anker: views/likes/akt./Sek./Titel-Marker
+    assert "24,000 views" in line
+    assert "1,800 likes" in line
+    assert "8.2% akt." in line
+    assert "82s" in line
+    assert "[*Mandalorian*]" in line
+    assert "Reveal trailer" in line
+    assert "https://example.com/p/1" in line
+
+
+def test_format_post_line_marks_series_content_type():
+    """Schritt-3c uebernimmt den Pair-Brief-Marker: bei content_type
+    'Series' wird der Titel als ``[*Title* — Serie]`` markiert, damit
+    der LLM-Roundup Theatrical von Streaming-Serien trennen kann."""
+    from app.schemas.insights import RankedPost
+    from app.services.segment_roundup import _format_post_line
+
+    p = RankedPost(
+        views=10, likes=2, engagement_sum=12, activation_rate=0.05,
+        title_local="The Last of Us", content_type="Series",
+        platform="instagram",
+    )
+    line = _format_post_line(1, p)
+    assert "[*The Last of Us* — Serie]" in line
+
+
+def test_user_prompt_contains_per_post_metrics(db):
+    """Schritt-3c: der gesamte User-Prompt muss die reicheren Metriken
+    enthalten — Sanity-Check ueber die _build_user_prompt-Schicht, sodass
+    keine spaetere Refactor-Aktion sie wieder herausfiltert."""
+    from app.services.segment_roundup import _build_user_prompt
+
+    ch = _seed_channel(db, handle="warnerbros", platform="instagram",
+                       segment=ChannelSegment.US_MAJOR)
+    _seed_post(db, ch.id, days_ago=2, engagement=1200,
+               caption="reveal trailer dropping today")
+
+    with Session(db) as session:
+        agg = aggregate_segment(session, ChannelSegment.US_MAJOR, window_days=14)
+    prompt = _build_user_prompt(agg)
+
+    # Channel-Header zeigt avg activation in Prozent
+    assert "avg activation" in prompt
+    # Mindestens ein Top-Post zitiert views/likes/akt./Sekunden-Form
+    assert "views" in prompt
+    assert "likes" in prompt
+    assert "akt." in prompt
+
+
+def test_system_prompt_forces_titles_schema_with_verdict():
+    """Drift-Schutz fuer den Prompt-Vertrag (Wolf 26.05.):
+    Der System-Prompt MUSS das neue ``titles``-Schema mit ``verdict``,
+    ``channel``, ``format_typ``, ``kennzahl`` benennen. Wenn jemand
+    spaeter den Prompt umschreibt und das Schema-Beispiel verliert,
+    schlaegt dieser Test sofort an.
+    """
+    from app.services.segment_roundup import ROUNDUP_SYSTEM_PROMPT
+    # Schema-Felder im Beispiel-JSON
+    assert '"titles":' in ROUNDUP_SYSTEM_PROMPT
+    assert '"channel":' in ROUNDUP_SYSTEM_PROMPT
+    assert '"format_typ":' in ROUNDUP_SYSTEM_PROMPT
+    assert '"kennzahl":' in ROUNDUP_SYSTEM_PROMPT
+    assert '"verdict":' in ROUNDUP_SYSTEM_PROMPT
+    # Verdict-Vokabular im Klartext genannt
+    assert "funktioniert" in ROUNDUP_SYSTEM_PROMPT
+    assert "kommt nicht an" in ROUNDUP_SYSTEM_PROMPT
+    assert "noch ausbaufähig" in ROUNDUP_SYSTEM_PROMPT
+
+
+def test_system_prompt_drops_pre_3c_bewertungs_verbot():
+    """Wolf-Festlegung 26.05.: Der alte Verbots-Satz
+    ('KEINE Empfehlungen', '... nicht im Sinne von Bewertung') muss
+    raus — Bewertung pro Titel ist ab Schritt 3c erwuenscht."""
+    from app.services.segment_roundup import ROUNDUP_SYSTEM_PROMPT
+    assert "KEINE Empfehlungen" not in ROUNDUP_SYSTEM_PROMPT
+    assert "nicht im Sinne von" not in ROUNDUP_SYSTEM_PROMPT
+
+
+def test_system_prompt_keeps_no_market_comparison_anchor():
+    """Wolf-Festlegung: kein Markt-Vergleich, kein Cross-Segment —
+    DAS bleibt. Nur das Bewertungsverbot fliegt raus."""
+    from app.services.segment_roundup import ROUNDUP_SYSTEM_PROMPT
+    assert "KEIN Markt-Vergleich" in ROUNDUP_SYSTEM_PROMPT
+    assert "Cross-Segment" in ROUNDUP_SYSTEM_PROMPT

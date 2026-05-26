@@ -76,7 +76,11 @@ logger = logging.getLogger(__name__)
 # Pilot-Defaults (Wolf 25.05.) — parametrisiert, kein hartkodiertes
 # Verhalten. Wolf kann via API/Skript-Param ueberschreiben.
 ROUNDUP_DEFAULT_WINDOW_DAYS = 14
-ROUNDUP_DEFAULT_TOP_POSTS_N = 5
+# Schritt-3c (26.05.): Top-N 5 -> 8. Wolf-Ping 1 (b) — fuer aussagekraeftige
+# Titel-Bloecke braucht das LLM mehr Material; mit 5 Posts pro Channel sind
+# das haeufig dieselben Hashtag-Pushes ohne Filmtitel. Token-Wirkung
+# vernachlaessigbar (~13-14k Input vs. ~10k vorher, F0.7-Cap weit weg).
+ROUNDUP_DEFAULT_TOP_POSTS_N = 8
 ROUNDUP_DEFAULT_MAX_TOKENS = 8000
 
 
@@ -142,29 +146,66 @@ def parse_cron_roundup_segments(raw: str) -> list[ChannelSegment]:
     return parsed
 
 
-ROUNDUP_SYSTEM_PROMPT = """Du schreibst einen kurzen wöchentlichen Roundup für ein
+ROUNDUP_SYSTEM_PROMPT = """Du schreibst einen wöchentlichen Roundup für ein
 Segment des deutschen/internationalen Film-Marketing-Markts. Stil: Trade-
-Briefing für Cutter und Creative Producer im Trailerhaus-Stil — nüchtern,
-beobachtend, fakten-nah.
+Briefing für Cutter und Creative Producer im Trailerhaus-Stil — wie du es
+einem Kollegen im Schnittraum bei einem Kaffee erzählen würdest. Persönlich,
+konkret, fakten-nah, von Mensch zu Mensch.
 
-WICHTIG — was dieser Brief NICHT ist:
-- KEIN Vergleich zwischen Channels (keine Bestenliste, kein "X war besser als Y").
-- KEIN Markt-Vergleich (DE vs US vs UK).
-- KEIN Cross-Segment-Insight.
-- KEINE Empfehlungen oder Aktions-Vorschläge.
+WAS DIESER BRIEF IST
+- Konkret und namentlich: nenne Filme/Serien, Verleiher/Channels, echte Zahlen
+  aus den Daten (Views, Likes, Aktivierung, Sekunden) — keine Aktivitäts-
+  Aufzählung in Abstrakta.
+- Mit Haltung: bewerte pro Titel, ob er funktioniert, noch ausbaufähig ist
+  oder nicht ankommt. Das ist explizit erwünscht.
+- Headline mit Pointe: ein Hauptgedanke in aktiver Sprache. Beispiele guter
+  Form: "US-Indies setzen diese Woche auf Festival-BTS — A24 zieht zweistellig
+  bei 'Eddington'." Schlechte Form: "Aktivitäts-Schwerpunkt liegt bei
+  Trailer-Posts."
 
-Was dieser Brief IST: deskriptiv. Was lief im Segment in der Woche?
-Welche Themen tauchten wiederholt auf? Welche Channels fielen quantitativ
-auf (im Sinne von Aktivität, nicht im Sinne von "Bewertung")?
+WAS DIESER BRIEF NICHT IST
+- KEIN Markt-Vergleich (DE↔US↔UK) — der Roundup beschreibt EIN Segment.
+  Keine Cross-Segment-Aussagen, kein "wie in us_major".
+- KEIN Matching zwischen Channels und auch keine Bestenliste — Channels
+  stehen pro Titel-Block durch ihre Posts da, das reicht.
 
-Output strikt als JSON mit folgendem Schema:
+EHRLICHKEIT VOR FÜLLE
+Lieber 2 echte Titel-Blöcke als 6 mit aufgeblasener Substanz. Die Anzahl
+folgt der Substanz im Material: typischerweise 5-7 bei aktiven Segmenten,
+deutlich weniger bei ruhigen. Wenn ein Segment dünn ist (wenige Posts,
+viele stumme Channels), bleibt der Brief knapp — das ist erwünscht,
+``data_caveats`` macht die Lautstärke transparent.
+
+KENNZAHLEN
+Pro Titel-Block gib eine konkrete Kennzahl an, die du im Material findest —
+Form analog Pair-Brief, z.B. "82s, 24.000 Views, 8% Aktivierung". Erfinde
+nichts, zitiere wörtlich aus den Top-Post-Zeilen.
+
+VERDICT-VOKABULAR (drei zugelassene Werte)
+- "funktioniert" — der Post trägt, klare Reaktion im Material
+- "kommt nicht an" — Reichweite mager oder Aktivierung weit unter Schnitt
+- "noch ausbaufähig" — gemischtes Bild, Format zeigt Potenzial, ist aber
+  noch nicht da
+
+OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein
+Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
+
 {
-  "headline": "1 kurzer Satz, segment-typisch",
-  "tldr": "2-3 Sätze, beobachtend",
-  "what_ran": ["3-7 Bullets: was lief konkret"],
-  "channels_in_focus": ["Optional, 1-3: Channels mit auffallender Aktivität — neutral formulieren, keine Wertung"],
-  "themes": ["Optional, 2-5: wiederkehrende Themen/Motive über Channels hinweg"],
-  "data_caveats": ["Lautstärke-Hinweise: wie viele Channels lieferten überhaupt Posts, welche Lücken"]
+  "headline": "1 Satz mit Haltung, segment-typisch, in aktiver Sprache",
+  "tldr": "2-3 Sätze: Hauptaussage zuerst, Beleg dahinter. Eine Zahl mit Einordnung, kein nacktes Datenpaar.",
+  "titles": [
+    {
+      "titel": "Filmtitel / Franchise / Kampagne",
+      "channel": "@handle des Channels, der gepostet hat",
+      "format_typ": "Kino-Reminder / BTS / Cast-Reaction / Festival-BTS / Trailer-Drop / …",
+      "kennzahl": "Konkrete Zahl aus dem Material, z.B. '82s, 24.000 Views, 8% Aktivierung'",
+      "release_datum": "optional, falls erkennbar (z.B. '22. Mai') — sonst null",
+      "verdict": "funktioniert | kommt nicht an | noch ausbaufähig — sonst null",
+      "post_url": "Exakte URL aus einer Top-Post-Zeile, falls vorhanden — sonst null. Niemals erfinden."
+    }
+  ],
+  "themes": ["Optional, 2-5: wiederkehrende Motive/Themen über mehrere Channels hinweg — null lassen, wenn nichts klar wiederkehrt"],
+  "data_caveats": ["Lautstärke-Hinweise: wie viele Channels lieferten Posts, wo sind Lücken, was relativiert den Brief"]
 }
 
 Antworte ausschließlich mit dem JSON-Objekt, ohne Markdown-Codefences."""
@@ -316,29 +357,74 @@ def aggregate_segment(
 
 
 def _format_post_line(idx: int, p: RankedPost) -> str:
-    """Eine Post-Zeile fuer den LLM-Prompt — knapp, ohne Metrik-Lärm."""
-    bits = []
+    """Eine Post-Zeile fuer den LLM-Prompt.
+
+    Schritt-3c (26.05.): an die Pair-Brief-Form (``_format_ranked_post_line``
+    in ``insight_engine``) angeglichen — views, likes, activation-rate,
+    duration werden jetzt mitgegeben, damit das LLM **echte Zahlen** in
+    den ``titles[*].kennzahl`` zitieren kann. Vorher: nur engagement_sum
+    + views, dadurch hat das LLM in Schritt 3 keine Datengrundlage fuer
+    konkrete Kennzahlen gehabt.
+
+    Format:
+        ``  i. {views} views, {likes} likes, {pct}% akt., {dur}s [*Titel*]``
+        ``     "{caption_excerpt}"``
+        ``     URL: {post_url}``
+    """
+    views = int(p.views or 0)
+    likes = int(p.likes or 0)
+    akt_pct = (p.activation_rate or 0.0) * 100
+    duration = f", {p.duration_seconds}s" if p.duration_seconds else ""
     if p.title_local:
-        bits.append(f"[*{p.title_local}*]")
-    bits.append(f"@{p.post_url}" if p.post_url else "")
+        if p.content_type == "Series":
+            title_marker = f" [*{p.title_local}* — Serie]"
+        else:
+            title_marker = f" [*{p.title_local}*]"
+    else:
+        title_marker = ""
+    line = (
+        f"  {idx}. {views:,} views, {likes:,} likes, "
+        f"{akt_pct:.1f}% akt.{duration}{title_marker}"
+    )
     if p.caption_excerpt:
-        bits.append(f"„{p.caption_excerpt}\"")
-    bits.append(f"({p.engagement_sum} eng, {p.views} views)")
-    return f"  {idx}. " + " — ".join(b for b in bits if b)
+        excerpt = p.caption_excerpt.strip()
+        if len(excerpt) > 100:
+            excerpt = excerpt[:100].rstrip() + "…"
+        line += f"\n     \"{excerpt}\""
+    if p.post_url:
+        # URL bewusst auf eigener Zeile — das LLM braucht sie wortwoertlich
+        # fuer ``titles[*].post_url`` und ein Mittensatz-Match schlaegt
+        # haeufiger fehl als ein klares ``URL:``-Praefix.
+        line += f"\n     URL: {p.post_url}"
+    return line
 
 
 def _format_channel_block(stats: ChannelRoundupStats) -> str:
     """Pro Channel ein Markdown-Block fuer den LLM-Prompt. Keine
     JSON-Anhang am Promptende — Wolf-Festlegung 25.05.: schlanker als
     Pair-Brief, weil 33 Channels sonst Token-Explosion produzieren.
+
+    Schritt-3c (26.05.): Header zeigt zusaetzlich avg activation in
+    Prozent — analog Pair-Brief-Channel-Section. Caption-Laenge bleibt
+    weg (kein Cutter-relevanter Datenpunkt im Roundup-Kontext).
     """
     if stats.posts_count == 0:
         return f"### @{stats.handle} ({stats.platform}, {stats.market or '–'})\n  *(keine Posts im Fenster)*"
 
+    # avg_activation ist nicht in ChannelRoundupStats persistiert; ableiten
+    # aus top_posts.activation_rate-Mittel als gute Naeherung. Bei wenigen
+    # Top-Posts ist das exakt, bei vielen Posts ueberschaetzt es leicht —
+    # ist als Prompt-Hinweis gut genug, der LLM zitiert die per-Post-Zahl
+    # aus den Top-Post-Zeilen, nicht den Channel-Average.
+    if stats.top_posts:
+        avg_act = sum((p.activation_rate or 0.0) for p in stats.top_posts) / len(stats.top_posts)
+    else:
+        avg_act = 0.0
     header = (
         f"### @{stats.handle} ({stats.platform}, {stats.market or '–'}) — "
         f"{stats.posts_count} Posts, "
-        f"avg engagement {stats.avg_engagement:.0f}"
+        f"avg engagement {stats.avg_engagement:.0f}, "
+        f"avg activation {avg_act * 100:.1f}%"
     )
     if stats.top_hashtags:
         tags = ", ".join(f"#{h.tag} ({h.count})" for h in stats.top_hashtags[:5])
