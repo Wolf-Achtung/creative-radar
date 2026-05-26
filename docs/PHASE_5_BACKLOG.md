@@ -192,3 +192,43 @@ Disney/warnerbros JSON-parse incidents both rode through a green-but-
 not-meaningful test suite; this is the structural lever to make
 future "CI is green" claims actually carry weight on Postgres-only code
 paths.
+
+
+## Daten-Hygiene-Sprint (26.05.2026) — side findings
+
+### Sauberes `media_type`-Feld (Option A2 aus dem Daten-Hygiene-Befund)
+
+**Befund:** Beim Apify-Import wird `Post.media_type` auf den Plattform-
+Namen gesetzt (`monitor.py:172`: `media_type=platform`) — also "instagram"
+/ "tiktok" / "youtube", nicht den echten Medientyp. Apifys eigenes `type`-
+Feld ("Image" / "Sidecar" / "Video" auf Instagram) bleibt im
+`raw_payload`-JSON erhalten, ist aber nicht als saubere Spalte
+abfragbar. Damit gibt es heute keinen direkten Filter, um Bild-Posts,
+Carousels und Video-Posts zu unterscheiden — der A1-Fix muss die
+Unterscheidung über das Proxy-Signal `views == 0 && likes > 0` machen.
+
+**Bewusst nicht jetzt gefixt (Wolf-Entscheidung 26.05.):** Der A1-Anzeige-
+Fix in `_format_post_line` löst die akute „0 Views"-Verzerrung im
+Roundup-Prompt. Ein sauberes `media_type`-Feld wäre die robuste Lösung
+für künftige Filter/Sichten, ist aber nur dann tech-debt-würdig, wenn
+weitere Filter/Sichten den Medientyp brauchen.
+
+**Owner-Sprint:** ungeplant. Pull in, sobald ein Sprint Medientyp-
+abhängige Filter braucht (z. B. „Roundup nur über Video-Posts" oder
+„Bild-Post-Eigenstatistik").
+
+**Scope (Skizze):**
+- Apify-Item-`type`-Feld in den Import-Normalizer aufnehmen
+  (`apify_connector.normalize_instagram_item` und
+  `normalize_tiktok_item`).
+- `monitor.py:172` `media_type=platform` durch den echten Medientyp
+  ersetzen.
+- Backfill-Skript für bestehende `post`-Rows aus
+  `raw_payload->>'type'` (Instagram) bzw. konstant „Video" (TikTok).
+- Frontend/Reports nicht zwingend anfassen — der A1-Fix bleibt
+  funktional, A2 ist additive Reinheit.
+
+**Warum als Notiz, nicht als Fix:** A1 löst das sichtbare Symptom; A2
+wäre Reinraum-Hygiene ohne aktuellen Bedarf. Sichtbar gehalten, damit
+ein späterer „Medientyp-Filter"-Sprint nicht von vorne diagnostizieren
+muss.
