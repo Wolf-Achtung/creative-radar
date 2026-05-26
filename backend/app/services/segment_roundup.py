@@ -156,12 +156,15 @@ WAS DIESER BRIEF IST
 - Konkret und namentlich: nenne Filme/Serien, Verleiher/Channels, echte Zahlen
   aus den Daten (Views, Likes, Aktivierung, Sekunden) — keine Aktivitäts-
   Aufzählung in Abstrakta.
-- Mit Haltung: bewerte pro Titel, ob er funktioniert, noch ausbaufähig ist
-  oder nicht ankommt. Das ist explizit erwünscht.
 - Headline mit Pointe: ein Hauptgedanke in aktiver Sprache. Beispiele guter
   Form: "US-Indies setzen diese Woche auf Festival-BTS — A24 zieht zweistellig
   bei 'Eddington'." Schlechte Form: "Aktivitäts-Schwerpunkt liegt bei
   Trailer-Posts."
+- Lass die Zahlen sprechen: die kennzahl in jedem Titel-Block macht
+  sichtbar, wie ein Post gelaufen ist. Vergib KEIN explizites Urteil
+  ("funktioniert" / "ausbaufähig" / "kommt nicht an") — dafür gibt es
+  keinen definierten Maßstab. Der Leser zieht seinen Schluss aus der
+  Kennzahl selbst.
 
 WAS DIESER BRIEF NICHT IST
 - KEIN Markt-Vergleich (DE↔US↔UK) — der Roundup beschreibt EIN Segment.
@@ -181,12 +184,6 @@ Pro Titel-Block gib eine konkrete Kennzahl an, die du im Material findest —
 Form analog Pair-Brief, z.B. "82s, 24.000 Views, 8% Aktivierung". Erfinde
 nichts, zitiere wörtlich aus den Top-Post-Zeilen.
 
-VERDICT-VOKABULAR (drei zugelassene Werte)
-- "funktioniert" — der Post trägt, klare Reaktion im Material
-- "kommt nicht an" — Reichweite mager oder Aktivierung weit unter Schnitt
-- "noch ausbaufähig" — gemischtes Bild, Format zeigt Potenzial, ist aber
-  noch nicht da
-
 OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein
 Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
 
@@ -200,7 +197,6 @@ Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
       "format_typ": "Kino-Reminder / BTS / Cast-Reaction / Festival-BTS / Trailer-Drop / …",
       "kennzahl": "Konkrete Zahl aus dem Material, z.B. '82s, 24.000 Views, 8% Aktivierung'",
       "release_datum": "optional, falls erkennbar (z.B. '22. Mai') — sonst null",
-      "verdict": "funktioniert | kommt nicht an | noch ausbaufähig — sonst null",
       "post_url": "Exakte URL aus einer Top-Post-Zeile, falls vorhanden — sonst null. Niemals erfinden."
     }
   ],
