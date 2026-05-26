@@ -581,3 +581,46 @@ class SegmentRoundupReport(BaseModel):
         default=None,
         description="Raw assistant text — populated only when JSON parsing fails.",
     )
+
+
+# ---------- Roundup-Read-Endpoint (Master-Plan-Schritt-3b) ----------------
+
+
+class SegmentRoundupSummary(BaseModel):
+    """Eine Zeile in der Antwort von ``GET /api/roundups/latest`` — Frontend-
+    bereite Sicht auf den jeweils neuesten Roundup eines Segments.
+
+    Pendant zu ``PairInfo`` der Pair-Pipeline: schlank, deskriptiv, ohne
+    Audit-Trail-Felder (``channels_aggregation`` wandert nicht ueber den
+    Wire; das volle Audit-Material bleibt in der DB und ist via
+    ``/api/admin/roundups/generate`` und DB-Inspektion erreichbar).
+
+    Felder fuer die Kachel (Kurzform): ``segment``, ``iso_year``,
+    ``iso_week``, ``channels_with_posts``, ``total_posts``,
+    ``llm_output.headline`` bzw. ``llm_output.tldr``.
+
+    Felder fuer den Aufklapp-Bereich (`<details>`): ``llm_output`` voll —
+    inkl. ``data_caveats``, das bei duennen Segmenten den Unterschied
+    macht zwischen "duenner Brief" und "erklaerte ruhige Woche".
+    """
+    segment: str
+    iso_year: int
+    iso_week: int
+    window_days: int
+    generated_at: datetime
+    channels_evaluated: int
+    channels_with_posts: int
+    total_posts: int
+    llm_output: SegmentRoundupLLMReport
+
+
+class SegmentRoundupListResponse(BaseModel):
+    """Antwort-Hülle fuer ``GET /api/roundups/latest``. Liste der jeweils
+    neuesten Roundups pro Segment, sortiert in ``ChannelSegment``-ENUM-
+    Reihenfolge (us_major, us_independent, uk_major, uk_independent,
+    de_verleih, de_independent) — deterministisch und unabhaengig von der
+    Insert-Reihenfolge in der Tabelle. Segmente ohne Roundup-Row sind
+    nicht enthalten; der Frontend-Block behandelt das ueber seine
+    eigene Segment-Liste als "noch kein Roundup"-Zustand.
+    """
+    roundups: list[SegmentRoundupSummary]

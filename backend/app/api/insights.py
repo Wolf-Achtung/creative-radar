@@ -2,12 +2,20 @@ import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.database import get_session
 
 logger = logging.getLogger(__name__)
-from app.schemas.insights import InsightReport, PairInfo, PairsResponse
+from app.models.entities import ChannelSegment, SegmentRoundup
+from app.schemas.insights import (
+    InsightReport,
+    PairInfo,
+    PairsResponse,
+    SegmentRoundupListResponse,
+    SegmentRoundupLLMReport,
+    SegmentRoundupSummary,
+)
 from app.services.anthropic_client import (
     AnthropicAPIError,
     AnthropicAuthError,
@@ -27,6 +35,15 @@ router = APIRouter(prefix="/api/insights", tags=["insights"])
 # Separate router so the URL is ``/api/pairs`` instead of nested under
 # ``/api/insights``. Same module to keep the PAIRS import single-source.
 pairs_router = APIRouter(prefix="/api", tags=["pairs"])
+
+# Roundup-Read-Router (Master-Plan-Schritt-3b). Eigener APIRouter analog
+# zu ``pairs_router``, damit ``/api/roundups/latest`` flach unter ``/api``
+# liegt — spiegelt das Pair-Pattern und haelt die URL stabil, falls der
+# insights-Prefix sich spaeter aendert. Public (kein Auth-Dependency,
+# Wolf-Festlegung 26.05.); der teure Generier-Pfad
+# ``POST /api/admin/roundups/generate`` bleibt unveraendert hinter
+# Bearer-Auth.
+roundups_router = APIRouter(prefix="/api", tags=["roundups"])
 
 
 def _enabled_pair_keys() -> list[str]:
@@ -199,3 +216,89 @@ def weekly(
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except AnthropicAPIError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+# ---------- Segment-Roundup-Read (Master-Plan-Schritt-3b) -----------------
+
+
+@roundups_router.get("/roundups/latest", response_model=SegmentRoundupListResponse)
+def roundups_latest(
+    session: Session = Depends(get_session),
+) -> SegmentRoundupListResponse:
+    """Latest persisted Segment-Roundup per segment.
+
+    Drives the Roundup-Block on the landing page (Frontend macht einen
+    Call fuer alle Kacheln; spiegelt das ``/api/pairs``-Muster). Pro
+    Segment wird die Row mit dem hoechsten ``(iso_year, iso_week)``
+    zurueckgegeben; tiebreak ist ``generated_at`` (Last-Write-Wins, der
+    juengste Lauf einer Woche gewinnt).
+
+    Antwort enthaelt das volle ``llm_output`` (headline, tldr, themes,
+    what_ran, channels_in_focus, data_caveats) — das Frontend zeigt den
+    Aufklapp-Bereich der Kachel aus dieser Antwort, ohne weiteren Call.
+    Aggregations-Audit-Material (``channels_aggregation``) wandert
+    bewusst **nicht** ueber den Wire — bleibt fuer DB-Inspektion und
+    den admin-getriggerten Re-Run reserviert.
+
+    Sortierung in fester ``ChannelSegment``-ENUM-Reihenfolge (us_major,
+    us_independent, uk_major, uk_independent, de_verleih,
+    de_independent), unabhaengig von Insert-Reihenfolge. Segmente ohne
+    Row werden weggelassen — der Frontend-Block hat seine eigene
+    Segment-Liste fuer den "noch kein Roundup"-Zustand.
+
+    Public (kein Auth-Dependency). Konsistent mit ``/api/pairs``.
+    """
+    # Eine Row pro Segment mit (iso_year, iso_week) MAX, tiebreak
+    # generated_at DESC. Bounded set (1 Row/Segment/Woche × wenige
+    # Segmente × wenige Wochen) — In-Python-Reduktion ist ueberschaubar
+    # und vermeidet ein DB-Dialekt-abhaengiges Window-/CTE-Konstrukt
+    # (SQLite-Tests + Postgres-Prod muessen identisch funktionieren).
+    rows = session.exec(
+        select(SegmentRoundup).order_by(
+            SegmentRoundup.iso_year.desc(),
+            SegmentRoundup.iso_week.desc(),
+            SegmentRoundup.generated_at.desc(),
+        )
+    ).all()
+
+    latest_per_segment: dict[str, SegmentRoundup] = {}
+    for row in rows:
+        # Erstes Vorkommen pro Segment ist dank ORDER BY automatisch das
+        # neueste — wenn schon vorhanden, ueberspringen.
+        key = row.segment.value if hasattr(row.segment, "value") else str(row.segment)
+        if key not in latest_per_segment:
+            latest_per_segment[key] = row
+
+    summaries: list[SegmentRoundupSummary] = []
+    for segment in ChannelSegment:
+        row = latest_per_segment.get(segment.value)
+        if row is None:
+            continue
+        agg = row.channels_aggregation or {}
+        try:
+            llm = SegmentRoundupLLMReport(**(row.llm_output or {}))
+        except Exception as exc:  # pragma: no cover - defensiv
+            # Wenn eine alte Row im LLM-Output ein Schema-Drift hat,
+            # ueberspringen statt 500 — der Frontend-Block soll fuer die
+            # uebrigen Segmente weiter rendern.
+            logger.warning(
+                "segment_roundup row for %s has malformed llm_output: %s",
+                segment.value,
+                exc,
+            )
+            continue
+        summaries.append(
+            SegmentRoundupSummary(
+                segment=segment.value,
+                iso_year=row.iso_year,
+                iso_week=row.iso_week,
+                window_days=row.window_days,
+                generated_at=row.generated_at,
+                channels_evaluated=int(agg.get("channels_evaluated") or 0),
+                channels_with_posts=int(agg.get("channels_with_posts") or 0),
+                total_posts=int(agg.get("total_posts") or 0),
+                llm_output=llm,
+            )
+        )
+
+    return SegmentRoundupListResponse(roundups=summaries)

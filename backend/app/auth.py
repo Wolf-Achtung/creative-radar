@@ -70,6 +70,12 @@ PUBLIC_PATH_EXACT: frozenset[str] = frozenset(
         # token has been hydrated). Read-only, list of enabled pairs
         # only — no PII, no DB query.
         "/api/pairs",
+        # Landing-page Roundup-Block (Master-Plan-Schritt-3b).
+        # Spiegelt /api/pairs: Read-only, public, listet den jeweils
+        # neuesten Segment-Roundup je Segment. Der teure Generier-
+        # Endpoint /api/admin/roundups/generate bleibt bewusst hinter
+        # Bearer-Auth (Wolf-Festlegung 26.05.).
+        "/api/roundups/latest",
     }
 )
 

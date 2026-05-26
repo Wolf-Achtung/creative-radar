@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { endpoints, proxyImageUrl } from './api/client';
 import InsightWeekly from './InsightWeekly';
+import RoundupBlock from './RoundupBlock';
 import './styles.css';
 
 // Lightweight URL-based view-switch. The app has a single page today, so
@@ -971,6 +972,8 @@ function App() {
           </div>
         )}
       </section>
+
+      <RoundupBlock />
 
 
       {error && <div className="error">{error}</div>}
