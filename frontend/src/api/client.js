@@ -99,6 +99,10 @@ export const endpoints = {
   runApifyMonitor: (payload) => api('/api/monitor/apify-instagram', { method: 'POST', body: JSON.stringify(payload) }),
   runTikTokMonitor: (payload) => api('/api/monitor/apify-tiktok', { method: 'POST', body: JSON.stringify(payload) }),
   pairs: () => api('/api/pairs'),
+  // Latest Segment-Roundup pro Segment. Public, kein Auth-Token noetig
+  // (Backend-Whitelist analog /api/pairs). Treibt den Roundup-Block auf
+  // der Landing-Page (Master-Plan-Schritt-3b, 26.05.).
+  roundupsLatest: () => api('/api/roundups/latest'),
   insightsOverview: () => api('/api/insights/overview'),
   insightsWeekly: (pair, { windowDays = 30, dryRun = false } = {}) => {
     const params = new URLSearchParams({ pair, window_days: String(windowDays), dry_run: String(dryRun) });
