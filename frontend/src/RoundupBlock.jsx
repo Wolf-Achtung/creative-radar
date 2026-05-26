@@ -231,17 +231,17 @@ export default function RoundupBlock() {
         marginBottom: '0.5rem',
         fontWeight: 600,
       }}>Diese Woche im Schnitt</p>
-      <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Segment-Roundups</h2>
+      <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Verleiher &amp; Independents</h2>
       <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
-        Was lief diese Woche in den Non-Pair-Segmenten — deskriptiv, kein Markt-Vergleich.
+        Was Verleiher und Independents diese Woche gepostet haben — und wie es ankam.
       </p>
 
       {roundups === null && (
-        <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Segment-Roundups …</p>
+        <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Roundups …</p>
       )}
       {error && (
         <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>
-          Segment-Roundups momentan nicht verfügbar. Bitte später erneut versuchen.
+          Roundups momentan nicht verfügbar. Bitte später erneut versuchen.
         </p>
       )}
       {roundups !== null && !error && (
