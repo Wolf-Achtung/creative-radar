@@ -537,26 +537,64 @@ class SegmentAggregation(BaseModel):
     channels: list[ChannelRoundupStats]
 
 
-class SegmentRoundupLLMReport(BaseModel):
-    """Deskriptive LLM-Synthese fuer einen Segment-Roundup. Eigenes
-    Schema, **kein** Markt-Vergleich, **keine** Cross-Segment-Aussagen
-    (Wolf-Festlegung 25.05.). Strukturell schlanker als ``LLMReport``
-    aus der Pair-Pipeline.
+class RoundupTitelImFokus(BaseModel):
+    """Ein Titel-/Kampagnen-Block im Segment-Roundup. Pendant zu
+    ``TitelImFokus`` aus der Pair-Pipeline (Schema 1:1 uebernommen),
+    eine Abweichung: ``channel`` statt ``markt``.
 
-    - ``headline`` und ``tldr``: Segment-Kopf, 1 Satz / 2-3 Saetze.
-    - ``what_ran`` (3-7 Bullets): was lief im Segment in der Woche.
-    - ``channels_in_focus`` (Optional, 1-3 Eintraege): herausstechende
-      Channels mit kurzer Begruendung. Keine Rankings, kein Best/Worst —
-      Roundup ist deskriptiv.
+    Begruendung der Abweichung (Wolf-Ping-1, 26.05.): der Markt ist im
+    Single-Segment-Roundup informationslos (im ``us_major``-Roundup ist
+    alles "US"). Die nuetzliche Achse ist, **welcher Channel** den Post
+    abgesetzt hat — Verleiher-/Handle-Identifikation. Ansonsten gleiches
+    Feldset wie im Pair-Brief, damit der Frontend-Render dieselbe
+    Card-Form nutzen kann.
+
+    ``verdict`` nutzt dasselbe ``VerdictEnum`` wie der Pair-Brief
+    (funktioniert / kommt nicht an / noch ausbaufaehig). Wiederverwendung
+    statt Duplikat. Backwards-Compat-Mapping via ``normalize_old_verdict``
+    ist nicht noetig — es gibt noch keine persistierten Roundup-Rows mit
+    alten Verdict-Werten (Schritt-3-Schema hatte gar kein Verdict-Feld).
+    """
+    titel: str
+    channel: str
+    format_typ: str
+    kennzahl: str
+    release_datum: Optional[str] = None
+    verdict: Optional[VerdictEnum] = None
+    post_url: Optional[str] = None
+
+
+class SegmentRoundupLLMReport(BaseModel):
+    """Deskriptive LLM-Synthese fuer einen Segment-Roundup.
+
+    Master-Plan-Schritt-3c (2026-05-26 — Qualitaets-Anhebung): Schema
+    rueckt stilistisch an den Pair-Brief heran, ohne den Markt-Vergleich.
+    "Deskriptiv" heisst ab jetzt **kein Markt-Vergleich**, nicht "keine
+    Bewertung". Titel-Bewertung (``verdict``) ist erwuenscht.
+
+    - ``headline`` und ``tldr``: Segment-Kopf mit Haltung, Pair-Brief-
+      Stil. 1 Satz / 2-3 Saetze.
+    - ``titles`` (required, kann leer sein): Herzstueck. Pro Titel ein
+      Block mit Channel/Verleiher, Format, Kennzahl, Bewertung — analog
+      ``aktuell_im_fokus`` im Pair-Brief. Anzahl folgt der Substanz:
+      typischerweise 5-7 bei aktiven Segmenten, deutlich weniger bei
+      ruhigen. Lieber 2 echte Blöcke als 6 mit aufgeblasener Substanz.
     - ``themes`` (Optional, 2-5 Bullets): wiederkehrende Themen/Motive
       ueber Channels hinweg.
-    - ``data_caveats``: Lautstaerke-Hinweise (z.B. "12 von 33 Channels
-      ohne Posts in diesem Fenster").
+    - ``data_caveats`` (required): Lautstaerke-Hinweise (z.B. "12 von
+      33 Channels ohne Posts in diesem Fenster"). Bleibt sichtbar, ist
+      aber nicht mehr der dominante Inhalt — die Substanz liegt in
+      ``titles``.
+
+    Felder aus dem Schritt-3-Schema, die mit 3c entfallen:
+    - ``what_ran``: Inhalt wandert in ``titles`` (konkret) + ``tldr``
+      (Erzaehl-Bogen).
+    - ``channels_in_focus``: Channel-Information steht jetzt pro Titel-
+      Block im ``channel``-Feld.
     """
     headline: str
     tldr: str
-    what_ran: list[str]
-    channels_in_focus: Optional[list[str]] = None
+    titles: list[RoundupTitelImFokus] = Field(default_factory=list)
     themes: Optional[list[str]] = None
     data_caveats: list[str]
 

@@ -11,9 +11,11 @@ Der Endpoint treibt den Roundup-Block auf der Landing-Page. Vertragsfix:
 - Segmente ohne Row sind nicht im Payload — Frontend kennt die
   Segment-Liste und rendert "noch kein Roundup" selbst.
 - Public: kein Bearer-Auth-Dependency (spiegelt ``/api/pairs``).
-- Volle ``llm_output``-Felder im Payload (headline, tldr, what_ran,
-  themes, channels_in_focus, data_caveats) — der Aufklapp-Bereich der
-  Kachel rendert aus einer einzigen Antwort.
+- Volle ``llm_output``-Felder im Payload (Schritt-3c: headline, tldr,
+  titles, themes, data_caveats) — der Aufklapp-Bereich der Kachel
+  rendert aus einer einzigen Antwort. ``titles`` ist das Herzstueck
+  und muss konsistent durch Schema -> Endpoint -> Frontend laufen
+  (Drift-Schutz, Wolf-Hinweis 26.05.).
 
 Isolation: shared in-memory SQLite via ``StaticPool``, ``auth_enabled``
 auf True gedreht um zu verifizieren, dass der Pfad explizit als public
@@ -74,8 +76,17 @@ def _llm_output_payload(headline: str = "Headline") -> dict:
     return {
         "headline": headline,
         "tldr": "Kurzfassung.",
-        "what_ran": ["A", "B", "C"],
-        "channels_in_focus": ["channel_a"],
+        "titles": [
+            {
+                "titel": "Sample Movie",
+                "channel": "@channel_a",
+                "format_typ": "Kino-Reminder",
+                "kennzahl": "82s, 24.000 Views, 8% Aktivierung",
+                "release_datum": "22. Mai",
+                "verdict": "funktioniert",
+                "post_url": "https://example.com/p/1",
+            }
+        ],
         "themes": ["theme_1"],
         "data_caveats": ["12 von 33 Channels ohne Posts in diesem Fenster."],
     }
@@ -198,12 +209,24 @@ def test_roundups_latest_full_payload_shape(client: TestClient, db):
     llm = entry["llm_output"]
     assert llm["headline"] == "Headline"
     assert llm["tldr"] == "Kurzfassung."
-    assert llm["what_ran"] == ["A", "B", "C"]
-    assert llm["channels_in_focus"] == ["channel_a"]
     assert llm["themes"] == ["theme_1"]
     assert llm["data_caveats"] == [
         "12 von 33 Channels ohne Posts in diesem Fenster."
     ]
+    # Schritt-3c: titles-Sektion ist das Herzstueck und MUSS ueber den
+    # Wire kommen — wenn der Endpoint sie verschluckt, sieht das Frontend
+    # sie nie. Drift-Schutz durch alle drei Schichten (Schema -> Endpoint
+    # -> Frontend).
+    assert "titles" in llm
+    assert len(llm["titles"]) == 1
+    title = llm["titles"][0]
+    assert title["titel"] == "Sample Movie"
+    assert title["channel"] == "@channel_a"
+    assert title["format_typ"] == "Kino-Reminder"
+    assert title["kennzahl"] == "82s, 24.000 Views, 8% Aktivierung"
+    assert title["release_datum"] == "22. Mai"
+    assert title["verdict"] == "funktioniert"
+    assert title["post_url"] == "https://example.com/p/1"
 
 
 # ---------- One row per segment + ENUM-order ------------------------------
@@ -345,8 +368,9 @@ def test_roundups_latest_thin_segment_renders_with_zero_metrics(
 def test_roundups_latest_accepts_llm_output_without_optionals(
     client: TestClient, db,
 ):
-    # ``channels_in_focus`` und ``themes`` sind Optional im Schema —
-    # eine Row ohne diese Felder muss durchgehen.
+    # Schritt-3c: ``themes`` ist Optional, ``titles`` hat Default ``[]``.
+    # Eine Row ohne ``themes`` und ohne ``titles`` muss durchgehen — der
+    # Endpoint defaultet ``titles`` auf eine leere Liste.
     with Session(db) as session:
         session.add(
             SegmentRoundup(
@@ -360,7 +384,6 @@ def test_roundups_latest_accepts_llm_output_without_optionals(
                 llm_output={
                     "headline": "Minimal",
                     "tldr": "Kurz.",
-                    "what_ran": ["X"],
                     "data_caveats": ["Y"],
                 },
                 generated_at=datetime.now(timezone.utc),
@@ -373,6 +396,7 @@ def test_roundups_latest_accepts_llm_output_without_optionals(
     assert response.status_code == 200
     entry = response.json()["roundups"][0]
     assert entry["llm_output"]["headline"] == "Minimal"
-    # Optional-Felder sind serialisiert, aber None.
-    assert entry["llm_output"].get("channels_in_focus") is None
+    # ``themes`` ist Optional → bleibt None. ``titles`` hat Default []
+    # → Endpoint emittiert eine leere Liste, kein None.
     assert entry["llm_output"].get("themes") is None
+    assert entry["llm_output"].get("titles") == []

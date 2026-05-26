@@ -144,8 +144,15 @@ def _minimal_llm_body() -> dict:
     return {
         "headline": "Roundup headline",
         "tldr": "Drei Sätze über das Segment.",
-        "what_ran": ["Trailer", "Stills", "BTS-Clip"],
-        "channels_in_focus": ["@a24", "@neonrated"],
+        "titles": [
+            {
+                "titel": "Sample Title",
+                "channel": "@a24",
+                "format_typ": "BTS",
+                "kennzahl": "24s, 5.000 Reaktionen",
+                "verdict": "funktioniert",
+            }
+        ],
         "themes": ["Indie-Releases", "Festival-Vorbereitung"],
         "data_caveats": ["2 von 5 Channels ohne Posts im Fenster"],
     }
