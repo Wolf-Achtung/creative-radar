@@ -205,10 +205,10 @@ export default function RoundupBlock() {
         letterSpacing: '0.05em',
         marginBottom: '0.5rem',
         fontWeight: 600,
-      }}>Diese Woche im Schnitt</p>
+      }}>Die Woche im Rückblick</p>
       <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Verleiher &amp; Independents</h2>
       <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
-        Was Verleiher und Independents diese Woche gepostet haben — und wie es ankam.
+        Was die vergangene Woche gepostet wurde — und wie es ankam.
       </p>
 
       {roundups === null && (
