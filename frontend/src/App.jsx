@@ -685,7 +685,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [activeTab, setActiveTab] = useState(null);
   const [channelFile, setChannelFile] = useState(null);
-  const [monitorForm, setMonitorForm] = useState({ max_channels: 5, results_limit_per_channel: 5, only_whitelist_matches: true });
+  const [monitorForm, setMonitorForm] = useState({ max_channels: 5, results_limit_per_channel: 5, only_whitelist_matches: false });
   const [tiktokForm, setTiktokForm] = useState({ username: 'warnerbros', max_channels: 1, results_limit_per_channel: 5, only_whitelist_matches: false });
   const [filters, setFilters] = useState({ status: 'all', platform: 'all', market: 'all', query: '' });
   const [recentlyCreatedByAssetId, setRecentlyCreatedByAssetId] = useState({});
