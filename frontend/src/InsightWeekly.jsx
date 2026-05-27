@@ -200,35 +200,42 @@ function ChannelStatsCard({ stats }) {
   );
 }
 
-function CrossMarketCard({ matches }) {
+// Sprint B2 (27.05.2026) — Cross-Market-Achse als Prop. Das Backend-Schema
+// CrossMarketMatch traegt fix ``de_*``/``us_*``-Felder (Backwards-Compat
+// fuer persistierte Briefe), die ``_cross_market_matches``-Funktion ist
+// generisch pairwise: pool_a-Daten fuellen den de_*-Slot, pool_b-Daten den
+// us_*-Slot. Frontend uebersetzt das pro Achse in das richtige Markt-Label:
+//   cross_market_matches → axis={a: 'DE', b: 'US'}
+//   de_uk_matches        → axis={a: 'DE', b: 'UK'}
+//   us_uk_matches        → axis={a: 'US', b: 'UK'}
+function CrossMarketCard({ matches, axis = { a: 'DE', b: 'US' } }) {
+  const axisLabel = `${axis.a} ↔ ${axis.b}`;
   if (!matches || matches.length === 0) {
     return (
       <div className="card">
         <p className="section-kicker">
-          Cross-Market Matches
+          {`Cross-Market Matches · ${axisLabel}`}
           <HelpTooltip text={TOOLTIP_TEXTS.crossMarketMatch} label="Was sind Cross-Market Matches?" />
         </p>
-        <p>Keine Titel-Parallelen zwischen DE und US in diesem Zeitraum.</p>
+        <p>{`Keine Titel-Parallelen zwischen ${axis.a} und ${axis.b} in diesem Zeitraum.`}</p>
       </div>
     );
   }
   return (
     <div className="card">
-      <p className="section-kicker">Cross-Market Matches</p>
+      <p className="section-kicker">{`Cross-Market Matches · ${axisLabel}`}</p>
       <ol className="insight-cross-market">
         {matches.map((m) => (
           <li key={m.match_key}>
             <strong>{m.title || m.match_key}</strong>
             <div>
-              DE: {formatNumber(m.de_engagement)}{m.de_duration_seconds != null && ` · ${m.de_duration_seconds}s`}
-              {' / '}US: {formatNumber(m.us_engagement)}{m.us_duration_seconds != null && ` · ${m.us_duration_seconds}s`}
+              {axis.a}: {formatNumber(m.de_engagement)}{m.de_duration_seconds != null && ` · ${m.de_duration_seconds}s`}
+              {' / '}{axis.b}: {formatNumber(m.us_engagement)}{m.us_duration_seconds != null && ` · ${m.us_duration_seconds}s`}
             </div>
             <div className="insight-cross-market-links">
-              {m.de_post_url && <a href={m.de_post_url} target="_blank" rel="noreferrer">DE-Post</a>}
-              {m.us_post_url && <a href={m.us_post_url} target="_blank" rel="noreferrer">US-Post</a>}
+              {m.de_post_url && <a href={m.de_post_url} target="_blank" rel="noreferrer">{`${axis.a}-Post`}</a>}
+              {m.us_post_url && <a href={m.us_post_url} target="_blank" rel="noreferrer">{`${axis.b}-Post`}</a>}
             </div>
-            {/* UK cross-market = B2-Scope. Backend CrossMarketMatch ist
-                DE↔US-only (kein uk_engagement / uk_post_url im Schema). */}
           </li>
         ))}
       </ol>
@@ -350,6 +357,15 @@ function LLMOutput({ output, raw }) {
       <div className="card">
         <p className="section-kicker">Cross-Market Insight</p>
         <p><strong>DE vs US:</strong> {output.cross_market_insight.de_vs_us}</p>
+        {/* Sprint B2 (27.05.2026): de_vs_uk / us_vs_uk sind optional —
+            die LLM laesst sie null, wenn UK-Datenlage zu duenn ist.
+            Frontend rendert die Zeilen nur, wenn Werte da sind. */}
+        {output.cross_market_insight.de_vs_uk && (
+          <p><strong>DE vs UK:</strong> {output.cross_market_insight.de_vs_uk}</p>
+        )}
+        {output.cross_market_insight.us_vs_uk && (
+          <p><strong>US vs UK:</strong> {output.cross_market_insight.us_vs_uk}</p>
+        )}
         <p><strong>Transfer-Opportunity:</strong> {output.cross_market_insight.transfer_opportunity}</p>
       </div>
 
@@ -772,7 +788,17 @@ function MultiPlatformStats({ aggregation }) {
           <ChannelStatsCard stats={aggregation.us_channel} />
           <ChannelStatsCard stats={aggregation.uk_channel} />
         </div>
-        <CrossMarketCard matches={aggregation.cross_market_matches} />
+        {/* Sprint B2 — drei pairwise Cards eine pro Achse. Die zwei
+            UK-Cards rendern nur, wenn die Liste tatsaechlich Matches
+            traegt — alte persistierte Briefe haben hier Default-leere
+            Listen, dann erscheinen nur die DE↔US-Cards.*/}
+        <CrossMarketCard matches={aggregation.cross_market_matches} axis={{ a: 'DE', b: 'US' }} />
+        {aggregation.de_uk_matches?.length > 0 && (
+          <CrossMarketCard matches={aggregation.de_uk_matches} axis={{ a: 'DE', b: 'UK' }} />
+        )}
+        {aggregation.us_uk_matches?.length > 0 && (
+          <CrossMarketCard matches={aggregation.us_uk_matches} axis={{ a: 'US', b: 'UK' }} />
+        )}
       </>
     );
   }
@@ -794,7 +820,13 @@ function MultiPlatformStats({ aggregation }) {
               {p.uk_channel && <ChannelStatsCard stats={p.uk_channel} />}
             </div>
             {p.cross_market_matches?.length > 0 && (
-              <CrossMarketCard matches={p.cross_market_matches} />
+              <CrossMarketCard matches={p.cross_market_matches} axis={{ a: 'DE', b: 'US' }} />
+            )}
+            {p.de_uk_matches?.length > 0 && (
+              <CrossMarketCard matches={p.de_uk_matches} axis={{ a: 'DE', b: 'UK' }} />
+            )}
+            {p.us_uk_matches?.length > 0 && (
+              <CrossMarketCard matches={p.us_uk_matches} axis={{ a: 'US', b: 'UK' }} />
             )}
           </div>
         );
