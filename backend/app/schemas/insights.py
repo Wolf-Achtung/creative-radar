@@ -196,7 +196,13 @@ class PlatformAggregation(BaseModel):
     # in B1 2-Spalten (B3-Scope), das LLM sieht UK aber bereits im
     # Markdown- und JSON-Block.
     uk_channel: Optional[ChannelStats] = None
+    # ``cross_market_matches`` ist historisch der DE↔US-Slot (Name
+    # vor B2 nicht umbenannt, damit persistierte Briefe weiter
+    # validieren). Sprint B2 (27.05.2026) ergaenzt die zwei UK-Achsen
+    # additiv — alte Briefe haben hier per Default eine leere Liste.
     cross_market_matches: list[CrossMarketMatch] = []
+    de_uk_matches: list[CrossMarketMatch] = []
+    us_uk_matches: list[CrossMarketMatch] = []
     title_coverage: TitleCoverage
     notes: list[str] = []
 
@@ -217,6 +223,10 @@ class PairAggregation(BaseModel):
     # Code-Pfade brauchen.
     uk_channel: Optional[ChannelStats] = None
     cross_market_matches: list[CrossMarketMatch]
+    # Sprint B2 — Mirror der zwei UK-Achsen aus dem ersten Platform-
+    # Block. Default-leere Listen damit Briefe vor B2 weiter parsen.
+    de_uk_matches: list[CrossMarketMatch] = []
+    us_uk_matches: list[CrossMarketMatch] = []
     title_coverage: TitleCoverage
     notes: list[str]
     # Sprint-4 multi-platform v2a: per-platform aggregations live here.
@@ -355,6 +365,14 @@ class TitelImFokus(BaseModel):
 
 class CrossMarketInsight(BaseModel):
     de_vs_us: str
+    # Sprint B2 (27.05.2026) — zwei zusaetzliche pairwise-Achsen
+    # additiv ergaenzt. Optional damit alte persistierte Briefs vor B2
+    # weiter validieren und die LLM die Achse weglassen kann, wenn keine
+    # UK-Matches da sind. ``transfer_opportunity`` bleibt
+    # Markt-unabhaengiger Empfehlungs-Slot (jetzt kann die LLM darin
+    # mehrere Transferrichtungen formulieren).
+    de_vs_uk: Optional[str] = None
+    us_vs_uk: Optional[str] = None
     transfer_opportunity: str
 
 
