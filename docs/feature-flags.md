@@ -6,24 +6,6 @@ Helper-Modul: `backend/app/core/feature_flags.py` (PR #155)
 
 ## Aktive Flags
 
-### `FEATURE_UK_SECTION_PAIRS`
-
-- **Typ:** Comma-separated pair_keys, z.B. `"disney,lionsgate"`
-- **Default:** `""` (kein Pair aktiviert)
-- **Helper:** `is_uk_enabled_for_pair(pair_key)`
-- **Zweck:** Aktiviert UK-Sektion in Brief-Generation für gelistete Pairs
-- **Einführung:** PR #155 (Pattern), Nutzung kommt mit UK-Sprint
-- **Entfernung:** Nach UK-Sprint-Vollintegration (vermutlich Phase 4 Roadmap), wenn alle UK-relevanten Pairs strukturell auf `markets=["DE","US","UK"]` umgestellt sind
-
-### `FEATURE_INDEPENDENTS_ENABLED`
-
-- **Typ:** `"true"` oder `"false"` (case-insensitive)
-- **Default:** `"false"`
-- **Helper:** `is_independents_enabled()`
-- **Zweck:** Aktiviert Independents-Pipeline (Beta-Pairs sichtbar, Single-Market-Briefs generierbar)
-- **Einführung:** PR #155 (Pattern), Nutzung kommt mit Independents-Sprint (Phase 3a Roadmap)
-- **Entfernung:** Nach Independents-Full-Rollout (Phase 3b Roadmap)
-
 ### `FEATURE_SEGMENT_ROUNDUPS_ENABLED`
 
 - **Typ:** `"true"` oder `"false"` (case-insensitive)

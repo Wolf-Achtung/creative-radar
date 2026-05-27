@@ -328,8 +328,9 @@ def test_parse_cron_roundup_segments_default(caplog):
 
 
 def test_parse_cron_roundup_segments_whitespace_and_trailing_comma(caplog):
-    """Tolerant fuer Whitespace und trailing comma (analog
-    is_uk_enabled_for_pair-Parsing)."""
+    """Tolerant fuer Whitespace und trailing comma (Wolf-Festlegung Ping 1
+    25.05.: gleicher CSV-Parse-Stil wie das damalige ``FEATURE_UK_SECTION_PAIRS``
+    Helper-Pattern, das im Cleanup-PR 27.05. wieder entfernt wurde)."""
     from app.services.segment_roundup import parse_cron_roundup_segments
     result = parse_cron_roundup_segments("  us_major , de_verleih ,")
     assert result == [ChannelSegment.US_MAJOR, ChannelSegment.DE_VERLEIH]
