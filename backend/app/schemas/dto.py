@@ -91,7 +91,13 @@ class ApifyMonitorRequest(BaseModel):
     channel_ids: list[UUID] = []
     max_channels: int = 5
     results_limit_per_channel: int = 5
-    only_whitelist_matches: bool = True
+    # Default 27.05.2026 von True auf False angeglichen — TikTokMonitorRequest
+    # und der Cron-Pfad (_execute_platform_sync) stehen schon auf False.
+    # Der True-Ausreisser hat beim manuellen UK-IG-Scrape 74 Posts faelschlich
+    # als skipped_no_whitelist_match verworfen, weil der Caller den Flag nicht
+    # explizit gesetzt hatte. Title-Match-Filter im Monitor-Pfad jetzt opt-in
+    # statt opt-out, einheitlich ueber alle drei Plattformen.
+    only_whitelist_matches: bool = False
 
 
 class TikTokMonitorRequest(BaseModel):
