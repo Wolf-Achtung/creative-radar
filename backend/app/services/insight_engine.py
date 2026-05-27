@@ -160,7 +160,13 @@ PAIRS: dict[str, dict[str, Any]] = {
                 # (kürzer als der TT-Handle @sonypicturesanimation).
                 {"handle": "sonyanimation", "market": "US"},
                 {"handle": "sonypicturesde", "market": "DE"},
-                {"handle": "sonypictures.uk", "market": "UK"},
+                # Sprint UK-Channel-Integration Phase 1 (PR #175): der historische
+                # Pair-IG-Handle ``sonypictures.uk`` zeigt auf eine inaktive
+                # Bestands-Row (b1770de9-…, "profile not available"). Der lebende
+                # IG-Account ist @sonypicturesuk (Browser-verifiziert, 530K). Ohne
+                # diesen Fix sucht ``_find_channels`` für Sony-IG-UK weiter auf der
+                # toten Row und liefert keine UK-IG-Posts in den Pair-Brief.
+                {"handle": "sonypicturesuk", "market": "UK"},
             ],
             "youtube": [
                 {"handle": "SonyPicturesEntertainment", "market": "US"},
@@ -347,7 +353,13 @@ PAIRS: dict[str, dict[str, Any]] = {
                 {"handle": "paramountpics", "market": "US"},
                 # IG-DE uses underscores: ``paramount_pictures_germany``.
                 {"handle": "paramount_pictures_germany", "market": "DE"},
-                {"handle": "paramountpicturesuk", "market": "UK"},
+                # Sprint UK-Channel-Integration Phase 1 (PR #175): der historische
+                # Pair-IG-Handle ``paramountpicturesuk`` zeigt auf eine inaktive
+                # Bestands-Row (f0d76915-…, "profile not available"). Der lebende
+                # IG-Account ist @paramountuk (Browser-verifiziert, 1.3M). Ohne
+                # diesen Fix sucht ``_find_channels`` für Paramount-IG-UK weiter
+                # auf der toten Row und liefert keine UK-IG-Posts in den Pair-Brief.
+                {"handle": "paramountuk", "market": "UK"},
             ],
             # No DE-side YouTube channel for Paramount Pictures. UK exists
             # via @ParamountPicturesUK (case-mix verträglich mit
