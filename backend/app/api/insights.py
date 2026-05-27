@@ -54,20 +54,19 @@ def _markets_for_pair(pair_def: dict) -> list[str]:
     """Return the pair's surface market codes in DE → US → UK display order.
 
     Primary source: the explicit ``markets`` field on the PAIRS entry —
-    the curated set of markets the LLM brief actually covers. This is
-    what the landing-page card grid promises, and it stays decoupled
-    from the channel-pool so the cron can keep harvesting UK channels
-    without the surface claiming the brief covers them. When B2 brings
-    a market into the brief output, the pair's ``markets`` field flips
-    to include it.
+    der kuratierte Satz der Maerkte, die der LLM-Brief auch wirklich
+    abdeckt. Stand 27.05.2026: alle acht Major-Pairs decken DE+US+UK ab
+    (UK-B1 hat die UK-Sektion automatisch in den Brief eingefuegt + die
+    UK-Channel-Integration hat die Pools verifiziert), Lionsgate ist
+    US+UK-only (kein DE-Auftritt, Vertrieb via Leonine/Studiocanal).
 
-    Fallback: if a pair has no ``markets`` field (future pairs added
-    before the X1 convention catches up), derive from the channel-pool
-    union, matching the pre-X1 behaviour.
+    Mechanik bleibt: ``markets`` kann bewusst enger als der Channel-Pool
+    gehalten werden, falls ein Markt zwar Channels hat aber der Brief ihn
+    nicht surface-en soll. Aktuell nicht genutzt — alle markets-Werte
+    decken sich mit den Pool-Maerkten — aber als Override-Hebel verfuegbar.
 
-    Markets the pair does not cover are skipped — Lionsgate emits
-    ``["US"]`` (X1) instead of ``["US", "UK"]`` even though the UK
-    channels exist in the pool.
+    Fallback: wenn ein Pair kein ``markets`` traegt, leiten wir aus dem
+    Channel-Pool-Union ab.
     """
     explicit_markets = pair_def.get("markets")
     if explicit_markets:

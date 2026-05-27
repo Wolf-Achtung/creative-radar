@@ -128,12 +128,13 @@ def test_pairs_endpoint_excludes_disabled(
 # ---------- Markets: stable display order + per-pair correctness --------------
 
 
-def test_pairs_endpoint_lionsgate_markets_us_only(client: TestClient):
-    """X1 (2026-05-12): surface = brief reality. Lionsgate has UK
-    channels in the pool but the LLM brief does not surface UK yet,
-    so the card promises only ['US']. When B2 brings UK into the
-    Lionsgate brief, the pair's ``markets`` field flips to
-    ['US', 'UK']."""
+def test_pairs_endpoint_lionsgate_markets_us_and_uk(client: TestClient):
+    """Stand 27.05.2026 (PAIRS-markets-Update): Lionsgate ist US+UK —
+    kein DE-Auftritt (Vertrieb via Leonine/Studiocanal), aber UK-Pool
+    aktiv (@lionsgateuk auf IG+TT). Frueher hatte das Pair ``markets=["US"]``
+    als bewusste X1-Behauptung, dass der Brief UK nicht abdeckt; UK-B1
+    rendert die UK-Sektion aber automatisch via _format_channel_section,
+    daher zieht der markets-Wert nun nach."""
     response = client.get("/api/pairs")
     assert response.status_code == 200
     lionsgate = next(
@@ -141,20 +142,21 @@ def test_pairs_endpoint_lionsgate_markets_us_only(client: TestClient):
         None,
     )
     assert lionsgate is not None, "lionsgate must be returned"
-    assert lionsgate["markets"] == ["US"]
+    assert lionsgate["markets"] == ["US", "UK"]
 
 
-def test_pairs_endpoint_paramountplus_markets_de_us(client: TestClient):
-    """X1: Paramount+ has DE/US/UK channels in the pool but the LLM
-    brief surfaces only DE+US until B2. The endpoint reflects the
-    brief reality, not the channel-pool reality."""
+def test_pairs_endpoint_paramountplus_markets_de_us_uk(client: TestClient):
+    """Stand 27.05.2026: Paramount+ deckt DE+US+UK ab — Pool und
+    markets-Wert stimmen wieder ueberein (frueher absichtlich auf
+    DE+US gekappt, weil der UK-Brief-Render-Pfad noch nicht stand;
+    UK-B1 hat das geloest)."""
     response = client.get("/api/pairs")
     paramountplus = next(
         (p for p in response.json()["pairs"] if p["pair_key"] == "paramountplus"),
         None,
     )
     assert paramountplus is not None
-    assert paramountplus["markets"] == ["DE", "US"]
+    assert paramountplus["markets"] == ["DE", "US", "UK"]
 
 
 def test_pairs_endpoint_markets_always_in_fixed_display_order(client: TestClient):
@@ -176,29 +178,22 @@ def test_pairs_endpoint_markets_always_in_fixed_display_order(client: TestClient
 # ---------- X1 surface override --------------------------------------------
 
 
-def test_pairs_endpoint_surface_override_warnerbros_de_us_only(client: TestClient):
-    """X1 invariant: warnerbros has UK channels in its PAIRS pool
-    (Phase A added @warnerbrosuk on TT/IG/YT), but the explicit
-    ``markets`` field is ['DE', 'US'] and the endpoint must emit
-    exactly that — no leakage of pool-derived UK back into the
-    surface response. Guards the override mechanism itself."""
-    pool_markets = {
-        channel["market"]
-        for platform in insight_engine.PAIRS["warnerbros"]["platforms"].values()
-        for channel in platform
-    }
-    assert "UK" in pool_markets, (
-        "Precondition: warnerbros must have UK channels in its pool, "
-        "otherwise this test is testing nothing"
-    )
-
+def test_pairs_endpoint_emits_markets_field_verbatim(client: TestClient):
+    """Endpoint emittiert das ``markets``-Feld exakt so wie in der
+    PAIRS-Registry gepflegt — der Pool wird nicht heuristisch
+    drueberberechnet, der explicit-Branch in _markets_for_pair gewinnt.
+    Stand 27.05.2026 stimmen Pool und markets fuer warnerbros wieder
+    ueberein (beide DE+US+UK); der Test sichert dennoch die
+    Override-Mechanik fuer den Fall, dass jemand das markets-Feld
+    spaeter wieder enger pflegen will (z.B. um einen Pool-Markt
+    bewusst nicht zu surfacen)."""
     response = client.get("/api/pairs")
     warnerbros = next(
         (p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros"),
         None,
     )
     assert warnerbros is not None
-    assert warnerbros["markets"] == ["DE", "US"]
+    assert warnerbros["markets"] == ["DE", "US", "UK"]
 
 
 def test_pairs_endpoint_falls_back_to_pool_when_markets_field_absent(
