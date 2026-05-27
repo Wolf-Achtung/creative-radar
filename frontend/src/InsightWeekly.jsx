@@ -828,6 +828,31 @@ function collectRankedPosts(aggregation, market, platformFilter) {
   return channel.ranked_posts;
 }
 
+// Zeitraum-Filter (27.05.2026) — client-side Re-Filter auf die schon
+// geladene ranked_posts-Liste. Der persistierte Brief enthaelt 30 Tage
+// Daten (aggregate_pair window_days=30); ein 7d-Filter schneidet nur die
+// juengsten 7 Tage daraus heraus, kein API-Call. Posts ohne published_at
+// (Optional[datetime] im RankedPost-Schema) werden im 7d-Filter
+// ausgeschlossen — der detected_at-OR-Branch aus dem Backend laesst sich
+// hier nicht spiegeln, weil RankedPost nur published_at traegt; die
+// betroffene Menge ist im Praxis-Bestand verschwindend klein und
+// pragmatisch akzeptabel.
+const RANGE_WINDOWS = {
+  '7d':  7 * 24 * 60 * 60 * 1000,
+  '30d': null,   // 30d = Status quo, kein Filter
+};
+
+function applyRangeFilter(posts, range) {
+  const windowMs = RANGE_WINDOWS[range];
+  if (windowMs == null) return posts;
+  const cutoff = Date.now() - windowMs;
+  return posts.filter((p) => {
+    if (!p.published_at) return false;
+    const ts = new Date(p.published_at).getTime();
+    return Number.isFinite(ts) && ts >= cutoff;
+  });
+}
+
 function TopRankingSection({ aggregation, pairKey }) {
   const [sortKey, setSortKey] = useLocalStorage(
     `creative-radar:ranking-sort:${pairKey}`,
@@ -837,27 +862,32 @@ function TopRankingSection({ aggregation, pairKey }) {
     `creative-radar:ranking-platform:${pairKey}`,
     'all',
   );
+  const [rangeFilter, setRangeFilter] = useLocalStorage(
+    `creative-radar:ranking-range:${pairKey}`,
+    '30d',
+  );
   const [expanded, setExpanded] = useState(false);
 
   const sortFn = useMemo(() => rankingSortFn(sortKey), [sortKey]);
   const deList = useMemo(
-    () => collectRankedPosts(aggregation, 'DE', platformFilter),
-    [aggregation, platformFilter],
+    () => applyRangeFilter(collectRankedPosts(aggregation, 'DE', platformFilter), rangeFilter),
+    [aggregation, platformFilter, rangeFilter],
   );
   const usList = useMemo(
-    () => collectRankedPosts(aggregation, 'US', platformFilter),
-    [aggregation, platformFilter],
+    () => applyRangeFilter(collectRankedPosts(aggregation, 'US', platformFilter), rangeFilter),
+    [aggregation, platformFilter, rangeFilter],
   );
   const ukList = useMemo(
-    () => collectRankedPosts(aggregation, 'UK', platformFilter),
-    [aggregation, platformFilter],
+    () => applyRangeFilter(collectRankedPosts(aggregation, 'UK', platformFilter), rangeFilter),
+    [aggregation, platformFilter, rangeFilter],
   );
 
   // Graceful degrade for older persisted briefs (pre-Sprint-2).
   if (deList.length === 0 && usList.length === 0 && ukList.length === 0) {
-    // If the filter hides everything but there's data on other platforms,
-    // keep the section visible with an empty-state hint instead of a
-    // sudden disappear-on-select.
+    // If the filter hides everything but there's data on other platforms /
+    // anderen Zeitraeumen, keep the section visible with an empty-state
+    // hint instead of a sudden disappear-on-select. ``'all'`` + ``'30d'``
+    // ist der unfilterte Vergleichs-Stand.
     const hasAnyData = collectRankedPosts(aggregation, 'DE', 'all').length > 0
       || collectRankedPosts(aggregation, 'US', 'all').length > 0
       || collectRankedPosts(aggregation, 'UK', 'all').length > 0;
@@ -869,6 +899,9 @@ function TopRankingSection({ aggregation, pairKey }) {
   const usSorted = [...usList].sort(sortFn).slice(0, visibleCount);
   const ukSorted = [...ukList].sort(sortFn).slice(0, visibleCount);
   const showToggle = deList.length > 5 || usList.length > 5 || ukList.length > 5;
+  const emptyLabel = rangeFilter === '7d'
+    ? 'Keine Posts in den letzten 7 Tagen'
+    : 'Keine Daten';
 
   return (
     <section className="ranking-section card">
@@ -885,6 +918,15 @@ function TopRankingSection({ aggregation, pairKey }) {
             <option value="tiktok">TikTok</option>
             <option value="instagram">Instagram</option>
             <option value="youtube">YouTube</option>
+          </select>
+          <select
+            value={rangeFilter}
+            onChange={(e) => setRangeFilter(e.target.value)}
+            className="ranking-sort-select"
+            aria-label="Zeitraum"
+          >
+            <option value="30d">Letzte 30 Tage</option>
+            <option value="7d">Letzte 7 Tage</option>
           </select>
           <select
             value={sortKey}
@@ -909,7 +951,7 @@ function TopRankingSection({ aggregation, pairKey }) {
             ? deSorted.map((p, i) => (
                 <RankedPostCard key={p.post_url || `de-${i}`} post={p} rank={i + 1} sortKey={sortKey} platformFilter={platformFilter} />
               ))
-            : <p className="ranking-empty">Keine Daten für DE</p>}
+            : <p className="ranking-empty">{emptyLabel} für DE</p>}
         </div>
         <div className="ranking-column">
           <h4>US</h4>
@@ -917,7 +959,7 @@ function TopRankingSection({ aggregation, pairKey }) {
             ? usSorted.map((p, i) => (
                 <RankedPostCard key={p.post_url || `us-${i}`} post={p} rank={i + 1} sortKey={sortKey} platformFilter={platformFilter} />
               ))
-            : <p className="ranking-empty">Keine Daten für US</p>}
+            : <p className="ranking-empty">{emptyLabel} für US</p>}
         </div>
         <div className="ranking-column">
           <h4>UK</h4>
@@ -925,7 +967,7 @@ function TopRankingSection({ aggregation, pairKey }) {
             ? ukSorted.map((p, i) => (
                 <RankedPostCard key={p.post_url || `uk-${i}`} post={p} rank={i + 1} sortKey={sortKey} platformFilter={platformFilter} />
               ))
-            : <p className="ranking-empty">Keine Daten für UK</p>}
+            : <p className="ranking-empty">{emptyLabel} für UK</p>}
         </div>
       </div>
 
