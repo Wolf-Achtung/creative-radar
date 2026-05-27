@@ -6,61 +6,23 @@ erfolgt durch Leeren oder Entfernen der Env-Var — kein Re-Deploy, keine
 DB-Migration, keine Code-Aenderung. Edit im Railway-Dashboard, Service
 liest die neue Env auf dem naechsten Worker-Restart (~10s).
 
-Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Drei aktive Flags:
+Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Ein aktiver Flag:
 
-- ``FEATURE_UK_SECTION_PAIRS`` (csv): Pair-Liste, kommagetrennt — pro Pair
-  feinkoernig aktivierbar (Beispiel: ``"disney,lionsgate"``).
-- ``FEATURE_INDEPENDENTS_ENABLED`` (bool): einfacher An/Aus-Schalter.
 - ``FEATURE_SEGMENT_ROUNDUPS_ENABLED`` (bool): An/Aus-Schalter fuer den
   Non-Pair-Segment-Roundup-Pfad (Pilot-Endpoint + Cron-Block).
 
-Schritt-4-Rename 2026-05-25: vorher ``FEATURE_SINGLE_MARKET_SCHEMA`` — Name
-stammt aus PR #155 als Schema-Branch-Idee. Die finale Funktion ist breiter
-(Cron-Roundup-Pipeline fuer alle vier Default-Segmente, nicht nur Single-
-Market-Schema). Umbenennung als reines Rename-ohne-Verhaltens-Change. Wolf-
-Aktion beim Deploy: alte Env-Var ``FEATURE_SINGLE_MARKET_SCHEMA`` in
-Railway loeschen, neue ``FEATURE_SEGMENT_ROUNDUPS_ENABLED`` anlegen — sonst
-greift das Gate nicht.
-
-Verwendung (in spaeteren Feature-Sprints):
-
-    from app.core.feature_flags import is_uk_enabled_for_pair
-
-    if is_uk_enabled_for_pair("disney"):
-        # UK-Sektion in Brief-Generation einfuegen
-        ...
+Historie: PR #155 hat das Pattern eingefuehrt, mit zwei zusaetzlichen
+Helpern ``is_uk_enabled_for_pair`` und ``is_independents_enabled``. Beide
+wurden nie im Production-Code konsumiert — der UK-Pair-Rollout (UK-B1,
+2026-05-12) hat UK direkt in die PAIRS-Registry gehoben statt das Per-Pair-
+Toggle zu nutzen, und die Independents-Pipeline laeuft direkt ueber
+``settings.cron_roundup_segments``. Im Cleanup-PR vom 27.05.2026 sind die
+zwei toten Helper + die zugehoerigen Env-Vars (in Railway bereits entfernt)
+zusammen mit den Tests rausgeflogen.
 """
 from __future__ import annotations
 
 import os
-
-
-def is_uk_enabled_for_pair(pair_key: str) -> bool:
-    """Returns True wenn die UK-Sektion fuer diesen Pair generiert werden soll.
-
-    Env-Var: ``FEATURE_UK_SECTION_PAIRS``
-    Format: comma-separated pair_keys, z.B. ``"disney,lionsgate"``.
-    Default: ``""`` → kein Pair aktiviert.
-
-    Whitespace um die Kommas wird tolerant behandelt (``" disney , lionsgate "``
-    matched ``disney`` und ``lionsgate``). Leere Tokens (z.B. nach trailing
-    comma) werden ignoriert.
-    """
-    raw = os.getenv("FEATURE_UK_SECTION_PAIRS", "")
-    enabled_pairs = [p.strip() for p in raw.split(",") if p.strip()]
-    return pair_key in enabled_pairs
-
-
-def is_independents_enabled() -> bool:
-    """Returns True wenn die Independents-Pipeline (Beta-Pairs sichtbar,
-    Single-Market-Briefs generierbar) aktiv ist.
-
-    Env-Var: ``FEATURE_INDEPENDENTS_ENABLED``
-    Format: ``"true"`` oder ``"false"`` (case-insensitive). Andere Werte
-    werden defensiv als ``False`` interpretiert.
-    Default: ``"false"``.
-    """
-    return os.getenv("FEATURE_INDEPENDENTS_ENABLED", "false").lower() == "true"
 
 
 def is_segment_roundups_enabled() -> bool:
