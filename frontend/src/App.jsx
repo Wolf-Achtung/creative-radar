@@ -21,6 +21,27 @@ function Router() {
 const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
 const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'DE/US Vergleich', 'Quellen'];
 
+// Frontend-Override fuer die Pair-Kachel-Maerkte. Die Backend-API liefert
+// ``pair.markets`` aus dem hand-gepflegten ``markets``-Feld der PAIRS-
+// Registry; dieses Feld wurde vor UK-B1 angelegt und claimt fuer 8 Pairs
+// nur ``["DE", "US"]`` bzw. fuer Lionsgate ``["US"]`` — der LLM-Brief
+// rendert die UK-Sektion aber schon automatisch (UK-B1, 2026-05-12), und
+// die UK-Channel-Integration (PRs #175-#178) hat die UK-Pools bestaetigt.
+// Bis das Backend nachgezogen wird, klemmen wir hier die tatsaechlich im
+// Brief abgedeckten Maerkte auf — Fallback auf den API-Wert fuer Pairs,
+// die hier nicht gelistet sind.
+const PAIR_MARKETS_OVERRIDE = {
+  warnerbros:        ['DE', 'US', 'UK'],
+  sonypictures:      ['DE', 'US', 'UK'],
+  primevideo:        ['DE', 'US', 'UK'],
+  disney:            ['DE', 'US', 'UK'],
+  netflix:           ['DE', 'US', 'UK'],
+  paramountpictures: ['DE', 'US', 'UK'],
+  universalpictures: ['DE', 'US', 'UK'],
+  paramountplus:     ['DE', 'US', 'UK'],
+  lionsgate:         ['US', 'UK'],
+};
+
 const ACTION_HELP = [
   ['Für Report freigeben', 'Der Treffer ist relevant und kommt in den Report-Anhang.'],
   ['Als Top-Fund markieren', 'Besonders stark oder strategisch wichtig; erscheint prominent im Weekly Report.'],
@@ -964,7 +985,7 @@ function App() {
                 }}
               >
                 <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.display_name}</strong>
-                <span className="muted small">{`${pair.markets.join(' + ')}, ${pair.frequency_label}`}</span>
+                <span className="muted small">{`${(PAIR_MARKETS_OVERRIDE[pair.pair_key] || pair.markets).join(' + ')}, ${pair.frequency_label}`}</span>
               </a>
             ))}
           </div>

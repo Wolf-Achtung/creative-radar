@@ -18,15 +18,20 @@ import { endpoints } from './api/client';
 // gegateten load()) spiegelt das /api/pairs-Muster: public-Endpoint
 // muss rendern, auch wenn der Bearer-Token noch nicht hydratisiert ist.
 
-// Sprint-Scope: nur die vier substanziellen Segmente. UK-Segmente
-// (uk_major, uk_independent) sind auf Prod faktisch leer und nicht im
-// Roll-out — kein Kachel-Slot. Spaeteres Zuschalten ist hier ein
-// Listen-Change, kein UI-Konzept.
+// Sprint-Scope: ab UK-Channel-Integration (PRs #175-#178, 26.-27.05.) sind
+// auch uk_major und uk_independent im Roll-out. uk_major enthaelt nach der
+// Bereinigung (PR #178) nur noch die Pairlos-Marken (20th Century UK,
+// StudioCanal UK, Disney+ UK, Film4) — die UK-Majors mit Pair-Pendant
+// werden im DE+US+UK-Pair-Brief abgedeckt. Backend-ENV CRON_ROUNDUP_SEGMENTS
+// muss in Railway entsprechend gesetzt sein, sonst rendert die Kachel als
+// leerer Stand.
 const DISPLAY_SEGMENTS = [
   { key: 'us_major',        label: 'US Major' },
   { key: 'us_independent',  label: 'US Independent' },
   { key: 'de_verleih',      label: 'DE Verleih' },
   { key: 'de_independent',  label: 'DE Independent' },
+  { key: 'uk_major',        label: 'UK Major' },
+  { key: 'uk_independent',  label: 'UK Independent' },
 ];
 
 function formatActivity(roundup) {
