@@ -89,7 +89,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     "warnerbros": {
         "display_name": "Warner Bros",
         "markets": ["DE", "US", "UK"],
-        "label": "warnerbros DE+US",
+        "label": "warnerbros DE+US+UK",
         # Sprint-4 multi-platform v2a: ``platforms`` is the source of truth
         # going forward. Each key is a platform with a list of {handle, market}
         # specs. ``platform`` and ``channels`` mirror the first platform
@@ -140,7 +140,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     "sonypictures": {
         "display_name": "Sony Pictures",
         "markets": ["DE", "US", "UK"],
-        "label": "sonypictures DE+US",
+        "label": "sonypictures DE+US+UK",
         "platforms": {
             "tiktok": [
                 # Sprint 10h: US-Seite ist Multi-Channel-Pool. Sony Pictures
@@ -188,7 +188,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     "primevideo": {
         "display_name": "Prime Video",
         "markets": ["DE", "US", "UK"],
-        "label": "primevideo DE+US",
+        "label": "primevideo DE+US+UK",
         "platforms": {
             "tiktok": [
                 # Sprint 10c: US-Seite auf Cinema-Master @amazonmgmstudios
@@ -224,7 +224,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     "disney": {
         "display_name": "Disney",
         "markets": ["DE", "US", "UK"],
-        "label": "disney DE+US",
+        "label": "disney DE+US+UK",
         "platforms": {
             "tiktok": [
                 # Sprint 10d: US-Seite ist Multi-Channel-Pool (Cinema-Sub-Brands).
@@ -307,7 +307,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     "netflix": {
         "display_name": "Netflix",
         "markets": ["DE", "US", "UK"],
-        "label": "netflix DE+US",
+        "label": "netflix DE+US+UK",
         "platforms": {
             "tiktok": [
                 {"handle": "netflix", "market": "US"},
@@ -339,7 +339,7 @@ PAIRS: dict[str, dict[str, Any]] = {
     "paramountpictures": {
         "display_name": "Paramount",
         "markets": ["DE", "US", "UK"],
-        "label": "paramountpictures DE+US",
+        "label": "paramountpictures DE+US+UK",
         "platforms": {
             "tiktok": [
                 # US handle is ``paramountpics``, not ``paramountpictures``
