@@ -58,16 +58,38 @@ export function formatDateShort(value) {
   }
 }
 
-export default function WeekBanner({ isoYear, isoWeek, generatedAt }) {
+// Datenfenster-Spanne aus generatedAt und windowDays ableiten. Spiegelt
+// die Backend-Aggregation (window_end = now zur Generierungszeit,
+// window_start = window_end - windowDays). Wenn entweder generatedAt oder
+// windowDays fehlen (Pre-Sprint-Briefs ohne window_days-Persistenz), fallen
+// wir auf den ISO-Wochen-Bereich zurueck — das war das Verhalten vor 27.05.
+function computeDataWindowRange(generatedAt, windowDays) {
+  if (!generatedAt || !windowDays) return null;
+  const end = new Date(generatedAt);
+  if (Number.isNaN(end.getTime())) return null;
+  const start = new Date(end);
+  start.setUTCDate(end.getUTCDate() - windowDays);
+  return { start, end };
+}
+
+export default function WeekBanner({ isoYear, isoWeek, generatedAt, windowDays }) {
   if (!isoYear || !isoWeek) return null;
-  const { start, end } = computeIsoWeekRange(isoYear, isoWeek);
-  const weekRange = formatGermanDateRange(start, end);
+  // Header-Wording 27.05.2026: "Wochenanalyse" war irrefuehrend, weil der
+  // Brief 30 Tage aggregiert (aggregate_pair window_days=30), nicht eine
+  // Kalenderwoche. KW bleibt als Cohort-Identifier (der Brief ist persistent
+  // unter (pair, iso_year, iso_week) gekeyed), das Datenfenster wird nun
+  // explizit gezeigt. Fallback auf die ISO-Wochen-Spanne nur fuer Pre-
+  // Sprint-Briefs ohne windowDays-Persistenz.
+  const dataWindow = computeDataWindowRange(generatedAt, windowDays)
+    || computeIsoWeekRange(isoYear, isoWeek);
+  const range = formatGermanDateRange(dataWindow.start, dataWindow.end);
+  const windowLabel = windowDays ? `${windowDays}-Tage-Fenster` : 'Wochenfenster';
   const updatedDate = formatDateShort(generatedAt);
 
   return (
     <div className="week-banner">
       <span className="week-banner__range">
-        Wochenanalyse KW {isoWeek} · {weekRange}
+        Studio-Brief KW {isoWeek} · {windowLabel} {range}
       </span>
       <span className="week-banner__updated">
         Aktualisiert: {updatedDate}
