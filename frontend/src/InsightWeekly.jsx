@@ -208,7 +208,7 @@ function CrossMarketCard({ matches }) {
           Cross-Market Matches
           <HelpTooltip text={TOOLTIP_TEXTS.crossMarketMatch} label="Was sind Cross-Market Matches?" />
         </p>
-        <p>Keine de_us_match_key-Treffer im Fenster.</p>
+        <p>Keine Titel-Parallelen zwischen DE und US in diesem Zeitraum.</p>
       </div>
     );
   }

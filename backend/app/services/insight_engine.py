@@ -1842,8 +1842,9 @@ def _aggregate_platform(
         )
     if de_channels and us_channels and not matches:
         notes.append(
-            f"Keine de_us_match_key-Treffer im {label}-Fenster — Cross-Market-Insight basiert "
-            "auf indirekten Signalen."
+            f"Im {label}-Fenster gab es keine Posts, die denselben Titel parallel "
+            "in DE und US aufgreifen — der Markt-Vergleich stützt sich auf "
+            "indirekte Signale (Tonalität, Format-Länge, Hashtags)."
         )
 
     return PlatformAggregation(
