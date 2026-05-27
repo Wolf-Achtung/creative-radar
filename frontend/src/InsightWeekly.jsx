@@ -1027,6 +1027,10 @@ export default function InsightWeekly({ pair }) {
     <main className="page insight-page">
       <header className="hero">
         <div className="hero__left">
+          {/* Rueckweg zur Startseite — vorher Sackgasse aus der Pair-Brief-
+              Ansicht, kein klickbares Logo. Schlichter Text-Link ueber dem
+              Eyebrow, fuegt sich in das bestehende Hero-Layout ein. */}
+          <a href="/" className="hero__back-link">← Übersicht</a>
           <p className="eyebrow">STUDIO-REVIEW</p>
           <h1>{label}</h1>
           <p>Was letzte Woche funktioniert hat, was nicht – und was wir diese Woche daraus machen.</p>

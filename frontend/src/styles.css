@@ -25,6 +25,18 @@ main { max-width: 1200px; margin: 0 auto; padding: 30px 24px 48px; }
   flex: 1 1 auto;
   min-width: 0;
 }
+.hero__back-link {
+  display: inline-block;
+  align-self: flex-start;
+  margin: 0 0 14px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+}
+.hero__back-link:hover {
+  color: rgba(255, 255, 255, 0.95);
+}
 .hero__meta {
   display: flex;
   flex-direction: column;
