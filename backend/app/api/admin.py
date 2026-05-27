@@ -255,8 +255,17 @@ def youtube_sync(
             detail="Channel hat weder handle noch auswertbare URL — kein YouTube-Lookup möglich.",
         )
 
+    # Sprint 27.05.2026 — Cron-Konsistenz-Fix. Der Admin-Endpoint hat den
+    # ``platform_channel_id``-Hint bisher nicht weitergereicht; nur cron.py:260
+    # las ihn. Folge: ein Channel wie WarnerBrosUK mit korrekt gesetzter
+    # UC-ID konnte den Hint hier nicht nutzen, der Resolver routete weiter
+    # ueber ``@<handle>`` und landete auf einem leeren Squatter-Account →
+    # 404 playlistNotFound. Mit dem Hint geht der Resolver direkt auf die
+    # UC-ID, kriegt die echte Uploads-Playlist, sync laeuft.
+    # ``getattr``-Defensiv-Lesart spiegelt den Cron-Pfad.
+    channel_id_hint = getattr(channel, "platform_channel_id", None)
     try:
-        _, raw_videos = fetch_channel_videos(lookup)
+        _, raw_videos = fetch_channel_videos(lookup, channel_id_hint=channel_id_hint)
     except YouTubeAuthError as exc:
         raise HTTPException(status_code=401, detail=f"YouTube auth failed: {exc}") from exc
     except YouTubeQuotaExceededError as exc:
