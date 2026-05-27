@@ -595,7 +595,7 @@ ANTI-PATTERN — diese Begriffe und Konstrukte sind VERBOTEN:
 
 ANTI-PATTERN HEADLINE/TLDR (zusätzlich zu den oben genannten — gilt NUR für die Felder ``headline`` und ``tldr``, nicht für die Detail-Sektionen):
 - Coverage / Title-Coverage / coverage_pct (sag: zeigt sich im Material, deckt den Titelkatalog ab)
-- Cross-Market Match / Match-Key (sag: derselbe Titel in DE und US, gleicher Spot in beiden Märkten)
+- Cross-Market Match / Match-Key (sag: derselbe Titel in DE, US oder UK, gleicher Spot in mehreren Märkten — die Vergleichsachsen sind DE↔US, DE↔UK und US↔UK)
 - Längen-Bucket / Duration-Bucket (sag: kurze Cuts, lange Cuts, 22s-Variante)
 - Engagement-Sum / engagement_sum (sag konkret die Zahlen: Likes plus Kommentare plus Saves)
 Diese vier Begriffe sind in den Detail-Sektionen (``fuer_cutter``, ``fuer_motion_designer``, ``fuer_creative_producer``, ``tonalitaet``, ``vergleichbare_posts``, ``ganz_konkret``) erlaubt — dort ist die Cutter- und Producer-Voice gewünscht. In Headline und TLDR aber nicht: dort schreibst du für GF und CD, nicht für den Schnitt.
@@ -614,7 +614,7 @@ VERBOTENE BERATER-VOKABEL (Sprint 7 — gilt in ALLEN Output-Sektionen, auch in 
 
 ZUSÄTZLICHE VERBOTENE VOKABEL (Sprint 7-iter-2):
 
-Klassifikations-Substantive im Fließtext — verboten in ``headline``, ``tldr``, ``cross_market_insight`` und allen drei Detail-Sektionen (``fuer_cutter``, ``fuer_motion_designer``, ``fuer_creative_producer``):
+Klassifikations-Substantive im Fließtext — verboten in ``headline``, ``tldr``, ``cross_market_insight`` (gilt für alle Sub-Felder: ``de_vs_us``, ``de_vs_uk``, ``us_vs_uk``, ``transfer_opportunity``) und allen drei Detail-Sektionen (``fuer_cutter``, ``fuer_motion_designer``, ``fuer_creative_producer``):
 - "Discovery-Clip" / "Discovery-Cut" / "Discovery-Schnipsel" / "Discovery-Snippet" / "Discovery-Format"
 - "Backkatalog-Schnipsel" / "Backkatalog-Cut" / "Backkatalog-Anriss" / "Backkatalog-Format"
 - "Sammel-Cut" / "Reminder-Cut" / "Hero-Asset" als Klassifikation
@@ -766,8 +766,10 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
     "neu_seit_letzten_wochen": "Was ist neu gegenüber den letzten Wochen — ein konkretes Pattern, ein Format-Wechsel, eine Hook-Form, die plötzlich auftaucht. Wenn nichts klar Neues sichtbar ist, sag das ehrlich."
   },
   "cross_market_insight": {
-    "de_vs_us": "Was unterscheidet die Märkte diese Woche, mit Daten-Anker",
-    "transfer_opportunity": "Was sollte aus US für DE adaptiert werden oder umgekehrt"
+    "de_vs_us": "Was unterscheidet DE und US diese Woche, mit Daten-Anker — Pflicht-Achse, IMMER ausfüllen",
+    "de_vs_uk": "Was unterscheidet DE und UK diese Woche, mit Daten-Anker — null lassen, wenn keine UK-Posts oder keine vergleichbare Datenlage da ist",
+    "us_vs_uk": "Was unterscheidet US und UK diese Woche, mit Daten-Anker — null lassen, wenn keine UK-Posts oder keine vergleichbare Datenlage da ist",
+    "transfer_opportunity": "Was sollte zwischen den Märkten adaptiert werden — DE↔US, DE↔UK oder US↔UK, jeweils mit klarer Richtung"
   },
   "risks": ["Kurzfassung als String — bleibt aus Backwards-Compat-Gründen"],
   "data_caveats": ["..."],
@@ -797,7 +799,7 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
   },
   "fuer_creative_producer": {
     "strategische_pattern": "übergeordnetes Muster, das diese Woche sichtbar wird",
-    "cross_market_chancen": "wo DE-Cuts US-Patterns adaptieren sollten oder umgekehrt",
+    "cross_market_chancen": "wo Cuts zwischen den Märkten adaptiert werden sollten — DE↔US, DE↔UK oder US↔UK, in beliebiger Richtung; mehrere Achsen dürfen in einem Satz gebündelt werden",
     "format_empfehlungen": "Formate, Längen, Posting-Rhythmus für die nächste Woche",
     "was_diese_woche": "3-4 Sätze Fließtext zur Producer-Beobachtung der Woche. Sprint 7-iter-2."
   },
@@ -842,7 +844,7 @@ Sektion-Titel im Frontend: 'Diese Woche: was funktioniert gut, was nicht'.
     (b) Einer dieser strukturellen Strings: 'Format-Strategie', 'Posting-Rhythmus', 'Caption-Disziplin', 'Hashtag-Klammer'
   Jeder Eintrag MUSS einen bezug haben.
 
-Wenn die Datengrundlage zu dünn ist (Coverage <30%, <5 Posts pro Markt, keine Cross-Market-Matches), sag das klar in data_caveats und gib lieber weniger, dafür belegte Empfehlungen. Setze Felder, für die du keinen Daten-Anker hast, auf null oder gib ein leeres Array — niemals erfinden.
+Wenn die Datengrundlage zu dünn ist (Coverage <30%, <5 Posts pro Markt, keine Cross-Market-Matches in der jeweiligen Achse), sag das klar in data_caveats und gib lieber weniger, dafür belegte Empfehlungen. Setze Felder, für die du keinen Daten-Anker hast, auf null oder gib ein leeres Array — niemals erfinden. Konkret für ``cross_market_insight``: fehlen DE↔UK- oder US↔UK-Matches und auch sonst keine vergleichbare Datenlage, setze ``de_vs_uk`` bzw. ``us_vs_uk`` auf null — die Pflicht-Achse ``de_vs_us`` füllst du immer, weil DE/US fast immer Daten haben.
 
 FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein echter Report; in deinem Output bitte vollständig in der Länge):
 
@@ -960,7 +962,9 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   },
   "cross_market_insight": {
     "de_vs_us": "DE läuft verhaltener (rund 1k vs rund 11k Reaktionen), gleiche Hashtag-Logik, aber etwa eine halbe Minute länger im Cut.",
-    "transfer_opportunity": "US-Rhythmus auf DE übertragen, deutsche Caption-Form behalten."
+    "de_vs_uk": "UK sitzt zwischen DE und US (rund 4k Reaktionen), gleiche Cut-Länge wie DE, aber kürzere Captions wie US — der Mittelweg funktioniert.",
+    "us_vs_uk": "UK übernimmt die US-Hook-Form fast eins zu eins, dreht aber spürbar bei den Captions auf deutlich kürzer.",
+    "transfer_opportunity": "US-Rhythmus auf DE übertragen, deutsche Caption-Form behalten. UK-Caption-Kürze als Indiz, dass auch DE bei der Caption sparen darf."
   },
   "risks": ["Coverage moderat"],
   "data_caveats": ["Nur zwei DE-Posts im Fenster — Trend ist Indiz, nicht Beweis"],
@@ -1505,30 +1509,45 @@ def _channel_stats(
 
 def _cross_market_matches(
     session: Session,
-    de_channels: list[Channel],
-    us_channels: list[Channel],
+    pool_a: list[Channel],
+    pool_b: list[Channel],
     window_start: datetime,
     window_end: datetime,
 ) -> list[CrossMarketMatch]:
-    """Group assets by ``de_us_match_key`` across the DE+US channel pools.
+    """Group assets by ``Asset.de_us_match_key`` across two channel pools.
 
-    Sprint 10d: ``de_channels`` / ``us_channels`` are pools (1 element for
-    single-channel pairs, up to 5 for Disney US). Pool query via
-    ``Post.channel_id IN (...)`` keeps it to one round-trip per market.
+    Sprint B2 (27.05.2026): die Funktion ist generisch pairwise — sie
+    nimmt zwei Channel-Pools (``pool_a``/``pool_b``) und liefert deren
+    Schnittmenge auf dem Match-Key. Der Markt-Slot im Output-Schema
+    ``CrossMarketMatch`` heisst weiter ``de_*``/``us_*`` (historisch
+    bedingt, persistierte Briefe vor B2 wuerden bei einem Rename
+    nicht mehr validieren). Beim Aufruf gilt die Konvention: ``pool_a``-
+    Daten fuellen den ``de_*``-Slot, ``pool_b``-Daten den ``us_*``-Slot.
+    Caller (``_aggregate_platform``) verantwortet die Markt-Reihenfolge
+    und ordnet das Ergebnis der passenden Liste zu (``cross_market_matches``
+    fuer DE↔US, ``de_uk_matches`` fuer DE↔UK, ``us_uk_matches`` fuer
+    US↔UK).
 
-    The match-key is set by ``services/match_key.py`` during ingest; an
-    empty result here is itself a useful signal for the LLM ("no
-    cross-market matches in this window").
+    Sprint 10d-Erbe: die Pools koennen Multi-Channel sein (Disney US
+    pooled 5 Cinema-Sub-Brands). Pool-Query via ``Post.channel_id IN
+    (...)`` haelt das auf einer Round-Trip pro Pool.
+
+    Match-Key wird in ``services/match_key.py`` waehrend Ingest gesetzt
+    und ist inhaltsbasiert (Slug aus Title/Franchise/Placement-Text) —
+    Markt-agnostisch, weshalb der Pairwise-Match ueberhaupt funktioniert,
+    egal welche zwei Markt-Pools verglichen werden. Leeres Resultat ist
+    selbst ein Signal fuer die LLM ("keine Cross-Market-Matches im
+    Fenster").
     """
-    if not de_channels or not us_channels:
+    if not pool_a or not pool_b:
         return []
 
-    de_channel_ids = [c.id for c in de_channels]
-    us_channel_ids = [c.id for c in us_channels]
+    pool_a_channel_ids = [c.id for c in pool_a]
+    pool_b_channel_ids = [c.id for c in pool_b]
 
-    de_post_ids_stmt = (
+    pool_a_post_ids_stmt = (
         select(Post.id)
-        .where(Post.channel_id.in_(de_channel_ids))
+        .where(Post.channel_id.in_(pool_a_channel_ids))
         .where(
             sa.or_(
                 sa.and_(Post.published_at.is_not(None), Post.published_at >= window_start, Post.published_at <= window_end),
@@ -1536,9 +1555,9 @@ def _cross_market_matches(
             )
         )
     )
-    us_post_ids_stmt = (
+    pool_b_post_ids_stmt = (
         select(Post.id)
-        .where(Post.channel_id.in_(us_channel_ids))
+        .where(Post.channel_id.in_(pool_b_channel_ids))
         .where(
             sa.or_(
                 sa.and_(Post.published_at.is_not(None), Post.published_at >= window_start, Post.published_at <= window_end),
@@ -1546,8 +1565,8 @@ def _cross_market_matches(
             )
         )
     )
-    de_post_ids = list(session.exec(de_post_ids_stmt).all())
-    us_post_ids = list(session.exec(us_post_ids_stmt).all())
+    pool_a_post_ids = list(session.exec(pool_a_post_ids_stmt).all())
+    pool_b_post_ids = list(session.exec(pool_b_post_ids_stmt).all())
 
     # Filter out NULL and the literal "unknown" sentinel — the match-key
     # builder writes "unknown" when neither title nor placement-text yields
@@ -1555,64 +1574,64 @@ def _cross_market_matches(
     # cross-market "matches" between unrelated posts.
     _MATCH_KEY_EXCLUDED = {"unknown", ""}
 
-    de_assets = list(
+    pool_a_assets = list(
         session.exec(
             select(Asset)
-            .where(Asset.post_id.in_(de_post_ids))
+            .where(Asset.post_id.in_(pool_a_post_ids))
             .where(Asset.de_us_match_key.is_not(None))
             .where(sa.func.lower(Asset.de_us_match_key) != "unknown")
         ).all()
-    ) if de_post_ids else []
-    us_assets = list(
+    ) if pool_a_post_ids else []
+    pool_b_assets = list(
         session.exec(
             select(Asset)
-            .where(Asset.post_id.in_(us_post_ids))
+            .where(Asset.post_id.in_(pool_b_post_ids))
             .where(Asset.de_us_match_key.is_not(None))
             .where(sa.func.lower(Asset.de_us_match_key) != "unknown")
         ).all()
-    ) if us_post_ids else []
+    ) if pool_b_post_ids else []
 
-    de_by_key: dict[str, Asset] = {
+    pool_a_by_key: dict[str, Asset] = {
         a.de_us_match_key: a
-        for a in de_assets
+        for a in pool_a_assets
         if a.de_us_match_key and a.de_us_match_key.strip().lower() not in _MATCH_KEY_EXCLUDED
     }
-    us_by_key: dict[str, Asset] = {
+    pool_b_by_key: dict[str, Asset] = {
         a.de_us_match_key: a
-        for a in us_assets
+        for a in pool_b_assets
         if a.de_us_match_key and a.de_us_match_key.strip().lower() not in _MATCH_KEY_EXCLUDED
     }
-    shared_keys = sorted(set(de_by_key.keys()) & set(us_by_key.keys()))
+    shared_keys = sorted(set(pool_a_by_key.keys()) & set(pool_b_by_key.keys()))
 
     matches: list[CrossMarketMatch] = []
     for key in shared_keys:
-        de_asset = de_by_key[key]
-        us_asset = us_by_key[key]
-        de_post = session.get(Post, de_asset.post_id)
-        us_post = session.get(Post, us_asset.post_id)
+        a_asset = pool_a_by_key[key]
+        b_asset = pool_b_by_key[key]
+        a_post = session.get(Post, a_asset.post_id)
+        b_post = session.get(Post, b_asset.post_id)
         title_text: Optional[str] = None
         # Prefer the title row, fall back to placement_title_text on either side
-        for a in (de_asset, us_asset):
+        for a in (a_asset, b_asset):
             if a.title_id:
                 t = session.get(Title, a.title_id)
                 if t:
                     title_text = t.title_original
                     break
         if not title_text:
-            title_text = de_asset.placement_title_text or us_asset.placement_title_text
+            title_text = a_asset.placement_title_text or b_asset.placement_title_text
 
         matches.append(
             CrossMarketMatch(
                 match_key=key,
                 title=title_text,
-                de_engagement=_engagement_sum(de_post) if de_post else 0,
-                us_engagement=_engagement_sum(us_post) if us_post else 0,
-                de_duration_seconds=de_post.duration_seconds if de_post else None,
-                us_duration_seconds=us_post.duration_seconds if us_post else None,
-                de_post_url=de_post.post_url if de_post else None,
-                us_post_url=us_post.post_url if us_post else None,
-                de_caption_excerpt=_excerpt(de_post.caption) if de_post else None,
-                us_caption_excerpt=_excerpt(us_post.caption) if us_post else None,
+                de_engagement=_engagement_sum(a_post) if a_post else 0,
+                us_engagement=_engagement_sum(b_post) if b_post else 0,
+                de_duration_seconds=a_post.duration_seconds if a_post else None,
+                us_duration_seconds=b_post.duration_seconds if b_post else None,
+                de_post_url=a_post.post_url if a_post else None,
+                us_post_url=b_post.post_url if b_post else None,
+                de_caption_excerpt=_excerpt(a_post.caption) if a_post else None,
+                us_caption_excerpt=_excerpt(b_post.caption) if b_post else None,
             )
         )
 
@@ -1816,9 +1835,19 @@ def _aggregate_platform(
             "UK", window_start, window_end, platform=platform,
         ) if uk_specs else None
     )
-    # Sprint UK-B1: Cross-Market bleibt explizit 2-Markt (DE↔US). Triple-
-    # bzw. UK-pairwise-Matching ist B2-Scope.
+    # Sprint B2 (27.05.2026): drei pairwise Match-Listen statt vorher
+    # nur DE↔US. ``cross_market_matches`` haelt weiter den DE↔US-Slot
+    # (Backwards-Compat-Name, persistierte Briefe vor B2 validieren
+    # gegen das gleiche Feld); die zwei UK-Achsen sind additiv via
+    # ``de_uk_matches`` / ``us_uk_matches`` ergaenzt. Strategie (a) aus
+    # der Phase-1-Diagnose: drei pairwise Listen, NICHT Triple-Match
+    # (verliert DE+UK-ohne-US-Konstellationen) und NICHT der flexible
+    # Multi-Markt-Bucket (Schema-Breaking-Change). Doppelung eines
+    # DE+US+UK-Triple-Matches in allen drei Listen ist im
+    # Praxis-Datenbestand (typisch <10 Matches pro Pair/30d) akzeptabel.
     matches = _cross_market_matches(session, de_channels, us_channels, window_start, window_end)
+    de_uk_matches_list = _cross_market_matches(session, de_channels, uk_channels, window_start, window_end)
+    us_uk_matches_list = _cross_market_matches(session, us_channels, uk_channels, window_start, window_end)
     coverage = _title_coverage(
         de_stats, us_stats, uk_stats, session,
         de_channels, us_channels, uk_channels,
@@ -1853,6 +1882,8 @@ def _aggregate_platform(
         us_channel=us_stats,
         uk_channel=uk_stats,
         cross_market_matches=matches,
+        de_uk_matches=de_uk_matches_list,
+        us_uk_matches=us_uk_matches_list,
         title_coverage=coverage,
         notes=notes,
     )
@@ -1922,6 +1953,8 @@ def aggregate_pair(
         us_channel=first.us_channel if first else None,
         uk_channel=first.uk_channel if first else None,
         cross_market_matches=first.cross_market_matches if first else [],
+        de_uk_matches=first.de_uk_matches if first else [],
+        us_uk_matches=first.us_uk_matches if first else [],
         title_coverage=first.title_coverage if first else _empty_title_coverage(),
         notes=notes,
         per_platform=per_platform,
