@@ -112,7 +112,12 @@ def _patch_connector(*, fetch_return=None, fetch_exc=None, configured: bool = Tr
     surface inside the route. Lets each test pick its happy/error path."""
     from app.services import youtube_connector as real_yt
 
-    def fake_fetch(handle_or_id: str, results_limit: int | None = None):
+    def fake_fetch(
+        handle_or_id: str,
+        results_limit: int | None = None,
+        *,
+        channel_id_hint: str | None = None,
+    ):
         if fetch_exc is not None:
             raise fetch_exc
         return ({"id": "UC..."}, fetch_return or [])
