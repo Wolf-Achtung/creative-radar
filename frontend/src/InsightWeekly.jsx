@@ -1048,6 +1048,7 @@ export default function InsightWeekly({ pair }) {
           isoYear={report.iso_year}
           isoWeek={report.iso_week}
           generatedAt={report.generated_at}
+          windowDays={report.window_days}
         />
       )}
 
