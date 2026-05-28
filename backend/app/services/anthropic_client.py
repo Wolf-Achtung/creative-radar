@@ -159,6 +159,67 @@ def messages_create_text(
     return call_with_retry(_do)
 
 
+def messages_create_strict_json(
+    *,
+    model: str,
+    system: str,
+    user_message: str,
+    tool_name: str,
+    tool_description: str,
+    input_schema: dict[str, Any],
+    max_tokens: int = 12000,
+) -> Any:
+    """Messages-API-Call mit API-erzwungenem JSON via Tool-Use.
+
+    Anthropic kennt kein OpenAI-aequivalentes ``response_format`` mit
+    direktem JSON-Schema in der Messages-API (das SDK-Feld
+    ``output_config.format.json_schema`` ist neuer und im Feld weniger
+    getestet — Wolf-Entscheid Briefing 28.05.). Stattdessen forciert
+    Tool-Use mit ``tool_choice={"type": "tool", "name": ...,
+    "disable_parallel_tool_use": True}`` Schema-konforme Antworten: das
+    Modell MUSS das genannte Tool aufrufen, und Anthropic validiert die
+    Tool-Argumente gegen ``input_schema`` vor dem Return.
+
+    Ergebnis:
+    - ``msg.content`` enthaelt einen ``tool_use``-Block mit ``.input``
+      als bereits geparstes Dict.
+    - Falls aus irgendeinem Grund kein Tool-Use-Block kommt (sollte mit
+      ``disable_parallel_tool_use`` nicht passieren, aber API-Drift),
+      bleibt der Text-Fallback-Pfad im Caller erhalten — siehe Pair-
+      Pipeline-Extraktion in ``insight_engine._call_and_extract``.
+
+    Schema-Quelle: ``LLMReport.model_json_schema()`` (Pydantic v2)
+    erzeugt JSON-Schema-Draft-2020-12 mit ``$defs`` fuer geschachtelte
+    Sub-Modelle — Anthropic Tool-Input-Schemas unterstuetzen das nativ.
+
+    Cost-Logging: passiert weiterhin im Caller via
+    ``record_anthropic_call(msg.usage, ...)`` analog zum Text-Pfad.
+    """
+    client = _client()
+
+    def _do() -> Any:
+        return client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user_message}],
+            tools=[
+                {
+                    "name": tool_name,
+                    "description": tool_description,
+                    "input_schema": input_schema,
+                }
+            ],
+            tool_choice={
+                "type": "tool",
+                "name": tool_name,
+                "disable_parallel_tool_use": True,
+            },
+        )
+
+    return call_with_retry(_do)
+
+
 def messages_create_vision(
     *,
     model: str,

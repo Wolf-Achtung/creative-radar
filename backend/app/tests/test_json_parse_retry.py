@@ -194,7 +194,7 @@ def test_codefence_wrapped_json_parses_without_recall(db, monkeypatch, caplog):
     wrapped = "```json\n" + json.dumps(body) + "\n```"
     anthropic_mock = MagicMock(return_value=_msg(wrapped))
     record_mock = MagicMock()
-    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
     monkeypatch.setattr(engine_module, "record_anthropic_call", record_mock)
 
     with caplog.at_level(logging.WARNING, logger="app.services.insight_engine"):
@@ -228,7 +228,7 @@ def test_preamble_before_json_rescued_by_lenient_parse_without_recall(
     preamble_text = "Hier ist die geforderte Analyse:\n\n" + json.dumps(body)
     anthropic_mock = MagicMock(return_value=_msg(preamble_text))
     record_mock = MagicMock()
-    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
     monkeypatch.setattr(engine_module, "record_anthropic_call", record_mock)
 
     with caplog.at_level(logging.INFO, logger="app.services.insight_engine"):
@@ -268,7 +268,7 @@ def test_recall_after_invalid_json_recovers_and_persists(db, monkeypatch, caplog
     good_text = json.dumps(body)
     anthropic_mock = MagicMock(side_effect=[_msg(bad_text), _msg(good_text)])
     record_mock = MagicMock()
-    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
     monkeypatch.setattr(engine_module, "record_anthropic_call", record_mock)
 
     with caplog.at_level(logging.INFO, logger="app.services.insight_engine"):
@@ -319,7 +319,7 @@ def test_all_attempts_fail_returns_skip_marker_and_logs_diagnostic(
     bad_text = '{"headline": "x", "tldr": "y"}\n{"second": "object"}'
     anthropic_mock = MagicMock(return_value=_msg(bad_text))
     record_mock = MagicMock()
-    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
     monkeypatch.setattr(engine_module, "record_anthropic_call", record_mock)
 
     with caplog.at_level(logging.WARNING, logger="app.services.insight_engine"):
@@ -380,7 +380,7 @@ def test_failed_pair_does_not_abort_subsequent_pair(db, monkeypatch):
         _msg(bad_text), _msg(bad_text), _msg(bad_text),   # pair_fail_first
         _msg(good_text),                                  # pair_succeed_second
     ])
-    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
     monkeypatch.setattr(
         engine_module, "record_anthropic_call",
         lambda *a, **kw: None,
