@@ -389,71 +389,151 @@ function LLMDetailSections({ output }) {
   );
 }
 
-// Commit 2: Rollen-Bloecke stehen vorerst untereinander wie bisher. Tab-
-// Switcher kommt in Commit 3 (austauschbar via aktiver-Tab-State).
-// ``vergleichbare_posts`` rendert als Footer dieses Containers, weil es
-// semantisch Referenz-Posts FUER die Rollen-Empfehlungen liefert (siehe
-// IA-Befund Teil 3).
-function LLMRoleSections({ output }) {
+// Sprint 28.05.2026 (IA-Umbau, Baustein 3) — die drei Rollen-Bloecke als
+// ARIA-konformer Tab-Switcher statt untereinander stehender Cards. Macht
+// den "drei Berufs-Linsen auf denselben Befund"-Charakter zum Feature
+// statt zum Echo (siehe IA-Befund Teil 2). Aktiver Tab via
+// localStorage pro pairKey persistiert (analog zum Sort-Key-Muster).
+//
+// Tab-Definitionen ausgelagert damit der Tab-Switcher generisch bleibt
+// und die Body-Render-Funktionen klar pro Rolle lesbar sind.
+const ROLE_TABS = [
+  {
+    key: 'cutter',
+    label: 'Cutter',
+    field: 'fuer_cutter',
+    render: (data) => (
+      <>
+        {data.schnitt_pace && (
+          <p><strong>Rhythmus:</strong> {data.schnitt_pace}</p>
+        )}
+        {data.hook_strategie && (
+          <p><strong>Hook-Strategie:</strong> {data.hook_strategie}</p>
+        )}
+        {data.empfohlene_laengen && (
+          <p><strong>Empfohlene Längen:</strong> {data.empfohlene_laengen}</p>
+        )}
+        {/* Sprint 7-iter-2: Compliance-Listen (must_show / no_go) ersetzt
+            durch was_diese_woche-Fließtext. Alte persistierte Briefe ohne
+            das Feld rendern den Block einfach nicht — graceful degrade. */}
+        {data.was_diese_woche && (
+          <p><strong>Was diese Woche:</strong> {data.was_diese_woche}</p>
+        )}
+      </>
+    ),
+  },
+  {
+    key: 'motion',
+    label: 'Motion-Designer',
+    field: 'fuer_motion_designer',
+    render: (data) => (
+      <>
+        {data.caption_style && (
+          <p><strong>Caption-Stil:</strong> {data.caption_style}</p>
+        )}
+        {data.text_overlay && (
+          <p><strong>Text-Overlay:</strong> {data.text_overlay}</p>
+        )}
+        {data.branding_einsatz && (
+          <p><strong>Branding-Einsatz:</strong> {data.branding_einsatz}</p>
+        )}
+        {data.was_diese_woche && (
+          <p><strong>Was diese Woche:</strong> {data.was_diese_woche}</p>
+        )}
+      </>
+    ),
+  },
+  {
+    key: 'producer',
+    label: 'Creative Producer',
+    field: 'fuer_creative_producer',
+    render: (data) => (
+      <>
+        {data.strategische_pattern && (
+          <p><strong>Strategische Pattern:</strong> {data.strategische_pattern}</p>
+        )}
+        {data.cross_market_chancen && (
+          <p><strong>Cross-Market-Chancen:</strong> {data.cross_market_chancen}</p>
+        )}
+        {data.format_empfehlungen && (
+          <p><strong>Format-Empfehlungen:</strong> {data.format_empfehlungen}</p>
+        )}
+        {data.was_diese_woche && (
+          <p><strong>Was diese Woche:</strong> {data.was_diese_woche}</p>
+        )}
+      </>
+    ),
+  },
+];
+
+function RolesTabSwitcher({ output, pairKey, initialActiveTab }) {
+  // Wenn alle drei Rollen-Felder null sind, faellt der Switcher weg —
+  // sonst zeigt er einen leeren Empty-State, was an dieser Stelle nur
+  // Layout-Rauschen ist (Vergleichbare-Posts rendert separat als Footer).
+  const anyData = ROLE_TABS.some((t) => output?.[t.field]);
+  // Hook-Reihenfolge MUSS vor jedem conditional return stehen, sonst
+  // bricht React zwischen Renders die Hook-Identitaet (Container kann
+  // dynamisch zu- und aufklappen).
+  const [activeKey, setActiveKey] = useLocalStorage(
+    `creative-radar:roles-tab:${pairKey}`,
+    initialActiveTab || 'cutter',
+  );
+  if (!anyData) return null;
+
+  const activeTab = ROLE_TABS.find((t) => t.key === activeKey) || ROLE_TABS[0];
+  const activeData = output?.[activeTab.field];
+
+  return (
+    <div className="roles-tabs card">
+      <div className="roles-tabs-tablist" role="tablist" aria-label="Kreativ-Empfehlungen pro Rolle">
+        {ROLE_TABS.map((t) => {
+          const hasData = !!output?.[t.field];
+          const isActive = t.key === activeKey;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`roles-panel-${t.key}`}
+              id={`roles-tab-${t.key}`}
+              className={`roles-tab ${isActive ? 'is-active' : ''} ${hasData ? '' : 'is-empty'}`}
+              onClick={() => setActiveKey(t.key)}
+            >
+              {t.label}
+              {!hasData && <span className="roles-tab-emptymark" aria-hidden="true"> ·</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div
+        className="roles-tab-panel"
+        role="tabpanel"
+        id={`roles-panel-${activeTab.key}`}
+        aria-labelledby={`roles-tab-${activeTab.key}`}
+      >
+        {activeData ? (
+          activeTab.render(activeData)
+        ) : (
+          <p className="roles-tab-empty-text">
+            Für die Rolle "{activeTab.label}" liegt in diesem Brief keine
+            Empfehlung vor.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LLMRoleSections({ output, pairKey, initialActiveTab }) {
   if (!output) return null;
   return (
     <>
-      {output.fuer_cutter && (
-        <div className="card">
-          <p className="section-kicker">Für den Cutter</p>
-          {output.fuer_cutter.schnitt_pace && (
-            <p><strong>Rhythmus:</strong> {output.fuer_cutter.schnitt_pace}</p>
-          )}
-          {output.fuer_cutter.hook_strategie && (
-            <p><strong>Hook-Strategie:</strong> {output.fuer_cutter.hook_strategie}</p>
-          )}
-          {output.fuer_cutter.empfohlene_laengen && (
-            <p><strong>Empfohlene Längen:</strong> {output.fuer_cutter.empfohlene_laengen}</p>
-          )}
-          {/* Sprint 7-iter-2: Compliance-Listen (must_show / no_go) ersetzt
-              durch was_diese_woche-Fließtext. Alte persistierte Briefe ohne
-              das Feld rendern den Block einfach nicht — graceful degrade. */}
-          {output.fuer_cutter.was_diese_woche && (
-            <p><strong>Was diese Woche:</strong> {output.fuer_cutter.was_diese_woche}</p>
-          )}
-        </div>
-      )}
-
-      {output.fuer_motion_designer && (
-        <div className="card">
-          <p className="section-kicker">Für den Motion-Designer</p>
-          {output.fuer_motion_designer.caption_style && (
-            <p><strong>Caption-Stil:</strong> {output.fuer_motion_designer.caption_style}</p>
-          )}
-          {output.fuer_motion_designer.text_overlay && (
-            <p><strong>Text-Overlay:</strong> {output.fuer_motion_designer.text_overlay}</p>
-          )}
-          {output.fuer_motion_designer.branding_einsatz && (
-            <p><strong>Branding-Einsatz:</strong> {output.fuer_motion_designer.branding_einsatz}</p>
-          )}
-          {output.fuer_motion_designer.was_diese_woche && (
-            <p><strong>Was diese Woche:</strong> {output.fuer_motion_designer.was_diese_woche}</p>
-          )}
-        </div>
-      )}
-
-      {output.fuer_creative_producer && (
-        <div className="card">
-          <p className="section-kicker">Für den Creative Producer</p>
-          {output.fuer_creative_producer.strategische_pattern && (
-            <p><strong>Strategische Pattern:</strong> {output.fuer_creative_producer.strategische_pattern}</p>
-          )}
-          {output.fuer_creative_producer.cross_market_chancen && (
-            <p><strong>Cross-Market-Chancen:</strong> {output.fuer_creative_producer.cross_market_chancen}</p>
-          )}
-          {output.fuer_creative_producer.format_empfehlungen && (
-            <p><strong>Format-Empfehlungen:</strong> {output.fuer_creative_producer.format_empfehlungen}</p>
-          )}
-          {output.fuer_creative_producer.was_diese_woche && (
-            <p><strong>Was diese Woche:</strong> {output.fuer_creative_producer.was_diese_woche}</p>
-          )}
-        </div>
-      )}
+      <RolesTabSwitcher
+        output={output}
+        pairKey={pairKey}
+        initialActiveTab={initialActiveTab}
+      />
 
       {output.vergleichbare_posts?.length > 0 && (
         <div className="card">
@@ -1505,7 +1585,7 @@ export default function InsightWeekly({ pair }) {
                 subtitle="Cutter · Motion-Designer · Creative Producer · Vergleichbare Posts"
                 defaultOpen={false}
               >
-                <LLMRoleSections output={report.llm_output} />
+                <LLMRoleSections output={report.llm_output} pairKey={pair} />
               </CollapsibleCard>
             </>
           )}

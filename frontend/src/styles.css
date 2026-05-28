@@ -583,6 +583,56 @@ a:hover { text-decoration: underline; }
   margin: 0;
 }
 
+/* Sprint 28.05.2026 (IA-Umbau, Baustein 3) — Rollen-Tab-Switcher.
+   Drei Tabs nebeneinander (Cutter/Motion/Producer), aktiver Tab in
+   Trailerhaus-Rot unterstrichen. ARIA: tablist/tab/tabpanel. */
+.roles-tabs-tablist {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #ece4d8;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.roles-tab {
+  background: none;
+  border: none;
+  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #6b6657;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.roles-tab:hover:not(.is-active) {
+  color: #1d2330;
+}
+.roles-tab.is-active {
+  color: #1d2330;
+  border-bottom-color: #F26B5E;
+}
+.roles-tab.is-empty {
+  color: #b8ad9e;
+}
+.roles-tab:focus-visible {
+  outline: 2px solid #F26B5E;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.roles-tab-panel p {
+  margin: 0 0 10px;
+}
+.roles-tab-panel p:last-child {
+  margin-bottom: 0;
+}
+.roles-tab-empty-text {
+  color: #9a8f7e;
+  font-style: italic;
+  font-size: 14px;
+}
+
 .insight-error pre, .insight-raw {
   white-space: pre-wrap;
   background: #1d2330;
