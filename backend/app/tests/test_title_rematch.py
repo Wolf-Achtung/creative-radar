@@ -41,7 +41,18 @@ def test_rematch_assigns_safe_whitelist_match():
         assert refreshed.title_id == title.id
 
 
-def test_rematch_creates_candidate_for_unmatched_asset():
+def test_rematch_does_not_create_candidate_for_guess_only_match():
+    """Sprint 28.05.2026 (Variante D): wenn der Whitelist-Matcher
+    KEINEN Treffer findet (``match.source == "none"``) und nur ein
+    6-Token-Guess als ``suggested_title`` produziert, wird KEIN
+    Candidate angelegt — das war der Hauptproduzent des Rauschens
+    ("Rivals" fuer UEFA-Posts).
+
+    Vorher (vor Variante D) hat dieser Test ``candidates_created == 1``
+    erwartet; das ALTE Verhalten ist absichtlich abgeschaltet.
+    ``still_unmatched`` zaehlt weiter, sodass die Summary trotzdem
+    sichtbar macht, dass Assets ohne Title-Zuordnung herumliegen.
+    """
     with _session() as session:
         channel = Channel(name="Test", platform="instagram", url="https://example.com")
         session.add(channel)
@@ -63,8 +74,55 @@ def test_rematch_creates_candidate_for_unmatched_asset():
 
         assert summary.checked == 1
         assert summary.auto_matched == 0
-        assert summary.candidates_created == 1
+        assert summary.candidates_created == 0
         assert summary.still_unmatched == 1
+        assert candidates == []
+
+
+def test_rematch_creates_candidate_for_fuzzy_whitelist_match():
+    """Sprint 28.05.2026 (Variante D, Gegenprobe): echte Whitelist-
+    Matches mit Confidence < 0.95 bleiben als Candidate erhalten — das
+    sind legitime Review-Faelle (Fuzzy-Hit, Brand-Whitelist,
+    ambiguous-Multi-Match). Hier provoziert eine Caption mit einem
+    Tippfehler im Whitelist-Titel den Fuzzy-Pfad
+    (``SequenceMatcher.ratio > 0.72`` aber < 0.95, sodass
+    ``is_safe_auto_match`` NICHT greift)."""
+    with _session() as session:
+        title = Title(title_original="Drawn to You", active=True)
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(title)
+        session.add(channel)
+        session.commit()
+        session.refresh(channel)
+
+        # 1-Buchstabe-Drop ("Drawn to Yu") liegt bei SequenceMatcher.ratio
+        # ~0.91 — ueber der 0.72-Fuzzy-Schwelle, unter der 0.95-Safe-Bar.
+        post = Post(
+            channel_id=channel.id,
+            post_url="https://example.com/post-fuzzy",
+            caption="Drawn to Yu",
+        )
+        session.add(post)
+        session.commit()
+        session.refresh(post)
+
+        asset = Asset(
+            post_id=post.id, title_id=None,
+            ai_summary_de="drawn to yu",
+        )
+        session.add(asset)
+        session.commit()
+        session.refresh(asset)
+
+        summary = rematch_unassigned_assets(session)
+        candidates = session.exec(select(TitleCandidate)).all()
+
+        # Kein safe-auto-Match (Confidence < 0.95), aber der Fuzzy-
+        # Match liefert einen Whitelist-Treffer → Candidate wird
+        # angelegt.
+        assert summary.checked == 1
+        assert summary.auto_matched == 0
+        assert summary.candidates_created == 1
         assert len(candidates) == 1
         assert candidates[0].asset_id == asset.id
 
