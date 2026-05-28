@@ -34,7 +34,19 @@ app.middleware("http")(auth_middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
-    allow_credentials=False,
+    # Sprint 28.05.2026 (Admin-Login): das Admin-Session-Cookie ist
+    # HttpOnly + SameSite=Lax. Damit der Browser es bei Cross-Subdomain-
+    # Aufrufen (Frontend app.creative-radar.de → Backend api.creative-
+    # radar.de) ueberhaupt mitschickt, muss CORS Credentials-aware sein.
+    # Production: Wolf setzt CORS_ORIGINS=https://app.creative-radar.de
+    # (konkreter Origin statt "*"), damit der Browser den Cookie
+    # akzeptiert — Spec: bei credentials=true darf Allow-Origin kein "*"
+    # zurueckgeben. Starlette echoed den Request-Origin zurueck, wenn
+    # die Liste "*" enthaelt — funktioniert, sollte aber in Production
+    # eingeschraenkt sein. Login + Logout funktionieren auch ohne CORS
+    # bei reinen-Bearer-Aufrufen (kein Cookie), die kommen ueber den
+    # bestehenden Header-Pfad weiter durch.
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
