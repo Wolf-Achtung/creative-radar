@@ -31,7 +31,16 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel
+
+from app.admin_session import (
+    ADMIN_SESSION_COOKIE,
+    create_session_token,
+    require_admin_session,
+    verify_admin_password,
+    verify_session_token,
+)
 from sqlmodel import Session, select
 
 from app.config import settings
@@ -57,7 +66,26 @@ from app.services.segment_roundup import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+# Sprint 28.05.2026 (Admin-Login): zwei Router unter demselben
+# ``/api/admin``-Prefix.
+#
+# ``router`` haengt an einer Router-Level-Dependency, die jeden
+# Aufruf gegen ``require_admin_session`` prueft — alle Admin-Werkzeuge
+# (cost-summary, youtube/sync, roundups/generate, insights/regenerate
+# etc.) brauchen ein gueltiges Session-Cookie. Bei
+# ``admin_auth_enabled=False`` ist die Dependency ein No-Op, sodass
+# bestehende Tests + dev-Setups ohne Login weiterlaufen.
+#
+# ``login_router`` haengt am gleichen Prefix, aber OHNE Dependency —
+# Login/Logout/Me muessen ohne Session erreichbar sein, sonst kommt
+# kein User je in den Admin-Bereich. Bearer-Token-Schutz greift weiter
+# global (auth.py), der Frontend-Bundle schickt ihn mit.
+router = APIRouter(
+    prefix="/api/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_admin_session)],
+)
+login_router = APIRouter(prefix="/api/admin", tags=["admin-auth"])
 
 
 # ---------- Cost summary (Task 4.4 / F0.6, permanent) -----------------
@@ -669,3 +697,137 @@ def trigger_segment_roundup(
         "input_tokens": report.input_tokens,
         "output_tokens": report.output_tokens,
     }
+
+
+# ---------- Admin-Session-Login (Sprint 28.05.2026) -------------------
+#
+# Login-Endpoint nimmt das Passwort, prueft konstant-zeitig gegen
+# ``settings.admin_password`` und gibt ein HMAC-signiertes Session-
+# Cookie zurueck. Die Endpoints unten ueberschneiden sich NICHT mit der
+# Bearer-Token-Middleware-Logik aus app/auth.py — die laeuft global vor
+# diesem Router. ``/api/admin/login`` ist Bearer-geschuetzt wie alles
+# andere unter ``/api/admin/*`` (Frontend sendet Bearer aus dem Bundle).
+#
+# Cookie-Setup: HttpOnly + SameSite=Lax + Secure (HTTPS-only) in
+# Production, Secure=False im dev/test wenn der Browser HTTP spricht.
+# ``settings.app_env`` steuert den Secure-Flag — Default "production"
+# in Settings, Local-Setups setzen typischerweise APP_ENV=dev.
+
+
+class AdminLoginRequest(BaseModel):
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    ok: bool
+    expires_unix: int
+
+
+def _cookie_kwargs() -> dict:
+    """Cookie-Attribute pro Umgebung. ``secure=True`` blockiert das
+    Cookie ueber HTTP — in lokalen dev-Setups muss das aus, sonst
+    funktioniert das Login lokal nicht."""
+    secure = settings.app_env not in ("dev", "test", "local")
+    return {
+        "httponly": True,
+        "samesite": "lax",
+        "secure": secure,
+        "path": "/",
+    }
+
+
+@login_router.post("/login", response_model=AdminLoginResponse)
+def admin_login(payload: AdminLoginRequest, response: Response) -> AdminLoginResponse:
+    """Passwort-Login. Erfolg: setzt Session-Cookie + gibt
+    ``expires_unix`` fuer den Frontend-Anzeige zurueck (kann z.B. einen
+    "auto-logout in X Min"-Hinweis aus dem Timestamp ableiten).
+
+    Fehler:
+    - 401 wenn Passwort falsch oder Server kein ``admin_password`` hat
+      (siehe ``verify_admin_password`` — bewusst nicht 503, um keinen
+      Server-Misconfig-Hinweis nach aussen zu geben).
+    - 503 wenn ``admin_session_secret`` fehlt (fail-closed: ohne Secret
+      keine signierten Tokens).
+    - 503 wenn ``admin_auth_enabled=False`` — der ganze Mechanismus
+      ist deaktiviert, Login waere ein Toter Endpoint.
+    """
+    if not settings.admin_auth_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin auth disabled on server",
+        )
+    if not settings.admin_session_secret:
+        logger.error("admin-login-session-secret-missing")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin session secret not configured on server",
+        )
+    if not verify_admin_password(payload.password):
+        # Telemetrie OHNE Passwort-Wert (im Log nichts ueber den
+        # presented-Wert ausgeben — auch nicht hashed).
+        logger.warning("admin-login-failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+    token, expires_unix = create_session_token(
+        settings.admin_session_secret,
+        settings.admin_session_ttl_seconds,
+    )
+    response.set_cookie(
+        key=ADMIN_SESSION_COOKIE,
+        value=token,
+        max_age=settings.admin_session_ttl_seconds,
+        **_cookie_kwargs(),
+    )
+    logger.info("admin-login-success", extra={"expires_unix": expires_unix})
+    return AdminLoginResponse(ok=True, expires_unix=expires_unix)
+
+
+@login_router.post("/logout")
+def admin_logout(response: Response) -> dict:
+    """Logout = Cookie clearen. Stateless-Token bleibt zwar signiert
+    gueltig bis zum Ablauf, aber der Browser sendet es nicht mehr —
+    fuer einen geteilten-Geraet-Logout reicht das."""
+    # delete_cookie respektiert path/samesite/secure aus _cookie_kwargs
+    # nicht automatisch; explizit setzen.
+    cookie_kwargs = _cookie_kwargs()
+    response.delete_cookie(
+        key=ADMIN_SESSION_COOKIE,
+        path=cookie_kwargs["path"],
+        samesite=cookie_kwargs["samesite"],
+        secure=cookie_kwargs["secure"],
+        httponly=cookie_kwargs["httponly"],
+    )
+    return {"ok": True}
+
+
+@login_router.get("/me")
+def admin_me(
+    cr_admin_session: str | None = Cookie(default=None),
+) -> dict:
+    """Lightweight "bin ich noch eingeloggt?"-Check. Frontend ruft das
+    beim Page-Load, um zu entscheiden, ob Login-Formular oder
+    Tools-Panel gerendert wird.
+
+    Antwortet IMMER mit 200 + ``{authenticated: bool}`` (nicht 401 wie
+    die geschuetzten Routes) — der Frontend-Pfad soll keinen Error-Toast
+    werfen, wenn der User schlicht noch nicht eingeloggt ist. Das ist
+    die einzige Stelle, an der "keine Session" als legitimer Zustand
+    durchgehen kann.
+
+    Wenn ``admin_auth_enabled=False`` ist, antwortet der Endpoint mit
+    ``authenticated=true`` — Konvention: deaktivierte Auth wird vom
+    Frontend so behandelt, als sei der Nutzer immer eingeloggt (lokales
+    dev-Setup).
+    """
+    if not settings.admin_auth_enabled:
+        return {"authenticated": True, "auth_enabled": False}
+    secret = settings.admin_session_secret
+    if not secret:
+        return {"authenticated": False, "auth_enabled": True}
+    authenticated = bool(
+        cr_admin_session and verify_session_token(cr_admin_session, secret)
+    )
+    return {"authenticated": authenticated, "auth_enabled": True}
+

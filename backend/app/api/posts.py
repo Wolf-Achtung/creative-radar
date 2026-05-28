@@ -9,9 +9,15 @@ from app.services.ai_asset_analyzer import create_placeholder_ai_summary
 from app.services.asset_screenshot_persistence import persist_asset_screenshot
 from app.services.creative_ai import analyze_creative_text
 from app.services.link_preview import fetch_public_preview, infer_instagram_handle
+from app.admin_session import require_admin_session
 from app.services.whitelist_matcher import find_best_title_match, is_safe_auto_match
 
-router = APIRouter(prefix="/api/posts", tags=["posts"])
+# Sprint 28.05.2026 (Admin-Login): Router-Level-Dependency.
+router = APIRouter(
+    prefix="/api/posts",
+    tags=["posts"],
+    dependencies=[Depends(require_admin_session)],
+)
 
 
 @router.get("")
