@@ -200,7 +200,17 @@ function ChannelStatsCard({ stats }) {
   );
 }
 
-function LLMOutput({ output, raw }) {
+// Sprint 28.05.2026 (IA-Umbau, Baustein 1) — Headline+TLDR als
+// separate Kern-Karte. Bisher steckten sie als erstes Element im
+// ``LLMOutput``-Fragment auf Position 8 — also UNTER der Top-Posts-
+// Section (Position 7). Das war eine reine Render-Reihenfolge-Anomalie:
+// Headline ist GF/CD-Lese, gehoert oben.
+//
+// Auch der null-/raw-Fallback fuer fehlende LLM-Antwort wandert hierher,
+// damit der ``LLMOutput``-Pfad weiter unten sich auf befuellte
+// Detail-Sektionen verlassen kann (Commit 2 schiebt die in Klapp-
+// Container; ein None-Output dort wuerde leere Container produzieren).
+function LLMHeadlineCard({ output, raw }) {
   if (!output) {
     return (
       <div className="card">
@@ -217,13 +227,23 @@ function LLMOutput({ output, raw }) {
     );
   }
   return (
-    <>
-      <div className="card insight-headline">
-        <p className="section-kicker">Headline</p>
-        <h2 className="insight-h2">{output.headline}</h2>
-        <p className="insight-tldr">{output.tldr}</p>
-      </div>
+    <div className="card insight-headline">
+      <p className="section-kicker">Headline</p>
+      <h2 className="insight-h2">{output.headline}</h2>
+      <p className="insight-tldr">{output.tldr}</p>
+    </div>
+  );
+}
 
+function LLMOutput({ output, raw }) {
+  // Headline + null-/raw-Fallback rendern bereits ueber LLMHeadlineCard
+  // weiter oben. Wenn hier kein ``output`` ankommt, rendert die
+  // Komponente nichts — die Detail-Sektionen brauchen ein befuelltes
+  // ``LLMReport`` und Klapp-Container fuer leere Felder waren keinen
+  // visuellen Slot wert.
+  if (!output) return null;
+  return (
+    <>
       {output.aktuell_im_fokus?.length > 0 && (
         <div className="card">
           <p className="section-kicker">Worum geht's diese Woche</p>
@@ -1349,11 +1369,13 @@ export default function InsightWeekly({ pair }) {
             </div>
           )}
 
-          {/* Sprint 28.05.2026 (Punkt 1) — "Drei Märkte, ein Film". USP
-              direkt unter Hero, vor Breakouts + Top-Posts. Zieht die
-              Cross-Market-Cards (vorher tief in MultiPlatformStats) und
-              den cross_market_insight-Text (vorher Mitte LLMOutput)
-              zusammen. */}
+          {/* Sprint 28.05.2026 (IA-Umbau, Baustein 1) — Kern-Reihenfolge:
+              Headline+TLDR → Drei Maerkte → Breakouts → Top-Posts. Davor:
+              Hero/Banner/StaleWarning/Notes (Meta + Caveats). Die
+              LLM-Detail-Sektionen rendern weiter unten in LLMOutput
+              (kommen in Commit 2 in Klapp-Container). */}
+          <LLMHeadlineCard output={report.llm_output} raw={report.raw_llm_text} />
+
           <CrossMarketHeadlineSection
             aggregation={report.aggregation}
             llmOutput={report.llm_output}
