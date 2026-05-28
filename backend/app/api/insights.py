@@ -192,16 +192,42 @@ def pairs(session: Session = Depends(get_session)) -> PairsResponse:
         ).all()
         posts_per_channel = {cid: count for cid, count in post_rows}
 
-    # Bauteil 3: MAX(generated_at) pro pair_key, eine Query. Liefert
-    # auch Pairs, die heute disabled sind — wir filtern unten ueber
-    # enabled_pairs, das Dict-Lookup ist O(1).
-    last_gen_rows = session.exec(
+    # Bauteil 3: pro Pair die juengste Brief-Row mit ihrer Headline UND
+    # ``generated_at`` — in EINER Query via MAX-Subquery-Self-Join. So
+    # bleibt der Audit-Test (max 3 Aggregat-Queries) gruen, und wir
+    # ziehen nur die top-Row pro pair_key statt der ganzen Historie
+    # mit JSON-Payloads.
+    #
+    # SQLite + Postgres beide: Subquery liefert (pair_key, max_gen),
+    # outer Select joined dagegen und holt llm_output mit. Bei zwei
+    # identischen Timestamps pro pair_key (theoretisch moeglich bei
+    # manueller Dateninsert) produziert der Join Duplikate — wir
+    # deduplizieren defensiv in Python (erstes Vorkommen gewinnt).
+    latest_brief_subq = (
+        select(
+            InsightReportRow.pair_key.label("pkey"),
+            sa.func.max(InsightReportRow.generated_at).label("max_gen"),
+        )
+        .group_by(InsightReportRow.pair_key)
+        .subquery()
+    )
+    latest_brief_rows = session.exec(
         select(
             InsightReportRow.pair_key,
-            sa.func.max(InsightReportRow.generated_at),
-        ).group_by(InsightReportRow.pair_key)
+            InsightReportRow.generated_at,
+            InsightReportRow.llm_output,
+        ).join(
+            latest_brief_subq,
+            sa.and_(
+                InsightReportRow.pair_key == latest_brief_subq.c.pkey,
+                InsightReportRow.generated_at == latest_brief_subq.c.max_gen,
+            ),
+        )
     ).all()
-    last_gen_by_pair = {pkey: ts for pkey, ts in last_gen_rows}
+    latest_brief_by_pair: dict[str, tuple] = {}
+    for pkey, gen_at, llm_output in latest_brief_rows:
+        if pkey not in latest_brief_by_pair:
+            latest_brief_by_pair[pkey] = (gen_at, llm_output)
 
     items: list[PairInfo] = []
     for pair_key, pair_def in enabled_pairs:
@@ -216,6 +242,16 @@ def pairs(session: Session = Depends(get_session)) -> PairsResponse:
         posts_count = sum(
             posts_per_channel.get(cid, 0) for cid in pair_channel_ids
         )
+        latest_brief = latest_brief_by_pair.get(pair_key)
+        last_generated_at = latest_brief[0] if latest_brief else None
+        # Robust gegen fehlende Felder: llm_output kann ``{}`` sein,
+        # ``None`` sein (Persist-Skip-Pfad bei JSON-Parse-Fail), oder
+        # die Headline-Spalte fehlt. Jeder Pfad → headline=None.
+        headline: str | None = None
+        if latest_brief and isinstance(latest_brief[1], dict):
+            raw_headline = latest_brief[1].get("headline")
+            if isinstance(raw_headline, str) and raw_headline.strip():
+                headline = raw_headline.strip()
         items.append(
             PairInfo(
                 pair_key=pair_key,
@@ -224,7 +260,9 @@ def pairs(session: Session = Depends(get_session)) -> PairsResponse:
                 frequency_label=INSIGHT_FREQUENCY_LABEL,
                 enabled=True,
                 posts_count_this_week=int(posts_count),
-                last_generated_at=last_gen_by_pair.get(pair_key),
+                last_generated_at=last_generated_at,
+                headline=headline,
+                has_brief=latest_brief is not None,
             )
         )
     return PairsResponse(pairs=items)

@@ -396,3 +396,130 @@ def test_pairs_endpoint_query_count_does_not_grow_with_pairs(
         )
     finally:
         event.remove(db, "before_cursor_execute", _log_query)
+
+
+# ---------- Sprint 28.05.2026 (Option B) - Headline pro Kachel ----------
+
+
+def test_pairs_endpoint_includes_headline_and_has_brief_defaults(client: TestClient):
+    """Bei leerer DB: ``headline=None`` und ``has_brief=False`` fuer
+    jeden Pair. Default-Verhalten ist Pflicht."""
+    response = client.get("/api/pairs")
+    assert response.status_code == 200
+    for pair in response.json()["pairs"]:
+        assert "headline" in pair
+        assert pair["headline"] is None
+        assert "has_brief" in pair
+        assert pair["has_brief"] is False
+
+
+def test_pairs_endpoint_returns_headline_from_latest_brief(client: TestClient, db):
+    """Headline kommt vom Brief mit dem juengsten generated_at. Aelterer
+    Brief soll NICHT zurueckgegeben werden."""
+    with Session(db) as session:
+        older = datetime(2026, 5, 18, 6, 0, tzinfo=timezone.utc)
+        newer = datetime(2026, 5, 25, 6, 0, tzinfo=timezone.utc)
+        session.add(InsightReportRow(
+            pair_key="warnerbros", iso_year=2026, iso_week=20,
+            generated_at=older, aggregation={},
+            llm_output={"headline": "Warner Vorwoche-Headline"},
+            model="test-model",
+        ))
+        session.add(InsightReportRow(
+            pair_key="warnerbros", iso_year=2026, iso_week=21,
+            generated_at=newer, aggregation={},
+            llm_output={"headline": "Warner aktuelle Headline"},
+            model="test-model",
+        ))
+        session.commit()
+
+    response = client.get("/api/pairs")
+    pair = next(p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros")
+    assert pair["headline"] == "Warner aktuelle Headline"
+    assert pair["has_brief"] is True
+
+
+def test_pairs_endpoint_robust_against_missing_headline_field(
+    client: TestClient, db,
+):
+    """Brief existiert, aber ``llm_output`` traegt KEIN ``headline``-Feld
+    (Schema-Drift, alter Brief vor Headline-Feld, oder leeres dict).
+    Frontend soll ``headline=None`` aber ``has_brief=True`` bekommen —
+    "es gibt einen Brief, nur ohne Headline"."""
+    with Session(db) as session:
+        ts = datetime(2026, 5, 25, 6, 0, tzinfo=timezone.utc)
+        # Variant 1: llm_output leer
+        session.add(InsightReportRow(
+            pair_key="warnerbros", iso_year=2026, iso_week=21,
+            generated_at=ts, aggregation={},
+            llm_output={},
+            model="test-model",
+        ))
+        # Variant 2: headline ist leerer String
+        session.add(InsightReportRow(
+            pair_key="disney", iso_year=2026, iso_week=21,
+            generated_at=ts, aggregation={},
+            llm_output={"headline": "  "},  # leer nach strip
+            model="test-model",
+        ))
+        # Variant 3: headline ist None
+        session.add(InsightReportRow(
+            pair_key="universal", iso_year=2026, iso_week=21,
+            generated_at=ts, aggregation={},
+            llm_output={"headline": None},
+            model="test-model",
+        ))
+        session.commit()
+
+    payload = response_json = client.get("/api/pairs").json()
+    by_key = {p["pair_key"]: p for p in payload["pairs"]}
+    for pkey in ("warnerbros", "disney", "universal"):
+        if pkey not in by_key:
+            # Pair ist evtl. nicht in der enabled-Liste — skipp den Fall
+            continue
+        assert by_key[pkey]["has_brief"] is True
+        assert by_key[pkey]["headline"] is None
+
+
+def test_pairs_endpoint_query_count_does_not_grow_with_headline_join(
+    client: TestClient, db,
+):
+    """Audit (analog #195): Trotz neuem Brief-Join bleibt der Endpoint
+    bei max 3 Aggregat-Queries. Subquery-Join zaehlt als 1 — sonst
+    waere der #195-Audit-Test verletzt."""
+    from sqlalchemy import event
+
+    # Seed: ein Brief mit Headline, damit der Join nicht trivial leer
+    # ist und der Subquery-Pfad wirklich ausgefuehrt wird.
+    with Session(db) as session:
+        session.add(InsightReportRow(
+            pair_key="warnerbros", iso_year=2026, iso_week=21,
+            generated_at=datetime(2026, 5, 25, 6, 0, tzinfo=timezone.utc),
+            aggregation={},
+            llm_output={"headline": "test"},
+            model="test-model",
+        ))
+        session.commit()
+
+    query_log: list[str] = []
+
+    @event.listens_for(db, "before_cursor_execute")
+    def _log_query(conn, cursor, statement, parameters, context, executemany):
+        lowered = statement.lower()
+        if lowered.startswith("select") and (
+            " from channel" in lowered
+            or " from post" in lowered
+            or " from insightreport" in lowered
+            or " from insight_report" in lowered  # SQLite uses underscore
+        ):
+            query_log.append(statement)
+
+    try:
+        response = client.get("/api/pairs")
+        assert response.status_code == 200
+        assert len(query_log) <= 3, (
+            f"erwartet maximal 3 Aggregat-Queries trotz Headline-Join, "
+            f"gesehen {len(query_log)}:\n" + "\n---\n".join(query_log)
+        )
+    finally:
+        event.remove(db, "before_cursor_execute", _log_query)

@@ -617,6 +617,17 @@ class PairInfo(BaseModel):
     enabled: bool
     posts_count_this_week: int = 0
     last_generated_at: Optional[datetime] = None
+    # Sprint 28.05.2026 (Option B / Headline pro Kachel) — die
+    # LLM-headline des juengsten persistierten Briefs (90-Zeichen-
+    # Marketingtext). ``None`` wenn:
+    # - noch kein Brief generiert (UK-Pairs vor erstem Cron),
+    # - Brief existiert aber ``llm_output`` ist ``{}`` / ``None``
+    #   (Persist-Skip nach JSON-Parse-Fail),
+    # - ``headline``-Feld ist im JSON nicht vorhanden oder leer.
+    # In jedem Fall darf Frontend auf ``has_brief`` testen — der
+    # Bool ist autoritativ fuer "gibt's irgendeine Brief-Row?".
+    headline: Optional[str] = None
+    has_brief: bool = False
 
 
 class PairsResponse(BaseModel):
