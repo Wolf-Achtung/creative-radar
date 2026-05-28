@@ -500,6 +500,176 @@ a:hover { text-decoration: underline; }
   font-size: 14px;
   line-height: 1.5;
 }
+/* Sprint 28.05.2026 (IA-Umbau, Baustein 2) — Klapp-Container.
+   Zwei Varianten:
+   - .collapsible-card (Default): erbt .card-Styling (Padding, Border,
+     Hintergrund), Header ist ein Button mit Chevron + Titel + Subtitle.
+   - .collapsible-inner: kompaktere Variante fuer geschachtelte Klapps
+     (Plattform-Details), kein eigener Card-Frame. */
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+.collapsible-card .collapsible-header {
+  font-size: 18px;
+  font-weight: 600;
+}
+.collapsible-card.is-open .collapsible-header {
+  margin-bottom: 14px;
+}
+.collapsible-inner {
+  border: 1px solid #ece4d8;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fbf8f2;
+  margin-bottom: 12px;
+}
+.collapsible-inner .collapsible-header {
+  font-size: 15px;
+  font-weight: 600;
+}
+.collapsible-inner.is-open .collapsible-header {
+  margin-bottom: 12px;
+}
+.collapsible-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  color: #6b6657;
+  flex: 0 0 auto;
+}
+.is-open > .collapsible-header .collapsible-chevron {
+  transform: rotate(90deg);
+}
+.collapsible-title {
+  flex: 0 0 auto;
+}
+.collapsible-subtitle {
+  font-size: 13px;
+  font-weight: 400;
+  color: #6b6657;
+  margin-left: 4px;
+}
+.collapsible-header:focus-visible {
+  outline: 2px solid #F26B5E;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.collapsible-header:hover .collapsible-title {
+  color: #F26B5E;
+}
+.collapsible-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.collapsible-inner .collapsible-content {
+  gap: 0;
+}
+/* Nested .card-Children sollen im Klapp-Container keine eigene
+   doppelte Hintergrund-Box bekommen — der collapsible-card-Frame
+   reicht. Ausnahme: das insight-grid-two (Trends + Actions) behaelt
+   eigene Cards, weil die nebeneinander stehen. */
+.collapsible-content > .card {
+  margin: 0;
+}
+
+/* Sprint 28.05.2026 (IA-Umbau, Baustein 4) — Ansichts-Modus-Toolbar.
+   Sitzt zwischen WeekBanner und StaleWarning, klein und unaufdringlich.
+   Briefing-Vorgabe: oben rechts im Brief. */
+.viewmode-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #6b6657;
+  flex-wrap: wrap;
+}
+.viewmode-label {
+  font-weight: 600;
+}
+.viewmode-select {
+  background: #fbf8f2;
+  color: #1d2330;
+  border: 1px solid #ece4d8;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.viewmode-hint {
+  color: #9a8f7e;
+  font-size: 12px;
+  flex-basis: 100%;
+  text-align: right;
+}
+@media (max-width: 700px) {
+  .viewmode-toolbar { justify-content: flex-start; }
+  .viewmode-hint { text-align: left; }
+}
+
+/* Sprint 28.05.2026 (IA-Umbau, Baustein 3) — Rollen-Tab-Switcher.
+   Drei Tabs nebeneinander (Cutter/Motion/Producer), aktiver Tab in
+   Trailerhaus-Rot unterstrichen. ARIA: tablist/tab/tabpanel. */
+.roles-tabs-tablist {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #ece4d8;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.roles-tab {
+  background: none;
+  border: none;
+  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #6b6657;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.roles-tab:hover:not(.is-active) {
+  color: #1d2330;
+}
+.roles-tab.is-active {
+  color: #1d2330;
+  border-bottom-color: #F26B5E;
+}
+.roles-tab.is-empty {
+  color: #b8ad9e;
+}
+.roles-tab:focus-visible {
+  outline: 2px solid #F26B5E;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.roles-tab-panel p {
+  margin: 0 0 10px;
+}
+.roles-tab-panel p:last-child {
+  margin-bottom: 0;
+}
+.roles-tab-empty-text {
+  color: #9a8f7e;
+  font-style: italic;
+  font-size: 14px;
+}
+
 .insight-error pre, .insight-raw {
   white-space: pre-wrap;
   background: #1d2330;

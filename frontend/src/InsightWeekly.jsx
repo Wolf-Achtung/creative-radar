@@ -200,7 +200,17 @@ function ChannelStatsCard({ stats }) {
   );
 }
 
-function LLMOutput({ output, raw }) {
+// Sprint 28.05.2026 (IA-Umbau, Baustein 1) — Headline+TLDR als
+// separate Kern-Karte. Bisher steckten sie als erstes Element im
+// ``LLMOutput``-Fragment auf Position 8 — also UNTER der Top-Posts-
+// Section (Position 7). Das war eine reine Render-Reihenfolge-Anomalie:
+// Headline ist GF/CD-Lese, gehoert oben.
+//
+// Auch der null-/raw-Fallback fuer fehlende LLM-Antwort wandert hierher,
+// damit der ``LLMOutput``-Pfad weiter unten sich auf befuellte
+// Detail-Sektionen verlassen kann (Commit 2 schiebt die in Klapp-
+// Container; ein None-Output dort wuerde leere Container produzieren).
+function LLMHeadlineCard({ output, raw }) {
   if (!output) {
     return (
       <div className="card">
@@ -217,13 +227,32 @@ function LLMOutput({ output, raw }) {
     );
   }
   return (
-    <>
-      <div className="card insight-headline">
-        <p className="section-kicker">Headline</p>
-        <h2 className="insight-h2">{output.headline}</h2>
-        <p className="insight-tldr">{output.tldr}</p>
-      </div>
+    <div className="card insight-headline">
+      <p className="section-kicker">Headline</p>
+      <h2 className="insight-h2">{output.headline}</h2>
+      <p className="insight-tldr">{output.tldr}</p>
+    </div>
+  );
+}
 
+// Sprint 28.05.2026 (IA-Umbau, Baustein 2) — LLMOutput in drei
+// Sub-Komponenten aufgeteilt, die jeweils in einen Klapp-Container
+// wandern:
+// - ``LLMDetailSections``  → Container A "Diese Woche im Detail"
+// - ``LLMRoleSections``    → Container B "Kreativ-Empfehlungen"
+//                            (Cutter/Motion/Producer + Vergleichbare-Posts;
+//                            Commit 3 macht daraus einen Tab-Switcher)
+// - ``LLMMetaSection``     → Container D "Methodik / Daten-Caveats"
+//
+// Render-Reihenfolge in Container A entspricht der Briefing-Vorgabe:
+// Worum geht's → Diese Woche → Trends+Actions → Watch-Outs → Tonalitaet →
+// Was machen die anderen. (Bisher war konkurrenz weiter oben; Briefing
+// stellt es ans Ende des Detail-Containers, wo es zur Markt-Reflexion
+// passt.)
+function LLMDetailSections({ output }) {
+  if (!output) return null;
+  return (
+    <>
       {output.aktuell_im_fokus?.length > 0 && (
         <div className="card">
           <p className="section-kicker">Worum geht's diese Woche</p>
@@ -311,11 +340,33 @@ function LLMOutput({ output, raw }) {
         </div>
       </div>
 
-      {/* Sprint 28.05.2026 (Punkt 1): die alte "Cross-Market Insight"-
-          Card ist nach oben in die CrossMarketHeadlineSection gewandert
-          (direkt unter Hero, vor Breakouts/Top-Posts). De-vs-US-Text,
-          de_vs_uk, us_vs_uk und transfer_opportunity rendern jetzt
-          dort — pro Achse zusammen mit den belegenden Match-Cards. */}
+      {output.watch_outs?.length > 0 && (
+        <div className="card">
+          <p className="section-kicker">Watch-Outs</p>
+          <ul className="insight-list">
+            {output.watch_outs.map((w, i) => (
+              <li key={i}>
+                <strong>{w.watch_out}</strong>
+                <div className="insight-evidence">Konsequenz: {w.konsequenz}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {output.tonalitaet?.length > 0 && (
+        <div className="card">
+          <p className="section-kicker">Tonalität</p>
+          <ul className="insight-list">
+            {output.tonalitaet.map((t, i) => (
+              <li key={i}>
+                <strong>{t.adjektiv}</strong>
+                <div className="insight-evidence">{t.begruendung}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {output.konkurrenz && (
         <div className="card">
@@ -334,91 +385,166 @@ function LLMOutput({ output, raw }) {
           )}
         </div>
       )}
+    </>
+  );
+}
 
-      {output.fuer_cutter && (
-        <div className="card">
-          <p className="section-kicker">Für den Cutter</p>
-          {output.fuer_cutter.schnitt_pace && (
-            <p><strong>Rhythmus:</strong> {output.fuer_cutter.schnitt_pace}</p>
-          )}
-          {output.fuer_cutter.hook_strategie && (
-            <p><strong>Hook-Strategie:</strong> {output.fuer_cutter.hook_strategie}</p>
-          )}
-          {output.fuer_cutter.empfohlene_laengen && (
-            <p><strong>Empfohlene Längen:</strong> {output.fuer_cutter.empfohlene_laengen}</p>
-          )}
-          {/* Sprint 7-iter-2: Compliance-Listen (must_show / no_go) ersetzt
-              durch was_diese_woche-Fließtext. Alte persistierte Briefe ohne
-              das Feld rendern den Block einfach nicht — graceful degrade. */}
-          {output.fuer_cutter.was_diese_woche && (
-            <p><strong>Was diese Woche:</strong> {output.fuer_cutter.was_diese_woche}</p>
-          )}
-        </div>
-      )}
+// Sprint 28.05.2026 (IA-Umbau, Baustein 3) — die drei Rollen-Bloecke als
+// ARIA-konformer Tab-Switcher statt untereinander stehender Cards. Macht
+// den "drei Berufs-Linsen auf denselben Befund"-Charakter zum Feature
+// statt zum Echo (siehe IA-Befund Teil 2). Aktiver Tab via
+// localStorage pro pairKey persistiert (analog zum Sort-Key-Muster).
+//
+// Tab-Definitionen ausgelagert damit der Tab-Switcher generisch bleibt
+// und die Body-Render-Funktionen klar pro Rolle lesbar sind.
+const ROLE_TABS = [
+  {
+    key: 'cutter',
+    label: 'Cutter',
+    field: 'fuer_cutter',
+    render: (data) => (
+      <>
+        {data.schnitt_pace && (
+          <p><strong>Rhythmus:</strong> {data.schnitt_pace}</p>
+        )}
+        {data.hook_strategie && (
+          <p><strong>Hook-Strategie:</strong> {data.hook_strategie}</p>
+        )}
+        {data.empfohlene_laengen && (
+          <p><strong>Empfohlene Längen:</strong> {data.empfohlene_laengen}</p>
+        )}
+        {/* Sprint 7-iter-2: Compliance-Listen (must_show / no_go) ersetzt
+            durch was_diese_woche-Fließtext. Alte persistierte Briefe ohne
+            das Feld rendern den Block einfach nicht — graceful degrade. */}
+        {data.was_diese_woche && (
+          <p><strong>Was diese Woche:</strong> {data.was_diese_woche}</p>
+        )}
+      </>
+    ),
+  },
+  {
+    key: 'motion',
+    label: 'Motion-Designer',
+    field: 'fuer_motion_designer',
+    render: (data) => (
+      <>
+        {data.caption_style && (
+          <p><strong>Caption-Stil:</strong> {data.caption_style}</p>
+        )}
+        {data.text_overlay && (
+          <p><strong>Text-Overlay:</strong> {data.text_overlay}</p>
+        )}
+        {data.branding_einsatz && (
+          <p><strong>Branding-Einsatz:</strong> {data.branding_einsatz}</p>
+        )}
+        {data.was_diese_woche && (
+          <p><strong>Was diese Woche:</strong> {data.was_diese_woche}</p>
+        )}
+      </>
+    ),
+  },
+  {
+    key: 'producer',
+    label: 'Creative Producer',
+    field: 'fuer_creative_producer',
+    render: (data) => (
+      <>
+        {data.strategische_pattern && (
+          <p><strong>Strategische Pattern:</strong> {data.strategische_pattern}</p>
+        )}
+        {data.cross_market_chancen && (
+          <p><strong>Cross-Market-Chancen:</strong> {data.cross_market_chancen}</p>
+        )}
+        {data.format_empfehlungen && (
+          <p><strong>Format-Empfehlungen:</strong> {data.format_empfehlungen}</p>
+        )}
+        {data.was_diese_woche && (
+          <p><strong>Was diese Woche:</strong> {data.was_diese_woche}</p>
+        )}
+      </>
+    ),
+  },
+];
 
-      {output.fuer_motion_designer && (
-        <div className="card">
-          <p className="section-kicker">Für den Motion-Designer</p>
-          {output.fuer_motion_designer.caption_style && (
-            <p><strong>Caption-Stil:</strong> {output.fuer_motion_designer.caption_style}</p>
-          )}
-          {output.fuer_motion_designer.text_overlay && (
-            <p><strong>Text-Overlay:</strong> {output.fuer_motion_designer.text_overlay}</p>
-          )}
-          {output.fuer_motion_designer.branding_einsatz && (
-            <p><strong>Branding-Einsatz:</strong> {output.fuer_motion_designer.branding_einsatz}</p>
-          )}
-          {output.fuer_motion_designer.was_diese_woche && (
-            <p><strong>Was diese Woche:</strong> {output.fuer_motion_designer.was_diese_woche}</p>
-          )}
-        </div>
-      )}
+function RolesTabSwitcher({ output, pairKey, initialActiveTab }) {
+  // Wenn alle drei Rollen-Felder null sind, faellt der Switcher weg —
+  // sonst zeigt er einen leeren Empty-State, was an dieser Stelle nur
+  // Layout-Rauschen ist (Vergleichbare-Posts rendert separat als Footer).
+  const anyData = ROLE_TABS.some((t) => output?.[t.field]);
+  // Hook-Reihenfolge MUSS vor jedem conditional return stehen, sonst
+  // bricht React zwischen Renders die Hook-Identitaet (Container kann
+  // dynamisch zu- und aufklappen).
+  const [activeKey, setActiveKey] = useLocalStorage(
+    `creative-radar:roles-tab:${pairKey}`,
+    initialActiveTab || 'cutter',
+  );
+  // Sprint 28.05.2026 (IA-Umbau, Baustein 4): wenn der Ansichts-Modus
+  // einen neuen ``initialActiveTab`` reinreicht (Switch auf
+  // "Cutter-Sicht" / "Producer-Sicht"), den aktiven Tab dort hin
+  // springen lassen. ``viewMode='all'`` liefert ``undefined`` und der
+  // Effekt skippt — User-Wahl bleibt persistiert.
+  useEffect(() => {
+    if (initialActiveTab && initialActiveTab !== activeKey) {
+      setActiveKey(initialActiveTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialActiveTab]);
+  if (!anyData) return null;
 
-      {output.fuer_creative_producer && (
-        <div className="card">
-          <p className="section-kicker">Für den Creative Producer</p>
-          {output.fuer_creative_producer.strategische_pattern && (
-            <p><strong>Strategische Pattern:</strong> {output.fuer_creative_producer.strategische_pattern}</p>
-          )}
-          {output.fuer_creative_producer.cross_market_chancen && (
-            <p><strong>Cross-Market-Chancen:</strong> {output.fuer_creative_producer.cross_market_chancen}</p>
-          )}
-          {output.fuer_creative_producer.format_empfehlungen && (
-            <p><strong>Format-Empfehlungen:</strong> {output.fuer_creative_producer.format_empfehlungen}</p>
-          )}
-          {output.fuer_creative_producer.was_diese_woche && (
-            <p><strong>Was diese Woche:</strong> {output.fuer_creative_producer.was_diese_woche}</p>
-          )}
-        </div>
-      )}
+  const activeTab = ROLE_TABS.find((t) => t.key === activeKey) || ROLE_TABS[0];
+  const activeData = output?.[activeTab.field];
 
-      {output.tonalitaet?.length > 0 && (
-        <div className="card">
-          <p className="section-kicker">Tonalität</p>
-          <ul className="insight-list">
-            {output.tonalitaet.map((t, i) => (
-              <li key={i}>
-                <strong>{t.adjektiv}</strong>
-                <div className="insight-evidence">{t.begruendung}</div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+  return (
+    <div className="roles-tabs card">
+      <div className="roles-tabs-tablist" role="tablist" aria-label="Kreativ-Empfehlungen pro Rolle">
+        {ROLE_TABS.map((t) => {
+          const hasData = !!output?.[t.field];
+          const isActive = t.key === activeKey;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`roles-panel-${t.key}`}
+              id={`roles-tab-${t.key}`}
+              className={`roles-tab ${isActive ? 'is-active' : ''} ${hasData ? '' : 'is-empty'}`}
+              onClick={() => setActiveKey(t.key)}
+            >
+              {t.label}
+              {!hasData && <span className="roles-tab-emptymark" aria-hidden="true"> ·</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div
+        className="roles-tab-panel"
+        role="tabpanel"
+        id={`roles-panel-${activeTab.key}`}
+        aria-labelledby={`roles-tab-${activeTab.key}`}
+      >
+        {activeData ? (
+          activeTab.render(activeData)
+        ) : (
+          <p className="roles-tab-empty-text">
+            Für die Rolle "{activeTab.label}" liegt in diesem Brief keine
+            Empfehlung vor.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
-      {output.watch_outs?.length > 0 && (
-        <div className="card">
-          <p className="section-kicker">Watch-Outs</p>
-          <ul className="insight-list">
-            {output.watch_outs.map((w, i) => (
-              <li key={i}>
-                <strong>{w.watch_out}</strong>
-                <div className="insight-evidence">Konsequenz: {w.konsequenz}</div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+function LLMRoleSections({ output, pairKey, initialActiveTab }) {
+  if (!output) return null;
+  return (
+    <>
+      <RolesTabSwitcher
+        output={output}
+        pairKey={pairKey}
+        initialActiveTab={initialActiveTab}
+      />
 
       {output.vergleichbare_posts?.length > 0 && (
         <div className="card">
@@ -438,24 +564,28 @@ function LLMOutput({ output, raw }) {
           </ul>
         </div>
       )}
+    </>
+  );
+}
 
-      {(output.risks?.length > 0 || output.data_caveats?.length > 0) && (
-        <div className="card insight-meta">
-          {output.risks?.length > 0 && (
-            <div>
-              <p className="section-kicker">Risks</p>
-              <ul>{output.risks.map((r, i) => <li key={i}>{r}</li>)}</ul>
-            </div>
-          )}
-          {output.data_caveats?.length > 0 && (
-            <div>
-              <p className="section-kicker">Data Caveats</p>
-              <ul>{output.data_caveats.map((c, i) => <li key={i}>{c}</li>)}</ul>
-            </div>
-          )}
+function LLMMetaSection({ output }) {
+  if (!output) return null;
+  if (!(output.risks?.length > 0 || output.data_caveats?.length > 0)) return null;
+  return (
+    <div className="card insight-meta">
+      {output.risks?.length > 0 && (
+        <div>
+          <p className="section-kicker">Risks</p>
+          <ul>{output.risks.map((r, i) => <li key={i}>{r}</li>)}</ul>
         </div>
       )}
-    </>
+      {output.data_caveats?.length > 0 && (
+        <div>
+          <p className="section-kicker">Data Caveats</p>
+          <ul>{output.data_caveats.map((c, i) => <li key={i}>{c}</li>)}</ul>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -550,6 +680,80 @@ function useLocalStorage(key, defaultValue) {
     }
   }, [key, value]);
   return [value, setValue];
+}
+
+// Sprint 28.05.2026 (IA-Umbau, Baustein 2) — Klapp-Container.
+//
+// Pragmatische Entscheidung: KEINE native ``<details>``. Begruendung:
+// 1. PDF-Baustein 2 braucht einen ``beforeprint``-Handler, der alle
+//    Container temporaer oeffnet. Mit nativem details muesste das ueber
+//    ``document.querySelectorAll('details').forEach(d=>d.open=true)``
+//    gehen — geht, ist aber unschoener als ein zentraler React-State.
+// 2. Der Ansichts-Modus-Umschalter (Commit 4) steuert die
+//    ``defaultOpen``-Props per Container. Mit React-State idiomatisch
+//    via Prop-Pipeline; native details haetten wir per imperative
+//    DOM-Manipulation steuern muessen.
+// 3. Lazy-Mount des Klapp-Inhalts (``{isOpen && children}``) ist mit
+//    React-State trivial; bei nativem details muss man eigentlich auch
+//    React-State fahren, weil der Inhalt nicht magisch verschwindet —
+//    das wuerde den details-Vorteil aufheben.
+//
+// State-Modell: ``defaultOpen``-Prop steuert den Initial-State; lokaler
+// useState merkt sich ab dann den User-Toggle (Aenderungen am
+// ``defaultOpen``-Prop nach Mount werden ignoriert — sonst kollidiert
+// der ViewMode-Switch in Commit 4 mit User-Klicks). KEIN
+// per-Container-localStorage: der ViewMode-Switch ist der autoritative
+// Default-Setter, User-Klicks gelten bis Page-Refresh.
+//
+// A11y: button mit aria-expanded + aria-controls; chevron rotiert per
+// CSS; Header-Tastatur-Aktivierung via Enter/Space (Button-Default).
+function CollapsibleCard({
+  title,
+  subtitle,
+  defaultOpen = false,
+  variant = 'card',
+  children,
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  // Sprint 28.05.2026 (IA-Umbau, Baustein 4): wenn der Ansichts-Modus-
+  // Umschalter den ``defaultOpen``-Prop aendert (z.B. von "all" auf
+  // "cutter"), den Klapp-Zustand neu setzen. User-Toggles innerhalb
+  // desselben ViewMode (gleicher defaultOpen-Wert) bleiben erhalten —
+  // useEffect feuert nur, wenn die Dep tatsaechlich wechselt.
+  useEffect(() => {
+    setIsOpen(defaultOpen);
+  }, [defaultOpen]);
+  const contentId = useId();
+  const headerId = useId();
+  const className = variant === 'inner'
+    ? `collapsible-inner ${isOpen ? 'is-open' : ''}`
+    : `card collapsible-card ${isOpen ? 'is-open' : ''}`;
+  return (
+    <section className={className}>
+      <button
+        type="button"
+        className="collapsible-header"
+        aria-expanded={isOpen}
+        aria-controls={contentId}
+        id={headerId}
+        onClick={() => setIsOpen((v) => !v)}
+      >
+        <span className="collapsible-chevron" aria-hidden="true">▸</span>
+        <span className="collapsible-title">{title}</span>
+        {subtitle && <span className="collapsible-subtitle">{subtitle}</span>}
+      </button>
+      {isOpen && (
+        <div
+          className="collapsible-content"
+          id={contentId}
+          role="region"
+          aria-labelledby={headerId}
+        >
+          {children}
+        </div>
+      )}
+    </section>
+  );
 }
 
 // Sprint 5a: hierarchy redesign. The active sort metric is rendered as
@@ -772,6 +976,13 @@ function MultiPlatformStats({ aggregation }) {
     );
   }
 
+  // Sprint 28.05.2026 (IA-Umbau, Baustein 2): pro Plattform jetzt ein
+  // Sub-Klapp-Container statt einer dauerhaft-offenen Block-Hierarchie.
+  // Default: alle Plattformen zu (Cutter braucht's selten, GF nie).
+  // Lazy-Mount der Channel-Cards spart Initial-Render-Cost — die
+  // ChannelStatsCard-Komponente macht Re-Sorting auf Top-Posts und
+  // Hashtag-Counts pro Render, das summiert sich bei drei Plattformen
+  // x drei Maerkten.
   return (
     <div className="multiplatform-stats">
       {perPlatform.map((p) => {
@@ -779,21 +990,21 @@ function MultiPlatformStats({ aggregation }) {
         if (!hasData) return null;
         const label = PLATFORM_LABEL[p.platform] || p.platform;
         return (
-          <div key={p.platform} className={`platform-block platform-block-${p.platform}`}>
-            <h3 className="platform-block-title">
-              <span className={`platform-pill platform-${p.platform}`}>{label}</span>
-            </h3>
-            {/* Sprint 28.05.2026 (Punkt 1): Per-Plattform-Cross-Market-
-                Cards sind in die Headline-Sektion oben gewandert
-                (CrossMarketHeadlineSection aggregiert ueber alle
-                Plattformen mit Plattform-Pill pro Match). Per-Plattform-
-                Block zeigt jetzt nur noch die ChannelStats. */}
-            <div className="insight-grid-three">
-              {p.de_channel && <ChannelStatsCard stats={p.de_channel} />}
-              {p.us_channel && <ChannelStatsCard stats={p.us_channel} />}
-              {p.uk_channel && <ChannelStatsCard stats={p.uk_channel} />}
+          <CollapsibleCard
+            key={p.platform}
+            variant="inner"
+            title={label}
+            subtitle="DE / US / UK Channel-Stats"
+            defaultOpen={false}
+          >
+            <div className={`platform-block platform-block-${p.platform}`}>
+              <div className="insight-grid-three">
+                {p.de_channel && <ChannelStatsCard stats={p.de_channel} />}
+                {p.us_channel && <ChannelStatsCard stats={p.us_channel} />}
+                {p.uk_channel && <ChannelStatsCard stats={p.uk_channel} />}
+              </div>
             </div>
-          </div>
+          </CollapsibleCard>
         );
       })}
     </div>
@@ -1241,10 +1452,38 @@ function TopRankingSection({ aggregation, pairKey }) {
 // "failed" state. Bump if Wolf raises max_tokens beyond 8k.
 const SLOW_THRESHOLD_MS = 60_000;
 
+// Sprint 28.05.2026 (IA-Umbau, Baustein 4) — Ansichts-Modus-Umschalter.
+// Drei Werte; steuert nur die ``defaultOpen``-States der vier Klapp-
+// Container + den initialen Rollen-Tab. KEIN hartes Ausblenden — alle
+// Sektionen bleiben erreichbar (Briefing-Vorgabe).
+//
+// "all" (Default): alle Container zu, User klappt nach Bedarf auf.
+// "cutter": Container A (Detail) + B (Rollen, Tab Cutter aktiv) auf,
+//           C (Plattform) + D (Methodik) zu.
+// "producer": A + B (Tab Producer) + C auf, D zu.
+const VIEW_MODES = {
+  all:      { A: false, B: false, C: false, D: false, roleTab: undefined },
+  cutter:   { A: true,  B: true,  C: false, D: false, roleTab: 'cutter' },
+  producer: { A: true,  B: true,  C: true,  D: false, roleTab: 'producer' },
+};
+const VIEW_MODE_LABELS = {
+  all: 'Alle Sektionen',
+  cutter: 'Cutter-Sicht',
+  producer: 'Producer-Sicht',
+};
+
 export default function InsightWeekly({ pair }) {
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'slow' | 'done' | 'error'
+  // Persistiert global (nicht pro pairKey), damit Wolfs Cutter-Sicht
+  // ueber alle Studios konsistent bleibt — wenn Wolf zwischen Disney
+  // und Warner wechselt, soll der Mode mit.
+  const [viewMode, setViewMode] = useLocalStorage(
+    'creative-radar:view-mode',
+    'all',
+  );
+  const viewConfig = VIEW_MODES[viewMode] || VIEW_MODES.all;
   const [windowDays, setWindowDays] = useState(30);
   const [dryRun, setDryRun] = useState(false);
 
@@ -1307,6 +1546,25 @@ export default function InsightWeekly({ pair }) {
         />
       )}
 
+      {report && status !== 'error' && (
+        <div className="viewmode-toolbar">
+          <label htmlFor="viewmode-select" className="viewmode-label">Ansicht:</label>
+          <select
+            id="viewmode-select"
+            className="viewmode-select"
+            value={viewMode}
+            onChange={(e) => setViewMode(e.target.value)}
+          >
+            <option value="all">{VIEW_MODE_LABELS.all}</option>
+            <option value="cutter">{VIEW_MODE_LABELS.cutter}</option>
+            <option value="producer">{VIEW_MODE_LABELS.producer}</option>
+          </select>
+          <span className="viewmode-hint" aria-hidden="true">
+            steuert nur Default-Klappzustände — alle Sektionen bleiben erreichbar
+          </span>
+        </div>
+      )}
+
       {status === 'slow' && (
         <div className="card insight-slow-hint">
           <p className="section-kicker">Einen Moment bitte</p>
@@ -1349,11 +1607,13 @@ export default function InsightWeekly({ pair }) {
             </div>
           )}
 
-          {/* Sprint 28.05.2026 (Punkt 1) — "Drei Märkte, ein Film". USP
-              direkt unter Hero, vor Breakouts + Top-Posts. Zieht die
-              Cross-Market-Cards (vorher tief in MultiPlatformStats) und
-              den cross_market_insight-Text (vorher Mitte LLMOutput)
-              zusammen. */}
+          {/* Sprint 28.05.2026 (IA-Umbau, Baustein 1) — Kern-Reihenfolge:
+              Headline+TLDR → Drei Maerkte → Breakouts → Top-Posts. Davor:
+              Hero/Banner/StaleWarning/Notes (Meta + Caveats). Die
+              LLM-Detail-Sektionen rendern weiter unten in LLMOutput
+              (kommen in Commit 2 in Klapp-Container). */}
+          <LLMHeadlineCard output={report.llm_output} raw={report.raw_llm_text} />
+
           <CrossMarketHeadlineSection
             aggregation={report.aggregation}
             llmOutput={report.llm_output}
@@ -1369,9 +1629,50 @@ export default function InsightWeekly({ pair }) {
             pairKey={pair}
           />
 
-          <LLMOutput output={report.llm_output} raw={report.raw_llm_text} />
+          {/* Sprint 28.05.2026 (IA-Umbau, Baustein 4): defaultOpen pro
+              Container vom ViewMode gesteuert. Container-Inhalt bleibt
+              lazy-mounted ueber CollapsibleCard's ``{isOpen && children}``. */}
+          {report.llm_output && (
+            <>
+              <CollapsibleCard
+                title="Diese Woche im Detail"
+                subtitle="Worum geht's · Pattern · Trends + Actions · Watch-Outs · Tonalität · Konkurrenz"
+                defaultOpen={viewConfig.A}
+              >
+                <LLMDetailSections output={report.llm_output} />
+              </CollapsibleCard>
 
-          <MultiPlatformStats aggregation={report.aggregation} />
+              <CollapsibleCard
+                title="Kreativ-Empfehlungen"
+                subtitle="Cutter · Motion-Designer · Creative Producer · Vergleichbare Posts"
+                defaultOpen={viewConfig.B}
+              >
+                <LLMRoleSections
+                  output={report.llm_output}
+                  pairKey={pair}
+                  initialActiveTab={viewConfig.roleTab}
+                />
+              </CollapsibleCard>
+            </>
+          )}
+
+          <CollapsibleCard
+            title="Plattform-Details"
+            subtitle="TikTok · Instagram · YouTube — Channel-Stats pro Markt"
+            defaultOpen={viewConfig.C}
+          >
+            <MultiPlatformStats aggregation={report.aggregation} />
+          </CollapsibleCard>
+
+          {report.llm_output && (
+            <CollapsibleCard
+              title="Methodik / Daten-Caveats"
+              subtitle="Risks · Data Caveats"
+              defaultOpen={viewConfig.D}
+            >
+              <LLMMetaSection output={report.llm_output} />
+            </CollapsibleCard>
+          )}
         </>
       )}
 
