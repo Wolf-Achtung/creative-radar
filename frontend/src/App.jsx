@@ -856,6 +856,54 @@ export function AdminApp({ onLogout }) {
 // Hero + Pair-Tiles (mit Markt-Info ueber der Sektion in Commit 3,
 // Phase 4) + RoundupBlock. Keine Werkzeuge mehr — die leben in
 // /admin hinter dem Login.
+// Sprint 28.05.2026 (Kachel-Variante A) — ermittelt aus der Pair-Liste
+// die haeufigste Markt-/Frequenz-Kombination als Sektions-Default.
+// Kacheln mit abweichender Kombi tragen eine kleine Pill; Default-
+// Kacheln bleiben minimal. Skaliert automatisch wenn neue
+// Markt-Kombis dazukommen (z.B. DE-only Indie-Studios).
+function computePairSectionDefaults(pairs) {
+  if (!pairs || pairs.length === 0) {
+    return { defaultMarkets: [], defaultFrequency: null, defaultKey: '' };
+  }
+  const tally = (values) => {
+    const counts = new Map();
+    for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
+    let best = null;
+    let bestCount = 0;
+    for (const [v, c] of counts.entries()) {
+      if (c > bestCount) { best = v; bestCount = c; }
+    }
+    return best;
+  };
+  const marketKeys = pairs.map((p) => [...(p.markets || [])].sort().join('+'));
+  const defaultMarketKey = tally(marketKeys) || '';
+  const defaultMarkets = defaultMarketKey ? defaultMarketKey.split('+') : [];
+  const defaultFrequency = tally(pairs.map((p) => p.frequency_label).filter(Boolean));
+  return {
+    defaultMarkets,
+    defaultFrequency,
+    defaultKey: `${defaultMarketKey}|${defaultFrequency || ''}`,
+  };
+}
+
+function pairDeviationLabel(pair, defaults) {
+  // Pill-Text wenn die Kachel von der Sektions-Default-Kombi abweicht.
+  // ``null`` = Default, kein Pill noetig. Markt-Abweichung wird als
+  // Markt-Liste gerendert ("US+UK"), Frequenz-Abweichung als
+  // Frequenz-Wort. Beides moeglich.
+  const markets = [...(pair.markets || [])].sort().join('+');
+  const defaultMarkets = defaults.defaultMarkets.join('+');
+  const marketsDiffer = markets !== defaultMarkets;
+  const frequencyDiffers = defaults.defaultFrequency
+    && pair.frequency_label
+    && pair.frequency_label !== defaults.defaultFrequency;
+  if (!marketsDiffer && !frequencyDiffers) return null;
+  const parts = [];
+  if (marketsDiffer) parts.push((pair.markets || []).join('+'));
+  if (frequencyDiffers) parts.push(pair.frequency_label);
+  return parts.join(' · ');
+}
+
 function App() {
   // ``null`` = not yet fetched; ``[]`` = fetched but empty (treated as
   // an error state); ``[...]`` = ready to render.
@@ -878,6 +926,8 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
+  const sectionDefaults = useMemo(() => computePairSectionDefaults(pairs || []), [pairs]);
+
   return (
     <main>
       <header className="hero" style={{ background: '#1f4d4d', borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}>
@@ -890,7 +940,16 @@ function App() {
 
       <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
         <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Die Woche im Rückblick</p>
-        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Die großen Studios</h2>
+        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.5rem' }}>Die großen Studios</h2>
+        {/* Sprint 28.05.2026 (Kachel-Variante A): Markt-Info einmal hier
+            ueber den Kacheln statt redundant auf jeder Kachel. Pills
+            unten markieren Abweichungen (z.B. Lionsgate ohne DE). */}
+        {pairs && pairs.length > 0 && sectionDefaults.defaultMarkets.length > 0 && (
+          <p className="pair-section-default" style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
+            Alle: {sectionDefaults.defaultMarkets.join(' / ')}
+            {sectionDefaults.defaultFrequency ? ` · ${sectionDefaults.defaultFrequency}` : ''}
+          </p>
+        )}
         {pairs === null && (
           <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Studios …</p>
         )}
@@ -905,24 +964,29 @@ function App() {
             gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
             gap: '0.75rem',
           }}>
-            {pairs.map((pair) => (
-              <a
-                key={pair.pair_key}
-                href={`/insights/weekly/${pair.pair_key}`}
-                className="card"
-                style={{
-                  display: 'block',
-                  padding: '1rem',
-                  margin: 0,
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                }}
-              >
-                <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.display_name}</strong>
-                <span className="muted small">{`${pair.markets.join(' + ')}, ${pair.frequency_label}`}</span>
-              </a>
-            ))}
+            {pairs.map((pair) => {
+              const deviation = pairDeviationLabel(pair, sectionDefaults);
+              return (
+                <a
+                  key={pair.pair_key}
+                  href={`/insights/weekly/${pair.pair_key}`}
+                  className="card pair-tile"
+                  style={{
+                    display: 'block',
+                    padding: '1rem',
+                    margin: 0,
+                    textDecoration: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <strong style={{ display: 'block' }}>{pair.display_name}</strong>
+                  {deviation && (
+                    <span className="pair-tile-deviation">{deviation}</span>
+                  )}
+                </a>
+              );
+            })}
           </div>
         )}
       </section>
