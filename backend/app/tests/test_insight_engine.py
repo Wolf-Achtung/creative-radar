@@ -15,6 +15,7 @@ surface as concrete diffs rather than fuzzy "looks different".
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Optional
@@ -3203,3 +3204,281 @@ def test_double_check_locking_concurrent(monkeypatch, caplog):
     assert outcomes == ["fresh_generation", "lock_dedup"], (
         f"expected one fresh_generation + one lock_dedup, got: {outcomes}"
     )
+
+
+# ---------- Sprint 28.05.2026: Evidenz-Block / Citation-Validator --------
+
+
+def test_build_citation_allow_set_collects_post_urls_and_match_keys():
+    """``_build_citation_allow_set`` muss alle zitier-faehigen IDs aus
+    ``PairAggregation`` einsammeln: ``post_url`` aus top/historical/ranked
+    Posts, ``asset_id`` aus ranked Posts, ``match_key`` aus den drei
+    Cross-Market-Match-Listen.
+    """
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+
+    allow_set = insight_engine._build_citation_allow_set(agg)
+
+    assert len(allow_set) > 0, "allow_set darf bei seeded pair nicht leer sein"
+    # Cross-market match-key aus dem Seed muss drin sein
+    assert "mk2-trailer-1" in allow_set
+    # Mindestens eine US-Post-URL muss drin sein (URL-Set haengt vom Seed ab)
+    assert any("tiktok.com" in s for s in allow_set), (
+        "mindestens eine TikTok-post_url muss im allow_set landen"
+    )
+
+
+def test_validate_citations_returns_true_when_all_ids_known(caplog):
+    """Citation-Validator gibt ``True`` zurueck, wenn jede zitierte ID
+    im Allow-Set vorkommt. Phase-1-Summary landet als INFO mit
+    ``all_belegt=True``."""
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        valid_post_url = data["us_posts"][0].post_url
+
+        from app.schemas.insights import (
+            Action, CrossMarketInsight, LLMReport, Trend,
+        )
+        report = LLMReport(
+            headline="H",
+            tldr="x",
+            trends=[Trend(
+                name="n", evidence="e", implication_for_creation="i",
+                cited_post_ids=[valid_post_url],
+            )],
+            actions=[Action(
+                what="w", why="y", for_whom="f",
+                cited_post_ids=[valid_post_url],
+            )],
+            cross_market_insight=CrossMarketInsight(
+                de_vs_us="a", transfer_opportunity="b",
+                cited_post_ids=["mk2-trailer-1"],  # match_key
+            ),
+            risks=[], data_caveats=[],
+        )
+
+        with caplog.at_level(logging.INFO, logger="app.services.insight_engine"):
+            ok = insight_engine._validate_citations(
+                report, agg,
+                pair_key="warnerbros", iso_year=2026, iso_week=22,
+            )
+
+        assert ok is True
+        summary = [r for r in caplog.records if r.message == "insight-engine-citation-summary"]
+        assert len(summary) == 1
+        rec = summary[0]
+        assert rec.__dict__.get("all_belegt") is True
+        assert rec.__dict__.get("missing_ids_total") == 0
+
+
+def test_validate_citations_returns_false_and_logs_when_id_unknown(caplog):
+    """Citation-Validator gibt ``False`` zurueck, wenn eine zitierte ID
+    nicht im Allow-Set ist, und logged
+    ``insight-engine-citation-unverified`` pro betroffener Sektion."""
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+
+        from app.schemas.insights import (
+            Action, CrossMarketInsight, LLMReport, Trend,
+        )
+        report = LLMReport(
+            headline="H", tldr="x",
+            trends=[Trend(
+                name="n", evidence="e", implication_for_creation="i",
+                cited_post_ids=["https://tiktok.com/@invented/video/999999"],
+            )],
+            actions=[Action(what="w", why="y", for_whom="f")],  # leer → kein Check
+            cross_market_insight=CrossMarketInsight(
+                de_vs_us="a", transfer_opportunity="b",
+            ),
+            risks=[], data_caveats=[],
+        )
+
+        with caplog.at_level(logging.WARNING, logger="app.services.insight_engine"):
+            ok = insight_engine._validate_citations(
+                report, agg,
+                pair_key="warnerbros", iso_year=2026, iso_week=22,
+            )
+
+        assert ok is False
+        unverified = [
+            r for r in caplog.records
+            if r.message == "insight-engine-citation-unverified"
+        ]
+        assert len(unverified) == 1
+        rec = unverified[0]
+        assert rec.__dict__.get("section") == "trends[0].cited_post_ids"
+        assert rec.__dict__.get("missing_count") == 1
+        assert rec.__dict__.get("pair_key") == "warnerbros"
+
+
+def test_generate_weekly_report_soft_mode_delivers_brief_despite_unverified_citation(
+    monkeypatch, caplog,
+):
+    """Phase 1 / Soft-Modus (Default): das LLM zitiert eine erfundene ID
+    → Validator loggt ``unverified``, aber der Brief wird trotzdem
+    ausgeliefert (llm_output ist nicht None, kein zusaetzlicher Retry).
+    Das ist der Stufenmodell-B-Cutover-Zustand vor Strikt-Flip.
+    """
+    sample = {
+        "headline": "H", "tldr": "x",
+        "trends": [{
+            "name": "n", "evidence": "e", "implication_for_creation": "i",
+            "cited_post_ids": ["https://tiktok.com/@invented/video/999999"],
+        }],
+        "actions": [],
+        "cross_market_insight": {"de_vs_us": "a", "transfer_opportunity": "b"},
+        "risks": [], "data_caveats": [],
+    }
+    fake_message = SimpleNamespace(
+        content=[SimpleNamespace(
+            type="tool_use", name="submit_weekly_brief", input=sample,
+        )],
+        usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+    )
+    call_count = {"n": 0}
+
+    def _fake_call(**kwargs):
+        call_count["n"] += 1
+        return fake_message
+
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", _fake_call)
+    monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
+    # Soft-Modus garantieren (Default, aber explizit setzen damit der Test
+    # nicht von Globals abhaengt).
+    monkeypatch.setattr(
+        insight_engine.settings, "insight_citation_strict_enforce", False,
+        raising=False,
+    )
+
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        with caplog.at_level(logging.WARNING, logger="app.services.insight_engine"):
+            report = insight_engine.generate_weekly_report(session, "warnerbros")
+
+    # Brief geht raus
+    assert report.llm_output is not None
+    assert report.llm_output.headline == "H"
+    # Genau ein API-Call (kein Strikt-Retry)
+    assert call_count["n"] == 1
+    # Unverified-Log ist da
+    unverified = [
+        r for r in caplog.records
+        if r.message == "insight-engine-citation-unverified"
+    ]
+    assert len(unverified) == 1
+
+
+def test_generate_weekly_report_strict_mode_retries_on_unverified_citation(
+    monkeypatch, caplog,
+):
+    """Phase 2 / Strikt-Modus: Citation-Fail loest die bestehende
+    Retry-Schleife aus. Erste zwei Antworten zitieren erfunden, dritte
+    zitiert eine bekannte ID → Brief wird mit drittem Anlauf
+    ausgeliefert. Dasselbe Retry-Limit wie bei Parse-Fail (MAX_RECALLS=2,
+    also bis zu 3 Calls)."""
+    bad_sample = {
+        "headline": "H", "tldr": "x",
+        "trends": [{
+            "name": "n", "evidence": "e", "implication_for_creation": "i",
+            "cited_post_ids": ["https://tiktok.com/@invented/video/999999"],
+        }],
+        "actions": [],
+        "cross_market_insight": {"de_vs_us": "a", "transfer_opportunity": "b"},
+        "risks": [], "data_caveats": [],
+    }
+
+    monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
+    monkeypatch.setattr(
+        insight_engine.settings, "insight_citation_strict_enforce", True,
+        raising=False,
+    )
+
+    with _session() as session:
+        data = _seed_warnerbros_pair(session)
+        good_url = data["us_posts"][0].post_url
+        good_sample = {**bad_sample, "trends": [{
+            "name": "n", "evidence": "e", "implication_for_creation": "i",
+            "cited_post_ids": [good_url],
+        }]}
+
+        def _msg(payload):
+            return SimpleNamespace(
+                content=[SimpleNamespace(
+                    type="tool_use", name="submit_weekly_brief", input=payload,
+                )],
+                usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+            )
+
+        responses = iter([_msg(bad_sample), _msg(bad_sample), _msg(good_sample)])
+
+        def _fake_call(**kwargs):
+            return next(responses)
+
+        monkeypatch.setattr(insight_engine, "messages_create_strict_json", _fake_call)
+
+        with caplog.at_level(logging.WARNING, logger="app.services.insight_engine"):
+            report = insight_engine.generate_weekly_report(session, "warnerbros")
+
+    assert report.llm_output is not None
+    assert report.llm_output.trends[0].cited_post_ids == [good_url]
+    # Zwei Retry-Log-Lines mit reason=citation-strict-unverified
+    retry_lines = [
+        r for r in caplog.records
+        if r.message == "insight-engine-json-parse-retry"
+    ]
+    assert len(retry_lines) == 2
+    assert all(
+        r.__dict__.get("reason") == "citation-strict-unverified"
+        for r in retry_lines
+    )
+
+
+def test_generate_weekly_report_strict_mode_exhausted_falls_back_to_raw(
+    monkeypatch, caplog,
+):
+    """Phase 2 / Strikt-Modus: alle Retries scheitern an nicht-belegten
+    Zitaten → ``llm_output=None`` (Persist-Skip-Pfad), ``raw_llm_text``
+    haelt die letzte LLM-Antwort fuer Wolf-Diagnose, eigenes Log-Event
+    ``insight-engine-citation-strict-exhausted``."""
+    bad_sample = {
+        "headline": "H", "tldr": "x",
+        "trends": [{
+            "name": "n", "evidence": "e", "implication_for_creation": "i",
+            "cited_post_ids": ["https://tiktok.com/@invented/video/999999"],
+        }],
+        "actions": [],
+        "cross_market_insight": {"de_vs_us": "a", "transfer_opportunity": "b"},
+        "risks": [], "data_caveats": [],
+    }
+    fake_message = SimpleNamespace(
+        content=[SimpleNamespace(
+            type="tool_use", name="submit_weekly_brief", input=bad_sample,
+        )],
+        usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+    )
+
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", lambda **k: fake_message)
+    monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
+    monkeypatch.setattr(
+        insight_engine.settings, "insight_citation_strict_enforce", True,
+        raising=False,
+    )
+
+    with _session() as session:
+        _seed_warnerbros_pair(session)
+        with caplog.at_level(logging.ERROR, logger="app.services.insight_engine"):
+            report = insight_engine.generate_weekly_report(session, "warnerbros")
+
+    assert report.llm_output is None
+    assert report.raw_llm_text is not None and "invented" in report.raw_llm_text
+    exhausted = [
+        r for r in caplog.records
+        if r.message == "insight-engine-citation-strict-exhausted"
+    ]
+    assert len(exhausted) == 1
+

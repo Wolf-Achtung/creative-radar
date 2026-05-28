@@ -146,6 +146,20 @@ class Settings(BaseSettings):
     anthropic_hard_cap_pct: float = 1.00
     anthropic_budget_enforced: bool = True
 
+    # Sprint 28.05.2026 (Evidenz-Block / Quellen-Attribution) —
+    # Stufenmodell B→A fuer den Citation-Validator im Pair-Brief-Pfad.
+    # Default ``False`` (Phase 1, Soft-Mode): das LLM ist im
+    # System-Prompt zur Befuellung der ``cited_post_ids``-Felder
+    # verpflichtet, der Validator loggt nicht-belegte IDs als
+    # ``insight-engine-citation-unverified``, aber der Brief wird
+    # trotzdem ausgeliefert. Cutover-Kriterium auf Phase 2 (Strikt):
+    # nach 2-3 Wochen Cron-Lauf, Falsch-Zitat-Rate < 2 % im Log → ENV
+    # ``INSIGHT_CITATION_STRICT_ENFORCE=true`` flippen, kein neuer
+    # PR-Pfad. Strikt-Modus loest bei nicht-belegten IDs den
+    # bestehenden Retry-Loop aus (MAX_RECALLS=2) und faellt im
+    # Worst-Case auf ``llm_output=None`` + Persist-Skip zurueck.
+    insight_citation_strict_enforce: bool = False
+
     # Master-Plan-Schritt-4 (2026-05-25) — Roll-out-Steuerung der
     # Segment-Roundups im Montags-Cron. CSV der Segment-Werte, kommagetrennt.
     # Default: die vier datenreichen Segmente (Wolf 25.05.). UK ausgesetzt

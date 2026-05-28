@@ -241,12 +241,23 @@ class Trend(BaseModel):
     name: str
     evidence: str
     implication_for_creation: str
+    # Sprint 28.05.2026 — Evidenz-Block / Quellen-Attribution. Liste der
+    # exakten post_url-, asset_id- oder match_key-Strings aus der
+    # ``PairAggregation``, auf denen ``evidence`` beruht. Default leere
+    # Liste: persistierte Briefe vor diesem Sprint validieren weiter
+    # via ``model_validate``; das LLM ist via System-Prompt zur
+    # Befuellung verpflichtet (siehe EVIDENZ-PFLICHT im SYSTEM_PROMPT),
+    # der Validator in ``insight_engine`` loggt fehlende oder
+    # nicht-belegte IDs als ``insight-engine-citation-unverified``.
+    cited_post_ids: list[str] = Field(default_factory=list)
 
 
 class Action(BaseModel):
     what: str
     why: str
     for_whom: str
+    # Sprint 28.05.2026 — Evidenz-Block. Siehe ``Trend.cited_post_ids``.
+    cited_post_ids: list[str] = Field(default_factory=list)
 
 
 class Konkurrenz(BaseModel):
@@ -284,6 +295,8 @@ class SchnittAufgabe(BaseModel):
     lern_take: str
     frage: Optional[str] = None
     bezug: Optional[str] = None
+    # Sprint 28.05.2026 — Evidenz-Block. Siehe ``Trend.cited_post_ids``.
+    cited_post_ids: list[str] = Field(default_factory=list)
 
 
 class VerdictEnum(str, Enum):
@@ -338,6 +351,11 @@ class TitelImFokus(BaseModel):
     release_datum: Optional[str] = None
     verdict: Optional[VerdictEnum] = None
     post_url: Optional[str] = None
+    # Sprint 28.05.2026 — Evidenz-Block. ``post_url`` ist der Klick-
+    # Anker (single Headline-Post), ``cited_post_ids`` listet die IDs
+    # aus der ``PairAggregation``, auf denen die ``kennzahl`` beruht
+    # (kann mehrere Posts oder einen ``match_key`` einschliessen).
+    cited_post_ids: list[str] = Field(default_factory=list)
 
     @field_validator("verdict", mode="before")
     @classmethod
@@ -374,6 +392,15 @@ class CrossMarketInsight(BaseModel):
     de_vs_uk: Optional[str] = None
     us_vs_uk: Optional[str] = None
     transfer_opportunity: str
+    # Sprint 28.05.2026 — Evidenz-Block. Sammlung der IDs (post_url /
+    # asset_id / match_key) aus der ``PairAggregation``, auf denen die
+    # drei Narrative-Achsen + ``transfer_opportunity`` insgesamt
+    # beruhen. Pro-Achse-Granularitaet ist bewusst NICHT modelliert —
+    # die Achsen referenzieren oft dieselben matches und eine flache
+    # Liste haelt den Schema-Aufwand klein. Phase-2-Strikt-Cutover kann
+    # spaeter pro-Achse-Felder additiv ergaenzen, wenn die
+    # Phase-1-Telemetrie zeigt, dass die Granularitaet noetig ist.
+    cited_post_ids: list[str] = Field(default_factory=list)
 
 
 class Tonalitaet(BaseModel):

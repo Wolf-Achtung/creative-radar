@@ -745,6 +745,27 @@ TLDR-STRUKTUR (Sprint 7 — drei Sätze, die einen Erzähl-Bogen bilden):
 
 Beispiel-Pattern: "Disney US hatte diese Woche einen außergewöhnlich starken Spot: *Drawn to You* ist 113 Sekunden lang, kommt auf rund 33.000 Reaktionen. DE setzt dagegen auf kurze Clips mit bekannten Titeln — Zoomania, Mulan, je rund 10.000 Reaktionen. Genau darin liegt die spannende Beobachtung der Woche: in den USA funktioniert ein langer emotionaler Hero-Spot, in Deutschland tragen kurze vertraute Disney-Momente stärker."
 
+EVIDENZ-PFLICHT (Sprint 28.05.2026):
+Jede Sektion mit konkreter Zahlenangabe oder Daten-Anker traegt ein
+``cited_post_ids``-Feld. Trage dort die EXAKTEN Strings aus dem
+JSON-Anhang ein, auf denen deine Aussage beruht — zugelassen sind:
+- ``post_url``-Strings aus ``top_posts`` / ``ranked_posts`` /
+  ``historical_top_posts`` (TikTok-/Instagram-/YouTube-URLs)
+- ``asset_id``-UUID-Strings aus ``ranked_posts``
+- ``match_key``-Strings aus ``cross_market_matches`` /
+  ``de_uk_matches`` / ``us_uk_matches``
+Regeln:
+- Pro Eintrag mit Zahlen-Anker mindestens EINE ID; bei Vergleichen
+  (Faktor X, DE vs US) idealerweise beide Seiten als IDs.
+- Leere Liste ``[]`` nur, wenn der Eintrag KEINE konkrete Zahl und
+  KEINEN Daten-Anker enthaelt (z. B. reine Format-Empfehlung).
+- IDs niemals raten oder normalisieren — kopiere exakt, was im
+  JSON-Anhang steht. Lieber weniger zitieren als eine falsche ID.
+- Bei ``cross_market_insight.cited_post_ids`` liste die IDs aller
+  Belege ueber die drei Achsen (de_vs_us / de_vs_uk / us_vs_uk) und
+  die transfer_opportunity zusammen — Granularitaet pro Achse ist im
+  Schema bewusst nicht modelliert.
+
 OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
 
 {
@@ -758,7 +779,8 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
       "kennzahl": "drei Cuts in 36h, alle über 30s, alle unter 1.600 Reaktionen",
       "release_datum": "20. Mai",
       "verdict": "zerläuft",
-      "post_url": "Exakte URL aus top_posts oder historical_top_posts, falls vorhanden. Niemals erfinden, lieber null."
+      "post_url": "Exakte URL aus top_posts oder historical_top_posts, falls vorhanden. Niemals erfinden, lieber null.",
+      "cited_post_ids": ["Liste der post_url/asset_id-Strings aus dem JSON-Anhang, auf denen die kennzahl beruht. Bei drei Cuts: alle drei IDs. Siehe EVIDENZ-PFLICHT."]
     }
   ],
   "ganz_konkret": [
@@ -767,21 +789,24 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
       "pattern": "Was ist diese Woche beobachtbar — mit konkreten Zahlen-Ankern. Beispiel: Der MK2-DE-Cut läuft 56 Sekunden bei 1.052 Reaktionen, der vergleichbare US-Cut nur 22 Sekunden bei 11.100 Reaktionen. Faktor 10, gleicher Titel, gleiche Kampagne.",
       "lern_take": "Was lernen wir daraus — in einem Satz. Beispiel: Bei Fight-Material zieht der kurze Cut die Reaktion, die lange Variante trägt sie nicht.",
       "frage": "Welche Frage stellt sich daraus für Trailerhaus — Anwendung, Pitch-Argument, eigenes Projekt. Beispiel: Wie kurz schneiden wir Fight-Material in unseren eigenen Action-Trailern? Lohnt das als Argument im nächsten Warner-Pitch?",
-      "bezug": "Exakt ein Titel aus aktuell_im_fokus oder einer dieser Strings: Format-Strategie / Posting-Rhythmus / Caption-Disziplin / Hashtag-Klammer"
+      "bezug": "Exakt ein Titel aus aktuell_im_fokus oder einer dieser Strings: Format-Strategie / Posting-Rhythmus / Caption-Disziplin / Hashtag-Klammer",
+      "cited_post_ids": ["Liste der IDs hinter pattern. Bei Markt-Vergleich beide Seiten als post_url ODER der match_key aus cross_market_matches. Siehe EVIDENZ-PFLICHT."]
     }
   ],
   "trends": [
     {
       "name": "kurzer Trend-Name auf Deutsch",
       "evidence": "konkrete Zahl, Asset-URL oder Caption-Zitat aus den Daten",
-      "implication_for_creation": "was wir konkret in Schnitt, Hook oder Rhythmus ändern sollten"
+      "implication_for_creation": "was wir konkret in Schnitt, Hook oder Rhythmus ändern sollten",
+      "cited_post_ids": ["Liste der IDs aus dem JSON-Anhang, auf denen evidence beruht. Siehe EVIDENZ-PFLICHT."]
     }
   ],
   "actions": [
     {
       "what": "konkrete Handlung",
       "why": "auf welchen Daten beruht die Empfehlung",
-      "for_whom": "Cutter / Creative Producer / Motion Designer / Hook-Verantwortlicher"
+      "for_whom": "Cutter / Creative Producer / Motion Designer / Hook-Verantwortlicher",
+      "cited_post_ids": ["Liste der IDs aus dem JSON-Anhang, auf denen why beruht. Bei reiner Format-Empfehlung ohne Zahlen-Anker leere Liste []. Siehe EVIDENZ-PFLICHT."]
     }
   ],
   "konkurrenz": {
@@ -794,7 +819,8 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann,
     "de_vs_us": "Was unterscheidet DE und US diese Woche, mit Daten-Anker — Pflicht-Achse, IMMER ausfüllen",
     "de_vs_uk": "Was unterscheidet DE und UK diese Woche, mit Daten-Anker — null lassen, wenn keine UK-Posts oder keine vergleichbare Datenlage da ist",
     "us_vs_uk": "Was unterscheidet US und UK diese Woche, mit Daten-Anker — null lassen, wenn keine UK-Posts oder keine vergleichbare Datenlage da ist",
-    "transfer_opportunity": "Was sollte zwischen den Märkten adaptiert werden — DE↔US, DE↔UK oder US↔UK, jeweils mit klarer Richtung"
+    "transfer_opportunity": "Was sollte zwischen den Märkten adaptiert werden — DE↔US, DE↔UK oder US↔UK, jeweils mit klarer Richtung",
+    "cited_post_ids": ["Sammlung der IDs ueber alle drei Achsen + transfer_opportunity. match_key-Strings aus cross_market_matches / de_uk_matches / us_uk_matches sind hier die natuerliche Referenz. Siehe EVIDENZ-PFLICHT."]
   },
   "risks": ["Kurzfassung als String — bleibt aus Backwards-Compat-Gründen"],
   "data_caveats": ["..."],
@@ -2432,6 +2458,198 @@ def _try_parse_llm_json(
         return None, strict_exc, ""
 
 
+def _build_citation_allow_set(agg: PairAggregation) -> set[str]:
+    """Sprint 28.05.2026 (Evidenz-Block) — sammelt alle zitier-faehigen
+    IDs aus der ``PairAggregation`` zu einem Set, gegen das der
+    Citation-Validator die ``cited_post_ids``-Felder der LLM-Antwort
+    prueft.
+
+    Erlaubte ID-Quellen (entspricht der EVIDENZ-PFLICHT im System-
+    Prompt):
+    - ``post_url`` aus ``top_posts`` / ``ranked_posts`` /
+      ``historical_top_posts`` jedes ``ChannelStats`` (DE/US/UK,
+      legacy top-level + per_platform).
+    - ``asset_id`` aus ``ranked_posts`` (Sprint 5c).
+    - ``match_key`` aus ``cross_market_matches`` /
+      ``de_uk_matches`` / ``us_uk_matches`` (B2).
+
+    Equality-Matching ohne URL-Normalisierung — das LLM sieht im
+    JSON-Anhang exakt die Strings, die wir hier ins Allow-Set
+    aufnehmen (gleiche ``model_dump``-Quelle wie der Prompt-Bau in
+    ``_build_user_prompt``). Wenn Phase-1-Telemetrie zeigt, dass die
+    Equality-Annahme nicht traegt (z. B. wegen Trailing-Slashes oder
+    Schema-Drift), justieren wir das Matching hier — der Validator
+    bleibt im Soft-Mode unkritisch.
+    """
+    allow: set[str] = set()
+
+    def _collect_channel(channel: Optional[ChannelStats]) -> None:
+        if channel is None:
+            return
+        for tp in channel.top_posts:
+            if tp.post_url:
+                allow.add(tp.post_url)
+        for tp in channel.historical_top_posts:
+            if tp.post_url:
+                allow.add(tp.post_url)
+        for rp in channel.ranked_posts:
+            if rp.post_url:
+                allow.add(rp.post_url)
+            if rp.asset_id:
+                allow.add(rp.asset_id)
+
+    def _collect_matches(matches: list[CrossMarketMatch]) -> None:
+        for m in matches:
+            if m.match_key:
+                allow.add(m.match_key)
+            if m.de_post_url:
+                allow.add(m.de_post_url)
+            if m.us_post_url:
+                allow.add(m.us_post_url)
+
+    # Legacy top-level Channels — vor Sprint 4 die einzige Quelle, heute
+    # Mirror der per_platform[0]. Beide einsammeln ist idempotent (Set).
+    _collect_channel(agg.de_channel)
+    _collect_channel(agg.us_channel)
+    _collect_channel(agg.uk_channel)
+    _collect_matches(agg.cross_market_matches)
+    _collect_matches(agg.de_uk_matches)
+    _collect_matches(agg.us_uk_matches)
+
+    for platform_agg in agg.per_platform or []:
+        _collect_channel(platform_agg.de_channel)
+        _collect_channel(platform_agg.us_channel)
+        _collect_channel(platform_agg.uk_channel)
+        _collect_matches(platform_agg.cross_market_matches)
+        _collect_matches(platform_agg.de_uk_matches)
+        _collect_matches(platform_agg.us_uk_matches)
+
+    return allow
+
+
+def _collect_cited_ids(report: LLMReport) -> list[tuple[str, list[str]]]:
+    """Liefert eine Liste von ``(section_path, cited_ids)``-Paaren ueber
+    alle Narrativ-Sektionen mit ``cited_post_ids``-Feld. ``section_path``
+    ist der Punkt-Notations-Pfad ins JSON (z.B.
+    ``"trends[0].cited_post_ids"``) — landet so im Log und macht die
+    Phase-1-Telemetrie auswertbar.
+
+    Optional-Sektionen (``aktuell_im_fokus``, ``ganz_konkret``) werden
+    ausgelassen, wenn sie ``None`` sind — sie sind in Backwards-Compat-
+    Modus seit Sprint-Trailerhaus-Prompt-v1 nullable.
+    """
+    sections: list[tuple[str, list[str]]] = []
+    for i, trend in enumerate(report.trends or []):
+        sections.append((f"trends[{i}].cited_post_ids", trend.cited_post_ids))
+    for i, action in enumerate(report.actions or []):
+        sections.append((f"actions[{i}].cited_post_ids", action.cited_post_ids))
+    for i, fokus in enumerate(report.aktuell_im_fokus or []):
+        sections.append(
+            (f"aktuell_im_fokus[{i}].cited_post_ids", fokus.cited_post_ids)
+        )
+    for i, schnitt in enumerate(report.ganz_konkret or []):
+        sections.append(
+            (f"ganz_konkret[{i}].cited_post_ids", schnitt.cited_post_ids)
+        )
+    sections.append(
+        (
+            "cross_market_insight.cited_post_ids",
+            report.cross_market_insight.cited_post_ids,
+        )
+    )
+    return sections
+
+
+def _validate_citations(
+    report: LLMReport,
+    agg: PairAggregation,
+    *,
+    pair_key: str,
+    iso_year: int,
+    iso_week: int,
+) -> bool:
+    """Sprint 28.05.2026 (Stufenmodell B→A) — prueft die
+    ``cited_post_ids``-Felder der LLM-Antwort gegen das Allow-Set aus
+    ``PairAggregation``.
+
+    Returns ``True`` wenn alle zitierten IDs belegbar sind, sonst
+    ``False``. Phase 1 (Default,
+    ``settings.insight_citation_strict_enforce=False``): Caller ignoriert
+    das Bool und liefert den Brief trotzdem aus — der Log-Event
+    ``insight-engine-citation-unverified`` liefert die Telemetrie fuer
+    den Cutover-Entscheid. Phase 2 (Strikt, ENV-Flip auf True): Caller
+    wirft die Antwort weg und triggert den bestehenden Retry-Loop.
+
+    Strikt-Mode-Caller-Erwartung: ``False`` an der vordersten Stelle des
+    ``parsed is not None``-Pfades behandeln (analog zu Schema-
+    Validation-Fail), bevor ``llm_output`` gesetzt wird.
+
+    Telemetrie-Detail: pro Sektion mit nicht-belegten IDs ein eigenes
+    WARNING-Log mit ``found_ids`` / ``missing_ids`` — so kann Wolf
+    auswerten, ob bestimmte Sektionen schlechter zitieren als andere,
+    bevor der Strikt-Cutover scharf geschaltet wird.
+    """
+    allow_set = _build_citation_allow_set(agg)
+    cited_sections = _collect_cited_ids(report)
+
+    # Counter ueber alle Sektionen — landet als zusammenfassender
+    # INFO-Log am Ende der Validation, sodass Cron-Lauf-Statistiken
+    # nicht ueber WARNING-Records aggregieren muessen.
+    total_cited = 0
+    total_missing = 0
+    total_empty_sections = 0
+    unverified_sections: list[dict[str, Any]] = []
+
+    for section_path, cited_ids in cited_sections:
+        if not cited_ids:
+            total_empty_sections += 1
+            continue
+        total_cited += len(cited_ids)
+        missing = [cid for cid in cited_ids if cid not in allow_set]
+        if missing:
+            total_missing += len(missing)
+            unverified_sections.append(
+                {
+                    "section": section_path,
+                    "cited_count": len(cited_ids),
+                    "missing_count": len(missing),
+                    "missing_ids": missing[:5],  # cap fuer Log-Lesbarkeit
+                }
+            )
+
+    all_belegt = total_missing == 0
+
+    if unverified_sections:
+        for entry in unverified_sections:
+            logger.warning(
+                "insight-engine-citation-unverified",
+                extra={
+                    "pair_key": pair_key,
+                    "iso_year": iso_year,
+                    "iso_week": iso_week,
+                    "allow_set_size": len(allow_set),
+                    **entry,
+                },
+            )
+
+    logger.info(
+        "insight-engine-citation-summary",
+        extra={
+            "pair_key": pair_key,
+            "iso_year": iso_year,
+            "iso_week": iso_week,
+            "allow_set_size": len(allow_set),
+            "cited_ids_total": total_cited,
+            "missing_ids_total": total_missing,
+            "sections_empty": total_empty_sections,
+            "sections_total": len(cited_sections),
+            "all_belegt": all_belegt,
+        },
+    )
+
+    return all_belegt
+
+
 def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
     in_rate = settings.anthropic_opus_input_per_1k_usd or 0.0
     out_rate = settings.anthropic_opus_output_per_1k_usd or 0.0
@@ -2593,34 +2811,55 @@ def generate_weekly_report(
     # ``_call_and_extract``).
     MAX_RECALLS = 2
     call_attempts: list[tuple[Any, str]] = []
+    strict_citations = bool(settings.insight_citation_strict_enforce)
 
-    message, raw_text = _call_and_extract(attempt_index=0)
-    call_attempts.append((message, raw_text))
-    parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
+    # Loop-State: ``parsed`` ist die letzte JSON-Decode-Ausgabe (oder
+    # None bei Parse-Fail), ``llm_output`` der schema-validierte
+    # ``LLMReport`` (oder None bei Schema-Fail oder Citation-Fail im
+    # Strikt-Modus), ``schema_validation_done`` markiert deterministische
+    # Schema-Fails (kein Retry sinnvoll). ``citation_strict_failed``
+    # markiert Strikt-Modus-Citation-Fails (retryable wie ein Parse-Fail).
+    parsed: Optional[Any] = None
+    parse_error: Optional[json.JSONDecodeError] = None
+    parse_path: str = ""
+    llm_output: Optional[LLMReport] = None
+    raw_for_response: Optional[str] = None
+    schema_validation_failed = False
+    citation_strict_failed = False
 
-    for retry_n in range(1, MAX_RECALLS + 1):
-        if parsed is not None:
-            break
-        logger.warning(
-            "insight-engine-json-parse-retry",
-            extra={
-                "pair": pair_key,
-                "attempt": retry_n,
-                "max_attempts": MAX_RECALLS,
-                "error_type": type(parse_error).__name__ if parse_error else "Unknown",
-                "error_message": str(parse_error)[:200] if parse_error else "",
-            },
-        )
+    for attempt_n in range(MAX_RECALLS + 1):
+        if attempt_n > 0:
+            # Log-Reason: Parse-Fail vs Citation-Strikt-Fail unterscheiden,
+            # damit Phase-1-Telemetrie das Retry-Verhalten aufschluesseln
+            # kann (interessant fuer den B→A-Cutover-Entscheid).
+            reason = (
+                "citation-strict-unverified"
+                if citation_strict_failed and parsed is not None
+                else "json-parse"
+            )
+            logger.warning(
+                "insight-engine-json-parse-retry",
+                extra={
+                    "pair": pair_key,
+                    "attempt": attempt_n,
+                    "max_attempts": MAX_RECALLS,
+                    "reason": reason,
+                    "error_type": type(parse_error).__name__ if parse_error else "Unknown",
+                    "error_message": str(parse_error)[:200] if parse_error else "",
+                },
+            )
         try:
-            message, raw_text = _call_and_extract(attempt_index=retry_n)
+            message, raw_text = _call_and_extract(attempt_index=attempt_n)
         except Exception as call_exc:
             # A re-call itself raised (rate-limit exhaustion, API error).
             # Stop retrying — finaler Fallback (persist-skip) übernimmt.
+            if attempt_n == 0:
+                raise  # initial call propagates (existing behavior)
             logger.error(
                 "insight-engine-json-parse-recall-aborted",
                 extra={
                     "pair": pair_key,
-                    "attempt": retry_n,
+                    "attempt": attempt_n,
                     "error_type": type(call_exc).__name__,
                     "error_message": str(call_exc)[:200],
                 },
@@ -2628,11 +2867,59 @@ def generate_weekly_report(
             break
         call_attempts.append((message, raw_text))
         parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
+        # Citation-Flag pro Attempt zuruecksetzen, damit ein vorheriges
+        # Strikt-Fail nicht das Retry-Ergebnis vergiftet.
+        citation_strict_failed = False
 
-    llm_output: Optional[LLMReport] = None
-    raw_for_response: Optional[str] = None
+        if parsed is None:
+            # JSON-Parse-Fail → naechster Retry-Attempt (oder Loop-Ende).
+            continue
 
-    if parsed is not None:
+        try:
+            llm_output = LLMReport.model_validate(parsed)
+        except ValueError as exc:
+            # JSON ist valide, aber Pydantic-Schema schlaegt fehl (z.B.
+            # fehlende Required-Felder, falsche Typen). Schema-Fehler
+            # werden NICHT erneut gecallt — deterministischer Prompt-/
+            # Schema-Drift, kein transienter Anthropic-Glitch.
+            cleaned_for_log = _strip_codefence(raw_text)
+            logger.error(
+                "insight-engine-schema-validation-failed",
+                extra={
+                    "error_message": str(exc)[:500],
+                    "raw_response_length": len(cleaned_for_log),
+                    "raw_response_first_500": cleaned_for_log[:500],
+                },
+            )
+            raw_for_response = raw_text
+            schema_validation_failed = True
+            llm_output = None
+            break
+
+        # Schema-OK → Citation-Validator. Im Soft-Modus (Phase 1, Default)
+        # ignoriert der Caller das Ergebnis (Brief geht raus, Telemetrie
+        # landet im Log). Im Strikt-Modus (Phase 2 nach ENV-Flip) faellt
+        # ein nicht-belegtes Zitat in die Retry-Strecke.
+        citation_ok = _validate_citations(
+            llm_output,
+            agg,
+            pair_key=pair_key,
+            iso_year=agg.iso_year,
+            iso_week=agg.iso_week,
+        )
+        if strict_citations and not citation_ok:
+            citation_strict_failed = True
+            # Antwort verwerfen, bis MAX_RECALLS erreicht — wenn am Ende
+            # immer noch nicht belegt, kommt das raw_text in
+            # raw_llm_text, llm_output bleibt None (Persist-Skip).
+            raw_for_response = raw_text
+            llm_output = None
+            continue
+
+        # Erfolg: gueltige + (im Soft-Modus auch unverifizierte) Antwort.
+        break
+
+    if llm_output is not None:
         # Surface which path rescued the parse — strict vs lenient (A) vs
         # re-call (B) vs A-after-B. Only logged when something non-trivial
         # happened so the happy-path log stream stays quiet.
@@ -2646,27 +2933,20 @@ def generate_weekly_report(
                     "recall_count": len(call_attempts) - 1,
                 },
             )
-        try:
-            llm_output = LLMReport.model_validate(parsed)
-        except ValueError as exc:
-            # JSON ist valide, aber Pydantic-Schema schlaegt fehl (z.B.
-            # fehlende Required-Felder, falsche Typen). Andere Failure-
-            # Mode als JSONDecodeError — kein ``.pos`` verfuegbar, also
-            # nur first_500 zur Diagnose. Strukturell-getrenntes Log-Event
-            # damit Railway-Filter zwischen "Anthropic gibt Mist" und
-            # "unser Schema passt nicht" unterscheiden kann. Schema-Fehler
-            # werden NICHT erneut gecallt — das ist ein deterministischer
-            # Prompt-/Schema-Drift, kein transienter Anthropic-Glitch.
-            cleaned_for_log = _strip_codefence(raw_text)
-            logger.error(
-                "insight-engine-schema-validation-failed",
-                extra={
-                    "error_message": str(exc)[:500],
-                    "raw_response_length": len(cleaned_for_log),
-                    "raw_response_first_500": cleaned_for_log[:500],
-                },
-            )
-            raw_for_response = raw_text
+    elif schema_validation_failed:
+        pass  # bereits oben geloggt
+    elif citation_strict_failed:
+        # Strikt-Modus, alle Retries ohne belegbare Zitate verbraucht.
+        # Eigenes Log-Event damit Wolf die "wie oft scheitert Strikt?"-
+        # Frage filtern kann; raw_for_response steht bereits.
+        logger.error(
+            "insight-engine-citation-strict-exhausted",
+            extra={
+                "pair": pair_key,
+                "anthropic_calls": len(call_attempts),
+                "recall_count": len(call_attempts) - 1,
+            },
+        )
     else:
         # Finaler Fallback nach allen Retries. PR #154 hatte diesen Log
         # angelegt; M2 zieht ihn unverändert nach hinten (nach allen
