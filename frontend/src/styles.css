@@ -1327,3 +1327,186 @@ a:hover { text-decoration: underline; }
   border: 1px solid #e7a39c;
   color: #7a1212;
 }
+
+/* Sprint 28.05.2026 (PDF-Baustein 2) — "Als PDF speichern"-Button.
+   Sitzt neben dem Ansichts-Modus-Dropdown. Im Print-CSS unten via
+   display:none ausgeblendet — der Button selbst soll nicht im PDF
+   landen. */
+.pdf-export-btn {
+  background: #1d2330;
+  color: #fbf8f2;
+  border: 1px solid #1d2330;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.pdf-export-btn:hover {
+  background: #F26B5E;
+  border-color: #F26B5E;
+}
+.pdf-export-btn:focus-visible {
+  outline: 2px solid #F26B5E;
+  outline-offset: 2px;
+}
+
+/* Sprint 28.05.2026 (PDF-Baustein 2) — Print-Modus: alle drei
+   Rollen-Bloecke untereinander statt im Tab-Switcher. Die Tablist-
+   Buttons sind in diesem Modus weg (das Rendering laesst sie ueber
+   ``printMode``-Check aus, siehe RolesTabSwitcher), und jeder Panel
+   bekommt ein Sub-Heading "Fuer den X". */
+.roles-tabs-print {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.roles-print-label {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1d2330;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.roles-tab-panel-print {
+  padding: 12px 0;
+  border-top: 1px solid #ece4d8;
+}
+.roles-tab-panel-print:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+/* ============================================================
+   PRINT-STYLESHEET — Pair-Brief als PDF speichern
+   ============================================================
+   Konzept: der Browser-Druck (auch "Als PDF speichern" im Druckdialog)
+   nutzt diese Regeln. Print-Mode wird von React via PrintModeContext
+   bereits sichergestellt (alle Klapp-Container offen, alle drei
+   Rollen-Tabs sichtbar). Print-CSS macht den DOM dann druckfreundlich.
+*/
+
+@media print {
+  /* Seiten-Setup: A4 mit dezenten Raendern, hellem Hintergrund. */
+  @page {
+    size: A4;
+    margin: 18mm 14mm;
+  }
+  html, body {
+    background: #ffffff !important;
+    color: #1d2330 !important;
+  }
+
+  /* Interaktions-Elemente und Navigations-Hilfen ausblenden — die
+     gehoeren nicht ins gedruckte Dokument. */
+  .pdf-export-btn,
+  .viewmode-toolbar,
+  .ranking-controls,
+  .ranking-toggle,
+  .roundup-segment-card details > summary,
+  .footer-status a,
+  .pair-tile-action,
+  .hero__back-link,
+  nav.tabs {
+    display: none !important;
+  }
+
+  /* Hero: dunkler Teal -> heller Hintergrund + dunkle Schrift
+     (tintensparend, druckfreundlich). */
+  .insight-page .hero,
+  .insight-page .hero * {
+    background: #ffffff !important;
+    color: #1d2330 !important;
+    border: none !important;
+  }
+  .insight-page .hero .eyebrow {
+    color: #6b6657 !important;
+  }
+
+  /* CollapsibleCard im PrintMode: Tab-Button raus, Inhalt sichtbar.
+     Im React-State ist effectiveOpen=true (PrintModeContext) → der
+     Inhalt ist gemountet. Wir blenden den Klick-Header aus, damit
+     der Druck nicht den Chevron-Pfeil zeigt. Stattdessen rendert
+     der collapsible-title als normales Heading. */
+  .collapsible-header {
+    cursor: default !important;
+  }
+  .collapsible-header .collapsible-chevron {
+    display: none !important;
+  }
+  .collapsible-card .collapsible-header,
+  .collapsible-inner .collapsible-header {
+    padding: 0 !important;
+    margin: 0 0 12px !important;
+  }
+  .collapsible-title {
+    font-size: 17px !important;
+    font-weight: 700 !important;
+    color: #1d2330 !important;
+  }
+  .collapsible-subtitle {
+    color: #6b6657 !important;
+    font-size: 12px !important;
+  }
+
+  /* Karten ohne Schatten/Hover-Effekte, mit Border statt Schatten.
+     Wichtig: break-inside avoid damit eine Karte nicht mitten
+     durchgeschnitten wird. */
+  .card, .collapsible-card, .collapsible-inner, .ranking-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+    border: 1px solid #ece4d8 !important;
+    background: #ffffff !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* Page-break-Hints VOR den Container-Sektionen, damit die
+     Drill-Down-Bloecke moeglichst auf eigenen Seiten beginnen. */
+  .collapsible-card {
+    break-before: auto;
+    page-break-before: auto;
+  }
+
+  /* Headings sollen nicht alleine am Ende einer Seite stehen. */
+  h1, h2, h3, h4 {
+    break-after: avoid;
+    page-break-after: avoid;
+    color: #1d2330 !important;
+  }
+
+  /* Plattform-Pills tintensparend: Hintergrund weg, Rahmen + Text-
+     farbe behalten Plattform-Identifikation. */
+  .platform-pill {
+    background: transparent !important;
+    border: 1px solid currentColor !important;
+    color: #1d2330 !important;
+  }
+
+  /* Top-Posts-Block: Hover/Animation aus. */
+  .pair-tile,
+  .pair-tile:hover {
+    transform: none !important;
+    box-shadow: none !important;
+    border: 1px solid #ece4d8 !important;
+  }
+
+  /* Roundup-Detail-Aufklapper hat <details>-Native — die im Print
+     erzwingen wir offen (sonst fehlen die Details), aber das Summary
+     selbst (Klick-Aufforderung) versteckt sich. */
+  details {
+    /* Native: open=true forciert sich nicht ueber CSS, aber wir
+       enthuellen das Inhalt-Element via display sichtbar machen
+       falls der Browser CSS-only-Aufklapp respektiert. Echtes
+       Forcing braucht JS — fuer den Pair-Brief sind die Daten
+       ohnehin nicht in <details>, daher Best-Effort. */
+  }
+
+  /* Print-spezifische Roles-Bloecke: kein Card-Frame ueber die
+     einzelnen Panels (haetten zu viele verschachtelte Borders). */
+  .roles-tab-panel-print {
+    border-top: 1px solid #ece4d8 !important;
+  }
+}
