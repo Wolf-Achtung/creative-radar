@@ -632,11 +632,39 @@ a:hover { text-decoration: underline; }
   color: inherit;
   cursor: pointer;
   border-left: 3px solid rgba(242, 107, 94, 0.55);
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
+/* Sprint 28.05.2026 (Klick-Signal): Hover hebt die Kachel sichtbar an
+   (translateY + dezenter Schatten) — klassisches Navigations-Affordance.
+   Die Roundup-Kacheln haben keinen solchen Lift; ihre <details>-Card
+   bleibt visuell ruhig liegen und klappt in-place auf. Diese
+   Asymmetrie ist Absicht: zwei verschiedene Interaktionen, zwei
+   verschiedene Hover-Reaktionen. */
 .pair-tile:hover {
   border-left-color: #F26B5E;
-  transform: translateX(1px);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(29, 35, 48, 0.08);
+}
+.pair-tile:focus-visible {
+  outline: 2px solid #F26B5E;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+/* Action-Affordance unten in der Kachel — "→ zum Brief". Dezent grau
+   bis Hover, dann Trailerhaus-Rot. Bewusst NICHT das ▸-Dreieck der
+   Roundup-Kacheln: dort signalisiert das Dreieck "klappt auf", hier
+   signalisiert der Pfeil "fuehrt weiter". */
+.pair-tile-action {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9a8f7e;
+  letter-spacing: 0.01em;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+.pair-tile:hover .pair-tile-action {
+  color: #F26B5E;
+  transform: translateX(3px);
 }
 .pair-tile-name {
   display: block;
