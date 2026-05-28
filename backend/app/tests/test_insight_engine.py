@@ -3482,3 +3482,190 @@ def test_generate_weekly_report_strict_mode_exhausted_falls_back_to_raw(
     ]
     assert len(exhausted) == 1
 
+
+# ---------- Sprint 28.05.2026 Punkt 4: Breakout-Score ----------------------
+
+
+def _seed_pair_with_breakout_pool(session: Session) -> dict:
+    """Seed-Fixture fuer Breakout-Tests: ein Channel (warnerbros US) mit
+    6 Posts, davon einer klarer Ausreisser (~10x ueber dem Cluster), und
+    DE-Channel mit nur 2 Posts (unter der ``BREAKOUT_MIN_SAMPLE_SIZE``-
+    Schwelle, sodass dort kein Score berechnet wird).
+    """
+    us = Channel(
+        name="Warner Bros US", platform="tiktok",
+        url="https://www.tiktok.com/@warnerbros", handle="warnerbros",
+        market=Market.US,
+    )
+    de = Channel(
+        name="Warner Bros DE", platform="tiktok",
+        url="https://www.tiktok.com/@warnerbrosdeutschland",
+        handle="warnerbrosdeutschland", market=Market.DE,
+    )
+    session.add_all([us, de])
+    session.commit(); session.refresh(us); session.refresh(de)
+
+    # 5 Cluster-Posts um 100 Engagement + 1 Breakout @ 1000, jung.
+    cluster = [
+        _make_post(session, us, caption=f"cluster {i}",
+                   likes=100 + i * 10, days_ago=10 - i, url_suffix=f"c{i}")
+        for i in range(5)
+    ]
+    breakout = _make_post(
+        session, us, caption="big breakout",
+        likes=1000, days_ago=2, url_suffix="break",
+    )
+    # DE: zu wenig Posts → kein Score erwartet.
+    de_p1 = _make_post(session, de, caption="de a", likes=80, days_ago=3, url_suffix="de1")
+    de_p2 = _make_post(session, de, caption="de b", likes=120, days_ago=5, url_suffix="de2")
+
+    return {
+        "us": us, "de": de,
+        "us_cluster": cluster, "us_breakout": breakout,
+        "de_posts": [de_p1, de_p2],
+    }
+
+
+def test_breakout_score_identifies_outlier_above_channel_baseline():
+    """Channel mit 6 Posts (5 Cluster ~100 + 1 Hit @ 1000) → der Hit
+    bekommt den hoechsten weighted_score und multiplier deutlich > 1,
+    die Cluster-Posts haben multiplier ~ 0.5 (Mean wird vom Hit
+    hochgezogen)."""
+    from app.services.insight_engine import _compute_breakout_scores
+    from datetime import timezone, datetime
+    with _session() as session:
+        data = _seed_pair_with_breakout_pool(session)
+        all_posts = list(data["us_cluster"]) + [data["us_breakout"]]
+        now = datetime.now(timezone.utc)
+        scores = _compute_breakout_scores(all_posts, now=now)
+
+        assert len(scores) == 6  # alle 6 Posts haben Score
+        hit_score = scores[data["us_breakout"].id]
+        assert hit_score.multiplier > 2.5, (
+            f"Breakout-Post sollte deutlich ueber Schnitt liegen, got "
+            f"{hit_score.multiplier:.2f}x"
+        )
+        assert hit_score.z_score > 1.5, (
+            f"Breakout sollte > 1.5 sigma sein, got z={hit_score.z_score:.2f}"
+        )
+        # Cluster-Posts liegen unter dem (vom Hit hochgezogenen) Mean.
+        for p in data["us_cluster"]:
+            assert scores[p.id].multiplier < 1.0
+
+
+def test_breakout_score_skipped_below_min_sample_size():
+    """Channel mit < 5 Posts → keine Scores berechnet (Robustheits-Regel
+    aus dem Briefing)."""
+    from app.services.insight_engine import _compute_breakout_scores
+    from datetime import timezone, datetime
+    with _session() as session:
+        data = _seed_pair_with_breakout_pool(session)
+        now = datetime.now(timezone.utc)
+        scores = _compute_breakout_scores(data["de_posts"], now=now)
+        assert scores == {}
+
+
+def test_breakout_score_skipped_when_all_engagements_identical():
+    """Wenn alle Posts identische Engagement-Summe haben, ist std=0 und
+    der z-Score nicht definiert → leeres Dict, alle Posts score-los."""
+    from app.services.insight_engine import _compute_breakout_scores
+    from datetime import timezone, datetime
+    with _session() as session:
+        us = Channel(
+            name="Warner Bros US", platform="tiktok",
+            url="https://x", handle="warnerbros", market=Market.US,
+        )
+        session.add(us); session.commit(); session.refresh(us)
+        posts = [
+            _make_post(session, us, caption=f"flat {i}", likes=100,
+                       days_ago=i + 1, url_suffix=f"f{i}")
+            for i in range(7)
+        ]
+        scores = _compute_breakout_scores(posts, now=datetime.now(timezone.utc))
+        assert scores == {}
+
+
+def test_breakout_score_decay_weights_newer_posts_higher():
+    """Recency-Decay: zwei Posts mit identischer Engagement-Summe (= z-
+    Score identisch), unterschiedlichem Alter → weighted_score ist beim
+    jueneren hoeher. Beweist dass die Decay-Komponente tatsaechlich
+    multiplikativ greift, nicht nur dekorativ ist."""
+    from app.services.insight_engine import _compute_breakout_scores, BREAKOUT_HALFLIFE_DAYS
+    from datetime import timezone, datetime
+    with _session() as session:
+        us = Channel(
+            name="Warner Bros US", platform="tiktok",
+            url="https://x", handle="warnerbros", market=Market.US,
+        )
+        session.add(us); session.commit(); session.refresh(us)
+        # 4 Cluster-Posts mit verteilten Engagements (damit std > 0) +
+        # 2 Breakout-Posts mit IDENTISCHER Engagement-Summe, aber 0 vs
+        # 14 Tage alt.
+        cluster_eng = [50, 70, 90, 110]
+        cluster = [
+            _make_post(session, us, caption=f"c{i}",
+                       likes=cluster_eng[i], days_ago=20, url_suffix=f"c{i}")
+            for i in range(4)
+        ]
+        recent = _make_post(session, us, caption="recent hit", likes=500,
+                            days_ago=0, url_suffix="recent")
+        old = _make_post(session, us, caption="old hit", likes=500,
+                         days_ago=int(2 * BREAKOUT_HALFLIFE_DAYS),
+                         url_suffix="old")
+        scores = _compute_breakout_scores(cluster + [recent, old],
+                                          now=datetime.now(timezone.utc))
+        recent_s = scores[recent.id]
+        old_s = scores[old.id]
+        # Z-Score identisch (gleiche Engagement → gleiche Position relativ
+        # zu Mean/Std).
+        assert abs(recent_s.z_score - old_s.z_score) < 1e-9
+        # Decay-Weight beim Frischen ~1.0, beim 2-Halbwertzeiten-alten ~0.25.
+        assert recent_s.decay_weight > 0.95
+        assert 0.20 < old_s.decay_weight < 0.30
+        # Folge: weighted_score deutlich groesser beim frischen.
+        assert recent_s.weighted_score > old_s.weighted_score * 3
+
+
+def test_channel_stats_attaches_breakout_score_and_populates_breakouts_slot():
+    """Integration: ``_channel_stats`` muss den Score an jeden RankedPost
+    haengen und die Top-N nach weighted_score in ``breakouts``
+    befuellen."""
+    with _session() as session:
+        data = _seed_pair_with_breakout_pool(session)
+        agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        us_stats = agg.us_channel
+
+        # Alle 6 US-RankedPosts haben breakout_score gesetzt.
+        assert len(us_stats.ranked_posts) == 6
+        scored = [r for r in us_stats.ranked_posts if r.breakout_score is not None]
+        assert len(scored) == 6
+
+        # breakouts: Top-3 nach weighted_score; Position 1 ist der Hit.
+        assert 1 <= len(us_stats.breakouts) <= 3
+        top_breakout = us_stats.breakouts[0]
+        assert top_breakout.post_url and "break" in top_breakout.post_url
+        assert top_breakout.breakout_score.multiplier > 2.5
+
+        # DE-Channel hat nur 2 Posts → keine Scores, leerer breakouts-Slot.
+        de_stats = agg.de_channel
+        assert len(de_stats.ranked_posts) == 2
+        assert all(r.breakout_score is None for r in de_stats.ranked_posts)
+        assert de_stats.breakouts == []
+
+
+def test_breakout_score_is_deterministic_across_calls():
+    """Persistenz-Cache-Garantie: zwei ``aggregate_pair``-Aufrufe
+    innerhalb derselben ISO-Woche produzieren identische
+    ``breakouts``-Reihenfolge. Wichtig, damit Cache-Hit-Briefe
+    byte-fuer-byte zu Cache-Miss-Briefen passen."""
+    with _session() as session:
+        _seed_pair_with_breakout_pool(session)
+        agg1 = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        agg2 = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
+        urls1 = [r.post_url for r in agg1.us_channel.breakouts]
+        urls2 = [r.post_url for r in agg2.us_channel.breakouts]
+        assert urls1 == urls2
+        scores1 = [r.breakout_score.weighted_score for r in agg1.us_channel.breakouts]
+        scores2 = [r.breakout_score.weighted_score for r in agg2.us_channel.breakouts]
+        assert scores1 == scores2
+
