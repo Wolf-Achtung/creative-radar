@@ -643,13 +643,36 @@ a:hover { text-decoration: underline; }
   font-size: 16px;
   letter-spacing: -0.01em;
 }
-.pair-tile-metric {
-  font-size: 13px;
+/* Sprint 28.05.2026 (Option B / Headline) — Headline ist das neue
+   tragende Element der Studio-Kachel. Damit Studio- und Verleiher-
+   Kacheln auf Augenhoehe stehen, ist sie 14px / line-height 1.4 /
+   line-clamp 3 (max ca. 3 Zeilen, danach Ellipse). Das haelt die
+   Grid-Hoehe stabil bei langen 90-Zeichen-Headlines. Die Kennzahl/
+   Frische-Zeilen darunter sind sekundaer (kleinere Schrift). */
+.pair-tile-headline {
+  margin: 6px 0 4px;
+  font-size: 14px;
+  line-height: 1.4;
   color: #1d2330;
-  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pair-tile-empty-hint {
+  margin: 6px 0 4px;
+  font-size: 13px;
+  font-style: italic;
+  color: #9a8f7e;
+}
+.pair-tile-metric {
+  font-size: 12px;
+  color: #6b6657;
+  margin-top: 2px;
 }
 .pair-tile-meta {
-  font-size: 12px;
+  font-size: 11px;
   color: #9a8f7e;
 }
 

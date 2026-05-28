@@ -899,6 +899,20 @@ function formatPairUpdated(value) {
   return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
 }
 
+// Sprint 28.05.2026 (Option B) — Brief ist "stale" wenn die juengste
+// generated_at-Zeit mehr als 7 Tage zurueckliegt. Frontend macht das
+// transparent ("Aktualisiert TT.MM. — aelter als eine Woche"), damit
+// der Nutzer nicht denkt, die Headline waere von dieser Woche, wenn
+// der Cron mal hakt. 7 Tage = ein Brief-Rhythmus; danach ist die
+// Anzeige "nicht mehr aktuell".
+const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
+function isBriefStale(value) {
+  if (!value) return false;
+  const ts = new Date(value).getTime();
+  if (Number.isNaN(ts)) return false;
+  return (Date.now() - ts) > STALE_THRESHOLD_MS;
+}
+
 function pairDeviationLabel(pair, defaults) {
   // Pill-Text wenn die Kachel von der Sektions-Default-Kombi abweicht.
   // ``null`` = Default, kein Pill noetig. Markt-Abweichung wird als
@@ -987,6 +1001,8 @@ function App() {
               const deviation = pairDeviationLabel(pair, sectionDefaults);
               const count = pair.posts_count_this_week ?? 0;
               const generated = formatPairUpdated(pair.last_generated_at);
+              const stale = isBriefStale(pair.last_generated_at);
+              const headline = (pair.headline || '').trim();
               return (
                 <a
                   key={pair.pair_key}
@@ -997,11 +1013,28 @@ function App() {
                   {deviation && (
                     <span className="pair-tile-deviation">{deviation}</span>
                   )}
+                  {/* Sprint 28.05.2026 (Option B): Headline als Lead.
+                      Wenn kein Brief existiert (has_brief=false), wird
+                      diese Zeile bewusst weggelassen — Kachel bleibt
+                      sauber mit Name + Kennzahl. Bei has_brief=true
+                      aber leerer Headline (Backend ist robust gegen
+                      drei Empty-Faelle) rendert nichts — Kennzahl
+                      uebernimmt visuell. */}
+                  {headline && (
+                    <p className="pair-tile-headline">{headline}</p>
+                  )}
+                  {!pair.has_brief && (
+                    <span className="pair-tile-empty-hint">Brief wird vorbereitet.</span>
+                  )}
                   <span className="pair-tile-metric">
                     {`${count} ${count === 1 ? 'Post' : 'Posts'} diese Woche`}
                   </span>
                   <span className="pair-tile-meta">
-                    {generated ? `Aktualisiert ${generated}` : 'Aktualisiert —'}
+                    {generated
+                      ? (stale
+                          ? `Aktualisiert ${generated} — älter als eine Woche`
+                          : `Aktualisiert ${generated}`)
+                      : 'Aktualisiert —'}
                   </span>
                 </a>
               );
