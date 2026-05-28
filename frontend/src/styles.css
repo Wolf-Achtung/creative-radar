@@ -583,6 +583,18 @@ a:hover { text-decoration: underline; }
   margin: 0;
 }
 
+/* Sprint 28.05.2026 (Admin-Sektion) — Header-Actions im Admin-Bereich.
+   Logout-Button + Back-Link rechts neben dem Hero-Titel. */
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.admin-logout-btn {
+  padding: 6px 14px;
+}
+
 /* Sprint 28.05.2026 (IA-Umbau, Baustein 4) — Ansichts-Modus-Toolbar.
    Sitzt zwischen WeekBanner und StaleWarning, klein und unaufdringlich.
    Briefing-Vorgabe: oben rechts im Brief. */

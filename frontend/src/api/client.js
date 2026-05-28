@@ -50,8 +50,15 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Sprint 28.05.2026 (Admin-Login): credentials: 'include' damit der
+// Browser das HttpOnly-Session-Cookie auf Cross-Subdomain-Aufrufen
+// (app.creative-radar.de → api.creative-radar.de) mitschickt. CORS-
+// Setup im Backend hat allow_credentials=True. Routes ohne Session
+// bleiben unbeeintraechtigt — der Browser sendet nur das Cookie, das
+// fuer die Domain gesetzt ist (nach Login).
 export async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(),
@@ -65,6 +72,7 @@ export async function api(path, options = {}) {
 export async function upload(path, formData) {
   const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
+    credentials: 'include',
     headers: { ...authHeaders() },
     body: formData,
   });
@@ -117,4 +125,13 @@ export const endpoints = {
   generateReport: (payload) => api('/api/reports/generate-weekly', { method: 'POST', body: JSON.stringify(payload) }),
   suggestReport: (payload) => api('/api/reports/suggest', { method: 'POST', body: JSON.stringify(payload) }),
   generateSuggestedReport: (payload) => api('/api/reports/generate', { method: 'POST', body: JSON.stringify(payload) }),
+
+  // Sprint 28.05.2026 (Admin-Login). Login setzt das HttpOnly-Cookie
+  // im Browser; nachfolgende Calls bringen es ueber credentials:'include'
+  // mit. Logout cleared das Cookie. Me liefert {authenticated, auth_enabled}
+  // und ist die einzige Route, die ohne Session 200 statt 401 sagt — das
+  // Frontend kann beim Page-Load checken ohne Error-Toast.
+  adminLogin: (password) => api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password }) }),
+  adminLogout: () => api('/api/admin/logout', { method: 'POST' }),
+  adminMe: () => api('/api/admin/me'),
 };
