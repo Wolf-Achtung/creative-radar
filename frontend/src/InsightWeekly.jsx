@@ -478,6 +478,17 @@ function RolesTabSwitcher({ output, pairKey, initialActiveTab }) {
     `creative-radar:roles-tab:${pairKey}`,
     initialActiveTab || 'cutter',
   );
+  // Sprint 28.05.2026 (IA-Umbau, Baustein 4): wenn der Ansichts-Modus
+  // einen neuen ``initialActiveTab`` reinreicht (Switch auf
+  // "Cutter-Sicht" / "Producer-Sicht"), den aktiven Tab dort hin
+  // springen lassen. ``viewMode='all'`` liefert ``undefined`` und der
+  // Effekt skippt — User-Wahl bleibt persistiert.
+  useEffect(() => {
+    if (initialActiveTab && initialActiveTab !== activeKey) {
+      setActiveKey(initialActiveTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialActiveTab]);
   if (!anyData) return null;
 
   const activeTab = ROLE_TABS.find((t) => t.key === activeKey) || ROLE_TABS[0];
@@ -704,6 +715,14 @@ function CollapsibleCard({
   children,
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  // Sprint 28.05.2026 (IA-Umbau, Baustein 4): wenn der Ansichts-Modus-
+  // Umschalter den ``defaultOpen``-Prop aendert (z.B. von "all" auf
+  // "cutter"), den Klapp-Zustand neu setzen. User-Toggles innerhalb
+  // desselben ViewMode (gleicher defaultOpen-Wert) bleiben erhalten —
+  // useEffect feuert nur, wenn die Dep tatsaechlich wechselt.
+  useEffect(() => {
+    setIsOpen(defaultOpen);
+  }, [defaultOpen]);
   const contentId = useId();
   const headerId = useId();
   const className = variant === 'inner'
@@ -1433,10 +1452,38 @@ function TopRankingSection({ aggregation, pairKey }) {
 // "failed" state. Bump if Wolf raises max_tokens beyond 8k.
 const SLOW_THRESHOLD_MS = 60_000;
 
+// Sprint 28.05.2026 (IA-Umbau, Baustein 4) — Ansichts-Modus-Umschalter.
+// Drei Werte; steuert nur die ``defaultOpen``-States der vier Klapp-
+// Container + den initialen Rollen-Tab. KEIN hartes Ausblenden — alle
+// Sektionen bleiben erreichbar (Briefing-Vorgabe).
+//
+// "all" (Default): alle Container zu, User klappt nach Bedarf auf.
+// "cutter": Container A (Detail) + B (Rollen, Tab Cutter aktiv) auf,
+//           C (Plattform) + D (Methodik) zu.
+// "producer": A + B (Tab Producer) + C auf, D zu.
+const VIEW_MODES = {
+  all:      { A: false, B: false, C: false, D: false, roleTab: undefined },
+  cutter:   { A: true,  B: true,  C: false, D: false, roleTab: 'cutter' },
+  producer: { A: true,  B: true,  C: true,  D: false, roleTab: 'producer' },
+};
+const VIEW_MODE_LABELS = {
+  all: 'Alle Sektionen',
+  cutter: 'Cutter-Sicht',
+  producer: 'Producer-Sicht',
+};
+
 export default function InsightWeekly({ pair }) {
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'slow' | 'done' | 'error'
+  // Persistiert global (nicht pro pairKey), damit Wolfs Cutter-Sicht
+  // ueber alle Studios konsistent bleibt — wenn Wolf zwischen Disney
+  // und Warner wechselt, soll der Mode mit.
+  const [viewMode, setViewMode] = useLocalStorage(
+    'creative-radar:view-mode',
+    'all',
+  );
+  const viewConfig = VIEW_MODES[viewMode] || VIEW_MODES.all;
   const [windowDays, setWindowDays] = useState(30);
   const [dryRun, setDryRun] = useState(false);
 
@@ -1497,6 +1544,25 @@ export default function InsightWeekly({ pair }) {
           generatedAt={report.generated_at}
           windowDays={report.window_days}
         />
+      )}
+
+      {report && status !== 'error' && (
+        <div className="viewmode-toolbar">
+          <label htmlFor="viewmode-select" className="viewmode-label">Ansicht:</label>
+          <select
+            id="viewmode-select"
+            className="viewmode-select"
+            value={viewMode}
+            onChange={(e) => setViewMode(e.target.value)}
+          >
+            <option value="all">{VIEW_MODE_LABELS.all}</option>
+            <option value="cutter">{VIEW_MODE_LABELS.cutter}</option>
+            <option value="producer">{VIEW_MODE_LABELS.producer}</option>
+          </select>
+          <span className="viewmode-hint" aria-hidden="true">
+            steuert nur Default-Klappzustände — alle Sektionen bleiben erreichbar
+          </span>
+        </div>
       )}
 
       {status === 'slow' && (
@@ -1563,19 +1629,15 @@ export default function InsightWeekly({ pair }) {
             pairKey={pair}
           />
 
-          {/* Sprint 28.05.2026 (IA-Umbau, Baustein 2): vier Klapp-
-              Container fuer die Drill-down-Sektionen. Default zu,
-              User klappt nach Bedarf auf. Inhalt lazy-mounted ueber
-              CollapsibleCard's ``{isOpen && children}``-Pattern. Der
-              Ansichts-Modus-Umschalter aus Commit 4 wird die
-              defaultOpen-Props pro Container per Prop-Pipeline
-              steuern; hier bauen wir die statischen Defaults. */}
+          {/* Sprint 28.05.2026 (IA-Umbau, Baustein 4): defaultOpen pro
+              Container vom ViewMode gesteuert. Container-Inhalt bleibt
+              lazy-mounted ueber CollapsibleCard's ``{isOpen && children}``. */}
           {report.llm_output && (
             <>
               <CollapsibleCard
                 title="Diese Woche im Detail"
                 subtitle="Worum geht's · Pattern · Trends + Actions · Watch-Outs · Tonalität · Konkurrenz"
-                defaultOpen={false}
+                defaultOpen={viewConfig.A}
               >
                 <LLMDetailSections output={report.llm_output} />
               </CollapsibleCard>
@@ -1583,9 +1645,13 @@ export default function InsightWeekly({ pair }) {
               <CollapsibleCard
                 title="Kreativ-Empfehlungen"
                 subtitle="Cutter · Motion-Designer · Creative Producer · Vergleichbare Posts"
-                defaultOpen={false}
+                defaultOpen={viewConfig.B}
               >
-                <LLMRoleSections output={report.llm_output} pairKey={pair} />
+                <LLMRoleSections
+                  output={report.llm_output}
+                  pairKey={pair}
+                  initialActiveTab={viewConfig.roleTab}
+                />
               </CollapsibleCard>
             </>
           )}
@@ -1593,7 +1659,7 @@ export default function InsightWeekly({ pair }) {
           <CollapsibleCard
             title="Plattform-Details"
             subtitle="TikTok · Instagram · YouTube — Channel-Stats pro Markt"
-            defaultOpen={false}
+            defaultOpen={viewConfig.C}
           >
             <MultiPlatformStats aggregation={report.aggregation} />
           </CollapsibleCard>
@@ -1602,7 +1668,7 @@ export default function InsightWeekly({ pair }) {
             <CollapsibleCard
               title="Methodik / Daten-Caveats"
               subtitle="Risks · Data Caveats"
-              defaultOpen={false}
+              defaultOpen={viewConfig.D}
             >
               <LLMMetaSection output={report.llm_output} />
             </CollapsibleCard>
