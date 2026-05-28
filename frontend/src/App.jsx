@@ -961,20 +961,21 @@ function App() {
         <div>
           <p className="eyebrow">Creative Intelligence Workspace</p>
           <h1>Creative Radar</h1>
-          <p>Was Studios, Verleiher und Streamer diese Woche gepostet haben — und wie es ankam.</p>
+          <p>Social-Media-Wochenanalyse für die Filmbranche — DE, US, UK.</p>
         </div>
       </header>
 
       <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
         <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Die Woche im Rückblick</p>
         <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.5rem' }}>Die großen Studios</h2>
-        {/* Sprint 28.05.2026 (Kachel-Variante A): Markt-Info einmal hier
-            ueber den Kacheln statt redundant auf jeder Kachel. Pills
-            unten markieren Abweichungen (z.B. Lionsgate ohne DE). */}
-        {pairs && pairs.length > 0 && sectionDefaults.defaultMarkets.length > 0 && (
+        {/* Sprint 28.05.2026 (Kachel-Klick-Signal): Lead-Zeile traegt
+            jetzt den Drei-Maerkte-Hinweis UND das Klick-Signal — zusammen
+            mit dem "→ zum Brief"-Affordance auf der Kachel signalisiert
+            das, dass die Kacheln zu einer eigenen Seite navigieren
+            (NICHT in-place aufklappen wie die Roundup-Kacheln). */}
+        {pairs && pairs.length > 0 && (
           <p className="pair-section-default" style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
-            Alle: {sectionDefaults.defaultMarkets.join(' / ')}
-            {sectionDefaults.defaultFrequency ? ` · ${sectionDefaults.defaultFrequency}` : ''}
+            Jedes Studio im Drei-Märkte-Vergleich — zum Öffnen anklicken.
           </p>
         )}
         {pairs === null && (
@@ -1036,6 +1037,14 @@ function App() {
                           : `Aktualisiert ${generated}`)
                       : 'Aktualisiert —'}
                   </span>
+                  {/* Sprint 28.05.2026 (Klick-Signal): Pfeil + "zum
+                      Brief"-Affordance grenzt die Studio-Kachel sichtbar
+                      von der Roundup-Kachel ab. Roundup-Kacheln nutzen
+                      "▸ Mehr Details" und klappen IN-PLACE auf — wir
+                      nutzen bewusst "→ zum Brief", damit die zwei
+                      Interaktionen (navigieren vs. aufklappen) nicht
+                      verwechselbar sind. */}
+                  <span className="pair-tile-action" aria-hidden="true">→ zum Brief</span>
                 </a>
               );
             })}
