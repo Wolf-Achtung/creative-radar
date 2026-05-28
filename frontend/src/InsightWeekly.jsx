@@ -1623,7 +1623,7 @@ export default function InsightWeekly({ pair }) {
           <a href="/" className="hero__back-link">← Übersicht</a>
           <p className="eyebrow">STUDIO-REVIEW</p>
           <h1>{label}</h1>
-          <p>Was letzte Woche funktioniert hat, was nicht – und was wir diese Woche daraus machen.</p>
+          <p>Social-Media-Wochenanalyse — DE, US, UK im Vergleich.</p>
         </div>
         {report && (
           <div className="hero__meta">
