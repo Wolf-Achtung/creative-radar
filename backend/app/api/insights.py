@@ -1,13 +1,15 @@
 import logging
-from datetime import date
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
 
+import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session, select
 
 from app.database import get_session
 
 logger = logging.getLogger(__name__)
-from app.models.entities import ChannelSegment, SegmentRoundup
+from app.models.entities import Channel, ChannelSegment, InsightReport as InsightReportRow, Post, SegmentRoundup
 from app.schemas.insights import (
     InsightReport,
     PairInfo,
@@ -25,6 +27,7 @@ from app.services.insight_engine import (
     INSIGHT_FREQUENCY_LABEL,
     MARKETS_DISPLAY_ORDER,
     PAIRS,
+    _platforms_dict_for,
     generate_and_persist_report,
     generate_weekly_report,
 )
@@ -88,18 +91,131 @@ def _markets_for_pair(pair_def: dict) -> list[str]:
     return [code for code in MARKETS_DISPLAY_ORDER if code in seen]
 
 
+def _iso_week_start_utc(now: datetime | None = None) -> datetime:
+    """Sprint 28.05.2026 (Studio-Kennzahl) — Montag 00:00 UTC der
+    aktuellen ISO-Woche. ``now.weekday()`` ist 0 fuer Montag, also
+    schneiden wir den Tages-Offset und die Uhrzeit weg. Bewusst
+    NICHT identisch zum 30-Tage-Rolling-Window aus ``aggregate_pair``
+    (das Brief-Fenster ist roll, die Kachel-Kennzahl ist KW-Anker)
+    — siehe Briefing-Konvention "diese Woche" auf der Kachel."""
+    now = now or datetime.now(timezone.utc)
+    week_start_date = (now - timedelta(days=now.weekday())).date()
+    return datetime(
+        week_start_date.year, week_start_date.month, week_start_date.day,
+        tzinfo=timezone.utc,
+    )
+
+
+def _handles_for_pair(pair_def: dict) -> list[str]:
+    """Alle Channel-Handles eines Pairs ueber alle Plattformen, lowercased
+    fuer den case-insensitive DB-Lookup. Reuse von
+    ``_platforms_dict_for`` aus insight_engine — ein einziger Pfad fuer
+    Pre-Sprint-4-Single-Platform UND Multi-Platform-Pairs."""
+    handles: list[str] = []
+    for platform_specs in _platforms_dict_for(pair_def).values():
+        for spec in platform_specs:
+            handle = spec.get("handle")
+            if handle:
+                handles.append(handle.lower())
+    return handles
+
+
 @pairs_router.get("/pairs", response_model=PairsResponse)
-def pairs() -> PairsResponse:
+def pairs(session: Session = Depends(get_session)) -> PairsResponse:
     """List enabled pairs with Frontend-ready metadata.
 
     Drives the landing-page card grid. Returns only ``enabled=True`` pairs
     in PAIRS-dict insertion order (Python 3.7+ guarantees order on dict
     iteration). Markets are emitted in fixed DE → US → UK order.
+
+    Sprint 28.05.2026 (Studio-Kennzahl): liefert zusaetzlich pro Pair
+    eine Live-Kennzahl (``posts_count_this_week``) und den Timestamp
+    des juengsten persistierten Briefs (``last_generated_at``). Drei
+    Aggregat-Queries fuer ALLE Pairs zusammen — kein N+1:
+
+    1. ``SELECT Channel.handle, Channel.id WHERE handle IN (all-handles)``
+       — Handle-zu-Channel-ID-Map fuer alle Pair-Channels zusammen.
+    2. ``SELECT Post.channel_id, COUNT(*) WHERE window-filter
+       GROUP BY channel_id`` — Posts pro Channel im KW-Fenster.
+    3. ``SELECT InsightReport.pair_key, MAX(generated_at) GROUP BY pair_key``
+       — juengster Brief pro Pair.
+
+    Window-Filter spiegelt das Pattern aus #190
+    (``_channel_stats``-Window + ``_post_age_reference``):
+    ``published_at >= ws OR (published_at IS NULL AND detected_at >= ws)``.
+    So zaehlt die Kachel-Kennzahl identisch zum Brief-Inhalt.
     """
+    week_start = _iso_week_start_utc()
+
+    # Bauteil 1: alle Pair-Channel-Handles sammeln, eine Channel-Lookup-
+    # Query, handle→channel_id-Map.
+    enabled_pairs = [
+        (key, pdef) for key, pdef in PAIRS.items() if pdef.get("enabled", False)
+    ]
+    all_handles = sorted({
+        h for _, pdef in enabled_pairs for h in _handles_for_pair(pdef)
+    })
+    channels_by_handle: dict[str, list[int]] = defaultdict(list)
+    if all_handles:
+        # case-insensitive: der Channel.handle in der DB kann
+        # case-different gespeichert sein. PAIRS-Handles sind lowercased
+        # in _handles_for_pair, also vergleichen wir gegen lower(handle).
+        rows = session.exec(
+            select(Channel.id, Channel.handle).where(
+                sa.func.lower(Channel.handle).in_(all_handles)
+            )
+        ).all()
+        for cid, chandle in rows:
+            channels_by_handle[chandle.lower()].append(cid)
+
+    # Bauteil 2: Posts-Aggregat pro channel_id im KW-Fenster, eine Query.
+    all_channel_ids = [
+        cid for cids in channels_by_handle.values() for cid in cids
+    ]
+    posts_per_channel: dict = {}
+    if all_channel_ids:
+        post_rows = session.exec(
+            select(Post.channel_id, sa.func.count()).where(
+                Post.channel_id.in_(all_channel_ids)
+            ).where(
+                sa.or_(
+                    sa.and_(
+                        Post.published_at.is_not(None),
+                        Post.published_at >= week_start,
+                    ),
+                    sa.and_(
+                        Post.published_at.is_(None),
+                        Post.detected_at >= week_start,
+                    ),
+                )
+            ).group_by(Post.channel_id)
+        ).all()
+        posts_per_channel = {cid: count for cid, count in post_rows}
+
+    # Bauteil 3: MAX(generated_at) pro pair_key, eine Query. Liefert
+    # auch Pairs, die heute disabled sind — wir filtern unten ueber
+    # enabled_pairs, das Dict-Lookup ist O(1).
+    last_gen_rows = session.exec(
+        select(
+            InsightReportRow.pair_key,
+            sa.func.max(InsightReportRow.generated_at),
+        ).group_by(InsightReportRow.pair_key)
+    ).all()
+    last_gen_by_pair = {pkey: ts for pkey, ts in last_gen_rows}
+
     items: list[PairInfo] = []
-    for pair_key, pair_def in PAIRS.items():
-        if not pair_def.get("enabled", False):
-            continue
+    for pair_key, pair_def in enabled_pairs:
+        # ``_handles_for_pair`` kann denselben Handle mehrfach liefern,
+        # wenn das Pair den gleichen Account auf mehreren Plattformen
+        # listet — Channel-IDs ueber ein Set deduplizieren, sonst zaehlen
+        # wir die Posts dieses Channels doppelt.
+        pair_channel_ids: set[int] = set()
+        for h in _handles_for_pair(pair_def):
+            for cid in channels_by_handle.get(h, []):
+                pair_channel_ids.add(cid)
+        posts_count = sum(
+            posts_per_channel.get(cid, 0) for cid in pair_channel_ids
+        )
         items.append(
             PairInfo(
                 pair_key=pair_key,
@@ -107,6 +223,8 @@ def pairs() -> PairsResponse:
                 markets=_markets_for_pair(pair_def),
                 frequency_label=INSIGHT_FREQUENCY_LABEL,
                 enabled=True,
+                posts_count_this_week=int(posts_count),
+                last_generated_at=last_gen_by_pair.get(pair_key),
             )
         )
     return PairsResponse(pairs=items)

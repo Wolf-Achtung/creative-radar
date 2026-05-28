@@ -219,3 +219,180 @@ def test_pairs_endpoint_falls_back_to_pool_when_markets_field_absent(
         assert warnerbros["markets"] == ["DE", "US", "UK"]
     finally:
         pair_def["markets"] = original_markets
+
+
+# ---------- Sprint 28.05.2026 Studio-Kennzahl ----------------------------
+
+
+from datetime import datetime, timedelta, timezone
+from app.models.entities import Channel, InsightReport as InsightReportRow, Market, Post
+
+
+def _seed_channel(session: Session, *, handle: str, market: str = "US",
+                  platform: str = "tiktok") -> Channel:
+    ch = Channel(
+        name=f"Channel {handle}",
+        platform=platform,
+        url=f"https://x.example/{handle}",
+        handle=handle,
+        market=Market(market),
+    )
+    session.add(ch)
+    session.commit()
+    session.refresh(ch)
+    return ch
+
+
+def _seed_post(session: Session, channel: Channel, *,
+               published_at: datetime | None,
+               detected_at: datetime | None,
+               url_suffix: str = "p") -> Post:
+    post = Post(
+        channel_id=channel.id,
+        platform=channel.platform,
+        post_url=f"https://x/{channel.handle}/{url_suffix}",
+        caption="test",
+        published_at=published_at,
+        detected_at=detected_at or datetime.now(timezone.utc),
+        raw_payload={},
+    )
+    session.add(post)
+    session.commit()
+    session.refresh(post)
+    return post
+
+
+def test_pairs_endpoint_includes_kennzahl_fields_with_defaults(client: TestClient):
+    """Bei leerer DB: Felder kommen mit ``posts_count_this_week=0``
+    und ``last_generated_at=None`` zurueck. Default-Verhalten ist
+    Pflicht damit der Frontend-Code nicht null-checken muss."""
+    response = client.get("/api/pairs")
+    assert response.status_code == 200
+    for pair in response.json()["pairs"]:
+        assert "posts_count_this_week" in pair
+        assert pair["posts_count_this_week"] == 0
+        assert "last_generated_at" in pair
+        assert pair["last_generated_at"] is None
+
+
+def test_pairs_endpoint_counts_posts_in_current_iso_week(client: TestClient, db):
+    """Posts mit ``published_at`` in der aktuellen ISO-Woche zaehlen,
+    aeltere Posts NICHT."""
+    from app.api.insights import _iso_week_start_utc
+    ws = _iso_week_start_utc()
+    with Session(db) as session:
+        # Channel-Handle aus warnerbros-PAIRS (US-Seite)
+        ch = _seed_channel(session, handle="warnerbros", market="US")
+        # Drei Posts in dieser Woche
+        for i in range(3):
+            _seed_post(session, ch,
+                       published_at=ws + timedelta(hours=12 + i),
+                       detected_at=None, url_suffix=f"w{i}")
+        # Ein Post letzte Woche (vor week_start)
+        _seed_post(session, ch,
+                   published_at=ws - timedelta(days=2),
+                   detected_at=None, url_suffix="old")
+
+    response = client.get("/api/pairs")
+    assert response.status_code == 200
+    pair = next(p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros")
+    assert pair["posts_count_this_week"] == 3
+
+
+def test_pairs_endpoint_falls_back_to_detected_at_when_published_at_null(
+    client: TestClient, db,
+):
+    """published_at NULL → detected_at uebernimmt die Zeitfilterung
+    (gleicher Fallback wie #190 und _channel_stats)."""
+    from app.api.insights import _iso_week_start_utc
+    ws = _iso_week_start_utc()
+    with Session(db) as session:
+        ch = _seed_channel(session, handle="warnerbros", market="US")
+        # Post ohne published_at, aber detected_at in dieser Woche
+        _seed_post(session, ch,
+                   published_at=None,
+                   detected_at=ws + timedelta(hours=6),
+                   url_suffix="nopub")
+        # Post ohne published_at, detected_at in der Vorwoche → soll NICHT zaehlen
+        _seed_post(session, ch,
+                   published_at=None,
+                   detected_at=ws - timedelta(days=3),
+                   url_suffix="old-nopub")
+
+    response = client.get("/api/pairs")
+    pair = next(p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros")
+    assert pair["posts_count_this_week"] == 1
+
+
+def test_pairs_endpoint_returns_last_generated_at(client: TestClient, db):
+    """``last_generated_at`` = MAX(generated_at) ueber alle Briefe des
+    Pairs. Aelterer Brief wird nicht zurueckgegeben."""
+    with Session(db) as session:
+        older = datetime(2026, 5, 18, 6, 0, tzinfo=timezone.utc)
+        newer = datetime(2026, 5, 25, 6, 0, tzinfo=timezone.utc)
+        for ts, week in ((older, 20), (newer, 21)):
+            session.add(InsightReportRow(
+                pair_key="warnerbros",
+                iso_year=2026,
+                iso_week=week,
+                generated_at=ts,
+                aggregation={},
+                llm_output={},
+                model="test-model",
+            ))
+        session.commit()
+
+    response = client.get("/api/pairs")
+    pair = next(p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros")
+    assert pair["last_generated_at"] is not None
+    # Pydantic gibt ``datetime``-ISO als String mit "+00:00"-Offset
+    assert "2026-05-25T06:00:00" in pair["last_generated_at"]
+
+
+def test_pairs_endpoint_pair_without_channels_returns_zero(client: TestClient, db):
+    """Pair ohne onboarded Channels → ``posts_count_this_week=0``,
+    ``last_generated_at=None``. Empty-State ist ehrlich, nicht
+    kaputt."""
+    # Keine Channels geseedet → kein Channel in der DB. Der Endpoint
+    # muss trotzdem alle Pairs liefern, mit 0 Posts.
+    response = client.get("/api/pairs")
+    assert response.status_code == 200
+    for pair in response.json()["pairs"]:
+        assert pair["posts_count_this_week"] == 0
+        assert pair["last_generated_at"] is None
+
+
+def test_pairs_endpoint_query_count_does_not_grow_with_pairs(
+    client: TestClient, db,
+):
+    """Audit: drei Pair-Aggregat-Queries (Channels + Posts + Last-Gen),
+    UNABHAENGIG von der Anzahl der Pairs. Schuetzt vor versehentlichem
+    N+1-Drift, wenn jemand spaeter pro Pair eine Sub-Query macht."""
+    from sqlalchemy import event
+    query_log: list[str] = []
+
+    @event.listens_for(db, "before_cursor_execute")
+    def _log_query(conn, cursor, statement, parameters, context, executemany):
+        # Nur SELECTs auf die drei interessanten Tabellen mitzaehlen —
+        # CREATE TABLE etc. von Pytest-Setup-Pfaden ignorieren.
+        lowered = statement.lower()
+        if lowered.startswith("select") and (
+            " from channel" in lowered
+            or " from post" in lowered
+            or " from insightreport" in lowered
+        ):
+            query_log.append(statement)
+
+    try:
+        response = client.get("/api/pairs")
+        assert response.status_code == 200
+        # Max 3 Aggregat-Queries pro Endpoint-Call. ``len(query_log)``
+        # zaehlt JEDEN Call ueber das ganze Setup — wir akzeptieren also
+        # eine Obergrenze von 3 (1 fuer Channels, 1 fuer Posts, 1 fuer
+        # InsightReport), unabhaengig vom Pair-Count.
+        assert len(query_log) <= 3, (
+            f"erwartet maximal 3 Aggregat-Queries, gesehen "
+            f"{len(query_log)}:\n" + "\n---\n".join(query_log)
+        )
+    finally:
+        event.remove(db, "before_cursor_execute", _log_query)

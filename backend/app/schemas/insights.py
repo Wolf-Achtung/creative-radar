@@ -594,6 +594,20 @@ class PairInfo(BaseModel):
     is ordered DE → US → UK (visual order on the landing-page card,
     independent of insertion order in the PAIRS dict), and
     ``frequency_label`` is the briefing cadence shown next to the markets.
+
+    Sprint 28.05.2026 (Studio-Kennzahl): zwei zusaetzliche Felder
+    fuer die Live-Anzeige auf der Startseiten-Kachel. Beide haben
+    Defaults, damit bestehende Tests und Frontend-Versionen ohne
+    Felder-Awareness weiter parsen.
+    - ``posts_count_this_week``: Live-Aggregat (kein LLM, kein Cron-
+      Bezug). Posts mit ``published_at >= week_start_iso`` ODER
+      ``published_at IS NULL AND detected_at >= week_start_iso``
+      (gleicher Fallback wie der Breakout-Score in #190 + die
+      Aggregations-Fenster in ``_channel_stats``).
+    - ``last_generated_at``: Timestamp des juengsten persistierten
+      ``InsightReport`` fuer das Pair (max ueber alle KWs). ``None``
+      wenn fuer das Pair noch nie ein Brief generiert wurde —
+      Frontend rendert "Aktualisiert —".
     """
 
     pair_key: str
@@ -601,6 +615,8 @@ class PairInfo(BaseModel):
     markets: list[str]
     frequency_label: str
     enabled: bool
+    posts_count_this_week: int = 0
+    last_generated_at: Optional[datetime] = None
 
 
 class PairsResponse(BaseModel):
