@@ -485,7 +485,7 @@ export function SourcesPanel({
   return (
     <>
       <Section title="Quellen prüfen" kicker="Kanäle und Monitoring">
-        <p className="muted small source-intro">Aktuell läuft der Test bewusst klein mit Warner Bros. Weitere Kanäle erst ergänzen, wenn Review, Filmtitel-Zuordnung und Weekly Report sauber funktionieren.</p>
+        <p className="muted small source-intro">Kanal hier hinzufügen oder pflegen — danach in 'Treffer prüfen' zuordnen.</p>
         <div className="source-grid">
           <div className="source-card">
             <h3>TikTok</h3>
