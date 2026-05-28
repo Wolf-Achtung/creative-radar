@@ -212,9 +212,6 @@ export default function RoundupBlock() {
         fontWeight: 600,
       }}>Die Woche im Rückblick</p>
       <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Verleiher &amp; Independents</h2>
-      <p style={{ color: '#aaa', marginTop: 0, marginBottom: '1rem', fontSize: '0.95em' }}>
-        Was die vergangene Woche gepostet wurde — und wie es ankam.
-      </p>
 
       {roundups === null && (
         <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Roundups …</p>
