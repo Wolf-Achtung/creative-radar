@@ -971,6 +971,16 @@ function App() {
             Studio-Liste momentan nicht verfügbar. Bitte später erneut versuchen.
           </p>
         )}
+        {/* Sprint 28.05.2026 Edge-Case: API antwortet mit leerer Liste
+            ohne Fehler (alle Pairs deaktiviert). Vorher sah der Nutzer
+            schlicht nichts — die drei Branches (null/error/data)
+            sprangen alle nicht an. Jetzt expliziter Slot, analog
+            RoundupBlock's Empty-State. */}
+        {pairs !== null && !pairsError && pairs.length === 0 && (
+          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>
+            Keine Studios konfiguriert.
+          </p>
+        )}
         {pairs && pairs.length > 0 && (
           <div className="pair-briefs-grid pair-tile-grid">
             {pairs.map((pair) => {
