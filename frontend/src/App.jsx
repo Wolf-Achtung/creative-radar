@@ -886,6 +886,19 @@ function computePairSectionDefaults(pairs) {
   };
 }
 
+// Sprint 28.05.2026 (Studio-Kennzahl) — kompaktes "TT.MM."-Format fuer
+// die "Aktualisiert"-Zeile der Kachel. Volles Jahr braucht's hier
+// nicht: die Kachel zeigt die juengste Brief-Generierung des Pairs,
+// die ist per Definition aus den letzten Wochen. ``null`` /
+// nicht-parsbares Datum → leerer String, der Caller schreibt dann das
+// Em-Dash "Aktualisiert —".
+function formatPairUpdated(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+}
+
 function pairDeviationLabel(pair, defaults) {
   // Pill-Text wenn die Kachel von der Sektions-Default-Kombi abweicht.
   // ``null`` = Default, kein Pill noetig. Markt-Abweichung wird als
@@ -959,31 +972,27 @@ function App() {
           </p>
         )}
         {pairs && pairs.length > 0 && (
-          <div className="pair-briefs-grid" style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: '0.75rem',
-          }}>
+          <div className="pair-briefs-grid pair-tile-grid">
             {pairs.map((pair) => {
               const deviation = pairDeviationLabel(pair, sectionDefaults);
+              const count = pair.posts_count_this_week ?? 0;
+              const generated = formatPairUpdated(pair.last_generated_at);
               return (
                 <a
                   key={pair.pair_key}
                   href={`/insights/weekly/${pair.pair_key}`}
                   className="card pair-tile"
-                  style={{
-                    display: 'block',
-                    padding: '1rem',
-                    margin: 0,
-                    textDecoration: 'none',
-                    color: 'inherit',
-                    cursor: 'pointer',
-                  }}
                 >
-                  <strong style={{ display: 'block' }}>{pair.display_name}</strong>
+                  <strong className="pair-tile-name">{pair.display_name}</strong>
                   {deviation && (
                     <span className="pair-tile-deviation">{deviation}</span>
                   )}
+                  <span className="pair-tile-metric">
+                    {`${count} ${count === 1 ? 'Post' : 'Posts'} diese Woche`}
+                  </span>
+                  <span className="pair-tile-meta">
+                    {generated ? `Aktualisiert ${generated}` : 'Aktualisiert —'}
+                  </span>
                 </a>
               );
             })}

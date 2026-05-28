@@ -600,6 +600,59 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.03em;
 }
 
+/* Sprint 28.05.2026 (Studio-Kennzahl) — Studio-Kachel-Layout +
+   Kennzahl. Optische Aufwertung damit die Studio-Kacheln als
+   Navigations-Anker erkennbar sind, OHNE die Roundup-Kacheln
+   runterzudimmen.
+
+   Aenderungen gegenueber dem alten Inline-Style:
+   - Mehr Padding (1.15rem) damit der Studio-Name + zwei Zeilen
+     Atemraum haben.
+   - Linker Trailerhaus-Rot-Akzent (3px Border) als visuelles
+     Navigations-Signal "hier kommst du in den Brief".
+   - Studio-Name eine Stufe groesser (16px statt Default-Inline
+     1em).
+   - Sekundaere Meta-Zeile ("Aktualisiert TT.MM.") graustichig +
+     kleiner, damit sie der primaeren Kennzahl-Zeile nicht die Show
+     stiehlt.
+   - Hover liftet den Akzent leicht; existierendes .card-Hover
+     bleibt erhalten. */
+.pair-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+.pair-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 1.15rem 1.15rem 1rem;
+  margin: 0;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  border-left: 3px solid rgba(242, 107, 94, 0.55);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.pair-tile:hover {
+  border-left-color: #F26B5E;
+  transform: translateX(1px);
+}
+.pair-tile-name {
+  display: block;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+.pair-tile-metric {
+  font-size: 13px;
+  color: #1d2330;
+  margin-top: 4px;
+}
+.pair-tile-meta {
+  font-size: 12px;
+  color: #9a8f7e;
+}
+
 /* Sprint 28.05.2026 (Admin-Sektion) — Header-Actions im Admin-Bereich.
    Logout-Button + Back-Link rechts neben dem Hero-Titel. */
 .admin-header-actions {
