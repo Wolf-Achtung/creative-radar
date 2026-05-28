@@ -532,6 +532,18 @@ function rankingSortFn(key) {
     case 'activation_rate': return (a, b) => (b.activation_rate || 0) - (a.activation_rate || 0);
     case 'comments':        return (a, b) => (b.comments || 0)        - (a.comments || 0);
     case 'saves':           return (a, b) => (b.saves || 0)           - (a.saves || 0);
+    // Sprint 28.05.2026 (Punkt 4) — Breakout-Score. Posts ohne Score
+    // (Channel-Pool < 5 oder std=0) landen ans Ende, damit der
+    // sortierte Block die scoreless Posts nicht aus dem Top-N
+    // verdraengt.
+    case 'breakout':        return (a, b) => {
+      const aw = a.breakout_score?.weighted_score;
+      const bw = b.breakout_score?.weighted_score;
+      if (aw == null && bw == null) return 0;
+      if (aw == null) return 1;
+      if (bw == null) return -1;
+      return bw - aw;
+    };
     case 'views':
     default:                return (a, b) => (b.views || 0)           - (a.views || 0);
   }
@@ -596,12 +608,27 @@ function useLocalStorage(key, defaultValue) {
 // the primary number (large), the four remaining metrics drop into a
 // muted secondary footer. Pre-Sprint-5a all five were rendered equal-
 // weight with a colour-only highlight on the active sort.
+// Sprint 28.05.2026 (Punkt 4): formatiert den Breakout-Multiplier als
+// "4,7x" mit deutschem Komma. ``–`` wenn der Post keinen Score traegt
+// (Channel-Pool < 5 Posts oder std=0). Die Sort-Funktion ``rankingSortFn``
+// drueckt scoreless Posts ohnehin ans Ende, das ``–`` rendert daher nur
+// wenn ein Post sichtbar aber score-los ist.
+function formatBreakoutMultiplier(post) {
+  const mult = post.breakout_score?.multiplier;
+  if (mult == null) return '–';
+  return `${mult.toFixed(1).replace('.', ',')}x`;
+}
+
 const RANKED_METRIC_DEFS = [
   { key: 'views',           label: 'Aufrufe',   shortLabel: 'Aufrufe',  read: (p) => formatRankedNumber(p.views) },
   { key: 'likes',           label: 'Reactions', shortLabel: 'Reactions', read: (p) => formatRankedNumber(p.likes) },
   { key: 'activation_rate', label: 'Aktivierung', shortLabel: 'Akt.',   read: (p) => formatRankedPercent(p.activation_rate) },
   { key: 'comments',        label: 'Kommentare', shortLabel: 'Komm.',   read: (p) => formatRankedNumber(p.comments) },
   { key: 'saves',           label: 'Saves',     shortLabel: 'Saves',    read: (p) => formatRankedNumber(p.saves) },
+  // Sprint 28.05.2026 (Punkt 4) — Breakout-Score als Sortier-Option.
+  // shortLabel "Breakout" damit die Sekundaer-Footer-Zeile kein
+  // Sonderzeichen tragen muss (vermeidet Umbruch).
+  { key: 'breakout',        label: 'Breakout',  shortLabel: 'Breakout', read: formatBreakoutMultiplier },
 ];
 
 function getPrimaryMetric(post, sortKey) {
@@ -860,6 +887,111 @@ function collectRankedPosts(aggregation, market, platformFilter) {
   return channel.ranked_posts;
 }
 
+// Sprint 28.05.2026 (Punkt 4) — backend-autoritative Breakout-Liste pro
+// Channel. Spiegelt ``collectRankedPosts`` 1:1 fuer das Feld
+// ``channel.breakouts`` (Top-3 RankedPosts nach
+// ``breakout_score.weighted_score`` desc). Persistierte Briefs vor
+// diesem Sprint haben das Feld nicht → Default leere Liste; die
+// Section blendet sich dann fuer den jeweiligen Channel aus.
+function collectBreakouts(aggregation, market, platformFilter) {
+  if (!aggregation) return [];
+  const perPlatform = Array.isArray(aggregation.per_platform) ? aggregation.per_platform : [];
+  if (perPlatform.length > 0) {
+    const posts = [];
+    for (const plat of perPlatform) {
+      if (platformFilter !== 'all' && plat.platform !== platformFilter) continue;
+      const channel = plat[`${market.toLowerCase()}_channel`];
+      if (channel?.breakouts) posts.push(...channel.breakouts);
+    }
+    // Mehrere Plattformen → erneut nach weighted_score sortieren, damit
+    // die Top-N ueber alle gefilterten Plattformen sauber zusammenkommen
+    // und nicht "alle TT Top-3, dann alle IG Top-3" als Reihenfolge
+    // entsteht.
+    posts.sort((a, b) => {
+      const aw = a.breakout_score?.weighted_score ?? -Infinity;
+      const bw = b.breakout_score?.weighted_score ?? -Infinity;
+      return bw - aw;
+    });
+    return posts;
+  }
+  const channel = aggregation[`${market.toLowerCase()}_channel`];
+  if (!channel?.breakouts) return [];
+  if (platformFilter !== 'all' && (channel.breakouts[0]?.platform || aggregation.platform) !== platformFilter) {
+    return [];
+  }
+  return channel.breakouts;
+}
+
+// Sprint 28.05.2026 (Punkt 4) — "Breakouts dieser Woche".
+// Curated-View ueber den Top-Posts-Block: zeigt pro Markt die hoechsten
+// relativen Ausreisser (multiplier), nicht die hoechsten Absolut-
+// Engagement-Spitzen. Loest die Strukturverzerrung des Absolut-Rankings,
+// in der grosse Accounts immer "gewinnen".
+//
+// Layout-Entscheidung: kompakte Variante (max 3 Cards pro Markt, kein
+// Expand-Toggle). Wer mehr will, nutzt den Top-Posts-Block mit
+// sortKey="breakout" — diese Section ist die Eintritts-Karte, der Block
+// die Vertiefung. Wenn ueberall ``breakouts`` leer ist (Channels < 5
+// Posts, Pre-Sprint-Brief), rendert die Section ``null`` und nimmt
+// keinen Layout-Slot ein.
+function BreakoutsSection({ aggregation, pairKey }) {
+  const [platformFilter] = useLocalStorage(
+    `creative-radar:ranking-platform:${pairKey}`,
+    'all',
+  );
+  const deList = useMemo(
+    () => collectBreakouts(aggregation, 'DE', platformFilter).slice(0, 3),
+    [aggregation, platformFilter],
+  );
+  const usList = useMemo(
+    () => collectBreakouts(aggregation, 'US', platformFilter).slice(0, 3),
+    [aggregation, platformFilter],
+  );
+  const ukList = useMemo(
+    () => collectBreakouts(aggregation, 'UK', platformFilter).slice(0, 3),
+    [aggregation, platformFilter],
+  );
+  if (deList.length === 0 && usList.length === 0 && ukList.length === 0) {
+    return null;
+  }
+  return (
+    <section className="ranking-section card breakouts-section">
+      <div className="ranking-header">
+        <h3>Breakouts dieser Woche</h3>
+      </div>
+      <p className="breakouts-intro">
+        Posts, die deutlich über dem Kanal-Schnitt liegen — relativ, nicht absolut.
+      </p>
+      <div className="ranking-grid">
+        <div className="ranking-column">
+          <h4>DE</h4>
+          {deList.length > 0
+            ? deList.map((p, i) => (
+                <RankedPostCard key={p.post_url || `de-break-${i}`} post={p} rank={i + 1} sortKey="breakout" platformFilter={platformFilter} />
+              ))
+            : <p className="ranking-empty">Keine Breakouts</p>}
+        </div>
+        <div className="ranking-column">
+          <h4>US</h4>
+          {usList.length > 0
+            ? usList.map((p, i) => (
+                <RankedPostCard key={p.post_url || `us-break-${i}`} post={p} rank={i + 1} sortKey="breakout" platformFilter={platformFilter} />
+              ))
+            : <p className="ranking-empty">Keine Breakouts</p>}
+        </div>
+        <div className="ranking-column">
+          <h4>UK</h4>
+          {ukList.length > 0
+            ? ukList.map((p, i) => (
+                <RankedPostCard key={p.post_url || `uk-break-${i}`} post={p} rank={i + 1} sortKey="breakout" platformFilter={platformFilter} />
+              ))
+            : <p className="ranking-empty">Keine Breakouts</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // Zeitraum-Filter (27.05.2026) — client-side Re-Filter auf die schon
 // geladene ranked_posts-Liste. Der persistierte Brief enthaelt 30 Tage
 // Daten (aggregate_pair window_days=30); ein 7d-Filter schneidet nur die
@@ -971,6 +1103,7 @@ function TopRankingSection({ aggregation, pairKey }) {
             <option value="activation_rate">Aktivierungs-Rate</option>
             <option value="comments">Kommentare</option>
             <option value="saves">Saves</option>
+            <option value="breakout">Breakout (relativ)</option>
           </select>
           <HelpTooltip text={TOOLTIP_TEXTS.activationRate} label="Was bedeutet Aktivierungs-Rate?" />
         </div>
@@ -1129,6 +1262,11 @@ export default function InsightWeekly({ pair }) {
               <ul>{report.aggregation.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
             </div>
           )}
+
+          <BreakoutsSection
+            aggregation={report.aggregation}
+            pairKey={pair}
+          />
 
           <TopRankingSection
             aggregation={report.aggregation}

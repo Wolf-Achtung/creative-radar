@@ -98,10 +98,57 @@ class RankedPost(BaseModel):
     # Fallback-Pfad nutzt dann direkt ``thumbnail_url``.
     asset_id: Optional[str] = None
 
+    # Sprint 28.05.2026 (Punkt 4) — Breakout-Score gegen Channel-Baseline.
+    # ``None`` wenn der Channel-Pool im 30-Tage-Fenster < 5 Posts hatte
+    # (z-Score statistisch nicht definiert) oder std=0 (alle Posts
+    # identisch). Default ``None`` damit persistierte Briefe von vor
+    # diesem Sprint weiter via ``model_validate`` parsen — Frontend
+    # graceful-degrades und blendet die Sortier-Option / "Breakouts"-
+    # Sektion aus, wenn das Feld ueberall ``None`` ist.
+    breakout_score: Optional["BreakoutScore"] = None
+
 
 class HashtagFrequency(BaseModel):
     tag: str
     count: int
+
+
+class BreakoutScore(BaseModel):
+    """Sprint 28.05.2026 (Punkt 4) — relative Performance eines Posts
+    gemessen gegen die Baseline desselben Channels im 30-Tage-Fenster.
+
+    Der Score ist serverseitig berechnet (kein LLM-Pfad). Er existiert
+    nur, wenn der Channel-Pool im Fenster ``sample_size >= 5`` hat —
+    sonst ist der z-Score statistisch nicht aussagekraeftig und das
+    Feld bleibt am Trager-RankedPost ``None``. Wenn der Score je im
+    LLM-Brief auftaucht, gehoert er ueber das ``cited_post_ids``-
+    Evidenz-Feld in den Brief, nicht als Freitext (siehe EVIDENZ-PFLICHT
+    in ``insight_engine.SYSTEM_PROMPT``).
+
+    Felder:
+    - ``z_score`` — roher z-Score ``(eng - mean) / std``. Negative
+      Werte = unterdurchschnittlich; > 2 = klarer Ausreisser.
+    - ``multiplier`` — ``eng / mean``. Frontend rendert dies als
+      "4,7x ueber Kanal-Schnitt". 1.0 = exakt Mittelwert.
+    - ``weighted_score`` — ``z_score * decay_weight``. Sortier-
+      Schluessel fuer das Breakouts-Ranking — bevorzugt Ausreisser, die
+      ZUSAETZLICH jung sind (recency matters for "was trendet jetzt?").
+    - ``decay_weight`` — exponentieller Recency-Faktor, ``0 < w <= 1``.
+      Halbwertzeit 7 Tage: heute=1.0, nach 7d=0.5, nach 14d=0.25. Nutzt
+      ``published_at`` mit Fallback auf ``detected_at`` (analog
+      ``_channel_stats``-Window-Query).
+    - ``baseline_mean`` / ``baseline_std`` / ``sample_size`` —
+      Diagnose-Felder, damit die Frontend-Tooltips den Kontext zeigen
+      koennen ("Schnitt 850 Reaktionen aus 23 Posts") und das Backend-
+      Postmortem nachvollziehen kann, warum ein Score wie hoch ist.
+    """
+    z_score: float
+    multiplier: float
+    weighted_score: float
+    decay_weight: float
+    baseline_mean: float
+    baseline_std: float
+    sample_size: int
 
 
 class ChannelStats(BaseModel):
@@ -137,6 +184,21 @@ class ChannelStats(BaseModel):
     # briefs (pre-Sprint-2) still load — Frontend graceful-degrades and
     # hides the section when this list is empty.
     ranked_posts: list[RankedPost] = []
+
+    # Sprint 28.05.2026 (Punkt 4) — Top-N RankedPosts dieses Channels
+    # sortiert nach ``breakout_score.weighted_score`` desc (also relative
+    # Ausreisser, die zusaetzlich jung sind). Speist die Frontend-Sektion
+    # "Breakouts dieser Woche" — eine kleine Karte pro Post mit
+    # sichtbarem ``multiplier`` (z.B. "4,7x ueber Kanal-Schnitt"), die
+    # parallel zu ``top_posts`` (absolute Spitze) laeuft.
+    #
+    # Inhaltlich eine Teilmenge von ``ranked_posts`` (gleiche RankedPost-
+    # Objekte mit gesetztem ``breakout_score``). Die Duplikation kostet
+    # ein paar Bytes im Payload, vermeidet aber Frontend-seitiges Re-
+    # Slicing und haelt die Sektion bei Backend-Aenderungen
+    # autoritativ. Default leere Liste damit persistierte Briefe von
+    # vor Punkt 4 sauber via ``model_validate`` parsen.
+    breakouts: list[RankedPost] = []
 
 
 class CrossMarketMatch(BaseModel):

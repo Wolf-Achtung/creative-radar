@@ -749,6 +749,18 @@ a:hover { text-decoration: underline; }
   margin: 0;
 }
 
+/* Sprint 28.05.2026 (Punkt 4) — "Breakouts dieser Woche".
+   Kompakte Variante der ranking-section: die Erklaer-Zeile direkt unter
+   dem Header, kein Sort-Dropdown (kuratierte Top-3 pro Markt). Visuell
+   identisch zu .ranking-section damit die beiden Sektionen als Paar
+   gelesen werden — Breakout-Curate ueber dem sortierbaren Vollbild-Block. */
+.breakouts-intro {
+  margin: -4px 0 14px;
+  font-size: 13px;
+  color: #6b6657;
+  line-height: 1.4;
+}
+
 /* Mobile-Stacking — DE/US untereinander. Bestehender Breakpoint aus
    .insight-meta wiederverwendet. */
 @media (max-width: 800px) {

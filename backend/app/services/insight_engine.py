@@ -33,6 +33,7 @@ from sqlmodel import Session, select
 from app.models.entities import Asset, Channel, InsightReport as InsightReportRow, Post, Title
 from app.schemas.insights import (
     Action,
+    BreakoutScore,
     ChannelStats,
     CrossMarketInsight,
     CrossMarketMatch,
@@ -1110,6 +1111,136 @@ def _engagement_sum(post: Post) -> int:
     )
 
 
+# Sprint 28.05.2026 (Punkt 4) — Breakout-Score-Konstanten.
+# ``BREAKOUT_MIN_SAMPLE_SIZE``: unter dieser Schwelle ist der z-Score
+# nicht statistisch sinnvoll definiert; der Score bleibt fuer alle Posts
+# des Channels ``None``. Wolf-Briefing: "< 5 Posts → kein z-Score".
+# ``BREAKOUT_HALFLIFE_DAYS``: Halbwertzeit der Recency-Gewichtung. 7 Tage
+# = ein Wochen-Brief-Rhythmus: heute=1.0, nach 7 Tagen halb so schwer.
+# ``BREAKOUT_TOP_N``: Default fuer die ``ChannelStats.breakouts``-Sektion.
+BREAKOUT_MIN_SAMPLE_SIZE = 5
+BREAKOUT_HALFLIFE_DAYS = 7.0
+BREAKOUT_TOP_N = 3
+
+
+def _post_age_reference(post: Post) -> Optional[datetime]:
+    """Recency-Referenz fuer das Decay-Gewicht.
+
+    ``published_at`` ist die creator-supplied Zeit, aber laut
+    ``_channel_stats``-Window-Query nicht zuverlaessig (aeltere
+    Apify-Rows tragen oft NULL). Wir spiegeln denselben Fallback wie
+    der Window-Filter: ``published_at`` wenn da, sonst ``detected_at``.
+    Sind beide NULL (sollte in Praxis nicht vorkommen, da die Row es
+    erst per Detection in die DB schafft), liefert die Funktion
+    ``None`` und der Caller markiert den Post als score-los.
+    """
+    return post.published_at or post.detected_at
+
+
+def _compute_breakout_scores(
+    posts: list[Post],
+    *,
+    now: datetime,
+    halflife_days: float = BREAKOUT_HALFLIFE_DAYS,
+    min_sample_size: int = BREAKOUT_MIN_SAMPLE_SIZE,
+) -> dict[Any, BreakoutScore]:
+    """Sprint 28.05.2026 (Punkt 4) — Breakout-Score pro Post gegen die
+    Channel-Pool-Baseline.
+
+    ``posts`` ist die bereits gefilterte 30-Tage-Posts-Liste eines
+    Channels (Pool aus ``_channel_stats``); ein Score-Rechen-Aufruf pro
+    Channel. Returns ``dict[post.id -> BreakoutScore]``; Posts ohne
+    sinnvollen Score (zu kleine Stichprobe, std=0, oder fehlende
+    Recency-Referenz) sind NICHT im Dict — der Caller setzt das Feld am
+    ``RankedPost`` dann auf ``None``.
+
+    Robustheits-Regeln (Wolf-Briefing):
+    - ``n < min_sample_size`` → leeres Dict; alle Posts score-los.
+      Statistisch ist ein z-Score bei < 5 Beobachtungen nicht
+      aussagekraeftig, und fuer ein wachsender Channel mit nur 2-3
+      Posts wuerde der erste Hit immer als 10x-Breakout erscheinen.
+    - ``std == 0`` (alle Posts haben identische Engagement-Summe) →
+      leeres Dict; eine Division durch 0 ist unzulaessig und das
+      Signal "alle gleich" hat keinen Breakout-Sinn.
+    - Posts ohne ``published_at`` UND ohne ``detected_at`` → kein
+      Decay berechenbar, Post bleibt score-los. Im normalen
+      Apify-/YouTube-Pfad sollte das nie vorkommen.
+
+    Recency-Decay: exponentiell mit Halbwertzeit ``halflife_days``.
+    ``weight = 2 ** (-age_days / halflife_days)``. Bei ``now < age_ref``
+    (Post in der Zukunft — Daten-Bug) wird das Gewicht auf 1.0 geklippt
+    (kein Hochskalieren in negative Tage-Distanz).
+
+    Der ``weighted_score`` ist der Sortier-Schluessel fuer das
+    Breakouts-Ranking: ``z_score * decay_weight``. Ein klarer
+    Mittel-Wert-Post (z=0) bleibt damit immer 0; nur Ausreisser werden
+    durch Recency hoch- oder runtergewichtet — alte Mega-Hits
+    verschwinden langsam aus dem "Breakouts dieser Woche"-Slot.
+
+    ``multiplier = eng / mean``: Frontend-freundlicher Anker ("4,7x
+    ueber Kanal-Schnitt"). Bei ``mean == 0`` (theoretisch moeglich
+    wenn alle Posts Engagement 0 haben, aber dann ist auch std=0 und
+    wir sind oben rausgefallen) — Schutz via max(mean, 1).
+    """
+    if len(posts) < min_sample_size:
+        return {}
+
+    # Determinismus: ``now`` (typischerweise window_end aus
+    # ``_channel_stats``) wird auf Day-Boundary getrimmt, damit zwei
+    # ``aggregate_pair``-Aufrufe innerhalb desselben Tages identische
+    # Scores produzieren. Wichtig fuer den Persistenz-Cache: Cache-Hit-
+    # vs Cache-Miss-Briefe muessen byte-fuer-byte uebereinstimmen
+    # (das Frontend re-rendert die Liste in derselben Reihenfolge).
+    # Sub-Day-Resolution beim Decay ist fuer Wochen-Briefe ohnehin
+    # irrelevant: ein 3h-alter vs 6h-alter Post unterscheidet sich
+    # naennenswert erst auf Tages-Skala.
+    decay_anchor = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    engagements = [_engagement_sum(p) for p in posts]
+    mean_eng = sum(engagements) / len(engagements)
+    # Population-Standardabweichung (nicht Stichproben-N-1). Der Channel-
+    # Pool IST die vollstaendige Beobachtungsmenge fuer dieses Fenster —
+    # wir generalisieren nicht auf eine groessere Population. Pragmatisch
+    # gibt das auch bei n=5 stabile Werte ohne N-1-Schwankung.
+    variance = sum((e - mean_eng) ** 2 for e in engagements) / len(engagements)
+    std_eng = variance ** 0.5
+    if std_eng == 0:
+        return {}
+
+    safe_mean = max(mean_eng, 1.0)
+    scores: dict[Any, BreakoutScore] = {}
+    for post, eng in zip(posts, engagements):
+        age_ref = _post_age_reference(post)
+        if age_ref is None:
+            continue
+        # tz-Toleranz: ``now`` kommt aus ``_channel_stats``-window_end,
+        # das je nach Pfad tz-aware oder tz-naive sein kann (Cron-Trigger
+        # ist UTC-aware, einige Test-Fixtures legen naive datetimes ab).
+        # Beide auf naive UTC normalisieren statt ``TypeError``-Crash —
+        # die Semantik (Sekunden-Distanz) ist identisch und die
+        # Mixed-Aware/Naive-Realitaet ist im Codebase-Wide-Pattern
+        # ohnehin etabliert (siehe ``_historical_top_posts``-Window).
+        ref = age_ref.replace(tzinfo=None) if age_ref.tzinfo else age_ref
+        ref_now = decay_anchor.replace(tzinfo=None) if decay_anchor.tzinfo else decay_anchor
+        age_seconds = max(0.0, (ref_now - ref).total_seconds())
+        age_days = age_seconds / 86400.0
+        decay_weight = 2 ** (-age_days / halflife_days)
+
+        z_score = (eng - mean_eng) / std_eng
+        weighted_score = z_score * decay_weight
+        multiplier = eng / safe_mean
+        scores[post.id] = BreakoutScore(
+            z_score=z_score,
+            multiplier=multiplier,
+            weighted_score=weighted_score,
+            decay_weight=decay_weight,
+            baseline_mean=mean_eng,
+            baseline_std=std_eng,
+            sample_size=len(posts),
+        )
+    return scores
+
+
 def compute_activation_rate(post: Post, platform: str) -> float:
     """Sprint 2 — plattform-spezifische Activation-Rate für ein Post.
 
@@ -1146,6 +1277,7 @@ def _ranked_posts_for_channel(
     *,
     session: Optional[Session] = None,
     limit: int = 10,
+    breakout_scores: Optional[dict[Any, BreakoutScore]] = None,
 ) -> list[RankedPost]:
     """Sprint 2 — Top-N Posts für die Ranking-Sektion eines Channels.
 
@@ -1195,6 +1327,7 @@ def _ranked_posts_for_channel(
                 asset_by_post[asset.post_id] = (asset, title)
 
     enriched: list[RankedPost] = []
+    score_map = breakout_scores or {}
     for p in posts:
         likes = int(p.visible_likes or 0)
         comments = int(p.visible_comments or 0)
@@ -1221,6 +1354,7 @@ def _ranked_posts_for_channel(
                 thumbnail_url=asset.thumbnail_url if asset else None,
                 asset_id=str(asset.id) if asset else None,
                 content_type=title.content_type if title else None,
+                breakout_score=score_map.get(p.id),
             )
         )
     enriched.sort(
@@ -1529,9 +1663,37 @@ def _channel_stats(
     avg_activation_rate = (
         sum(activation_rates) / len(activation_rates) if activation_rates else 0.0
     )
+    # Sprint 28.05.2026 (Punkt 4) — Breakout-Score gegen Channel-Baseline.
+    # ``window_end`` ist die Decay-Referenz (NICHT ``datetime.utcnow``),
+    # damit zwei Aufrufe innerhalb derselben ISO-Woche identische Scores
+    # produzieren — wichtig fuer den persistierten Cache (gleiche Ranking-
+    # Reihenfolge bei Re-Hydrate vs Fresh-Generation). Leer-Dict-Fallback
+    # (< 5 Posts oder std=0) bedeutet ``breakout_score=None`` an allen
+    # RankedPosts, und der ``breakouts``-Slot bleibt leer.
+    breakout_scores = _compute_breakout_scores(posts, now=window_end)
     ranked_posts = _ranked_posts_for_channel(
-        posts, platform, session=session, limit=ranked_posts_n
+        posts, platform, session=session, limit=ranked_posts_n,
+        breakout_scores=breakout_scores,
     )
+
+    # Breakouts-Sektion: Top-N RankedPosts mit gesetztem Score, sortiert
+    # nach ``weighted_score`` desc. Tiebreaker analog ``ranked_posts``:
+    # views desc, post_url asc — deterministisch fuer den persistierten
+    # Cache. ``breakouts`` ist eine Teilmenge von ``ranked_posts``
+    # (gleiche RankedPost-Objekte, daher implizit auch derselbe
+    # ``limit=ranked_posts_n``-Cap auf der Vor-Stufe). Wenn der
+    # Channel-Pool keine Scores liefert (Sample zu klein), bleibt die
+    # Liste leer und Frontend blendet die Sektion fuer diesen Channel
+    # aus.
+    breakouts_candidates = [r for r in ranked_posts if r.breakout_score is not None]
+    breakouts_candidates.sort(
+        key=lambda r: (
+            -(r.breakout_score.weighted_score if r.breakout_score else 0.0),
+            -(r.views or 0),
+            r.post_url or "",
+        )
+    )
+    breakouts = breakouts_candidates[:BREAKOUT_TOP_N]
 
     top_hashtags = [
         HashtagFrequency(tag=tag, count=count)
@@ -1555,6 +1717,7 @@ def _channel_stats(
         avg_activation_rate=round(avg_activation_rate, 4),
         historical_top_posts=historical_top_posts,
         ranked_posts=ranked_posts,
+        breakouts=breakouts,
     )
 
 
