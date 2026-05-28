@@ -97,8 +97,14 @@ def rematch_unassigned_assets(session: Session, *, commit_batch_size: int = 50) 
             )
         ).first()
         if not existing_open:
-            create_candidate_from_asset(session, asset.id)
-            summary.candidates_created += 1
+            # Sprint 28.05.2026 (Variante D): die Funktion kann jetzt
+            # ``None`` zurueckgeben, wenn der Matcher nur ein
+            # Token-Guess produziert hat. Den Counter nur dann
+            # hochzaehlen, wenn tatsaechlich eine Row geschrieben
+            # wurde.
+            candidate = create_candidate_from_asset(session, asset.id)
+            if candidate is not None:
+                summary.candidates_created += 1
         summary.still_unmatched += 1
 
     if pending_commit > 0:

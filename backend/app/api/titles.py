@@ -108,7 +108,13 @@ def list_sync_runs(session: Session = Depends(get_session)):
 @router.post("/candidates/from-asset/{asset_id}")
 def create_candidate(asset_id: UUID, payload: TitleCandidateCreateFromAsset | None = None, session: Session = Depends(get_session)):
     try:
-        candidate = create_candidate_from_asset(session, asset_id)
+        # User-Request-Pfad: der Admin will explizit einen Candidate
+        # anlegen (ggf. mit eigenem suggested_title aus payload). Hier
+        # KEIN Guess-Skip — der User-Intent ueberstimmt die
+        # Whitelist-Match-Bedingung.
+        candidate = create_candidate_from_asset(
+            session, asset_id, skip_if_guess_only=False,
+        )
         if payload and payload.suggested_title:
             candidate.suggested_title = payload.suggested_title
             session.add(candidate)
