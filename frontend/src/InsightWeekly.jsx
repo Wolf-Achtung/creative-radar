@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { endpoints } from './api/client';
 import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
@@ -467,6 +467,7 @@ const ROLE_TABS = [
 ];
 
 function RolesTabSwitcher({ output, pairKey, initialActiveTab }) {
+  const printMode = useContext(PrintModeContext);
   // Wenn alle drei Rollen-Felder null sind, faellt der Switcher weg —
   // sonst zeigt er einen leeren Empty-State, was an dieser Stelle nur
   // Layout-Rauschen ist (Vergleichbare-Posts rendert separat als Footer).
@@ -493,6 +494,33 @@ function RolesTabSwitcher({ output, pairKey, initialActiveTab }) {
 
   const activeTab = ROLE_TABS.find((t) => t.key === activeKey) || ROLE_TABS[0];
   const activeData = output?.[activeTab.field];
+
+  // Sprint 28.05.2026 (PDF-Baustein 2): im PrintMode rendert der
+  // Switcher ALLE drei Rollen-Panels statt nur den aktiven. Sonst
+  // wuerde das PDF die zwei nicht-aktiven Tabs verschlucken
+  // (kritisches Briefing-Done-Kriterium). Die Tab-Leiste ist im Print-
+  // CSS via display:none ausgeblendet — nur die drei Panels mit ihren
+  // Labels als Sub-Headings sind sichtbar.
+  if (printMode) {
+    return (
+      <div className="roles-tabs card roles-tabs-print">
+        {ROLE_TABS.map((t) => {
+          const data = output?.[t.field];
+          return (
+            <div key={t.key} className="roles-tab-panel roles-tab-panel-print">
+              <h4 className="roles-print-label">Für den {t.label}</h4>
+              {data ? t.render(data) : (
+                <p className="roles-tab-empty-text">
+                  Für die Rolle "{t.label}" liegt in diesem Brief keine
+                  Empfehlung vor.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="roles-tabs card">
@@ -707,6 +735,16 @@ function useLocalStorage(key, defaultValue) {
 //
 // A11y: button mit aria-expanded + aria-controls; chevron rotiert per
 // CSS; Header-Tastatur-Aktivierung via Enter/Space (Button-Default).
+// Sprint 28.05.2026 (PDF-Baustein 2) — Print-Mode-Context.
+// PDF-Button setzt ``printMode=true``, CollapsibleCard und
+// RolesTabSwitcher lesen es und rendern alle Inhalte (statt nur den
+// aktiven Klapp-/Tab-State). So landen alle 20 Sektionen vollstaendig
+// im DOM, BEVOR window.print() den Browser-Print-Dialog oeffnet —
+// sonst koennte das @media-print-CSS nichts sichtbar machen, was React
+// im aktuellen State nicht gemountet hat (Lazy-Mount-Pattern aus #192).
+// Default false: normaler Browser-Modus arbeitet exakt wie vorher.
+const PrintModeContext = createContext(false);
+
 function CollapsibleCard({
   title,
   subtitle,
@@ -714,7 +752,15 @@ function CollapsibleCard({
   variant = 'card',
   children,
 }) {
+  const printMode = useContext(PrintModeContext);
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  // effectiveOpen: im PrintMode IMMER offen, sonst der User-State.
+  // Aenderung gegenueber #192: die Render-Bedingung unten reagiert auf
+  // ``effectiveOpen``, der State-Zyklus (User-Toggle, ViewMode-Sync)
+  // bleibt unveraendert — d.h. wenn der Print-Dialog zurueckkommt
+  // (afterprint leert printMode), faellt die Karte automatisch in
+  // ihren vorherigen User-State.
+  const effectiveOpen = printMode || isOpen;
   // Sprint 28.05.2026 (IA-Umbau, Baustein 4): wenn der Ansichts-Modus-
   // Umschalter den ``defaultOpen``-Prop aendert (z.B. von "all" auf
   // "cutter"), den Klapp-Zustand neu setzen. User-Toggles innerhalb
@@ -726,14 +772,14 @@ function CollapsibleCard({
   const contentId = useId();
   const headerId = useId();
   const className = variant === 'inner'
-    ? `collapsible-inner ${isOpen ? 'is-open' : ''}`
-    : `card collapsible-card ${isOpen ? 'is-open' : ''}`;
+    ? `collapsible-inner ${effectiveOpen ? 'is-open' : ''}`
+    : `card collapsible-card ${effectiveOpen ? 'is-open' : ''}`;
   return (
     <section className={className}>
       <button
         type="button"
         className="collapsible-header"
-        aria-expanded={isOpen}
+        aria-expanded={effectiveOpen}
         aria-controls={contentId}
         id={headerId}
         onClick={() => setIsOpen((v) => !v)}
@@ -742,7 +788,7 @@ function CollapsibleCard({
         <span className="collapsible-title">{title}</span>
         {subtitle && <span className="collapsible-subtitle">{subtitle}</span>}
       </button>
-      {isOpen && (
+      {effectiveOpen && (
         <div
           className="collapsible-content"
           id={contentId}
@@ -1315,6 +1361,7 @@ function applyRangeFilter(posts, range) {
 }
 
 function TopRankingSection({ aggregation, pairKey }) {
+  const printMode = useContext(PrintModeContext);
   const [sortKey, setSortKey] = useLocalStorage(
     `creative-radar:ranking-sort:${pairKey}`,
     'views',
@@ -1355,7 +1402,10 @@ function TopRankingSection({ aggregation, pairKey }) {
     if (!hasAnyData) return null;
   }
 
-  const visibleCount = expanded ? 10 : 5;
+  // Sprint 28.05.2026 (PDF-Baustein 2): im Print alle Top-Posts (bis
+  // zum ranked_posts-limit von 10) zeigen, sonst der "Mehr"-Toggle-
+  // State des Users.
+  const visibleCount = printMode || expanded ? 10 : 5;
   const deSorted = [...deList].sort(sortFn).slice(0, visibleCount);
   const usSorted = [...usList].sort(sortFn).slice(0, visibleCount);
   const ukSorted = [...ukList].sort(sortFn).slice(0, visibleCount);
@@ -1472,8 +1522,28 @@ const VIEW_MODE_LABELS = {
   producer: 'Producer-Sicht',
 };
 
+// Sprint 28.05.2026 (PDF-Baustein 2) — Print-Mode-State + Trigger.
+// Workflow:
+// 1. User klickt "Als PDF speichern"-Button → ``setPrintMode(true)``.
+// 2. React rendert um (alle CollapsibleCards via PrintModeContext
+//    aufgeklappt, alle drei Rollen-Tabs sichtbar, Lazy-Mount-Inhalte
+//    sind jetzt im DOM).
+// 3. Zwei requestAnimationFrame-Frames warten, damit der Layout-Pass
+//    durch ist — sonst ruft window.print() den Browser auf, BEVOR
+//    React den neuen DOM gerendert hat.
+// 4. ``window.print()`` oeffnet den nativen Druckdialog.
+// 5. ``afterprint``-Event-Listener feuert nach Schliessen des Dialogs
+//    (Druck-OK ODER Abbruch — beide rufen afterprint) → ``setPrintMode(false)``.
+//    Damit faellt jede CollapsibleCard automatisch in ihren vorherigen
+//    User-State zurueck (effectiveOpen = isOpen || printMode, also nur
+//    noch isOpen). Der Tab-Switcher zeigt wieder nur den aktiven Tab.
+//
+// Wenn der User ohne den Button via Ctrl+P druckt, greift Print-Mode
+// NICHT — das ist akzeptabel: Ctrl+P ist Best-Effort, der Button ist
+// der offizielle Pfad.
 export default function InsightWeekly({ pair }) {
   const [report, setReport] = useState(null);
+  const [printMode, setPrintMode] = useState(false);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'slow' | 'done' | 'error'
   // Persistiert global (nicht pro pairKey), damit Wolfs Cutter-Sicht
@@ -1509,12 +1579,42 @@ export default function InsightWeekly({ pair }) {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [pair]);
 
+  // Sprint 28.05.2026 (PDF-Baustein 2): afterprint restored den
+  // normalen Modus, sobald der Druckdialog schliesst (OK oder Abbruch).
+  // ``beforeprint`` koennen wir NICHT als Auto-Trigger nutzen, weil
+  // der Event sync ist und keine React-Re-Renders abwartet — das
+  // browser-eigene Ctrl+P drueckt also den nicht-printmode-Zustand
+  // (aktueller Sicht). Der "Als PDF speichern"-Button ist der
+  // empfohlene Pfad und triggert printMode programmatisch vor dem
+  // window.print()-Call.
+  useEffect(() => {
+    const onAfterPrint = () => setPrintMode(false);
+    window.addEventListener('afterprint', onAfterPrint);
+    return () => window.removeEventListener('afterprint', onAfterPrint);
+  }, []);
+
+  async function handleExportPdf() {
+    setPrintMode(true);
+    // Zwei RAF-Frames damit React den DOM voll rendert + Layout abgeschlossen
+    // ist, bevor window.print() blockiert. Ein Frame reicht in Praxis
+    // meistens, zwei ist defensiv (Stagger fuer langsamere Geraete).
+    await new Promise((r) => requestAnimationFrame(r));
+    await new Promise((r) => requestAnimationFrame(r));
+    window.print();
+    // Browser feuert afterprint nach Schliessen des Dialogs — der
+    // useEffect oben raeumt den printMode dann auf. Wenn afterprint aus
+    // irgendeinem Grund nicht feuert (sehr alte Browser), bleibt die
+    // Seite im PrintMode — User muesste Reload machen. Akzeptabel,
+    // weil moderne Browser den Event zuverlaessig feuern.
+  }
+
   const loading = status === 'loading' || status === 'slow';
 
   const label = FALLBACK_LABEL[pair] || report?.pair_label || pair;
 
   return (
-    <main className="page insight-page">
+    <PrintModeContext.Provider value={printMode}>
+    <main className={`page insight-page ${printMode ? 'is-print' : ''}`}>
       <header className="hero">
         <div className="hero__left">
           {/* Rueckweg zur Startseite — vorher Sackgasse aus der Pair-Brief-
@@ -1559,6 +1659,18 @@ export default function InsightWeekly({ pair }) {
             <option value="cutter">{VIEW_MODE_LABELS.cutter}</option>
             <option value="producer">{VIEW_MODE_LABELS.producer}</option>
           </select>
+          {/* Sprint 28.05.2026 (PDF-Baustein 2): Print-Button neben dem
+              ViewMode-Dropdown. Setzt printMode → Re-Render → window.print().
+              Im Print-CSS ist .pdf-export-btn ausgeblendet, sodass der
+              Button selbst nicht im Ausdruck erscheint. */}
+          <button
+            type="button"
+            className="pdf-export-btn"
+            onClick={handleExportPdf}
+            aria-label="Brief als PDF speichern"
+          >
+            Als PDF speichern
+          </button>
           <span className="viewmode-hint" aria-hidden="true">
             steuert nur Default-Klappzustände — alle Sektionen bleiben erreichbar
           </span>
@@ -1685,5 +1797,6 @@ export default function InsightWeekly({ pair }) {
         {report && <span> · generiert {formatDateISO(report.generated_at)}</span>}
       </footer>
     </main>
+    </PrintModeContext.Provider>
   );
 }
