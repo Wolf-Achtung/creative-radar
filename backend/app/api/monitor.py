@@ -25,6 +25,7 @@ from app.services.apify_connector import (
 from app.services.asset_screenshot_persistence import persist_asset_screenshot_async
 from app.services.creative_ai import analyze_creative_text_async
 from app.services.title_candidates import create_candidate_from_asset, resolve_open_candidates_for_asset
+from app.admin_session import require_admin_session
 from app.services.whitelist_matcher import find_best_title_match, is_safe_auto_match
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,12 @@ DEFAULT_OPENAI_CONCURRENCY = ASSET_CREATION_OPENAI_CONCURRENCY
 DEFAULT_HTTPX_CONCURRENCY = ASSET_CREATION_HTTPX_CONCURRENCY
 
 
-router = APIRouter(prefix="/api/monitor", tags=["monitor"])
+# Sprint 28.05.2026 (Admin-Login): Router-Level-Dependency.
+router = APIRouter(
+    prefix="/api/monitor",
+    tags=["monitor"],
+    dependencies=[Depends(require_admin_session)],
+)
 
 
 def _handle_from_url_or_value(value: str | None) -> str:

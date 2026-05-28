@@ -4,10 +4,16 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import Channel, Market
 from app.schemas.dto import ChannelCreate, ChannelUpdate
+from app.admin_session import require_admin_session
 from app.services.channel_importer import import_channels_from_excel
 from app.services.seeds import seed_channels
 
-router = APIRouter(prefix="/api/channels", tags=["channels"])
+# Sprint 28.05.2026 (Admin-Login): Router-Level-Dependency.
+router = APIRouter(
+    prefix="/api/channels",
+    tags=["channels"],
+    dependencies=[Depends(require_admin_session)],
+)
 
 
 @router.get("")

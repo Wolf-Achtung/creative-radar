@@ -5,11 +5,19 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.entities import Asset, Channel, Post, ReviewStatus, Title
 from app.schemas.dto import AssetReviewUpdate
+from app.admin_session import require_admin_session
 from app.services.match_key import slugify_match_key
 from app.services.storage import resolve_url
 from app.services.visual_analysis import analyze_asset_visual
 
-router = APIRouter(prefix="/api/assets", tags=["assets"])
+# Sprint 28.05.2026 (Admin-Login): Router-Level-Dependency. Alle
+# Asset-Routes (Review, Visual-Analyse, List) sind Admin-Werkzeuge —
+# kein oeffentlicher Pfad in diesem Router.
+router = APIRouter(
+    prefix="/api/assets",
+    tags=["assets"],
+    dependencies=[Depends(require_admin_session)],
+)
 logger = logging.getLogger(__name__)
 
 

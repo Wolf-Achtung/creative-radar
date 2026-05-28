@@ -12,12 +12,18 @@ from app.schemas.dto import (
     TitleCreate,
     TitleSyncRequest,
 )
+from app.admin_session import require_admin_session
 from app.services.seeds import seed_titles
 from app.services.title_candidates import create_candidate_from_asset
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.title_sync import sync_titles_from_tmdb
 
-router = APIRouter(prefix="/api/titles", tags=["titles"])
+# Sprint 28.05.2026 (Admin-Login): Router-Level-Dependency.
+router = APIRouter(
+    prefix="/api/titles",
+    tags=["titles"],
+    dependencies=[Depends(require_admin_session)],
+)
 
 
 @router.get("")

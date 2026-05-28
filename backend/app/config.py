@@ -97,6 +97,31 @@ class Settings(BaseSettings):
     auth_enabled: bool = False
     api_token: str | None = None
 
+    # Sprint 28.05.2026 (Admin-Login) — zweite Auth-Schicht ueber dem
+    # Bearer-Token. Bearer beantwortet "richtiges Frontend?", die
+    # Admin-Session beantwortet "richtiger User?". Beide werden auf
+    # User-Werkzeug-Routes (Treffer pruefen / Quellen / Report erstellen)
+    # geprueft — defense-in-depth, kein Doppel-Schutz mit derselben
+    # Frage.
+    #
+    # ``admin_password``: Klartext-Passwort, mit dem Wolf (oder ein
+    # geteilter Account) sich einloggt. NIEMALS im Code/Chat
+    # hardcoden — Wolf setzt das via Railway-ENV.
+    # ``admin_session_secret``: HMAC-Schluessel fuer die Session-
+    # Token-Signatur. Eigener ENV-Wert, damit ein Passwort-Wechsel
+    # nicht alle ausgegebenen Tokens invalidiert (und damit man
+    # rotieren kann ohne Login-Daten zu aendern). Wolf setzt das
+    # einmal als ausreichend langen Random-String. Fehlt der Wert,
+    # antwortet der Login-Endpoint mit 503 (fail-closed).
+    # ``admin_session_ttl_seconds``: Default 8h = ein Arbeitstag.
+    # ``admin_auth_enabled``: Master-Schalter; default off damit der
+    # Rollout in Stages laufen kann (Backend deployen, dann Frontend,
+    # dann ENVs setzen, dann auf True flippen).
+    admin_password: str | None = None
+    admin_session_secret: str | None = None
+    admin_session_ttl_seconds: int = 8 * 3600
+    admin_auth_enabled: bool = False
+
     image_proxy_allowed_hosts: str = (
         "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
     )

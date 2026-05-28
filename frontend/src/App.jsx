@@ -3,25 +3,34 @@ import { createRoot } from 'react-dom/client';
 import { endpoints, proxyImageUrl } from './api/client';
 import InsightWeekly from './InsightWeekly';
 import RoundupBlock from './RoundupBlock';
+import AdminPage from './AdminPage';
 import './styles.css';
 
-// Lightweight URL-based view-switch. The app has a single page today, so
-// pulling in react-router for one extra route is overkill; matching the
-// pathname directly keeps the bundle lean and the routing visible at a
-// glance. Sprint-2 swaps this for react-router once we have ≥3 routes.
+// Lightweight URL-based view-switch. Sprint 28.05.2026 (Admin-Sektion):
+// dritte Route ``/admin`` fuer den Login-Gate + Werkzeug-Bereich. Eine
+// echte Router-Lib (react-router) ist bei drei Routen weiter overkill —
+// pathname-Matching reicht.
 function Router() {
   const path = (typeof window !== 'undefined' ? window.location.pathname : '') || '';
   const weeklyMatch = path.match(/^\/insights\/weekly\/([\w.-]+)\/?$/);
   if (weeklyMatch) {
     return <InsightWeekly pair={weeklyMatch[1]} />;
   }
+  if (path === '/admin' || path === '/admin/') {
+    return <AdminPage />;
+  }
   return <App />;
 }
 
-const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
-const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'DE/US Vergleich', 'Quellen'];
+// Sprint 28.05.2026 (Admin-Sektion): NAV_ITEMS ohne "DE/US Vergleich".
+// Die Alt-Last-Komponente ComparisonPanel + ihre Daten waren ein
+// Vorgaenger des Pair-Brief-"Drei Maerkte, ein Film"-Blocks (#191) und
+// inhaltlich ueberholt — entfernt. Die anderen drei Werkzeuge wandern
+// in die geschuetzte Admin-Sektion (siehe AdminPage.jsx).
+export const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
+export const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'Quellen'];
 
-const ACTION_HELP = [
+export const ACTION_HELP = [
   ['Für Report freigeben', 'Der Treffer ist relevant und kommt in den Report-Anhang.'],
   ['Als Top-Fund markieren', 'Besonders stark oder strategisch wichtig; erscheint prominent im Weekly Report.'],
   ['Später prüfen', 'Noch unsicher; bleibt in der Prüfliste und wird nicht in den Report übernommen.'],
@@ -29,7 +38,7 @@ const ACTION_HELP = [
   ['Bild/Text analysieren', 'Bild/Text automatisch auswerten: Titel-/Claim-Platzierung, Kinetic, OCR.'],
 ];
 
-function getAssetDisplayTitle(asset, titles) {
+export function getAssetDisplayTitle(asset, titles) {
   const hint = inferTitleHint(asset, titles);
   if (asset.title_name || asset.title_id) {
     return `Automatisch erkannt: ${hint.label}`;
@@ -40,7 +49,7 @@ function getAssetDisplayTitle(asset, titles) {
   return 'Filmtitel bitte zuordnen';
 }
 
-function Section({ title, kicker, children, className = '' }) {
+export function Section({ title, kicker, children, className = '' }) {
   return (
     <section className={`card ${className}`}>
       {kicker && <p className="section-kicker">{kicker}</p>}
@@ -50,28 +59,28 @@ function Section({ title, kicker, children, className = '' }) {
   );
 }
 
-function formatNumber(value) {
+export function formatNumber(value) {
   if (value === null || value === undefined || value === '') return '—';
   try { return new Intl.NumberFormat('de-DE').format(Number(value)); } catch (_) { return String(value); }
 }
 
-function formatDate(value) {
+export function formatDate(value) {
   if (!value) return 'Datum offen';
   try { return new Date(value).toLocaleDateString('de-DE'); } catch (_) { return 'Datum offen'; }
 }
 
-function clip(text, max = 260) {
+export function clip(text, max = 260) {
   if (!text) return '';
   return text.length > max ? `${text.slice(0, max).trim()} …` : text;
 }
 
-function normalizeHandle(value) {
+export function normalizeHandle(value) {
   const clean = (value || '').trim().replace(/^@/, '').replace(/\/$/, '');
   if (clean.includes('tiktok.com/@')) return clean.split('tiktok.com/@')[1].split('/')[0];
   return clean;
 }
 
-function textPool(asset) {
+export function textPool(asset) {
   return [
     asset.title_name,
     asset.title_local,
@@ -86,7 +95,7 @@ function textPool(asset) {
   ].filter(Boolean).join(' ');
 }
 
-function titleFromHashtag(tag) {
+export function titleFromHashtag(tag) {
   const stripped = tag.replace(/^#/, '').replace(/movie|film|official|trailer|themovie$/gi, '');
   const words = stripped
     .replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -95,7 +104,7 @@ function titleFromHashtag(tag) {
   return words.length >= 3 ? words : '';
 }
 
-function inferTitleHint(asset, titles) {
+export function inferTitleHint(asset, titles) {
   if (asset.title_name || asset.placement_title_text) {
     return { label: asset.title_name || asset.placement_title_text, source: 'zugeordnet/erkannt' };
   }
@@ -116,7 +125,7 @@ function inferTitleHint(asset, titles) {
   return { label: 'Filmtitel noch offen', source: 'Bitte zuordnen' };
 }
 
-function ImagePreview({ imageUrl, evidenceQuality, sources = [] }) {
+export function ImagePreview({ imageUrl, evidenceQuality, sources = [] }) {
   // Callers pass a sources array of candidate URLs (proposal cards use
   // display_image_candidates from the backend; review/asset cards use the raw
   // asset URL fields). Iterate via onError until one loads or all are spent.
@@ -154,7 +163,7 @@ function ImagePreview({ imageUrl, evidenceQuality, sources = [] }) {
   );
 }
 
-function MetricStrip({ asset }) {
+export function MetricStrip({ asset }) {
   const metrics = [
     ['Views', asset.visible_views],
     ['Likes', asset.visible_likes],
@@ -170,94 +179,13 @@ function MetricStrip({ asset }) {
   );
 }
 
-function TodoCard({ assets, openReview, missingTitles, reportCandidates, approved, highlights, onGoReview, onGoReport, onBatchAnalyze }) {
-  const reportGap = [];
-  if (approved === 0) reportGap.push('1. Mindestens ein Top-Fund');
-  if (missingTitles > 4) reportGap.push('2. Zu viele Treffer ohne Filmtitel-Zuordnung');
-  if (openReview > 0) reportGap.push(`3. ${openReview} Treffer sind noch nicht entschieden`);
+// Sprint 28.05.2026 (Admin-Sektion): TodoCard, ImportantFinds und
+// ReportStatus waren Helfer fuer HomePanel — selbst nicht mehr
+// gerendert (HomePanel war Tot-Code in der Startseite-Tools-Tab-Logik).
+// Alle vier sind ersatzlos entfernt; die Pair-Tiles-Sicht ist die
+// neue Startseite.
 
-  return (
-    <Section title="Heute zu tun" kicker="Geführter Workflow" className="todo-card">
-      <p className="muted small"><strong>Empfohlener Testlauf (MVP):</strong> 1) Titelquellen aktualisieren 2) Bestehende Treffer neu zuordnen 3) 5 neue TikTok-Treffer prüfen 4) KI-Bildanalyse starten 5) 1 Top-Fund markieren 6) Weekly Report aktualisieren.</p>
-      <div className="workflow-steps">
-        <div><b>1</b><span>Neue Treffer ansehen</span></div>
-        <div><b>2</b><span>KI-Bildanalyse starten</span></div>
-        <div><b>3</b><span>Relevanz / Top-Fund entscheiden</span></div>
-        <div><b>4</b><span>Weekly Report erzeugen</span></div>
-      </div>
-      <div className="todo-grid">
-        <div className="todo-item"><strong>{openReview}</strong><span>neue Treffer warten auf Prüfung</span></div>
-        <div className="todo-item"><strong>{missingTitles}</strong><span>Treffer brauchen Filmtitel-Zuordnung</span></div>
-        <div className="todo-item"><strong>{reportCandidates}</strong><span>Treffer sind für den Report geeignet</span></div>
-      </div>
-      <div className="todo-actions">
-        <button className="primary" onClick={onBatchAnalyze}>Alle neuen Assets visuell prüfen</button>
-        <button className="secondary" onClick={onGoReview}>Jetzt Treffer prüfen</button>
-      </div>
-      <p className="muted small">{reportGap.length ? `Report noch nicht bereit. Es fehlen noch: ${reportGap.join(' ')}` : 'Report kann jetzt sinnvoll erstellt oder aktualisiert werden.'}</p>
-    </Section>
-  );
-}
-
-function ImportantFinds({ assets, titles }) {
-  const weekly = [...assets]
-    .filter((asset) => asset.review_status === 'highlight' || asset.is_highlight || asset.review_status === 'approved')
-    .sort((a, b) => new Date(b.published_at || b.created_at || 0) - new Date(a.published_at || a.created_at || 0))
-    .slice(0, 6);
-
-  return (
-    <Section title="Empfohlene Funde für den nächsten Report" kicker="Automatisch vorgeschlagen">
-      {weekly.length === 0 ? <p className="muted">Noch keine kuratierten Funde vorhanden.</p> : (
-        <div className="find-grid">
-          {weekly.map((asset) => {
-            const hint = inferTitleHint(asset, titles);
-            return (
-              <article key={asset.id} className="find-card">
-                <ImagePreview sources={[asset.visual_evidence_url, asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url].map(proxyImageUrl)} />
-                <div>
-                  <p className="find-title">{hint.label}</p>
-                  <p className="muted small">{asset.channel_name || 'Unbekannter Kanal'} · {asset.channel_market || 'UNKNOWN'} · {formatDate(asset.published_at || asset.created_at)}</p>
-                  <p className="small">{clip(asset.ai_summary_de || asset.caption || 'Noch keine Zusammenfassung verfügbar.', 120)}</p>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
-    </Section>
-  );
-}
-
-function ReportStatus({ approved, highlights, openReview, missingTitles }) {
-  const minApproved = 3;
-  const maxMissingTitles = 4;
-  const ready = approved >= minApproved && highlights >= 1 && missingTitles <= maxMissingTitles;
-  const missingApproved = Math.max(0, minApproved - approved);
-  const missingHighlights = Math.max(0, 1 - highlights);
-  const missingTitleAssignments = Math.max(0, missingTitles - maxMissingTitles);
-  const gaps = [];
-  if (missingApproved > 0) gaps.push(`${missingApproved} weitere freigegebene Treffer`);
-  if (missingHighlights > 0) gaps.push(`${missingHighlights} Highlight`);
-  if (missingTitleAssignments > 0) gaps.push(`Filmtitel-Zuordnung bei ${missingTitleAssignments} Treffern`);
-  return (
-    <Section title="Report-Status" kicker="Was noch fehlt">
-      <div className="status-pills">
-        <span className={`pill ${ready ? 'good' : 'warn'}`}>{ready ? 'Report bereit' : 'Report noch nicht bereit'}</span>
-        <span className="pill">{approved} freigegeben</span>
-        <span className="pill">{highlights} Highlights</span>
-        <span className="pill">{openReview} noch zu prüfen</span>
-        <span className="pill">{missingTitles} mit offener Filmtitel-Zuordnung</span>
-      </div>
-      <p className="muted small">
-        {ready
-          ? 'Alle Mindestkriterien erfüllt: Der Weekly Report ist belastbar.'
-          : `Report noch nicht bereit. Es fehlen noch: ${gaps.join(' · ')}`}
-      </p>
-    </Section>
-  );
-}
-
-function ReviewGuide() {
+export function ReviewGuide() {
   return (
     <div className="review-guide">
       <div>
@@ -277,7 +205,7 @@ function ReviewGuide() {
   );
 }
 
-function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onReportMissingTitle, recentlyCreatedTitleName }) {
+export function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onReportMissingTitle, recentlyCreatedTitleName }) {
   const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
   const hasTitle = Boolean(asset.title_name || asset.placement_title_text || asset.title_id);
   const visualChecked = asset.visual_analysis_status === "done";
@@ -395,27 +323,7 @@ function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTit
   );
 }
 
-function HomePanel({ assets, titles, openReview, missingTitles, reportCandidates, approved, highlights, setActiveTab, onBatchAnalyze }) {
-  return (
-    <>
-      <TodoCard
-        assets={assets}
-        openReview={openReview}
-        missingTitles={missingTitles}
-        reportCandidates={reportCandidates}
-        approved={approved.length}
-        highlights={highlights.length}
-        onGoReview={() => setActiveTab('Treffer prüfen')}
-        onGoReport={() => setActiveTab('Report erstellen')}
-        onBatchAnalyze={() => onBatchAnalyze()}
-      />
-      <ImportantFinds assets={assets} titles={titles} />
-      <ReportStatus approved={approved.length} highlights={highlights.length} openReview={openReview} missingTitles={missingTitles} />
-    </>
-  );
-}
-
-function ReviewPanel({
+export function ReviewPanel({
   assets,
   titles,
   visibleAssets,
@@ -468,53 +376,12 @@ function ReviewPanel({
   );
 }
 
-function ComparisonPanel({ assets }) {
-  const unassignedCount = assets.filter((asset) => !(asset.title_name || asset.placement_title_text || asset.title_id)).length;
-  const grouped = useMemo(() => {
-    const map = new Map();
-    assets.forEach((asset) => {
-      const key = asset.title_name || asset.placement_title_text || 'Ohne Filmtitel-Zuordnung';
-      if (!map.has(key)) map.set(key, { de: [], us: [] });
-      const lane = (asset.channel_market === 'DE') ? 'de' : 'us';
-      map.get(key)[lane].push(asset);
-    });
-    return [...map.entries()].map(([title, values]) => ({ title, ...values }));
-  }, [assets]);
+// Sprint 28.05.2026 (Admin-Sektion): ComparisonPanel war die DE/US-
+// Alt-Last vor dem Dreimarkt-Umbau (#191 "Drei Maerkte, ein Film").
+// Inhaltlich ueberholt durch die neue Pair-Brief-Sektion mit echten
+// match_keys + LLM-Insight-Prosa — ersatzlos entfernt.
 
-  return (
-    <Section title="DE/US Vergleich" kicker="Muster auf einen Blick">
-      {unassignedCount > 0 && (
-        <p className="compare-warning">
-          Achtung: {unassignedCount} Treffer ohne Filmtitel-Zuordnung werden als „Ohne Filmtitel-Zuordnung“ geführt und können den Vergleich verzerren.
-        </p>
-      )}
-      {grouped.length === 0 ? <p className="muted">Noch keine Vergleichsdaten vorhanden.</p> : (
-        <div className="compare-list">
-          {grouped.map((group) => (
-            <article key={group.title} className="compare-card">
-              <h3>{group.title}</h3>
-              <div className="compare-columns">
-                <div>
-                  <p className="compare-label">DE</p>
-                  <p>{group.de.length} Treffer</p>
-                  <p className="small muted">Titel-/Claim-Platzierung: {group.de.filter((a) => a.has_title_placement).length} · Bewegter Text: {group.de.filter((a) => a.has_kinetic).length}</p>
-                </div>
-                <div>
-                  <p className="compare-label">US/INT</p>
-                  <p>{group.us.length} Treffer</p>
-                  <p className="small muted">Titel-/Claim-Platzierung: {group.us.filter((a) => a.has_title_placement).length} · Bewegter Text: {group.us.filter((a) => a.has_kinetic).length}</p>
-                </div>
-              </div>
-              <p className="small">Zusammenfassung: {group.de.length > group.us.length ? 'DE spielt das Motiv aktuell stärker aus.' : group.de.length < group.us.length ? 'US/INT setzt das Motiv aktuell stärker ein.' : 'DE und US/INT sind aktuell ähnlich stark vertreten.'}</p>
-            </article>
-          ))}
-        </div>
-      )}
-    </Section>
-  );
-}
-
-function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGenerateSuggestedReport, onRelaxFiltersAndSuggest }) {
+export function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGenerateSuggestedReport, onRelaxFiltersAndSuggest }) {
   const reportTypes = [
     { key: 'weekly_overview', label: 'Wochenüberblick', desc: 'Die wichtigsten Creative-Funde der letzten Tage. Für Geschäftsführung, Marketing und schnelle Wochenupdates.' },
     { key: 'de_us_comparison', label: 'DE/US Vergleich', desc: 'Vergleicht deutsche und internationale Creatives: Titel, Claims, CTAs, Kinetics und visuelle Platzierung.' },
@@ -599,7 +466,7 @@ function ReportsPanel({ report, busy, suggestion, form, setForm, onSuggest, onGe
   );
 }
 
-function SourcesPanel({
+export function SourcesPanel({
   busy,
   channelFile,
   setChannelFile,
@@ -669,17 +536,18 @@ function SourcesPanel({
   );
 }
 
-function App() {
+// Sprint 28.05.2026 (Admin-Sektion): die Tools-Logik aus dem bisherigen
+// App() in eine eigene AdminApp-Komponente herausgezogen + exportiert.
+// AdminPage.jsx wraps sie mit einem Login-Gate. Die Startseite (App()
+// weiter unten) zeigt nur noch Pair-Tiles + RoundupBlock; der Werkzeug-
+// Block + DE/US-Vergleich + "Waehle ein Werkzeug…"-Empty-State sind
+// ersatzlos entfernt.
+export function AdminApp({ onLogout }) {
   const [health, setHealth] = useState(null);
   const [channels, setChannels] = useState([]);
   const [titles, setTitles] = useState([]);
   const [assets, setAssets] = useState([]);
   const [report, setReport] = useState(null);
-  // Pair registry for the landing-page card grid. ``null`` = not yet
-  // fetched (initial load state); ``[]`` = fetched but empty (treated as
-  // an error in Commit 5); ``[...]`` = ready to render.
-  const [pairs, setPairs] = useState(null);
-  const [pairsError, setPairsError] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -734,25 +602,6 @@ function App() {
   }
 
   useEffect(() => { run(load); }, []);
-
-  // Landing-page pair registry. Independent of the auth-gated ``load()``
-  // above because ``/api/pairs`` is public — the card grid must render
-  // even when the bearer token has not been hydrated yet.
-  useEffect(() => {
-    let cancelled = false;
-    endpoints.pairs()
-      .then((data) => {
-        if (cancelled) return;
-        setPairs(Array.isArray(data?.pairs) ? data.pairs : []);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error('Failed to load /api/pairs', err);
-        setPairsError(true);
-        setPairs([]);
-      });
-    return () => { cancelled = true; };
-  }, []);
 
   async function importChannelFile(event) {
     event.preventDefault();
@@ -921,55 +770,17 @@ function App() {
 
   return (
     <main>
-      <header className="hero" style={{ background: '#1f4d4d', borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}>
+      <header className="hero" style={{ background: '#1f4d4d' }}>
         <div>
-          <p className="eyebrow">Creative Intelligence Workspace</p>
-          <h1>Creative Radar</h1>
-          <p>Was Studios, Verleiher und Streamer diese Woche gepostet haben — und wie es ankam.</p>
+          <p className="eyebrow">Admin-Bereich</p>
+          <h1>Creative Radar — Werkzeuge</h1>
+          <p>Treffer pruefen · Quellen verwalten · Reports erstellen.</p>
+        </div>
+        <div className="admin-header-actions">
+          <a className="hero__back-link" href="/">← zur Startseite</a>
+          <button type="button" className="secondary admin-logout-btn" onClick={onLogout}>Abmelden</button>
         </div>
       </header>
-
-      <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
-        <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Die Woche im Rückblick</p>
-        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Die großen Studios</h2>
-        {pairs === null && (
-          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Studios …</p>
-        )}
-        {pairsError && (
-          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>
-            Studio-Liste momentan nicht verfügbar. Bitte später erneut versuchen.
-          </p>
-        )}
-        {pairs && pairs.length > 0 && (
-          <div className="pair-briefs-grid" style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: '0.75rem',
-          }}>
-            {pairs.map((pair) => (
-              <a
-                key={pair.pair_key}
-                href={`/insights/weekly/${pair.pair_key}`}
-                className="card"
-                style={{
-                  display: 'block',
-                  padding: '1rem',
-                  margin: 0,
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                }}
-              >
-                <strong style={{ display: 'block', marginBottom: '0.25rem' }}>{pair.display_name}</strong>
-                <span className="muted small">{`${pair.markets.join(' + ')}, ${pair.frequency_label}`}</span>
-              </a>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <RoundupBlock />
-
 
       {error && <div className="error">{error}</div>}
       {message && <div className="success">{message}</div>}
@@ -980,7 +791,6 @@ function App() {
         </div>
       )}
 
-      <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '2rem 0 0.5rem 0', fontWeight: 600 }}>Weitere Werkzeuge / noch nicht final</p>
       <nav className="tabs">
         {NAV_ITEMS.map((tab) => (
           <button key={tab} className={activeTab === tab ? 'active' : ''} style={activeTab === tab ? { background: '#F26B5E', color: 'white', borderColor: '#F26B5E' } : {}} onClick={() => setActiveTab(activeTab === tab ? null : tab)}>{tab}</button>
@@ -1014,9 +824,6 @@ function App() {
           recentlyCreatedByAssetId={recentlyCreatedByAssetId}
         />
       )}
-      {activeTab === 'DE/US Vergleich' && (
-        <ComparisonPanel assets={assets} />
-      )}
       {activeTab === 'Quellen' && (
         <SourcesPanel
           busy={busy}
@@ -1036,16 +843,155 @@ function App() {
         />
       )}
 
-      {!activeTab && (
-        <p style={{ color: '#888', fontSize: '0.95em', textAlign: 'center', padding: '2rem', margin: 0 }}>
-          Wähle ein Werkzeug, um zu starten.
-        </p>
-      )}
-
       <footer className="footer-status">
         API: {health?.status || 'offen'} · Kanäle {channels.length} · Titel {titles.length} · Treffer {assets.length}
         <button className="secondary" onClick={() => run(load)} disabled={busy}>Aktualisieren</button>
       </footer>
+    </main>
+  );
+}
+
+
+// Sprint 28.05.2026 (Admin-Sektion): die neue, schmale Startseite.
+// Hero + Pair-Tiles (mit Markt-Info ueber der Sektion in Commit 3,
+// Phase 4) + RoundupBlock. Keine Werkzeuge mehr — die leben in
+// /admin hinter dem Login.
+// Sprint 28.05.2026 (Kachel-Variante A) — ermittelt aus der Pair-Liste
+// die haeufigste Markt-/Frequenz-Kombination als Sektions-Default.
+// Kacheln mit abweichender Kombi tragen eine kleine Pill; Default-
+// Kacheln bleiben minimal. Skaliert automatisch wenn neue
+// Markt-Kombis dazukommen (z.B. DE-only Indie-Studios).
+function computePairSectionDefaults(pairs) {
+  if (!pairs || pairs.length === 0) {
+    return { defaultMarkets: [], defaultFrequency: null, defaultKey: '' };
+  }
+  const tally = (values) => {
+    const counts = new Map();
+    for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
+    let best = null;
+    let bestCount = 0;
+    for (const [v, c] of counts.entries()) {
+      if (c > bestCount) { best = v; bestCount = c; }
+    }
+    return best;
+  };
+  const marketKeys = pairs.map((p) => [...(p.markets || [])].sort().join('+'));
+  const defaultMarketKey = tally(marketKeys) || '';
+  const defaultMarkets = defaultMarketKey ? defaultMarketKey.split('+') : [];
+  const defaultFrequency = tally(pairs.map((p) => p.frequency_label).filter(Boolean));
+  return {
+    defaultMarkets,
+    defaultFrequency,
+    defaultKey: `${defaultMarketKey}|${defaultFrequency || ''}`,
+  };
+}
+
+function pairDeviationLabel(pair, defaults) {
+  // Pill-Text wenn die Kachel von der Sektions-Default-Kombi abweicht.
+  // ``null`` = Default, kein Pill noetig. Markt-Abweichung wird als
+  // Markt-Liste gerendert ("US+UK"), Frequenz-Abweichung als
+  // Frequenz-Wort. Beides moeglich.
+  const markets = [...(pair.markets || [])].sort().join('+');
+  const defaultMarkets = defaults.defaultMarkets.join('+');
+  const marketsDiffer = markets !== defaultMarkets;
+  const frequencyDiffers = defaults.defaultFrequency
+    && pair.frequency_label
+    && pair.frequency_label !== defaults.defaultFrequency;
+  if (!marketsDiffer && !frequencyDiffers) return null;
+  const parts = [];
+  if (marketsDiffer) parts.push((pair.markets || []).join('+'));
+  if (frequencyDiffers) parts.push(pair.frequency_label);
+  return parts.join(' · ');
+}
+
+function App() {
+  // ``null`` = not yet fetched; ``[]`` = fetched but empty (treated as
+  // an error state); ``[...]`` = ready to render.
+  const [pairs, setPairs] = useState(null);
+  const [pairsError, setPairsError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.pairs()
+      .then((data) => {
+        if (cancelled) return;
+        setPairs(Array.isArray(data?.pairs) ? data.pairs : []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load /api/pairs', err);
+        setPairsError(true);
+        setPairs([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const sectionDefaults = useMemo(() => computePairSectionDefaults(pairs || []), [pairs]);
+
+  return (
+    <main>
+      <header className="hero" style={{ background: '#1f4d4d', borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}>
+        <div>
+          <p className="eyebrow">Creative Intelligence Workspace</p>
+          <h1>Creative Radar</h1>
+          <p>Was Studios, Verleiher und Streamer diese Woche gepostet haben — und wie es ankam.</p>
+        </div>
+      </header>
+
+      <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
+        <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Die Woche im Rückblick</p>
+        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.5rem' }}>Die großen Studios</h2>
+        {/* Sprint 28.05.2026 (Kachel-Variante A): Markt-Info einmal hier
+            ueber den Kacheln statt redundant auf jeder Kachel. Pills
+            unten markieren Abweichungen (z.B. Lionsgate ohne DE). */}
+        {pairs && pairs.length > 0 && sectionDefaults.defaultMarkets.length > 0 && (
+          <p className="pair-section-default" style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
+            Alle: {sectionDefaults.defaultMarkets.join(' / ')}
+            {sectionDefaults.defaultFrequency ? ` · ${sectionDefaults.defaultFrequency}` : ''}
+          </p>
+        )}
+        {pairs === null && (
+          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Studios …</p>
+        )}
+        {pairsError && (
+          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>
+            Studio-Liste momentan nicht verfügbar. Bitte später erneut versuchen.
+          </p>
+        )}
+        {pairs && pairs.length > 0 && (
+          <div className="pair-briefs-grid" style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: '0.75rem',
+          }}>
+            {pairs.map((pair) => {
+              const deviation = pairDeviationLabel(pair, sectionDefaults);
+              return (
+                <a
+                  key={pair.pair_key}
+                  href={`/insights/weekly/${pair.pair_key}`}
+                  className="card pair-tile"
+                  style={{
+                    display: 'block',
+                    padding: '1rem',
+                    margin: 0,
+                    textDecoration: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <strong style={{ display: 'block' }}>{pair.display_name}</strong>
+                  {deviation && (
+                    <span className="pair-tile-deviation">{deviation}</span>
+                  )}
+                </a>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <RoundupBlock />
     </main>
   );
 }

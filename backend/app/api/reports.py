@@ -11,11 +11,20 @@ from app.schemas.dto import (
     ReportGenerateRequest,
     ReportSuggestResponse,
 )
+from app.admin_session import require_admin_session
 from app.services.report_generator import generate_weekly_report_html
 from app.services.report_renderer_v2 import generate_report_html
 from app.services.report_selector import select_assets_for_report
 
-router = APIRouter(prefix="/api/reports", tags=["reports"])
+# Sprint 28.05.2026 (Admin-Login): Router-Level-Dependency schuetzt alle
+# Routes. ``require_admin_session`` skipped per Path-Whitelist die
+# Public-Downloads (latest/download.html, latest/download.md), die per
+# ``<a href download>`` ohne Cookie funktionieren muessen.
+router = APIRouter(
+    prefix="/api/reports",
+    tags=["reports"],
+    dependencies=[Depends(require_admin_session)],
+)
 
 
 def _range_to_dates(date_range: str) -> tuple[date, date]:

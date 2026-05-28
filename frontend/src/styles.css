@@ -583,6 +583,35 @@ a:hover { text-decoration: underline; }
   margin: 0;
 }
 
+/* Sprint 28.05.2026 (Kachel-Variante A) — Deviation-Pill auf Studio-
+   Kachel. Default-Kacheln zeigen nur den Studio-Namen; Abweichungen
+   (Lionsgate hat z.B. nur US+UK) bekommen einen kleinen Tag in
+   Trailerhaus-Rot. Mechanik in App.jsx::pairDeviationLabel — wenn neue
+   Sonderfaelle dazukommen (DE-only Indie etc.), greift sie automatisch. */
+.pair-tile-deviation {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(242, 107, 94, 0.15);
+  color: #F26B5E;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* Sprint 28.05.2026 (Admin-Sektion) — Header-Actions im Admin-Bereich.
+   Logout-Button + Back-Link rechts neben dem Hero-Titel. */
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.admin-logout-btn {
+  padding: 6px 14px;
+}
+
 /* Sprint 28.05.2026 (IA-Umbau, Baustein 4) — Ansichts-Modus-Toolbar.
    Sitzt zwischen WeekBanner und StaleWarning, klein und unaufdringlich.
    Briefing-Vorgabe: oben rechts im Brief. */
