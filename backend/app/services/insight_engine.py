@@ -2,7 +2,9 @@
 
 Single-shot Opus 4.7 weekly briefing for the Trailerhaus creative team.
 Deterministic aggregation lives in this module; the LLM call is one
-``messages_create_text`` per report, no agent loop.
+``messages_create_strict_json`` (Tool-Use mit forciertem ``tool_choice``,
+seit 28.05.2026 — vorher ``messages_create_text``) per report, no agent
+loop.
 
 The pair definition is hardcoded by design (see ``PAIRS`` below) — generalising
 to the other six Tier-A pairs is Sprint-2 work and explicitly out-of-scope for
@@ -53,7 +55,7 @@ from app.services.anthropic_client import (
     AnthropicAPIError,
     AnthropicAuthError,
     is_anthropic_configured,
-    messages_create_text,
+    messages_create_strict_json,
 )
 from app.services.cost_log import record_anthropic_call
 
@@ -508,6 +510,29 @@ MARKETS_DISPLAY_ORDER: tuple[str, ...] = ("DE", "US", "UK")
 # via ENV (see config.Settings.anthropic_*_model pattern) if Wolf wants to
 # force a datestamped pin, but no override is wired today: one Opus, one call.
 OPUS_MODEL_ALIAS = "claude-opus-4-7"
+
+
+# ---------- Structured-Outputs-Tool (Sprint 28.05.2026) ------------------
+#
+# API-erzwungenes JSON via Tool-Use mit forciertem ``tool_choice`` —
+# Wolf-Entscheid: Tool-Use ist die reifere/sicherere Form gegenueber
+# ``output_config.format.json_schema``. Das Schema bauen wir lazy aus
+# ``LLMReport.model_json_schema()``, damit jede Schema-Erweiterung
+# (Sprint-Trailerhaus-Prompt-Felder, kuenftige Evidenz-Block-Felder)
+# automatisch durchschlaegt — kein Hand-Pflege-Duplikat.
+#
+# ``_BRIEF_TOOL_INPUT_SCHEMA`` wird beim Modul-Import einmal aus Pydantic
+# extrahiert und ist danach konstant. Pydantic v2 ``model_json_schema``
+# erzeugt Draft-2020-12 mit ``$defs`` fuer geschachtelte Sub-Modelle;
+# Anthropic Tool-Input-Schemas unterstuetzen das nativ.
+
+_BRIEF_TOOL_NAME = "submit_weekly_brief"
+_BRIEF_TOOL_DESCRIPTION = (
+    "Submit the structured weekly pair brief. Call this tool exactly once "
+    "with the full report payload as the argument; do not return any prose "
+    "outside the tool call."
+)
+_BRIEF_TOOL_INPUT_SCHEMA: dict[str, Any] = LLMReport.model_json_schema()
 
 # Opus 4.7 pricing reads from ``settings.anthropic_opus_*_per_1k_usd`` —
 # previously hardcoded here AND implicit in ``record_anthropic_call``,
@@ -2474,18 +2499,38 @@ def generate_weekly_report(
     }
 
     def _call_and_extract(attempt_index: int) -> tuple[Any, str]:
-        """One Anthropic call + text-block extraction. ``attempt_index``
+        """One Anthropic call + content-block extraction. ``attempt_index``
         is 0 for the initial call, 1..N for retries — surfaced in the
         ``brief_anthropic_call_*`` events so retries are correlatable in
-        Railway alongside the original cron line."""
+        Railway alongside the original cron line.
+
+        Sprint 28.05.2026 (Structured-Outputs-Haertung): Call laeuft jetzt
+        ueber ``messages_create_strict_json`` mit Tool-Use + forciertem
+        ``tool_choice``. Die Anthropic-API validiert das Tool-Argument
+        gegen ``LLMReport.model_json_schema()`` und gibt es als
+        ``tool_use``-Block mit ``.input`` (bereits geparstes Dict) zurueck.
+
+        Extraktion: bevorzugt den ``tool_use``-Block — sein ``.input`` wird
+        zu JSON-Text reserialisiert, sodass der bestehende strict→lenient-
+        Parser (``_try_parse_llm_json``) ihn unveraendert als Strict-Pass
+        konsumiert. Findet sich kein ``tool_use``-Block (sollte
+        API-erzwungen nicht passieren, aber falls Anthropic mal abweicht
+        oder ein Mock im Test die alte Text-Form liefert), faellt die
+        Extraktion auf reine ``text``-Bloecke zurueck. Der nachgelagerte
+        Retry-Loop + Lenient-Parser bleiben damit als Sicherheitsnetz
+        stehen, kein toter Code.
+        """
         attempt_extra = {**call_extra, "attempt": attempt_index}
         logger.info("brief_anthropic_call_start", extra=attempt_extra)
         started = time.monotonic()
         try:
-            msg = messages_create_text(
+            msg = messages_create_strict_json(
                 model=model,
                 system=SYSTEM_PROMPT,
                 user_message=user_prompt,
+                tool_name=_BRIEF_TOOL_NAME,
+                tool_description=_BRIEF_TOOL_DESCRIPTION,
+                input_schema=_BRIEF_TOOL_INPUT_SCHEMA,
                 max_tokens=max_tokens,
             )
         except Exception as call_exc:
@@ -2511,9 +2556,18 @@ def generate_weekly_report(
         )
         text = ""
         try:
+            tool_input: Optional[Any] = None
+            text_fallback = ""
             for block in msg.content or []:
-                if getattr(block, "type", None) == "text":
-                    text += getattr(block, "text", "")
+                block_type = getattr(block, "type", None)
+                if block_type == "tool_use" and tool_input is None:
+                    tool_input = getattr(block, "input", None)
+                elif block_type == "text":
+                    text_fallback += getattr(block, "text", "")
+            if tool_input is not None:
+                text = json.dumps(tool_input, ensure_ascii=False, default=str)
+            else:
+                text = text_fallback
         except Exception as extract_exc:  # pragma: no cover — defensive
             logger.warning("insight-engine-content-extract-failed: %s", extract_exc)
         return msg, text
@@ -2523,13 +2577,20 @@ def generate_weekly_report(
     # with invalid JSON mid-document (Fall (d) — no truncation). The flow
     # below tries strict parse, falls back to a lenient substring extract
     # (covers preamble/postamble), and re-issues up to ``MAX_RECALLS``
-    # fresh ``messages_create_text`` calls if the response still won't
+    # fresh ``messages_create_strict_json`` calls if the response still won't
     # parse. Each re-call is a real Anthropic call (Anthropic doesn't
     # honor idempotency keys — see anthropic_client.py:140 docstring) so
     # ``record_anthropic_call`` fires per call: F0.7 cost cap captures
     # every retry without special-casing. If all attempts fail, the
     # function returns ``llm_output=None`` exactly as before and
     # ``_persist_report`` skips persistence — the cron loop survives.
+    #
+    # Sprint 28.05.2026 (Structured-Outputs-Haertung): mit Tool-Use +
+    # forciertem ``tool_choice`` ist die JSON-Validitaet der Antwort jetzt
+    # API-erzwungen — der Retry-Loop und der Lenient-Parser bleiben aber
+    # als Sicherheitsnetz erhalten, falls die API ausnahmsweise einen
+    # Text-Block statt Tool-Use liefert (Fallback-Extraktions-Pfad in
+    # ``_call_and_extract``).
     MAX_RECALLS = 2
     call_attempts: list[tuple[Any, str]] = []
 

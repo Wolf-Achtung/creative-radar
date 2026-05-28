@@ -217,9 +217,16 @@ def _make_anthropic_mock(headline: str = "fresh-headline") -> MagicMock:
         "risks": [],
         "data_caveats": [],
     }).model_dump(mode="json")
-    text_block = SimpleNamespace(type="text", text=json.dumps(body))
+    # Sprint 28.05.2026 (Structured-Outputs-Haertung): Pair-Pipeline ruft
+    # jetzt ``messages_create_strict_json`` und erwartet einen Tool-Use-
+    # Block; ``input`` ist bereits ein Dict, kein json.dumps noetig.
+    tool_use_block = SimpleNamespace(
+        type="tool_use",
+        name="submit_weekly_brief",
+        input=body,
+    )
     usage = SimpleNamespace(input_tokens=8000, output_tokens=3000)
-    message = SimpleNamespace(content=[text_block], usage=usage)
+    message = SimpleNamespace(content=[tool_use_block], usage=usage)
     return MagicMock(return_value=message)
 
 
@@ -228,7 +235,7 @@ def _patch_engine_call(monkeypatch, db, *, headline: str = "fresh-headline") -> 
     damit der Test nicht von Database-Seeds fuer Channels/Posts abhaengt.
     Returns den Anthropic-Mock fuer Inspektion des ``user_message``-Args."""
     anthropic_mock = _make_anthropic_mock(headline)
-    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
     monkeypatch.setattr(engine_module, "is_anthropic_configured", lambda: True)
     monkeypatch.setattr(
         engine_module, "record_anthropic_call",
@@ -445,7 +452,7 @@ def test_json_parse_failure_logs_raw_response_context(db, monkeypatch, caplog):
     usage = SimpleNamespace(input_tokens=8000, output_tokens=3000)
     message = SimpleNamespace(content=[text_block], usage=usage)
     anthropic_mock = MagicMock(return_value=message)
-    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
     monkeypatch.setattr(engine_module, "is_anthropic_configured", lambda: True)
     monkeypatch.setattr(
         engine_module, "record_anthropic_call",
@@ -493,7 +500,7 @@ def test_schema_validation_failure_logs_distinct_event(db, monkeypatch, caplog):
     usage = SimpleNamespace(input_tokens=8000, output_tokens=3000)
     message = SimpleNamespace(content=[text_block], usage=usage)
     anthropic_mock = MagicMock(return_value=message)
-    monkeypatch.setattr(engine_module, "messages_create_text", anthropic_mock)
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
     monkeypatch.setattr(engine_module, "is_anthropic_configured", lambda: True)
     monkeypatch.setattr(
         engine_module, "record_anthropic_call",

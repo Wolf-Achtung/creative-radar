@@ -395,17 +395,21 @@ def test_generate_with_mocked_llm(monkeypatch):
         "data_caveats": ["Nur 2 DE-Posts im Fenster"],
     }
 
-    import json as _json
-
     fake_message = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text=_json.dumps(sample_llm_json))],
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                name="submit_weekly_brief",
+                input=sample_llm_json,
+            )
+        ],
         usage=SimpleNamespace(input_tokens=5000, output_tokens=800),
     )
 
     def _fake_call(**kwargs):
         return fake_message
 
-    monkeypatch.setattr(insight_engine, "messages_create_text", _fake_call)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", _fake_call)
     monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
 
     with _session() as session:
@@ -429,8 +433,6 @@ def test_generate_weekly_report_logs_to_costlog(monkeypatch):
     path. This test pins the persistence: one Opus message ->
     one CostLog row in the ``anthropic_opus`` bucket with the resolved
     millicent cost and the pair_key / iso_week meta."""
-    import json as _json
-
     from app.config import settings
     from app.models.entities import CostLog
     from app.services import cost_log as cost_log_module
@@ -448,10 +450,16 @@ def test_generate_weekly_report_logs_to_costlog(monkeypatch):
         "data_caveats": [],
     }
     fake_message = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text=_json.dumps(sample))],
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                name="submit_weekly_brief",
+                input=sample,
+            )
+        ],
         usage=SimpleNamespace(input_tokens=5000, output_tokens=800),
     )
-    monkeypatch.setattr(insight_engine, "messages_create_text", lambda **k: fake_message)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", lambda **k: fake_message)
     monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
 
     with _session() as session:
@@ -481,7 +489,15 @@ def test_generate_weekly_report_logs_to_costlog(monkeypatch):
 
 def test_generate_handles_codefence_wrap(monkeypatch):
     """The model occasionally wraps JSON in ```json … ``` despite the
-    instruction. The wrapper strips that defensively."""
+    instruction. The wrapper strips that defensively.
+
+    Sprint 28.05.2026 (Structured-Outputs-Haertung): API-erzwungenes JSON
+    via Tool-Use macht diesen Pfad zur Safety-Net-Strecke — kein
+    Produktionsfall mehr, aber der Lenient-Parser bleibt aktiv, falls die
+    API mal einen Text-Block statt Tool-Use liefert. Mock simuliert genau
+    das: ``type='text'`` + Codefence-Wrap, die Extraktion faellt auf den
+    Text-Fallback und der bestehende ``_strip_codefence``-Pfad rettet.
+    """
     payload = (
         "```json\n"
         '{"headline":"H","tldr":"x","trends":[],"actions":[],'
@@ -493,7 +509,7 @@ def test_generate_handles_codefence_wrap(monkeypatch):
         content=[SimpleNamespace(type="text", text=payload)],
         usage=SimpleNamespace(input_tokens=10, output_tokens=10),
     )
-    monkeypatch.setattr(insight_engine, "messages_create_text", lambda **k: fake_message)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", lambda **k: fake_message)
     monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
 
     with _session() as session:
@@ -602,13 +618,17 @@ def test_llm_report_parses_new_sections_when_present(monkeypatch):
             }
         ],
     }
-    import json as _json
-
     fake_message = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text=_json.dumps(sample))],
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                name="submit_weekly_brief",
+                input=sample,
+            )
+        ],
         usage=SimpleNamespace(input_tokens=1000, output_tokens=2000),
     )
-    monkeypatch.setattr(insight_engine, "messages_create_text", lambda **k: fake_message)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", lambda **k: fake_message)
     monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
 
     with _session() as session:
@@ -636,13 +656,17 @@ def test_llm_report_parses_old_schema_for_backwards_compat(monkeypatch):
         "risks": ["R"],
         "data_caveats": ["C"],
     }
-    import json as _json
-
     fake_message = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text=_json.dumps(sample_old))],
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                name="submit_weekly_brief",
+                input=sample_old,
+            )
+        ],
         usage=SimpleNamespace(input_tokens=10, output_tokens=10),
     )
-    monkeypatch.setattr(insight_engine, "messages_create_text", lambda **k: fake_message)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", lambda **k: fake_message)
     monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
 
     with _session() as session:
@@ -822,12 +846,20 @@ def test_user_prompt_caps_ranked_posts_at_five_per_channel():
 def test_generate_surfaces_raw_text_on_parse_failure(monkeypatch):
     """If the model returns non-JSON, the report still resolves but
     ``llm_output`` is None and ``raw_llm_text`` carries the model's
-    actual reply so Wolf can investigate the prompt."""
+    actual reply so Wolf can investigate the prompt.
+
+    Sprint 28.05.2026 (Structured-Outputs-Haertung): Mit Tool-Use sollte
+    der Total-Fail-Pfad praktisch nie auftreten — wenn die API doch
+    irgendwann nur einen Text-Block (kein Tool-Use) liefert, faellt die
+    Extraktion auf den Text-Fallback und der bestehende Retry-Loop +
+    Final-Fallback (``llm_output=None``, ``raw_llm_text`` persistiert)
+    bleiben als Sicherheitsnetz unveraendert.
+    """
     fake_message = SimpleNamespace(
         content=[SimpleNamespace(type="text", text="oops, not json")],
         usage=SimpleNamespace(input_tokens=10, output_tokens=10),
     )
-    monkeypatch.setattr(insight_engine, "messages_create_text", lambda **k: fake_message)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", lambda **k: fake_message)
     monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
 
     with _session() as session:
@@ -2749,8 +2781,6 @@ def _persist_a_warnerbros_brief(monkeypatch) -> tuple[Session, dict]:
     mit gemocktem Opus-Call und gib (session, mock_state) zurück. Aus
     mock_state.calls liest der Test, wie oft Opus tatsächlich gerufen
     wurde."""
-    import json as _json
-
     state = {"calls": 0}
     sample = {
         "headline": "H",
@@ -2762,7 +2792,13 @@ def _persist_a_warnerbros_brief(monkeypatch) -> tuple[Session, dict]:
         "data_caveats": [],
     }
     fake_message = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text=_json.dumps(sample))],
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                name="submit_weekly_brief",
+                input=sample,
+            )
+        ],
         usage=SimpleNamespace(input_tokens=100, output_tokens=50),
     )
 
@@ -2770,7 +2806,7 @@ def _persist_a_warnerbros_brief(monkeypatch) -> tuple[Session, dict]:
         state["calls"] += 1
         return fake_message
 
-    monkeypatch.setattr(insight_engine, "messages_create_text", _fake_call)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", _fake_call)
     monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
 
     return state
@@ -3114,7 +3150,7 @@ def test_double_check_locking_concurrent(monkeypatch, caplog):
     # T1 in mock-LLM holds briefly to let T2 actually contend on the lock.
     t1_inside_llm = threading.Event()
     t2_started = threading.Event()
-    original_fake_call = insight_engine.messages_create_text
+    original_fake_call = insight_engine.messages_create_strict_json
 
     def _gated_call(**kwargs):
         # Only the very first invocation (T1) waits — T2 should never
@@ -3127,7 +3163,7 @@ def test_double_check_locking_concurrent(monkeypatch, caplog):
             t2_started.wait(timeout=5)
         return original_fake_call(**kwargs)
 
-    monkeypatch.setattr(insight_engine, "messages_create_text", _gated_call)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", _gated_call)
 
     caplog.set_level(logging.INFO, logger="app.services.insight_engine")
     caplog.clear()

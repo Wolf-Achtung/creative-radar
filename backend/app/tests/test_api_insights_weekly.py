@@ -142,7 +142,7 @@ def test_disabled_pair_short_circuits_before_llm(
     def _explode(**kwargs):
         raise AssertionError("LLM darf für disabled pair nicht aufgerufen werden")
 
-    monkeypatch.setattr(insight_engine, "messages_create_text", _explode)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", _explode)
 
     disabled = _disabled_pair_keys()
     if not disabled:
@@ -198,14 +198,20 @@ def test_enabled_pair_full_run_with_mocked_llm(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     fake_message = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text=_json.dumps(_MOCK_LLM_OUTPUT))],
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                name="submit_weekly_brief",
+                input=_MOCK_LLM_OUTPUT,
+            )
+        ],
         usage=SimpleNamespace(input_tokens=1000, output_tokens=200),
     )
 
     def _fake_call(**kwargs):
         return fake_message
 
-    monkeypatch.setattr(insight_engine, "messages_create_text", _fake_call)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", _fake_call)
     monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
 
     response = client.get(
