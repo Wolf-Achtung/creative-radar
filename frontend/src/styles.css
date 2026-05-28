@@ -438,6 +438,68 @@ a:hover { text-decoration: underline; }
 .insight-caption-excerpt { font-size: 13px; color: #6c6458; margin-top: 4px; }
 .insight-cross-market { padding-left: 22px; margin: 0; display: flex; flex-direction: column; gap: 12px; }
 .insight-cross-market-links a { margin-right: 12px; }
+
+/* Sprint 28.05.2026 (Punkt 1) — "Drei Märkte, ein Film".
+   Headline-Sektion oben im Brief: drei Achsen-Bloecke nebeneinander
+   (DE↔US, DE↔UK, US↔UK), darunter die Transfer-Opportunity-Zeile.
+   Mobile: stapeln (gleicher Breakpoint wie .insight-grid-three). */
+.cross-market-headline .cm-headline-title {
+  margin: 0 0 16px;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+.cm-axis-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 1100px) {
+  .cm-axis-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .cm-axis-grid { grid-template-columns: 1fr; }
+}
+.cm-axis-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: #fbf8f2;
+  border: 1px solid #ece4d8;
+  border-radius: 8px;
+}
+.cm-axis-empty { opacity: 0.78; }
+.cm-axis-label {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1d2330;
+  letter-spacing: 0.02em;
+}
+.cm-axis-insight {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1d2330;
+}
+.cm-axis-empty-text {
+  margin: 0;
+  color: #9a8f7e;
+  font-size: 13px;
+  font-style: italic;
+}
+.cm-axis-platform-pill {
+  margin-left: 6px;
+  font-size: 11px;
+  vertical-align: middle;
+}
+.cm-transfer-opportunity {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #ece4d8;
+  font-size: 14px;
+  line-height: 1.5;
+}
 .insight-error pre, .insight-raw {
   white-space: pre-wrap;
   background: #1d2330;

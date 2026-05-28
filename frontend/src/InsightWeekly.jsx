@@ -200,49 +200,6 @@ function ChannelStatsCard({ stats }) {
   );
 }
 
-// Sprint B2 (27.05.2026) — Cross-Market-Achse als Prop. Das Backend-Schema
-// CrossMarketMatch traegt fix ``de_*``/``us_*``-Felder (Backwards-Compat
-// fuer persistierte Briefe), die ``_cross_market_matches``-Funktion ist
-// generisch pairwise: pool_a-Daten fuellen den de_*-Slot, pool_b-Daten den
-// us_*-Slot. Frontend uebersetzt das pro Achse in das richtige Markt-Label:
-//   cross_market_matches → axis={a: 'DE', b: 'US'}
-//   de_uk_matches        → axis={a: 'DE', b: 'UK'}
-//   us_uk_matches        → axis={a: 'US', b: 'UK'}
-function CrossMarketCard({ matches, axis = { a: 'DE', b: 'US' } }) {
-  const axisLabel = `${axis.a} ↔ ${axis.b}`;
-  if (!matches || matches.length === 0) {
-    return (
-      <div className="card">
-        <p className="section-kicker">
-          {`Cross-Market Matches · ${axisLabel}`}
-          <HelpTooltip text={TOOLTIP_TEXTS.crossMarketMatch} label="Was sind Cross-Market Matches?" />
-        </p>
-        <p>{`Keine Titel-Parallelen zwischen ${axis.a} und ${axis.b} in diesem Zeitraum.`}</p>
-      </div>
-    );
-  }
-  return (
-    <div className="card">
-      <p className="section-kicker">{`Cross-Market Matches · ${axisLabel}`}</p>
-      <ol className="insight-cross-market">
-        {matches.map((m) => (
-          <li key={m.match_key}>
-            <strong>{m.title || m.match_key}</strong>
-            <div>
-              {axis.a}: {formatNumber(m.de_engagement)}{m.de_duration_seconds != null && ` · ${m.de_duration_seconds}s`}
-              {' / '}{axis.b}: {formatNumber(m.us_engagement)}{m.us_duration_seconds != null && ` · ${m.us_duration_seconds}s`}
-            </div>
-            <div className="insight-cross-market-links">
-              {m.de_post_url && <a href={m.de_post_url} target="_blank" rel="noreferrer">{`${axis.a}-Post`}</a>}
-              {m.us_post_url && <a href={m.us_post_url} target="_blank" rel="noreferrer">{`${axis.b}-Post`}</a>}
-            </div>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
 function LLMOutput({ output, raw }) {
   if (!output) {
     return (
@@ -354,20 +311,11 @@ function LLMOutput({ output, raw }) {
         </div>
       </div>
 
-      <div className="card">
-        <p className="section-kicker">Cross-Market Insight</p>
-        <p><strong>DE vs US:</strong> {output.cross_market_insight.de_vs_us}</p>
-        {/* Sprint B2 (27.05.2026): de_vs_uk / us_vs_uk sind optional —
-            die LLM laesst sie null, wenn UK-Datenlage zu duenn ist.
-            Frontend rendert die Zeilen nur, wenn Werte da sind. */}
-        {output.cross_market_insight.de_vs_uk && (
-          <p><strong>DE vs UK:</strong> {output.cross_market_insight.de_vs_uk}</p>
-        )}
-        {output.cross_market_insight.us_vs_uk && (
-          <p><strong>US vs UK:</strong> {output.cross_market_insight.us_vs_uk}</p>
-        )}
-        <p><strong>Transfer-Opportunity:</strong> {output.cross_market_insight.transfer_opportunity}</p>
-      </div>
+      {/* Sprint 28.05.2026 (Punkt 1): die alte "Cross-Market Insight"-
+          Card ist nach oben in die CrossMarketHeadlineSection gewandert
+          (direkt unter Hero, vor Breakouts/Top-Posts). De-vs-US-Text,
+          de_vs_uk, us_vs_uk und transfer_opportunity rendern jetzt
+          dort — pro Achse zusammen mit den belegenden Match-Cards. */}
 
       {output.konkurrenz && (
         <div className="card">
@@ -789,16 +737,19 @@ function RankedPostCard({ post, rank, sortKey, platformFilter }) {
 const PLATFORM_LABEL = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
 
 // Sprint 4 — multi-platform stats block. One platform-block per entry in
-// per_platform, each holding the DE+US ChannelStatsCards plus a
-// per-platform CrossMarketCard. Backwards-compat: when per_platform is
-// empty (older persisted briefs from before Sprint-4) the component
-// falls back to the single-platform render path with the legacy
-// aggregation.de_channel / us_channel / cross_market_matches fields.
+// per_platform, each holding the DE+US ChannelStatsCards. Backwards-
+// compat: when per_platform is empty (older persisted briefs from before
+// Sprint-4) the component falls back to the single-platform render path
+// with the legacy aggregation.de_channel / us_channel fields.
 //
 // Empty platform blocks (no DE and no US data) are skipped entirely
 // rather than rendered as empty shells — the YT-only-US pairs (Disney,
 // Prime, Paramount) thus show one card instead of one card plus an
 // empty-state placeholder.
+//
+// Sprint 28.05.2026 (Punkt 1): die CrossMarketCards (vorher pro
+// Plattform hier gerendert) sind in CrossMarketHeadlineSection oben im
+// Brief gebuendelt — Aussage + Belege jetzt direkt unter dem Hero.
 function MultiPlatformStats({ aggregation }) {
   if (!aggregation) return null;
   const perPlatform = Array.isArray(aggregation.per_platform) ? aggregation.per_platform : [];
@@ -808,25 +759,16 @@ function MultiPlatformStats({ aggregation }) {
     // plus Sprint B3 (2026-05-12) die UK-Spalte. Backwards-Compat: bei
     // Pre-B1-Briefs ist aggregation.uk_channel undefined/None und
     // ChannelStatsCard rendert ein "Kein Channel"-Placeholder.
+    //
+    // Sprint 28.05.2026 (Punkt 1): die CrossMarketCards (DE↔US, DE↔UK,
+    // US↔UK) sind in die Headline-Sektion oben (CrossMarketHeadline-
+    // Section) gewandert — hier nur noch ChannelStats.
     return (
-      <>
-        <div className="insight-grid-three">
-          <ChannelStatsCard stats={aggregation.de_channel} />
-          <ChannelStatsCard stats={aggregation.us_channel} />
-          <ChannelStatsCard stats={aggregation.uk_channel} />
-        </div>
-        {/* Sprint B2 — drei pairwise Cards eine pro Achse. Die zwei
-            UK-Cards rendern nur, wenn die Liste tatsaechlich Matches
-            traegt — alte persistierte Briefe haben hier Default-leere
-            Listen, dann erscheinen nur die DE↔US-Cards.*/}
-        <CrossMarketCard matches={aggregation.cross_market_matches} axis={{ a: 'DE', b: 'US' }} />
-        {aggregation.de_uk_matches?.length > 0 && (
-          <CrossMarketCard matches={aggregation.de_uk_matches} axis={{ a: 'DE', b: 'UK' }} />
-        )}
-        {aggregation.us_uk_matches?.length > 0 && (
-          <CrossMarketCard matches={aggregation.us_uk_matches} axis={{ a: 'US', b: 'UK' }} />
-        )}
-      </>
+      <div className="insight-grid-three">
+        <ChannelStatsCard stats={aggregation.de_channel} />
+        <ChannelStatsCard stats={aggregation.us_channel} />
+        <ChannelStatsCard stats={aggregation.uk_channel} />
+      </div>
     );
   }
 
@@ -841,24 +783,168 @@ function MultiPlatformStats({ aggregation }) {
             <h3 className="platform-block-title">
               <span className={`platform-pill platform-${p.platform}`}>{label}</span>
             </h3>
+            {/* Sprint 28.05.2026 (Punkt 1): Per-Plattform-Cross-Market-
+                Cards sind in die Headline-Sektion oben gewandert
+                (CrossMarketHeadlineSection aggregiert ueber alle
+                Plattformen mit Plattform-Pill pro Match). Per-Plattform-
+                Block zeigt jetzt nur noch die ChannelStats. */}
             <div className="insight-grid-three">
               {p.de_channel && <ChannelStatsCard stats={p.de_channel} />}
               {p.us_channel && <ChannelStatsCard stats={p.us_channel} />}
               {p.uk_channel && <ChannelStatsCard stats={p.uk_channel} />}
             </div>
-            {p.cross_market_matches?.length > 0 && (
-              <CrossMarketCard matches={p.cross_market_matches} axis={{ a: 'DE', b: 'US' }} />
-            )}
-            {p.de_uk_matches?.length > 0 && (
-              <CrossMarketCard matches={p.de_uk_matches} axis={{ a: 'DE', b: 'UK' }} />
-            )}
-            {p.us_uk_matches?.length > 0 && (
-              <CrossMarketCard matches={p.us_uk_matches} axis={{ a: 'US', b: 'UK' }} />
-            )}
           </div>
         );
       })}
     </div>
+  );
+}
+
+// Sprint 28.05.2026 (Punkt 1) — "Drei Märkte, ein Film".
+// Headline-Sektion oben im Brief: pro Achse (DE↔US, DE↔UK, US↔UK) die
+// LLM-Aussage und die belegenden Matches beieinander. Loest die fruehere
+// Verteilung des Cross-Market-Materials ueber LLMOutput (Prosa) und
+// MultiPlatformStats (Cards) auf — der USP "derselbe Film, drei Maerkte"
+// ist jetzt das Erste, was man im Brief sieht.
+//
+// Match-Aggregation ueber alle Plattformen: ``aggregation.per_platform``
+// haelt pro TT/IG/YT die Matches; das Legacy-Top-Level-Feld
+// ``aggregation.cross_market_matches`` mirror nur die ERSTE Plattform
+// (siehe backend ``aggregate_pair`` Zeile ~2169). Fuer die Headline
+// brauchen wir den vollen Cross-Market-Ueberblick → wir walken
+// per_platform und sammeln pro Achse alle Matches, mit
+// Plattform-Tag pro Eintrag. Persistierte Briefs vor Sprint 4 haben
+// kein per_platform → wir fallen auf die top-level Felder zurueck.
+//
+// KEINE Dedupe nach match_key: ein "Mortal Kombat"-Match auf TT und IG
+// sind reale, getrennte Datenpunkte mit unterschiedlichen Engagement-
+// Profilen — das Zusammenfuehren wuerde Information loeschen.
+function collectCrossMarketMatches(aggregation, axisField) {
+  if (!aggregation) return [];
+  const perPlatform = Array.isArray(aggregation.per_platform) ? aggregation.per_platform : [];
+  if (perPlatform.length > 0) {
+    const entries = [];
+    for (const plat of perPlatform) {
+      const matches = plat[axisField];
+      if (Array.isArray(matches)) {
+        for (const m of matches) {
+          entries.push({ ...m, _platform: plat.platform });
+        }
+      }
+    }
+    return entries;
+  }
+  const legacy = aggregation[axisField];
+  return Array.isArray(legacy) ? legacy.map((m) => ({ ...m, _platform: null })) : [];
+}
+
+// Ein Achsen-Block: Insight-Text (Aussage) + Match-Card (Belege).
+// Wenn ``insightText`` und ``matches`` beide leer sind, rendert der
+// Block einen Klartext-Fallback (analog #185) — kein leerer Slot.
+function CrossMarketAxisBlock({ axisLabel, axisShort, insightText, matches }) {
+  const hasMatches = matches.length > 0;
+  if (!insightText && !hasMatches) {
+    return (
+      <div className="cm-axis-block cm-axis-empty">
+        <h4 className="cm-axis-label">{axisLabel}</h4>
+        <p className="cm-axis-empty-text">
+          {`Keine Titel-Parallelen zwischen ${axisShort.a} und ${axisShort.b} in diesem Zeitraum.`}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="cm-axis-block">
+      <h4 className="cm-axis-label">{axisLabel}</h4>
+      {insightText && <p className="cm-axis-insight">{insightText}</p>}
+      {hasMatches ? (
+        <ol className="insight-cross-market">
+          {matches.map((m, i) => (
+            <li key={`${m.match_key}-${m._platform || 'legacy'}-${i}`}>
+              <strong>{m.title || m.match_key}</strong>
+              {m._platform && (
+                <span className={`platform-pill platform-${m._platform} cm-axis-platform-pill`}>
+                  {PLATFORM_LABEL[m._platform] || m._platform}
+                </span>
+              )}
+              <div>
+                {axisShort.a}: {formatNumber(m.de_engagement)}{m.de_duration_seconds != null && ` · ${m.de_duration_seconds}s`}
+                {' / '}{axisShort.b}: {formatNumber(m.us_engagement)}{m.us_duration_seconds != null && ` · ${m.us_duration_seconds}s`}
+              </div>
+              <div className="insight-cross-market-links">
+                {m.de_post_url && <a href={m.de_post_url} target="_blank" rel="noreferrer">{`${axisShort.a}-Post`}</a>}
+                {m.us_post_url && <a href={m.us_post_url} target="_blank" rel="noreferrer">{`${axisShort.b}-Post`}</a>}
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="cm-axis-empty-text">
+          {`Keine Titel-Parallelen zwischen ${axisShort.a} und ${axisShort.b} in diesem Zeitraum.`}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CrossMarketHeadlineSection({ aggregation, llmOutput }) {
+  // Rules-of-Hooks: useMemo MUSS vor jedem conditional return laufen,
+  // sonst aendert sich die Hook-Reihenfolge zwischen Renders. Wenn
+  // ``aggregation`` null ist, liefern die Helper leere Listen und der
+  // anythingToShow-Check unten schickt uns durch das null-Return.
+  const deUsMatches = useMemo(
+    () => collectCrossMarketMatches(aggregation, 'cross_market_matches'),
+    [aggregation],
+  );
+  const deUkMatches = useMemo(
+    () => collectCrossMarketMatches(aggregation, 'de_uk_matches'),
+    [aggregation],
+  );
+  const usUkMatches = useMemo(
+    () => collectCrossMarketMatches(aggregation, 'us_uk_matches'),
+    [aggregation],
+  );
+
+  const insight = llmOutput?.cross_market_insight;
+  const deUsText = insight?.de_vs_us;
+  const deUkText = insight?.de_vs_uk;
+  const usUkText = insight?.us_vs_uk;
+  const transferOpportunity = insight?.transfer_opportunity;
+
+  const anythingToShow =
+    deUsMatches.length > 0 || deUkMatches.length > 0 || usUkMatches.length > 0 ||
+    deUsText || deUkText || usUkText || transferOpportunity;
+  if (!anythingToShow) return null;
+
+  return (
+    <section className="card cross-market-headline">
+      <h3 className="cm-headline-title">Drei Märkte, ein Film — DE / US / UK im Vergleich</h3>
+      <div className="cm-axis-grid">
+        <CrossMarketAxisBlock
+          axisLabel="DE ↔ US"
+          axisShort={{ a: 'DE', b: 'US' }}
+          insightText={deUsText}
+          matches={deUsMatches}
+        />
+        <CrossMarketAxisBlock
+          axisLabel="DE ↔ UK"
+          axisShort={{ a: 'DE', b: 'UK' }}
+          insightText={deUkText}
+          matches={deUkMatches}
+        />
+        <CrossMarketAxisBlock
+          axisLabel="US ↔ UK"
+          axisShort={{ a: 'US', b: 'UK' }}
+          insightText={usUkText}
+          matches={usUkMatches}
+        />
+      </div>
+      {transferOpportunity && (
+        <p className="cm-transfer-opportunity">
+          <strong>Transfer-Opportunity:</strong> {transferOpportunity}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -1262,6 +1348,16 @@ export default function InsightWeekly({ pair }) {
               <ul>{report.aggregation.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
             </div>
           )}
+
+          {/* Sprint 28.05.2026 (Punkt 1) — "Drei Märkte, ein Film". USP
+              direkt unter Hero, vor Breakouts + Top-Posts. Zieht die
+              Cross-Market-Cards (vorher tief in MultiPlatformStats) und
+              den cross_market_insight-Text (vorher Mitte LLMOutput)
+              zusammen. */}
+          <CrossMarketHeadlineSection
+            aggregation={report.aggregation}
+            llmOutput={report.llm_output}
+          />
 
           <BreakoutsSection
             aggregation={report.aggregation}
