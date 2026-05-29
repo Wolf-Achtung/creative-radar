@@ -92,33 +92,62 @@ def _pct(part: int, total: int) -> str:
 # ---- Measurements -----------------------------------------------------
 
 
-def _analysis_present():
-    """Filter-Clause "Post.analysis enthaelt echte Analyse-Daten".
+def _analysis_present(bind=None):
+    """Filter-Clause "Post.analysis enthaelt echte Analyse-Daten" mit
+    Dialect-Switch.
 
-    Engine-Quirk: Postgres-JSONB speichert ``None`` als echtes SQL NULL
-    → ``IS NOT NULL`` ist trennscharf. SQLite mit SQLModel-JSON-Column
-    serialisiert ``None`` als JSON-string ``"null"`` → ``IS NOT NULL``
-    ist immer true.
+    **Bug-Befund (Wolf, 28.05.2026):** Die Vorgaenger-Version pruefte
+    ``IS NOT NULL`` + cast-zu-Text-Stringvergleich. In Postgres-JSONB
+    sind JSON-``null``-Werte SQL-NOT-NULL, der cast liefert den Text
+    ``"null"``, das wurde durch ``!= 'null'`` rausgefiltert — aber leere
+    Dicts ``{}`` (Persist-Skip-Pfade aus dem Analyzer) und nicht-Object-
+    Werte rutschten als ``analyzed`` durch. SQL-Verifikation:
+    `not_null_count=2494` vs `strict_count=1220`.
 
-    Robust gegen beide: ``IS NOT NULL`` PLUS cast-to-text-Check, damit
-    die JSON-"null"-Strings rausfallen. In Postgres ist der zweite
-    Check redundant (alle echten Rows haben JSON-Objekte), in SQLite
-    notwendig.
+    Saubere Loesung mit Dialect-Switch:
+
+    - **Postgres** (Production): ``jsonb_typeof(analysis::jsonb) = 'object'``.
+      Native-JSONB-Check, trennscharf — JSON-null hat typeof ``"null"``,
+      leeres Dict hat typeof ``"object"``, das aber faellt durch den
+      zusaetzlichen ``!= '{}'``-Check raus.
+    - **SQLite** (nur Tests): Substring-Match-Fallback. ``cast(analysis
+      AS text) NOT IN ('null', '', '{}')``. Nicht perfekt — z.B. ``{"a":
+      null}`` faellt durch — aber fuer kontrollierte Unit-Test-Fixtures
+      reicht das. CI-Suite bleibt einheitlich, kein Postgres-only-Pfad.
+
+    Test-Set, das in beiden Dialekten gruen sein muss:
+    - ``NULL`` → not present
+    - ``JSON null`` → not present
+    - ``{}`` → not present
+    - ``{"format": "trailer", ...}`` → **present**
     """
     text_value = sa.func.cast(Post.analysis, sa.Text)
+    if bind is not None and bind.dialect.name == "postgresql":
+        # jsonb_typeof + cast to jsonb. PostgreSQL akzeptiert
+        # ``analysis::jsonb`` weil ``Post.analysis`` als JSON-Spalte
+        # via Column(JSON) deklariert ist und Postgres die Column
+        # transparent zu JSONB cast.
+        analysis_as_jsonb = sa.cast(Post.analysis, sa.dialects.postgresql.JSONB)
+        return sa.and_(
+            Post.analysis.is_not(None),
+            sa.func.jsonb_typeof(analysis_as_jsonb) == "object",
+            text_value != "{}",
+        )
     return sa.and_(
         Post.analysis.is_not(None),
         text_value != "null",
         text_value != "",
+        text_value != "{}",
     )
 
 
 def _measure_global_post_counts(session: Session) -> dict[str, int]:
+    bind = session.get_bind()
     total = session.exec(select(sa.func.count()).select_from(Post)).one()
     with_analysis = session.exec(
         select(sa.func.count())
         .select_from(Post)
-        .where(_analysis_present())
+        .where(_analysis_present(bind))
     ).one()
     with_duration = session.exec(
         select(sa.func.count())
@@ -193,6 +222,7 @@ def _measure_per_pair(session: Session, now: datetime) -> list[dict[str, Any]]:
         channels_by_handle[ch.lower()].append(cid)
 
     week_start = now - timedelta(days=7)
+    bind = session.get_bind()
     out: list[dict[str, Any]] = []
     for pair_key, handles in enabled.items():
         cids: set = set()
@@ -219,7 +249,7 @@ def _measure_per_pair(session: Session, now: datetime) -> list[dict[str, Any]]:
         with_analysis = _unwrap(session.exec(
             select(sa.func.count()).select_from(Post)
             .where(Post.channel_id.in_(cids))
-            .where(_analysis_present())
+            .where(_analysis_present(bind))
         ).one())
         in_7d = _unwrap(session.exec(
             select(sa.func.count()).select_from(Post)
@@ -341,6 +371,192 @@ def _print_per_pair(per_pair: list[dict]) -> None:
     print()
 
 
+# ---- Teil 2: Channel-Aufstellung pro Pair -----------------------------
+
+
+def _measure_per_pair_channels(session: Session) -> list[dict[str, Any]]:
+    """Pro enabled Pair eine Liste der zugehoerigen Channels mit Posts-
+    Total und analyzed-Count. Format passt zur Briefing-Vorgabe:
+
+        platform/handle (market): N posts, M analyzed (X%)
+
+    Sortiert pro Pair nach Coverage absteigend — die schwachen Channels
+    fallen am Ende der Liste auf.
+    """
+    enabled = _enabled_pair_handles()
+    if not enabled:
+        return []
+    all_handles = sorted({h for hs in enabled.values() for h in hs})
+    channel_rows = session.exec(
+        select(Channel).where(sa.func.lower(Channel.handle).in_(all_handles))
+    ).all()
+    channels_by_handle: dict[str, list[Channel]] = defaultdict(list)
+    for ch in channel_rows:
+        channels_by_handle[ch.handle.lower()].append(ch)
+
+    bind = session.get_bind()
+    out: list[dict[str, Any]] = []
+    for pair_key, handles in enabled.items():
+        channels: list[Channel] = []
+        seen_ids: set = set()
+        for h in handles:
+            for ch in channels_by_handle.get(h, []):
+                if ch.id not in seen_ids:
+                    channels.append(ch)
+                    seen_ids.add(ch.id)
+        ch_rows: list[dict[str, Any]] = []
+        for ch in channels:
+            n_total = _unwrap(session.exec(
+                select(sa.func.count()).select_from(Post)
+                .where(Post.channel_id == ch.id)
+            ).one())
+            n_analyzed = _unwrap(session.exec(
+                select(sa.func.count()).select_from(Post)
+                .where(Post.channel_id == ch.id)
+                .where(_analysis_present(bind))
+            ).one())
+            ch_rows.append({
+                "platform": ch.platform,
+                "handle": ch.handle,
+                "market": ch.market.value if hasattr(ch.market, "value") else str(ch.market),
+                "posts_total": int(n_total),
+                "posts_analyzed": int(n_analyzed),
+            })
+        # Sort: Coverage absteigend; bei 0 Posts ans Ende.
+        ch_rows.sort(
+            key=lambda r: (
+                -(r["posts_analyzed"] / r["posts_total"]) if r["posts_total"] > 0 else 1.0,
+                -r["posts_total"],
+            )
+        )
+        pair_total = sum(r["posts_total"] for r in ch_rows)
+        out.append({
+            "pair_key": pair_key,
+            "channels": ch_rows,
+            "pair_posts_total": pair_total,
+        })
+    return out
+
+
+def _print_channel_breakdown(per_pair_channels: list[dict[str, Any]]) -> None:
+    print("## Pair-Channel-Aufstellung")
+    print()
+    for row in per_pair_channels:
+        chs = row["channels"]
+        if not chs:
+            print(f"{row['pair_key']} (0 channels, 0 posts total): kein Channel resolved")
+            print()
+            continue
+        print(
+            f"{row['pair_key']} ({len(chs)} channels, "
+            f"{row['pair_posts_total']:,} posts total):"
+        )
+        for ch in chs:
+            n_total = ch["posts_total"]
+            n_anal = ch["posts_analyzed"]
+            if n_total > 0:
+                pct = n_anal * 100.0 / n_total
+                print(
+                    f"  - {ch['platform']}/{ch['handle']} ({ch['market']}): "
+                    f"{n_total:,} posts, {n_anal:,} analyzed ({pct:.0f}%)"
+                )
+            else:
+                print(
+                    f"  - {ch['platform']}/{ch['handle']} ({ch['market']}): "
+                    f"0 posts"
+                )
+        print()
+
+
+# ---- Teil 3: Confidence-Verteilung pro Pair ---------------------------
+
+
+CONFIDENCE_BUCKETS = [
+    ("< 0.5", lambda c: c < 0.5),
+    ("0.5-0.69", lambda c: 0.5 <= c < 0.7),
+    ("0.7-0.79", lambda c: 0.7 <= c < 0.8),
+    ("0.8-0.89", lambda c: 0.8 <= c < 0.9),
+    ("≥ 0.9", lambda c: c >= 0.9),
+]
+
+
+def _measure_confidence_per_pair(session: Session) -> list[dict[str, Any]]:
+    """Confidence-Verteilung pro Pair, nur ueber strict_analyzed Posts.
+    Buckets aus dem Briefing.
+
+    Lokales Python-Zaehlen statt SQL-CASE-WHEN, weil ``Post.analysis``
+    JSON-Spalte ist und der Confidence-Subschluessel pro DB-Engine
+    unterschiedlich angesprochen wird — einfacher pythonisch
+    iterieren als zwei SQL-Pfade zu schreiben."""
+    enabled = _enabled_pair_handles()
+    if not enabled:
+        return []
+    all_handles = sorted({h for hs in enabled.values() for h in hs})
+    channel_rows = session.exec(
+        select(Channel.id, Channel.handle).where(
+            sa.func.lower(Channel.handle).in_(all_handles)
+        )
+    ).all()
+    channels_by_handle: dict[str, list] = defaultdict(list)
+    for cid, ch in channel_rows:
+        channels_by_handle[ch.lower()].append(cid)
+
+    bind = session.get_bind()
+    out: list[dict[str, Any]] = []
+    for pair_key, handles in enabled.items():
+        cids: set = set()
+        for h in handles:
+            for cid in channels_by_handle.get(h, []):
+                cids.add(cid)
+        bucket_counts: dict[str, int] = {name: 0 for name, _ in CONFIDENCE_BUCKETS}
+        total = 0
+        if cids:
+            rows = session.exec(
+                select(Post.analysis)
+                .where(Post.channel_id.in_(cids))
+                .where(_analysis_present(bind))
+            ).all()
+            for analysis in rows:
+                # analysis ist ein dict (oder ein Tupel mit dem dict).
+                if isinstance(analysis, tuple):
+                    analysis = analysis[0]
+                if not isinstance(analysis, dict):
+                    continue
+                conf = analysis.get("confidence")
+                if conf is None:
+                    continue
+                try:
+                    conf_f = float(conf)
+                except (TypeError, ValueError):
+                    continue
+                for name, pred in CONFIDENCE_BUCKETS:
+                    if pred(conf_f):
+                        bucket_counts[name] += 1
+                        total += 1
+                        break
+        out.append({
+            "pair_key": pair_key,
+            "buckets": bucket_counts,
+            "total": total,
+        })
+    return out
+
+
+def _print_confidence_distribution(per_pair_conf: list[dict[str, Any]]) -> None:
+    print("## Confidence-Verteilung (nur strict_analyzed Posts)")
+    print()
+    print("| Pair | < 0.5 | 0.5-0.69 | 0.7-0.79 | 0.8-0.89 | ≥ 0.9 | Total |")
+    print("|---|---|---|---|---|---|---|")
+    for row in per_pair_conf:
+        b = row["buckets"]
+        cells = [str(b[name]) for name, _ in CONFIDENCE_BUCKETS]
+        print(
+            f"| {row['pair_key']} | {cells[0]} | {cells[1]} | "
+            f"{cells[2]} | {cells[3]} | {cells[4]} | {row['total']} |"
+        )
+    print()
+
+
 def _print_classification(global_posts: dict, per_pair: list[dict]) -> None:
     n = global_posts["posts_total"]
     if n == 0:
@@ -383,6 +599,8 @@ def main() -> int:
         gp = _measure_global_post_counts(session)
         gt = _measure_global_title_counts(session)
         per_pair = _measure_per_pair(session, now)
+        per_pair_channels = _measure_per_pair_channels(session)
+        per_pair_conf = _measure_confidence_per_pair(session)
 
     print("# Stufe-2-Sprint — Phase-0-Coverage")
     print()
@@ -390,6 +608,8 @@ def main() -> int:
     print()
     _print_global(gp, gt)
     _print_per_pair(per_pair)
+    _print_channel_breakdown(per_pair_channels)
+    _print_confidence_distribution(per_pair_conf)
     _print_classification(gp, per_pair)
     return 0
 
