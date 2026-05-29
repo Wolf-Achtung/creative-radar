@@ -297,6 +297,17 @@ class PairAggregation(BaseModel):
     # contract). Old briefs render with the legacy mirror fields above
     # until they are force-regenerated; new briefs populate both.
     per_platform: list[PlatformAggregation] = []
+    # Sprint 29.05.2026 (Stufe-2 PR-B / P1) — Verteilung der Posts
+    # ueber die ``DaysToReleaseBucket``-Klassen, gepoolt ueber alle
+    # Plattformen und Channels des Pairs im 7d-Window. Schluessel sind
+    # die Enum-Werte (``">4w_pre"``, ``"1-4w_pre"``,
+    # ``"release_week"``, ``"1-4w_post"``, ``">4w_post"``,
+    # ``"evergreen"``, ``"unknown"``); Werte sind Post-Counts. Default
+    # leer damit persistierte Briefe vor PR-B sauber re-hydraten.
+    # Streaming-Pairs (primevideo, paramountplus, netflix) haben hoehe
+    # ``unknown``-Anteile — das ist die Datenrealitaet (niedrige
+    # Title-Kopplung), kein Aggregator-Bug.
+    days_to_release_distribution: dict[str, int] = {}
 
 
 class Trend(BaseModel):
