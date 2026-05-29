@@ -24,7 +24,8 @@ import logging
 import re
 import time
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from enum import Enum
 from typing import Any, Iterable, Optional
 
 import sqlalchemy as sa
@@ -1375,6 +1376,122 @@ def _duration_bucket(d: Optional[int]) -> str:
     return ">60s"
 
 
+# ---- Sprint 29.05.2026 (Stufe-2 PR-B / P1) — days_to_release-Bucket ---
+
+
+class DaysToReleaseBucket(str, Enum):
+    """Closed-Vocab fuer die Cadence-Klassifikation eines Posts relativ
+    zum Release-Date seines Titels. Halboffene Intervalle:
+    - PRE_FAR:     days_to_release > 28
+    - PRE_NEAR:    3 < days_to_release <= 28
+    - RELEASE_WEEK: -3 <= days_to_release <= 3 (Window-3-Tage um Release)
+    - POST_NEAR:   -28 <= days_to_release < -3
+    - POST_FAR:    -365 <= days_to_release < -28
+    - EVERGREEN:   days_to_release < -365 (lange nach Release)
+    - UNKNOWN:     title_id fehlt ODER beide Release-Dates NULL
+    Werte sind die Briefing-Strings, damit sie ohne Mapping ins JSON
+    landen.
+    """
+    PRE_FAR = ">4w_pre"
+    PRE_NEAR = "1-4w_pre"
+    RELEASE_WEEK = "release_week"
+    POST_NEAR = "1-4w_post"
+    POST_FAR = ">4w_post"
+    EVERGREEN = "evergreen"
+    UNKNOWN = "unknown"
+
+
+# Markt-zu-Spalte-Mapping. UK nutzt US-Datum als Proxy (Wolf-Briefing:
+# kein release_date_uk im Schema, UK-Releases meist nahe US).
+_RELEASE_DATE_MARKET_MAP = {
+    "DE": ("release_date_de", "release_date_us"),  # primary, fallback
+    "US": ("release_date_us", "release_date_de"),
+    "UK": ("release_date_us", "release_date_de"),
+}
+
+
+def _pick_release_date(title: Title, market: str) -> Optional[date]:
+    """Plattform-passendes Release-Date mit Fallback. Briefing:
+    - DE-Channel ohne DE-Date, mit US-Date → US-Date nutzen.
+    - Beide NULL → None (Caller mappt auf UNKNOWN-Bucket).
+    Unbekannter ``market``-String faellt aus dem Mapping und wird ohne
+    Spezial-Pfad als UNKNOWN behandelt.
+    """
+    primary_attr, fallback_attr = _RELEASE_DATE_MARKET_MAP.get(
+        market.upper() if isinstance(market, str) else "", ("release_date_us", "release_date_de"),
+    )
+    primary = getattr(title, primary_attr, None)
+    if primary is not None:
+        return primary
+    return getattr(title, fallback_attr, None)
+
+
+def _classify_days_to_release(
+    days: Optional[int],
+) -> DaysToReleaseBucket:
+    """Mappt eine Tages-Differenz auf den Bucket. ``None`` → UNKNOWN."""
+    if days is None:
+        return DaysToReleaseBucket.UNKNOWN
+    # Positive = before release, negative = after release.
+    if days > 28:
+        return DaysToReleaseBucket.PRE_FAR
+    if days > 3:
+        return DaysToReleaseBucket.PRE_NEAR
+    if days >= -3:
+        return DaysToReleaseBucket.RELEASE_WEEK
+    if days >= -28:
+        return DaysToReleaseBucket.POST_NEAR
+    if days >= -365:
+        return DaysToReleaseBucket.POST_FAR
+    return DaysToReleaseBucket.EVERGREEN
+
+
+def _post_market_for_release_lookup(post: Post, channel_market_map: dict) -> str:
+    """Liefert den Channel-Markt eines Posts (zur Release-Date-
+    Spaltenwahl). ``channel_market_map`` ist ``channel_id -> market`` —
+    aus dem Pair-Channel-Pool. Wenn der Channel nicht im Map ist (z.B.
+    weil das Pair den Channel nicht haelt), default ``"US"`` als
+    safe-most-common-Wert."""
+    raw = channel_market_map.get(post.channel_id, "US")
+    # ``raw`` kann ein ``Market``-Enum oder String sein.
+    if hasattr(raw, "value"):
+        return raw.value
+    return str(raw)
+
+
+def _classify_post_days_to_release(
+    post: Post,
+    title_by_id: dict,
+    market: str,
+) -> DaysToReleaseBucket:
+    """End-to-End-Klassifikation eines Posts:
+    1. Asset → title_id heraussuchen (siehe Caller — wir nehmen die
+       vorher gepoolte ``post -> title_id``-Map).
+    2. Title-Row holen, Release-Date-Spalte pro Markt waehlen
+       (mit Fallback).
+    3. ``published_at`` (oder ``detected_at`` als Fallback wie #190)
+       → Tages-Differenz → Bucket.
+
+    ``title_by_id`` ist die ``Title``-Map des Pair-Pools (eine Query
+    statt N Lookups). Wenn der Post keinen Title hat oder das
+    Release-Date NULL ist, faellt er auf ``UNKNOWN``.
+    """
+    title = title_by_id.get(getattr(post, "_resolved_title_id", None))
+    if title is None:
+        return DaysToReleaseBucket.UNKNOWN
+    release = _pick_release_date(title, market)
+    if release is None:
+        return DaysToReleaseBucket.UNKNOWN
+    ref_time = _post_age_reference(post)
+    if ref_time is None:
+        return DaysToReleaseBucket.UNKNOWN
+    # ``ref_time`` kann tz-aware oder naive sein (DB-Pfad-Verhalten);
+    # release ist immer ``date``. Auf date normalisieren.
+    post_date = ref_time.date() if hasattr(ref_time, "date") else ref_time
+    delta_days = (release - post_date).days
+    return _classify_days_to_release(delta_days)
+
+
 def _excerpt(text: Optional[str], max_len: int = 240) -> str:
     if not text:
         return ""
@@ -2113,6 +2230,126 @@ def _platforms_dict_for(pair_def: dict) -> dict[str, list[dict]]:
     return {pair_def["platform"]: pair_def["channels"]}
 
 
+def _compute_days_to_release_distribution(
+    session: Session,
+    pair_def: dict,
+    window_start: datetime,
+    window_end: datetime,
+) -> dict[str, int]:
+    """Sprint 29.05.2026 (Stufe-2 PR-B / P1) — Verteilung der Posts ueber
+    die ``DaysToReleaseBucket``-Klassen, gepoolt ueber alle Plattformen
+    und Channels des Pairs im Window.
+
+    Drei Queries, kein N+1:
+    1. Channels: alle Pair-Channels ueber alle Plattformen → ``channel_id
+       -> market``-Map.
+    2. Posts: alle Pair-Posts im Window mit
+       ``published_at OR detected_at``-Fallback wie ``_channel_stats``.
+    3. Assets+Titles: pro Post das erste Asset mit ``title_id``, das
+       Title-Objekt mit Release-Dates. Asset-Join + Title-Join in einer
+       Query.
+
+    Streaming-Pairs (Phase-0-Befund: niedrige Title-Kopplung) bekommen
+    erwartungsgemaess hohe ``unknown``-Anteile — das ist Datenrealitaet,
+    kein Bug.
+    """
+    counter: Counter[str] = Counter()
+
+    platforms = _platforms_dict_for(pair_def)
+    if not platforms:
+        return dict(counter)
+
+    # Bauteil 1: alle Pair-Channels ueber alle Plattformen.
+    all_specs: list[tuple[str, str]] = []
+    for platform, specs in platforms.items():
+        for spec in specs:
+            h = spec.get("handle")
+            if h:
+                all_specs.append((platform, h.lower()))
+    if not all_specs:
+        return dict(counter)
+
+    handles = [h for _, h in all_specs]
+    channel_rows = session.exec(
+        select(Channel.id, Channel.handle, Channel.platform, Channel.market)
+        .where(sa.func.lower(Channel.handle).in_(handles))
+    ).all()
+    channel_market_map: dict = {}
+    channel_ids: list = []
+    for cid, ch_handle, ch_platform, ch_market in channel_rows:
+        # ``ch_market`` ist Market-Enum oder str. Auf String normalisieren
+        # damit ``_pick_release_date`` einheitlich arbeitet.
+        market_str = ch_market.value if hasattr(ch_market, "value") else str(ch_market)
+        channel_market_map[cid] = market_str
+        channel_ids.append(cid)
+
+    if not channel_ids:
+        return dict(counter)
+
+    # Bauteil 2: Posts im Window.
+    posts = list(session.exec(
+        select(Post).where(
+            Post.channel_id.in_(channel_ids)
+        ).where(
+            sa.or_(
+                sa.and_(Post.published_at.is_not(None), Post.published_at >= window_start, Post.published_at <= window_end),
+                sa.and_(Post.published_at.is_(None), Post.detected_at >= window_start, Post.detected_at <= window_end),
+            )
+        )
+    ).all())
+    if not posts:
+        return dict(counter)
+
+    # Bauteil 3: Asset + Title pro Post in einer Query. Pro Post das
+    # erste Asset mit gesetzem ``title_id`` (Sortierung: ``title_id IS
+    # NOT NULL`` zuerst, dann ``created_at`` desc — gleicher Pattern
+    # wie ``_ranked_posts_for_channel``).
+    post_ids = [p.id for p in posts]
+    prefers_title = sa.case((Asset.title_id.isnot(None), 0), else_=1)
+    asset_rows = session.exec(
+        select(Asset.post_id, Asset.title_id, Title)
+        .join(Title, Asset.title_id == Title.id, isouter=True)
+        .where(Asset.post_id.in_(post_ids))
+        .where(Asset.review_status != "rejected")
+        .order_by(Asset.post_id, prefers_title, Asset.created_at.desc())
+    ).all()
+    # Map: post_id -> Title (das jeweils erste Asset mit title_id pro post)
+    title_by_post: dict = {}
+    for post_id, title_id, title in asset_rows:
+        if post_id in title_by_post:
+            continue
+        if title_id is None or title is None:
+            # erstes Asset hat noch keinen Title; Marker setzen damit
+            # spaetere Assets fuer denselben Post nicht ueberschrieben werden,
+            # ABER wir wollen tatsaechlich die naechste Row mit title_id
+            # nehmen, falls vorhanden. Loesung: NUR mit title gesetzten
+            # Rows in die Map schreiben; Posts ohne title bleiben out.
+            continue
+        title_by_post[post_id] = title
+
+    # Bauteil 4: Klassifizieren + zaehlen.
+    for post in posts:
+        title = title_by_post.get(post.id)
+        if title is None:
+            counter[DaysToReleaseBucket.UNKNOWN.value] += 1
+            continue
+        market = _post_market_for_release_lookup(post, channel_market_map)
+        release = _pick_release_date(title, market)
+        if release is None:
+            counter[DaysToReleaseBucket.UNKNOWN.value] += 1
+            continue
+        ref_time = _post_age_reference(post)
+        if ref_time is None:
+            counter[DaysToReleaseBucket.UNKNOWN.value] += 1
+            continue
+        post_date = ref_time.date() if hasattr(ref_time, "date") else ref_time
+        delta_days = (release - post_date).days
+        bucket = _classify_days_to_release(delta_days)
+        counter[bucket.value] += 1
+
+    return dict(counter)
+
+
 def aggregate_pair(
     session: Session, pair_key: str, window_days: int = 30, *, now: Optional[datetime] = None
 ) -> PairAggregation:
@@ -2154,6 +2391,13 @@ def aggregate_pair(
     first = per_platform[0] if per_platform else None
     notes = [n for p in per_platform for n in p.notes]
 
+    # Sprint 29.05.2026 (Stufe-2 PR-B / P1) — days_to_release-Distribution.
+    # Pool ueber alle Pair-Channels aller Plattformen, drei Queries
+    # (Channels + Posts + Asset-Title-Join). Kein N+1.
+    days_to_release_distribution = _compute_days_to_release_distribution(
+        session, pair_def, window_start, window_end,
+    )
+
     return PairAggregation(
         pair_key=pair_key,
         pair_label=pair_def["label"],
@@ -2172,6 +2416,7 @@ def aggregate_pair(
         title_coverage=first.title_coverage if first else _empty_title_coverage(),
         notes=notes,
         per_platform=per_platform,
+        days_to_release_distribution=days_to_release_distribution,
     )
 
 
