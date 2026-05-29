@@ -65,9 +65,11 @@ def _print_pair_block(session: Session, pair_key: str, now: datetime) -> None:
         print("**days_to_release-Distribution:** leer")
         print()
 
-    # Recommendation-Bausteine
+    # Recommendation-Bausteine (Sieger)
     recs = agg.recommendation_candidates or []
-    if not recs:
+    suppressed = agg.recommendation_suppressed or []
+
+    if not recs and not suppressed:
         print(
             "**Recommendation-Bausteine:** keine — nichts hat die "
             "Ehrlich-Klausel passiert (Confidence >= 0.7, "
@@ -76,26 +78,50 @@ def _print_pair_block(session: Session, pair_key: str, now: datetime) -> None:
         print()
         return
 
-    print(f"**Recommendation-Bausteine ({len(recs)} qualifiziert):**")
-    print()
-    print("| Dimension | Value | Sample | Conf-Avg | Activation | Baseline | Effect |")
-    print("|---|---|---|---|---|---|---|")
-    for r in recs:
-        # Effect-Size aus evidence-Strings rekonstruieren ist haesslich;
-        # wir nutzen die Strings direkt.
+    if recs:
+        # Sortierung pro Pair-Block nach |effect_size - 1| desc — die
+        # staerksten Effekte zuerst. Die API liefert bereits in dieser
+        # Reihenfolge sortiert (insight_engine.sort), aber wir
+        # re-sortieren defensiv fuer alte persistierte Briefs.
+        recs_sorted = sorted(recs, key=lambda r: -abs(r.effect_size - 1.0))
+        print(f"**Recommendation-Bausteine ({len(recs_sorted)} qualifiziert):**")
+        print()
         print(
-            f"| {r.dimension} | {r.recommended_value} | "
-            f"{r.sample_size} | {r.confidence_avg:.2f} | "
-            f"{r.evidence_metric} | {r.evidence_baseline} | — |"
+            "| Dimension | Value | Sample | Conf-Avg | Activation | "
+            "Baseline | Effect |"
         )
-    print()
-    # Cited Posts pro Empfehlung
-    print("**Cited Posts (3-5 pro Empfehlung):**")
-    print()
-    for r in recs:
-        print(f"- *{r.dimension}/{r.recommended_value}*:")
-        for cid in r.cited_post_ids:
-            print(f"  - {cid}")
+        print("|---|---|---|---|---|---|---|")
+        for r in recs_sorted:
+            effect_label = f"{r.effect_size:.1f}×"
+            print(
+                f"| {r.dimension} | {r.recommended_value} | "
+                f"{r.sample_size} | {r.confidence_avg:.2f} | "
+                f"{r.evidence_metric} | {r.evidence_baseline} | "
+                f"{effect_label} |"
+            )
+        print()
+        # Cited Posts pro Empfehlung
+        print("**Cited Posts (3-5 pro Empfehlung):**")
+        print()
+        for r in recs_sorted:
+            print(f"- *{r.dimension}/{r.recommended_value}*:")
+            for cid in r.cited_post_ids:
+                print(f"  - {cid}")
+            print()
+
+    # Sprint 29.05.2026 (Iteration nach #206-Sicht-Check) — Dedup-
+    # Transparenz: zeige verworfene Bausteine, damit der Sicht-Check
+    # zwischen "nichts da" und "zwei dedupliziert" unterscheiden kann.
+    if suppressed:
+        print(f"**Verworfen durch Dedup ({len(suppressed)}):**")
+        for r in suppressed:
+            winner_label = r.suppressed_by or "?"
+            jaccard_hint = "Jaccard ≥ 0.8 mit"
+            print(
+                f"- {r.dimension}/{r.recommended_value} "
+                f"(Sample={r.sample_size}, Effect={r.effect_size:.1f}×, "
+                f"{jaccard_hint} {winner_label}) — {winner_label} gewann"
+            )
         print()
 
 
