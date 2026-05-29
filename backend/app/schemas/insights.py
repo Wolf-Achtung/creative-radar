@@ -296,11 +296,32 @@ class RecommendedAction(BaseModel):
                                   # "<15s", "post_launch", "1-4w_pre".
     evidence_metric: str          # "Activation 14,2 %"
     evidence_baseline: str        # "Pair-Median 6,8 %"
+    # Sprint 29.05.2026 (Stufe-2 PR-C Iteration / Wolf-Befund) —
+    # ``effect_size`` als Erstklass-Feld. Berechnung
+    # ``metric_value / baseline_value``. Werte ueber 1.0 = ueber-
+    # durchschnittlich, unter 1.0 = unter Schnitt. Schwelle aus dem
+    # Briefing: nur Bausteine mit ``> 1.5`` ODER ``< 0.5`` ueberleben
+    # den Filter; alles dazwischen wird verworfen. Sortier-Anker fuer
+    # spaetere Top-N-Auswahl + Sicht-Check-Anzeige.
+    # Default ``1.0`` damit persistierte Briefs vor diesem Feld-Add
+    # weiter parsen — ein gepersistierter Brief vor dem Feld haette
+    # implizit "Effect 1.0" gemeldet, was im Filter ohnehin
+    # rausgefallen waere, also kein Daten-Drift.
+    effect_size: float = 1.0
     cited_post_ids: list[str]     # 3-5 IDs aus dem Sample-Set
     sample_size: int              # Anzahl Posts im Cross-Tab-Wert
     confidence_avg: float         # Durchschnitt der ``confidence``-Werte
                                   # der zitierten Posts (aus Post.analysis)
     why: Optional[str] = None     # Platzhalter, in PR-C leer
+    # Sprint 29.05.2026 (Stufe-2 PR-C Iteration) — Dedup-Transparenz.
+    # Wenn ein Baustein durch die Jaccard-Dedup-Logik verworfen wurde,
+    # zeigt das Feld die ``dimension/value``-Kombination des
+    # gewinnenden Bausteins. ``None`` bei Siegern (Default-Output).
+    # Verworfene Bausteine landen in einem separaten Feld
+    # ``PairAggregation.recommendation_suppressed`` fuer Debug + Sicht-
+    # Check; der API-Default-Output ``recommendation_candidates``
+    # enthaelt ausschliesslich Sieger (suppressed_by == None).
+    suppressed_by: Optional[str] = None
 
 
 class PairAggregation(BaseModel):
@@ -349,7 +370,18 @@ class PairAggregation(BaseModel):
     # Ehrlich-Klausel: leer, wenn nichts den Sample-Size- und
     # Effect-Size-Filter passiert. Default leer fuer Backwards-Compat
     # persistierter Briefs vor PR-C.
+    #
+    # Sprint 29.05.2026 (Iteration nach #206-Sicht-Check): Dedup via
+    # Jaccard-Index ueber ``cited_post_ids``. Sieger bleiben hier,
+    # Verworfene (mit gesetztem ``suppressed_by``) wandern in
+    # ``recommendation_suppressed`` (Debug-/Sicht-Check-Output).
     recommendation_candidates: list[RecommendedAction] = []
+    # Sprint 29.05.2026 (Iteration nach #206-Sicht-Check) — Dedup-
+    # Verworfene. Default leer fuer Backwards-Compat. Enthaelt
+    # ``RecommendedAction``-Objekte mit ``suppressed_by`` gesetzt auf
+    # die ``dimension/value``-Kombi des Gewinners. Fuer Sicht-Check-
+    # Skript + Debug; default-API-Output bleibt sauber.
+    recommendation_suppressed: list[RecommendedAction] = []
 
 
 class Trend(BaseModel):

@@ -2357,6 +2357,136 @@ def _compute_days_to_release_distribution(
 # Wolf-Briefing-Schwelle, hart, nicht verhandelbar.
 _RECOMMENDATION_CONFIDENCE_THRESHOLD = 0.7
 
+# Sprint 29.05.2026 (Iteration nach #206-Sicht-Check) — Dedup.
+# Bei Cited-Posts-Ueberlappung Jaccard >= 0.8 wird nur ein Baustein
+# ausgegeben.
+_RECOMMENDATION_JACCARD_DEDUP_THRESHOLD = 0.8
+
+# Cross-Tab-Quelle: in welcher der vier Cross-Tabs hat der Baustein
+# entstanden? Ist nicht im Output sichtbar (RecommendedAction kennt
+# nur ``dimension``), aber fuer den Tie-Breaker noetig — wir merken
+# uns das beim Build-Step via Annotation am internen Tupel.
+_CROSS_TAB_SOURCE_ORDER = {
+    # Wolf-Briefing-Entscheidung (Default ohne weitere Wolf-Antwort):
+    # Bei Sample- und Effect-Size-Gleichstand zwischen format_vocab
+    # und duration_bucket gewinnt format_vocab — handlungsleitender
+    # fuer den Cutter ("mach mehr Trailer" > "mach laengere Videos").
+    # Eindeutig ueber lifecycle vs days_to_release: bucket ist
+    # faktischer (Date-Diff), lifecycle ist LLM-klassifiziert →
+    # bucket gewinnt bei Gleichstand.
+    "format_vocab": 0,
+    "lifecycle_stage": 0,
+    "duration_bucket": 1,
+    "days_to_release_bucket": 1,
+}
+
+
+def _jaccard_index(a: list[str], b: list[str]) -> float:
+    """Jaccard-Index ueber zwei Listen — Schnittmenge geteilt durch
+    Vereinigungsmenge. Werte 0.0 bis 1.0. Bei zwei leeren Listen
+    geben wir 0.0 zurueck (kein Overlap), nicht 1.0 — leere Sets
+    ueberlappen sich nicht aussagekraeftig."""
+    set_a, set_b = set(a), set(b)
+    if not set_a and not set_b:
+        return 0.0
+    intersection = len(set_a & set_b)
+    union = len(set_a | set_b)
+    if union == 0:
+        return 0.0
+    return intersection / union
+
+
+def _pick_dedup_winner(
+    a: RecommendedAction, a_source: str,
+    b: RecommendedAction, b_source: str,
+) -> tuple[RecommendedAction, str, RecommendedAction, str]:
+    """Tie-Breaker-Reihenfolge laut Briefing (in dieser Hierarchie):
+
+    1. Hoehere Sample-Size gewinnt.
+    2. Bei Gleichstand: groesserer absoluter Effect-Size gewinnt
+       (``|effect_size - 1.0|`` desc).
+    3. Bei Gleichstand: spezifischere Dimension gewinnt — Reihenfolge
+       via ``_CROSS_TAB_SOURCE_ORDER`` (format_vocab > duration_bucket,
+       lifecycle_stage > days_to_release_bucket). Niedrigere
+       Order-Zahl = spezifischer = gewinnt.
+
+    Returns ``(winner, winner_source, loser, loser_source)``.
+    """
+    if a.sample_size != b.sample_size:
+        if a.sample_size > b.sample_size:
+            return a, a_source, b, b_source
+        return b, b_source, a, a_source
+
+    eff_a = abs(a.effect_size - 1.0)
+    eff_b = abs(b.effect_size - 1.0)
+    if eff_a != eff_b:
+        if eff_a > eff_b:
+            return a, a_source, b, b_source
+        return b, b_source, a, a_source
+
+    rank_a = _CROSS_TAB_SOURCE_ORDER.get(a_source, 99)
+    rank_b = _CROSS_TAB_SOURCE_ORDER.get(b_source, 99)
+    if rank_a <= rank_b:
+        return a, a_source, b, b_source
+    return b, b_source, a, a_source
+
+
+def _dedup_recommendation_candidates(
+    recs_with_source: list[tuple[RecommendedAction, str]],
+) -> tuple[list[RecommendedAction], list[RecommendedAction]]:
+    """Wendet die Jaccard-Dedup-Logik auf eine Liste an. Returns
+    ``(winners, suppressed)``.
+
+    Algorithmus: O(n^2) Vergleich — pro Paar Jaccard berechnen.
+    Bei N=4 (vier Cross-Tabs mit je hoechstens 4-8 Werten = 16-32
+    Bausteine) ist das vertretbar. Wenn N>>100 wird, lohnt sich
+    Min-Hash, aber das ist hier nicht der Engpass.
+
+    ``suppressed_by`` wird am Verlierer auf
+    ``"{winner.dimension}/{winner.recommended_value}"`` gesetzt — fuer
+    den Sicht-Check transparent.
+    """
+    n = len(recs_with_source)
+    if n <= 1:
+        return [rec for rec, _ in recs_with_source], []
+
+    suppressed_indices: set[int] = set()
+    suppressed_by_map: dict[int, str] = {}
+    for i in range(n):
+        if i in suppressed_indices:
+            continue
+        rec_i, src_i = recs_with_source[i]
+        for j in range(i + 1, n):
+            if j in suppressed_indices:
+                continue
+            rec_j, src_j = recs_with_source[j]
+            jaccard = _jaccard_index(rec_i.cited_post_ids, rec_j.cited_post_ids)
+            if jaccard < _RECOMMENDATION_JACCARD_DEDUP_THRESHOLD:
+                continue
+            winner, _, loser, _ = _pick_dedup_winner(
+                rec_i, src_i, rec_j, src_j,
+            )
+            winner_label = f"{winner.dimension}/{winner.recommended_value}"
+            if winner is rec_i:
+                suppressed_indices.add(j)
+                suppressed_by_map[j] = winner_label
+            else:
+                suppressed_indices.add(i)
+                suppressed_by_map[i] = winner_label
+                # i ist jetzt Verlierer — wir haben verglichen, aber
+                # weitere j-Vergleiche fuer i sind nicht mehr noetig.
+                break
+
+    winners: list[RecommendedAction] = []
+    suppressed: list[RecommendedAction] = []
+    for idx, (rec, _) in enumerate(recs_with_source):
+        if idx in suppressed_indices:
+            rec.suppressed_by = suppressed_by_map[idx]
+            suppressed.append(rec)
+        else:
+            winners.append(rec)
+    return winners, suppressed
+
 # Cross-Tab-Dimensions (Briefing-Mapping):
 # - format_vocab + duration_bucket → dimension="format"
 # - lifecycle_stage + days_to_release_bucket → dimension="cadence"
@@ -2401,13 +2531,19 @@ def _format_pct(value: float) -> str:
     return f"{value * 100:.1f} %".replace(".", ",")
 
 
-def _compute_recommendation_candidates(
+def _build_recommendation_candidates_with_source(
     session: Session,
     pair_def: dict,
     window_end: datetime,
-) -> list[RecommendedAction]:
+) -> list[tuple[RecommendedAction, str]]:
     """Sprint 29.05.2026 (Stufe-2 PR-C / P3) — Empfehlungs-Bausteine
-    pro Pair aus dem 7d-Window.
+    pro Pair aus dem 7d-Window, mit Source-Tag fuer Dedup-Tie-Breaker.
+
+    Liefert die Bausteine UNSORTIERT und UNDEDUPLIZIERT — Sort + Dedup
+    erfolgt im Caller. So koennen die zwei Public-Wrapper
+    (``_compute_recommendation_candidates`` und
+    ``_compute_recommendation_pair``) denselben Build-Step teilen ohne
+    Duplikat-Code.
 
     Strikte Ehrlich-Klausel:
     1. Nur Posts mit ``analysis.confidence >= 0.7``.
@@ -2545,8 +2681,10 @@ def _compute_recommendation_candidates(
             (post, conf, activation)
         )
 
-    # Filter + RecommendedAction-Build.
-    out: list[RecommendedAction] = []
+    # Filter + RecommendedAction-Build. Wir merken uns pro Eintrag den
+    # ``cross_tab_name`` als Source-Tag — der Tie-Breaker im Dedup
+    # nutzt das (format_vocab vs duration_bucket etc.).
+    out: list[tuple[RecommendedAction, str]] = []
     for cross_tab_name, value_map in cross_tabs.items():
         dim_label = _RECOMMENDATION_DIMENSION_MAP[cross_tab_name]
         for value, entries in value_map.items():
@@ -2578,25 +2716,62 @@ def _compute_recommendation_candidates(
                 continue
             conf_avg = sum(c for _, c, _ in top_n) / len(top_n)
 
-            out.append(RecommendedAction(
-                dimension=dim_label,
-                recommended_value=value,
-                evidence_metric=f"Activation {_format_pct(value_median)}",
-                evidence_baseline=f"Pair-Median {_format_pct(baseline_median)}",
-                cited_post_ids=cited_ids,
-                sample_size=sample_size,
-                confidence_avg=round(conf_avg, 3),
+            out.append((
+                RecommendedAction(
+                    dimension=dim_label,
+                    recommended_value=value,
+                    evidence_metric=f"Activation {_format_pct(value_median)}",
+                    evidence_baseline=f"Pair-Median {_format_pct(baseline_median)}",
+                    effect_size=round(ratio, 3),
+                    cited_post_ids=cited_ids,
+                    sample_size=sample_size,
+                    confidence_avg=round(conf_avg, 3),
+                ),
+                cross_tab_name,  # Source-Tag fuer Tie-Breaker
             ))
 
-    # Sortierung: erst nach Dimension, dann nach Effect-Size desc fuer
-    # deterministischen Output (Persistenz-Cache-Konsistenz analog #190).
-    def _effect(rec: RecommendedAction) -> float:
-        # value_median ist nicht direkt am RecommendedAction; aus
-        # evidence_metric/baseline rekonstruieren ist umstaendlich.
-        # Stattdessen: nach sample_size desc als sekundaerer Schluessel.
-        return rec.sample_size
-    out.sort(key=lambda r: (r.dimension, -r.sample_size, r.recommended_value))
     return out
+
+
+def _compute_recommendation_pair(
+    session: Session,
+    pair_def: dict,
+    window_end: datetime,
+) -> tuple[list[RecommendedAction], list[RecommendedAction]]:
+    """Sprint 29.05.2026 (Iteration nach #206-Sicht-Check) — Hauptpfad
+    fuer ``aggregate_pair``. Liefert ``(winners, suppressed)``.
+
+    - ``winners``: deduplizierte Sieger, sortiert nach Dimension +
+      |effect_size - 1.0| desc.
+    - ``suppressed``: Verworfene mit gesetztem
+      ``suppressed_by="dimension/value"``-Tag des jeweiligen Gewinners.
+    """
+    out_with_source = _build_recommendation_candidates_with_source(
+        session, pair_def, window_end,
+    )
+    # Sortierung VOR der Dedup-Schleife — der Dedup laeuft O(n^2) und
+    # ist sortier-unabhaengig, aber das winners-Output muss
+    # deterministisch sortiert sein.
+    out_with_source.sort(key=lambda pair: (
+        pair[0].dimension,
+        -abs(pair[0].effect_size - 1.0),
+        pair[0].recommended_value,
+    ))
+    return _dedup_recommendation_candidates(out_with_source)
+
+
+def _compute_recommendation_candidates(
+    session: Session,
+    pair_def: dict,
+    window_end: datetime,
+) -> list[RecommendedAction]:
+    """Legacy-Wrapper (Test-Vertrag aus PR-C/#206): gibt nur die
+    deduplizierten Sieger zurueck. Neue Caller sollten
+    ``_compute_recommendation_pair`` nutzen, um auch die
+    ``suppressed``-Liste fuer Debug/Sicht-Check zu bekommen.
+    """
+    winners, _ = _compute_recommendation_pair(session, pair_def, window_end)
+    return winners
 
 
 def qualifying_to_ids(qualifying: list[tuple]) -> list:
@@ -2656,8 +2831,9 @@ def aggregate_pair(
     # Sprint 29.05.2026 (Stufe-2 PR-C / P3) — Recommendation-Bausteine
     # aus vier Cross-Tabs ueber dem 7d-Window. Ehrlich-Klausel ist hart:
     # leere Liste, wenn nichts den Confidence-/Sample-Size-/Effect-Size-
-    # Filter passiert.
-    recommendation_candidates = _compute_recommendation_candidates(
+    # Filter passiert. Iteration nach #206-Sicht-Check: Dedup via
+    # Jaccard >= 0.8 + Verworfene-Liste fuer Debug/Sicht-Check.
+    recommendation_winners, recommendation_suppressed = _compute_recommendation_pair(
         session, pair_def, window_end,
     )
 
@@ -2680,7 +2856,8 @@ def aggregate_pair(
         notes=notes,
         per_platform=per_platform,
         days_to_release_distribution=days_to_release_distribution,
-        recommendation_candidates=recommendation_candidates,
+        recommendation_candidates=recommendation_winners,
+        recommendation_suppressed=recommendation_suppressed,
     )
 
 

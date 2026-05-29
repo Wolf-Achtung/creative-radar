@@ -395,3 +395,247 @@ def test_aggregate_pair_writes_recommendation_field(db):
                              now=datetime.now(timezone.utc))
     assert isinstance(agg.recommendation_candidates, list)
     assert agg.recommendation_candidates == []
+
+
+# ---- Sprint 29.05.2026 Iteration nach #206-Sicht-Check ---------------
+
+
+# Teil 1: effect_size als Erstklass-Feld
+# ----------------------------------------
+
+
+def test_effect_size_field_set_correctly(db):
+    """Effect-Size = metric / baseline. 4x-Empfehlung muss ``effect_size``
+    auf ratio runden."""
+    with Session(db) as session:
+        ch = _seed_channel(session)
+        for i in range(6):
+            _seed_post(session, ch, format_val="clip",
+                       activation_components=(5, 0, 0, 0),
+                       views=100, url_suffix=f"b{i}")
+        for i in range(4):
+            _seed_post(session, ch, format_val="trailer",
+                       activation_components=(20, 0, 0, 0),
+                       views=100, url_suffix=f"h{i}")
+        out = _compute_recommendation_candidates(
+            session, PAIRS["warnerbros"], datetime.now(timezone.utc),
+        )
+    trailer = next(r for r in out if r.recommended_value == "trailer"
+                   and r.dimension == "format")
+    assert trailer.effect_size > 1.5
+    assert trailer.effect_size <= 4.0
+
+
+def test_effect_size_field_below_one(db):
+    with Session(db) as session:
+        ch = _seed_channel(session)
+        for i in range(6):
+            _seed_post(session, ch, format_val="clip",
+                       activation_components=(20, 0, 0, 0),
+                       views=100, url_suffix=f"b{i}")
+        for i in range(3):
+            _seed_post(session, ch, format_val="trailer",
+                       activation_components=(2, 0, 0, 0),
+                       views=100, url_suffix=f"l{i}")
+        out = _compute_recommendation_candidates(
+            session, PAIRS["warnerbros"], datetime.now(timezone.utc),
+        )
+    trailer = next(r for r in out if r.recommended_value == "trailer")
+    assert trailer.effect_size < 0.5
+    assert trailer.effect_size > 0
+
+
+# Teil 2: Dedup via Jaccard
+# -----------------------------
+
+
+def test_jaccard_index_basic():
+    from app.services.insight_engine import _jaccard_index
+    assert _jaccard_index([], []) == 0.0
+    assert _jaccard_index(["a"], []) == 0.0
+    assert _jaccard_index(["a", "b"], ["a", "b"]) == 1.0
+    assert _jaccard_index(["a", "b"], ["a", "c"]) == pytest.approx(1/3, abs=0.01)
+    assert _jaccard_index(["a", "b", "c", "d"], ["a", "b", "c", "e"]) == 3/5
+
+
+def test_dedup_winner_higher_sample_size():
+    from app.services.insight_engine import (
+        _pick_dedup_winner,
+    )
+    from app.schemas.insights import RecommendedAction
+    a = RecommendedAction(
+        dimension="format", recommended_value="trailer",
+        evidence_metric="", evidence_baseline="",
+        effect_size=2.0, cited_post_ids=["x"], sample_size=10,
+        confidence_avg=0.8,
+    )
+    b = RecommendedAction(
+        dimension="format", recommended_value=">60s",
+        evidence_metric="", evidence_baseline="",
+        effect_size=3.0, cited_post_ids=["x"], sample_size=5,
+        confidence_avg=0.9,
+    )
+    winner, _, loser, _ = _pick_dedup_winner(a, "format_vocab", b, "duration_bucket")
+    assert winner.recommended_value == "trailer"
+    assert loser.recommended_value == ">60s"
+
+
+def test_dedup_winner_higher_effect_size_at_sample_tie():
+    from app.services.insight_engine import _pick_dedup_winner
+    from app.schemas.insights import RecommendedAction
+    a = RecommendedAction(
+        dimension="format", recommended_value="trailer",
+        evidence_metric="", evidence_baseline="",
+        effect_size=1.8, cited_post_ids=["x"], sample_size=5,
+        confidence_avg=0.8,
+    )
+    b = RecommendedAction(
+        dimension="format", recommended_value=">60s",
+        evidence_metric="", evidence_baseline="",
+        effect_size=3.0, cited_post_ids=["x"], sample_size=5,
+        confidence_avg=0.8,
+    )
+    winner, _, _, _ = _pick_dedup_winner(a, "format_vocab", b, "duration_bucket")
+    assert winner.recommended_value == ">60s"
+
+
+def test_dedup_winner_format_beats_duration_at_full_tie():
+    """Wolf-Briefing-Default: format gewinnt gegenueber duration_bucket."""
+    from app.services.insight_engine import _pick_dedup_winner
+    from app.schemas.insights import RecommendedAction
+    a = RecommendedAction(
+        dimension="format", recommended_value="trailer",
+        evidence_metric="", evidence_baseline="",
+        effect_size=2.0, cited_post_ids=["x"], sample_size=5,
+        confidence_avg=0.8,
+    )
+    b = RecommendedAction(
+        dimension="format", recommended_value=">60s",
+        evidence_metric="", evidence_baseline="",
+        effect_size=2.0, cited_post_ids=["x"], sample_size=5,
+        confidence_avg=0.8,
+    )
+    winner, w_src, _, _ = _pick_dedup_winner(
+        a, "format_vocab", b, "duration_bucket",
+    )
+    assert winner.recommended_value == "trailer"
+    assert w_src == "format_vocab"
+
+
+def test_dedup_winner_lifecycle_beats_days_to_release_at_full_tie():
+    """Tie-Break Regel 3 (cadence-Familie): lifecycle_stage hat
+    Source-Order 0, days_to_release_bucket hat 1 → lifecycle gewinnt
+    bei Vollstand-Gleichstand. ACHTUNG: das ist die Code-Realitaet
+    aus _CROSS_TAB_SOURCE_ORDER; das Briefing-Wording war hier
+    widerspruechlich (bucket faktischer vs. spezifischer). Wenn
+    Wolf das umdreht, eine Zahl im SOURCE_ORDER-Map aendern."""
+    from app.services.insight_engine import _pick_dedup_winner
+    from app.schemas.insights import RecommendedAction
+    a = RecommendedAction(
+        dimension="cadence", recommended_value="launch",
+        evidence_metric="", evidence_baseline="",
+        effect_size=2.0, cited_post_ids=["x"], sample_size=5,
+        confidence_avg=0.8,
+    )
+    b = RecommendedAction(
+        dimension="cadence", recommended_value="release_week",
+        evidence_metric="", evidence_baseline="",
+        effect_size=2.0, cited_post_ids=["x"], sample_size=5,
+        confidence_avg=0.8,
+    )
+    winner, w_src, _, _ = _pick_dedup_winner(
+        a, "lifecycle_stage", b, "days_to_release_bucket",
+    )
+    assert w_src == "lifecycle_stage"
+
+
+def test_dedup_suppresses_overlapping_recommendations(db):
+    """End-to-End: identische Cited-Posts (Jaccard=1.0) → einer in
+    winners, einer in suppressed."""
+    from app.services.insight_engine import _compute_recommendation_pair
+    with Session(db) as session:
+        ch = _seed_channel(session)
+        for i in range(6):
+            _seed_post(session, ch, format_val="clip",
+                       activation_components=(5, 0, 0, 0),
+                       views=100, duration=20, url_suffix=f"b{i}")
+        for i in range(4):
+            _seed_post(session, ch, format_val="trailer",
+                       activation_components=(20, 0, 0, 0),
+                       views=100, duration=80, url_suffix=f"h{i}")
+        winners, suppressed = _compute_recommendation_pair(
+            session, PAIRS["warnerbros"], datetime.now(timezone.utc),
+        )
+    format_winners = [r for r in winners if r.dimension == "format"]
+    # Genau ein "format"-Sieger.
+    assert len(format_winners) == 1
+    # Tie-Break: format_vocab > duration_bucket → trailer gewinnt.
+    assert format_winners[0].recommended_value == "trailer"
+    assert format_winners[0].suppressed_by is None
+    # Der ">60s"-Eintrag ist suppressed mit Pointer auf trailer.
+    format_suppressed = [r for r in suppressed if r.dimension == "format"]
+    assert len(format_suppressed) == 1
+    assert format_suppressed[0].recommended_value == ">60s"
+    assert format_suppressed[0].suppressed_by == "format/trailer"
+
+
+def test_dedup_keeps_disjoint_recommendations(db):
+    """Disjunkte Cited-Posts → beide bleiben."""
+    from app.services.insight_engine import _compute_recommendation_pair
+    with Session(db) as session:
+        ch = _seed_channel(session)
+        for i in range(6):
+            _seed_post(session, ch, format_val="clip",
+                       activation_components=(5, 0, 0, 0),
+                       views=100, url_suffix=f"b{i}")
+        for i in range(3):
+            _seed_post(session, ch, format_val="trailer",
+                       activation_components=(20, 0, 0, 0),
+                       views=100, duration=20, url_suffix=f"t{i}")
+        for i in range(3):
+            _seed_post(session, ch, format_val="teaser",
+                       activation_components=(20, 0, 0, 0),
+                       views=100, duration=20, url_suffix=f"te{i}")
+        winners, _ = _compute_recommendation_pair(
+            session, PAIRS["warnerbros"], datetime.now(timezone.utc),
+        )
+    fmt_vals = sorted(
+        r.recommended_value for r in winners if r.dimension == "format"
+    )
+    assert "trailer" in fmt_vals
+    assert "teaser" in fmt_vals
+
+
+def test_dedup_empty_input():
+    from app.services.insight_engine import _dedup_recommendation_candidates
+    winners, suppressed = _dedup_recommendation_candidates([])
+    assert winners == []
+    assert suppressed == []
+
+
+# Teil 3: Aggregator schreibt suppressed-Feld
+# ---------------------------------------------
+
+
+def test_aggregate_pair_writes_recommendation_suppressed(db):
+    from app.services.insight_engine import aggregate_pair
+    with Session(db) as session:
+        ch = _seed_channel(session)
+        for i in range(6):
+            _seed_post(session, ch, format_val="clip",
+                       activation_components=(5, 0, 0, 0),
+                       views=100, duration=20, url_suffix=f"b{i}")
+        for i in range(4):
+            _seed_post(session, ch, format_val="trailer",
+                       activation_components=(20, 0, 0, 0),
+                       views=100, duration=80, url_suffix=f"h{i}")
+        agg = aggregate_pair(session, "warnerbros", window_days=30,
+                             now=datetime.now(timezone.utc))
+    assert isinstance(agg.recommendation_suppressed, list)
+    suppressed_60s = next(
+        (r for r in agg.recommendation_suppressed
+         if r.recommended_value == ">60s"),
+        None,
+    )
+    assert suppressed_60s is not None
+    assert suppressed_60s.suppressed_by == "format/trailer"
