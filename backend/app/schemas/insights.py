@@ -269,6 +269,40 @@ class PlatformAggregation(BaseModel):
     notes: list[str] = []
 
 
+class RecommendedAction(BaseModel):
+    """Sprint 29.05.2026 (Stufe-2 PR-C / P3) — Empfehlungs-Baustein
+    aus dem Aggregator. Server rechnet, LLM formuliert (in dieser PR
+    bleibt ``why`` leer — eigener Strang).
+
+    Vier Cross-Tabs liefern Bausteine, gemappt auf zwei Dimensions:
+    - ``format``: aus ``format``-Vocab (5.3.1) oder
+      ``duration_bucket``.
+    - ``cadence``: aus ``lifecycle_stage`` (5.3.1) oder
+      ``days_to_release_bucket`` (PR-B).
+
+    Bausteine entstehen nur, wenn ALLE Ehrlich-Klausel-Filter
+    passieren (Confidence >= 0.7, Sample-Size >= 3, Effect-Size > 1.5x
+    Baseline ODER < 0.5x Baseline). Sonst bleibt
+    ``recommendation_candidates`` einfach leer — kein Notfall-Eintrag.
+
+    ``cited_post_ids`` zitiert 3-5 belegende Posts aus dem
+    Sample-Set; jede ID muss aus dem Pair-Post-Set der Woche stammen
+    (Allow-Set, andockend an #189-Evidenz-Infrastruktur).
+    """
+    dimension: str  # "format" | "cadence" — Pydantic-Literal hier
+                    # bewusst vermieden, weil das Set spaeter um "hook"
+                    # erweitert werden koennte.
+    recommended_value: str        # Closed-Vocab-Wert, z.B. "trailer",
+                                  # "<15s", "post_launch", "1-4w_pre".
+    evidence_metric: str          # "Activation 14,2 %"
+    evidence_baseline: str        # "Pair-Median 6,8 %"
+    cited_post_ids: list[str]     # 3-5 IDs aus dem Sample-Set
+    sample_size: int              # Anzahl Posts im Cross-Tab-Wert
+    confidence_avg: float         # Durchschnitt der ``confidence``-Werte
+                                  # der zitierten Posts (aus Post.analysis)
+    why: Optional[str] = None     # Platzhalter, in PR-C leer
+
+
 class PairAggregation(BaseModel):
     pair_key: str
     pair_label: str
@@ -308,6 +342,14 @@ class PairAggregation(BaseModel):
     # ``unknown``-Anteile — das ist die Datenrealitaet (niedrige
     # Title-Kopplung), kein Aggregator-Bug.
     days_to_release_distribution: dict[str, int] = {}
+    # Sprint 29.05.2026 (Stufe-2 PR-C / P3) — Empfehlungs-Bausteine,
+    # die der Aggregator pro 7d-Window aus vier Cross-Tabs ableitet
+    # (format × activation, duration_bucket × activation,
+    # lifecycle_stage × activation, days_to_release_bucket × activation).
+    # Ehrlich-Klausel: leer, wenn nichts den Sample-Size- und
+    # Effect-Size-Filter passiert. Default leer fuer Backwards-Compat
+    # persistierter Briefs vor PR-C.
+    recommendation_candidates: list[RecommendedAction] = []
 
 
 class Trend(BaseModel):

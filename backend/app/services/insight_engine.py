@@ -44,6 +44,7 @@ from app.schemas.insights import (
     PairAggregation,
     PlatformAggregation,
     RankedPost,
+    RecommendedAction,
     TitleCoverage,
     TopPost,
     Trend,
@@ -2350,6 +2351,260 @@ def _compute_days_to_release_distribution(
     return dict(counter)
 
 
+# ---- Sprint 29.05.2026 (Stufe-2 PR-C / P3) — Recommendation-Cross-Tabs ---
+
+
+# Wolf-Briefing-Schwelle, hart, nicht verhandelbar.
+_RECOMMENDATION_CONFIDENCE_THRESHOLD = 0.7
+
+# Cross-Tab-Dimensions (Briefing-Mapping):
+# - format_vocab + duration_bucket → dimension="format"
+# - lifecycle_stage + days_to_release_bucket → dimension="cadence"
+_RECOMMENDATION_DIMENSION_MAP = {
+    "format_vocab": "format",
+    "duration_bucket": "format",
+    "lifecycle_stage": "cadence",
+    "days_to_release_bucket": "cadence",
+}
+
+
+def _median(values: list[float]) -> float:
+    """Median ueber eine Liste. Bei leerer Liste 0.0 (Caller filtert
+    Empty schon ueber Sample-Size-Check)."""
+    n = len(values)
+    if n == 0:
+        return 0.0
+    s = sorted(values)
+    mid = n // 2
+    if n % 2:
+        return s[mid]
+    return (s[mid - 1] + s[mid]) / 2.0
+
+
+def _post_confidence(post: Post) -> Optional[float]:
+    """Extrahiert ``analysis.confidence`` als float, robust gegen
+    fehlende/ungueltige Werte."""
+    analysis = post.analysis
+    if not isinstance(analysis, dict):
+        return None
+    conf = analysis.get("confidence")
+    if conf is None:
+        return None
+    try:
+        return float(conf)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_pct(value: float) -> str:
+    """Activation als deutsche Prozent-Notation, eine Nachkommastelle."""
+    return f"{value * 100:.1f} %".replace(".", ",")
+
+
+def _compute_recommendation_candidates(
+    session: Session,
+    pair_def: dict,
+    window_end: datetime,
+) -> list[RecommendedAction]:
+    """Sprint 29.05.2026 (Stufe-2 PR-C / P3) — Empfehlungs-Bausteine
+    pro Pair aus dem 7d-Window.
+
+    Strikte Ehrlich-Klausel:
+    1. Nur Posts mit ``analysis.confidence >= 0.7``.
+    2. Pro Cross-Tab-Wert Sample-Size >= 3.
+    3. Effect-Size > 1.5x Baseline ODER < 0.5x Baseline.
+    4. Baseline = Median activation_rate des Pairs (Pair-spezifisch,
+       nicht Channel, nicht Global).
+
+    Vier Dimensions liefern Bausteine:
+    - ``format``-Vocab (``post.analysis['format']``)
+    - ``duration_bucket`` (aus ``_duration_bucket``)
+    - ``lifecycle_stage`` (``post.analysis['lifecycle_stage']``)
+    - ``days_to_release_bucket`` (PR-B-Logik, mit Markt-Fallback)
+
+    Wenn ALLE Bausteine durchfallen → leere Liste. Kein Notfall-Eintrag.
+    """
+    window_start_7d = window_end - timedelta(days=7)
+
+    # Channel-Lookup (gleicher Pattern wie days_to_release).
+    platforms = _platforms_dict_for(pair_def)
+    if not platforms:
+        return []
+    all_specs: list[tuple[str, str]] = []
+    for platform, specs in platforms.items():
+        for spec in specs:
+            h = spec.get("handle")
+            if h:
+                all_specs.append((platform, h.lower()))
+    if not all_specs:
+        return []
+    handles = [h for _, h in all_specs]
+    channel_rows = session.exec(
+        select(Channel.id, Channel.handle, Channel.platform, Channel.market)
+        .where(sa.func.lower(Channel.handle).in_(handles))
+    ).all()
+    channel_market_map: dict = {}
+    channel_platform_map: dict = {}
+    channel_ids: list = []
+    for cid, ch_handle, ch_platform, ch_market in channel_rows:
+        m = ch_market.value if hasattr(ch_market, "value") else str(ch_market)
+        channel_market_map[cid] = m
+        channel_platform_map[cid] = ch_platform
+        channel_ids.append(cid)
+    if not channel_ids:
+        return []
+
+    # Posts im 7d-Window (gleicher Window-Filter wie _channel_stats).
+    posts = list(session.exec(
+        select(Post).where(
+            Post.channel_id.in_(channel_ids)
+        ).where(
+            sa.or_(
+                sa.and_(Post.published_at.is_not(None),
+                        Post.published_at >= window_start_7d,
+                        Post.published_at <= window_end),
+                sa.and_(Post.published_at.is_(None),
+                        Post.detected_at >= window_start_7d,
+                        Post.detected_at <= window_end),
+            )
+        )
+    ).all())
+    if not posts:
+        return []
+
+    # Confidence-Filter (>= 0.7).
+    qualifying: list[tuple[Post, float, float]] = []  # (post, confidence, activation)
+    for post in posts:
+        conf = _post_confidence(post)
+        if conf is None or conf < _RECOMMENDATION_CONFIDENCE_THRESHOLD:
+            continue
+        platform = channel_platform_map.get(post.channel_id, "tiktok")
+        activation = compute_activation_rate(post, platform)
+        qualifying.append((post, conf, activation))
+    if len(qualifying) < 3:
+        # Pair-Baseline waere nicht stabil schaetzbar; ohne Median
+        # keine Effect-Size-Aussage. Ehrlich-Klausel: nichts ausgeben.
+        return []
+
+    # Baseline: Pair-Median.
+    baseline_median = _median([a for _, _, a in qualifying])
+
+    # Asset-Title-Join fuer days_to_release-Klassifikation (kompakt).
+    post_ids = [p.id for p in qualifying_to_ids(qualifying)]
+    prefers_title = sa.case((Asset.title_id.isnot(None), 0), else_=1)
+    asset_rows = session.exec(
+        select(Asset.post_id, Asset.title_id, Title)
+        .join(Title, Asset.title_id == Title.id, isouter=True)
+        .where(Asset.post_id.in_(post_ids))
+        .where(Asset.review_status != "rejected")
+        .order_by(Asset.post_id, prefers_title, Asset.created_at.desc())
+    ).all()
+    title_by_post: dict = {}
+    for post_id, title_id, title in asset_rows:
+        if post_id in title_by_post:
+            continue
+        if title_id is None or title is None:
+            continue
+        title_by_post[post_id] = title
+
+    # Cross-Tab-Sammlung. Pro Dimension ein Dict
+    # ``value -> list[(post, conf, activation)]``.
+    cross_tabs: dict[str, dict[str, list]] = {
+        "format_vocab": defaultdict(list),
+        "duration_bucket": defaultdict(list),
+        "lifecycle_stage": defaultdict(list),
+        "days_to_release_bucket": defaultdict(list),
+    }
+    for post, conf, activation in qualifying:
+        analysis = post.analysis if isinstance(post.analysis, dict) else {}
+        format_val = analysis.get("format")
+        if isinstance(format_val, str) and format_val:
+            cross_tabs["format_vocab"][format_val].append((post, conf, activation))
+        cross_tabs["duration_bucket"][_duration_bucket(post.duration_seconds)].append(
+            (post, conf, activation)
+        )
+        lc = analysis.get("lifecycle_stage")
+        if isinstance(lc, str) and lc:
+            cross_tabs["lifecycle_stage"][lc].append((post, conf, activation))
+        market = channel_market_map.get(post.channel_id, "US")
+        title = title_by_post.get(post.id)
+        if title is None:
+            bucket = DaysToReleaseBucket.UNKNOWN
+        else:
+            release = _pick_release_date(title, market)
+            if release is None:
+                bucket = DaysToReleaseBucket.UNKNOWN
+            else:
+                ref = _post_age_reference(post)
+                if ref is None:
+                    bucket = DaysToReleaseBucket.UNKNOWN
+                else:
+                    post_date = ref.date() if hasattr(ref, "date") else ref
+                    bucket = _classify_days_to_release((release - post_date).days)
+        cross_tabs["days_to_release_bucket"][bucket.value].append(
+            (post, conf, activation)
+        )
+
+    # Filter + RecommendedAction-Build.
+    out: list[RecommendedAction] = []
+    for cross_tab_name, value_map in cross_tabs.items():
+        dim_label = _RECOMMENDATION_DIMENSION_MAP[cross_tab_name]
+        for value, entries in value_map.items():
+            sample_size = len(entries)
+            if sample_size < 3:
+                continue
+            activations = [a for _, _, a in entries]
+            value_median = _median(activations)
+            if baseline_median == 0:
+                # Kein sinnvoller Effect-Size-Quotient — Baseline ist Null
+                # (kann passieren wenn alle Posts views=0 haben). Skippen.
+                continue
+            ratio = value_median / baseline_median
+            if not (ratio > 1.5 or ratio < 0.5):
+                continue
+
+            # Top-N (3-5) Posts nach Activation desc als cited_post_ids.
+            entries_sorted = sorted(entries, key=lambda e: -e[2])
+            top_n = entries_sorted[:5]
+            if len(top_n) < 3:
+                # Defensive: sollte nicht passieren (sample_size >= 3),
+                # aber explizit.
+                continue
+            cited_ids = [
+                p.post_url for p, _, _ in top_n if p.post_url
+            ]
+            if len(cited_ids) < 3:
+                # Posts ohne post_url koennen nicht zitiert werden.
+                continue
+            conf_avg = sum(c for _, c, _ in top_n) / len(top_n)
+
+            out.append(RecommendedAction(
+                dimension=dim_label,
+                recommended_value=value,
+                evidence_metric=f"Activation {_format_pct(value_median)}",
+                evidence_baseline=f"Pair-Median {_format_pct(baseline_median)}",
+                cited_post_ids=cited_ids,
+                sample_size=sample_size,
+                confidence_avg=round(conf_avg, 3),
+            ))
+
+    # Sortierung: erst nach Dimension, dann nach Effect-Size desc fuer
+    # deterministischen Output (Persistenz-Cache-Konsistenz analog #190).
+    def _effect(rec: RecommendedAction) -> float:
+        # value_median ist nicht direkt am RecommendedAction; aus
+        # evidence_metric/baseline rekonstruieren ist umstaendlich.
+        # Stattdessen: nach sample_size desc als sekundaerer Schluessel.
+        return rec.sample_size
+    out.sort(key=lambda r: (r.dimension, -r.sample_size, r.recommended_value))
+    return out
+
+
+def qualifying_to_ids(qualifying: list[tuple]) -> list:
+    """Schmaler Helper: liefert die Post-Objekte aus dem
+    ``qualifying``-Tupel-List heraus. Vermeidet doppelte Iteration."""
+    return [p for p, _, _ in qualifying]
+
+
 def aggregate_pair(
     session: Session, pair_key: str, window_days: int = 30, *, now: Optional[datetime] = None
 ) -> PairAggregation:
@@ -2398,6 +2653,14 @@ def aggregate_pair(
         session, pair_def, window_start, window_end,
     )
 
+    # Sprint 29.05.2026 (Stufe-2 PR-C / P3) — Recommendation-Bausteine
+    # aus vier Cross-Tabs ueber dem 7d-Window. Ehrlich-Klausel ist hart:
+    # leere Liste, wenn nichts den Confidence-/Sample-Size-/Effect-Size-
+    # Filter passiert.
+    recommendation_candidates = _compute_recommendation_candidates(
+        session, pair_def, window_end,
+    )
+
     return PairAggregation(
         pair_key=pair_key,
         pair_label=pair_def["label"],
@@ -2417,6 +2680,7 @@ def aggregate_pair(
         notes=notes,
         per_platform=per_platform,
         days_to_release_distribution=days_to_release_distribution,
+        recommendation_candidates=recommendation_candidates,
     )
 
 
