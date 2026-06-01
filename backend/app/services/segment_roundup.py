@@ -58,6 +58,7 @@ from app.schemas.insights import (
 )
 from app.services.anthropic_client import (
     AnthropicAuthError,
+    _unwrap_single_key,
     call_with_json_retry,
     is_anthropic_configured,
 )
@@ -562,8 +563,20 @@ def generate_segment_roundup(
     llm_output: Optional[SegmentRoundupLLMReport] = None
     raw_for_response: Optional[str] = None
     if retry_result.parsed is not None:
+        # Defensive/consistency net mirroring the brief path: unwrap a
+        # single stray top-level wrapper key before validating. The roundup
+        # path uses the text completion (``call_with_json_retry`` →
+        # ``messages_create_text``), NOT forced tool-use, so the
+        # ``{"what": {...}}`` tool-wrapper bug does not occur here today —
+        # this is purely consistency/future-proofing.
+        candidate = _unwrap_single_key(retry_result.parsed, expected_field="headline")
+        if candidate is not retry_result.parsed:
+            logger.warning(
+                "roundup-llm-output-unwrapped",
+                extra={"segment": segment.value, "wrapper_key": next(iter(retry_result.parsed))},
+            )
         try:
-            llm_output = SegmentRoundupLLMReport.model_validate(retry_result.parsed)
+            llm_output = SegmentRoundupLLMReport.model_validate(candidate)
             logger.info(
                 "roundup_llm_call_ok",
                 extra={

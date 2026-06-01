@@ -2283,7 +2283,11 @@ def _extract_schema_vocab_section(prompt: str) -> str:
     if start < 0:
         return ""
     rest = prompt[start:]
-    end = rest.find("OUTPUT — AUSSCHLIESSLICH")
+    # Boundary marker: the OUTPUT clause that follows the SCHEMA-VOKABEL
+    # section. Anchored on the stable ``OUTPUT —`` prefix (the trailing
+    # wording changed when the output contract was switched to tool-direct
+    # language, 2026-06-01).
+    end = rest.find("OUTPUT —")
     return rest[:end] if end > 0 else rest
 
 

@@ -309,6 +309,37 @@ def _try_parse_llm_json(
         return None, strict_exc, ""
 
 
+def _unwrap_single_key(parsed: Any, *, expected_field: str) -> Any:
+    """Defensive net for the ``{"<wrapper>": {<flat report>}}`` mis-
+    structuring Opus emits under forced tool-use (observed 2026-06-01,
+    regression from #189): the whole report arrives nested under one stray
+    top-level key (e.g. ``what``) instead of flat, so ``model_validate``
+    fails deterministically and the brief never persists.
+
+    Unwraps ONLY when ALL of the following hold:
+      - ``parsed`` is a ``dict`` with EXACTLY one top-level key,
+      - that key's value is itself a ``dict``,
+      - that inner dict contains ``expected_field`` (e.g. ``"headline"``).
+
+    Returns ``parsed`` unchanged in every other case, so:
+      - a legitimate flat report (many top-level keys) is never touched,
+      - a single-key wrapper whose value is NOT a dict (the string-valued
+        ``{"what": "..."}`` capture) is left alone to fail validation
+        loudly rather than being silently mis-unwrapped.
+
+    The identity of the return value (``result is parsed``) tells the
+    caller whether the net fired, so it can emit a WARNING — the net
+    staying hot must stay visible until the prompt-side fix (A) proves it
+    redundant.
+    """
+    if not isinstance(parsed, dict) or len(parsed) != 1:
+        return parsed
+    only_value = next(iter(parsed.values()))
+    if isinstance(only_value, dict) and expected_field in only_value:
+        return only_value
+    return parsed
+
+
 @dataclass
 class JsonRetryResult:
     """Ergebnis von ``call_with_json_retry``.
