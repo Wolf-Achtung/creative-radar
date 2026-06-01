@@ -177,6 +177,52 @@ def test_roundups_run_when_cap_exceeded_but_enforced_false(db, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Test 4b — Roundup mit llm_output=None (Parse-/Schema-Fail, persist-skip)
+# zaehlt als failed, NICHT als generated. Spiegelt den Brief-Counter-Fix
+# (PR #210); generate_and_persist_roundup wirft dabei KEINE Exception.
+# ---------------------------------------------------------------------------
+
+def test_roundups_count_empty_llm_output_as_failed(db, monkeypatch):
+    monkeypatch.setenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", "true")
+    monkeypatch.setattr(
+        settings, "cron_roundup_segments", "us_major", raising=False,
+    )
+    monkeypatch.setattr(
+        cron_module, "compute_anthropic_monthly_spend",
+        lambda s: _make_budget_status(exceeded=False),
+    )
+
+    # Parse-/Schema-Fail-Pfad: report kommt zurueck, aber llm_output=None
+    # (persist wurde uebersprungen). Aggregation/Cost sind trotzdem gesetzt.
+    failed_report = SimpleNamespace(
+        llm_output=None,
+        iso_year=2026,
+        iso_week=21,
+        cost_usd_estimate=0.26,
+        aggregation=SimpleNamespace(
+            channels_evaluated=33, channels_with_posts=20, total_posts=80,
+        ),
+    )
+    monkeypatch.setattr(
+        cron_module, "generate_and_persist_roundup",
+        MagicMock(return_value=failed_report),
+    )
+
+    with Session(db) as session:
+        result = cron_module._run_segment_roundups_after_briefs(session)
+
+    assert result["generated"] == 0
+    assert result["failed"] == 1
+    assert len(result["errors"]) == 1
+    err = result["errors"][0]
+    assert err["segment"] == "us_major"
+    assert err["error_class"] == "no_llm_output"
+    # Cost + results-Eintrag bleiben erhalten (nur der Zaehler aendert sich).
+    assert result["cost_usd_cents"] == 26
+    assert result["results"][0]["status"] == "persist_skipped"
+
+
+# ---------------------------------------------------------------------------
 # Test 5 — Cache-Hit: existing-Row skippt LLM-Call
 # ---------------------------------------------------------------------------
 
