@@ -148,11 +148,17 @@ def test_compute_apify_monthly_spend_aggregates_only_apify_in_current_month(
     window_start, _ = _month_window_utc(now)
     last_month = window_start - timedelta(days=2)
 
-    # In-window apify rows — should sum.
-    _seed_costlog(db, provider="apify", usd_cents=3_500, timestamp=now - timedelta(days=1))
-    _seed_costlog(db, provider="apify", usd_cents=4_500, timestamp=now - timedelta(hours=2))
+    # In-window apify rows — should sum. Seed relative to ``window_start``,
+    # not ``now``: ``compute_apify_monthly_spend`` filters on the half-open
+    # month window ``[window_start, window_end)`` with no upper ``<= now``
+    # bound, so a small offset from the month start is in-window on every
+    # day of the month. Anchoring to ``now - timedelta(days=1)`` instead put
+    # the row in the PRIOR month whenever the suite ran on the 1st — a
+    # month-boundary flake (observed 2026-06-01).
+    _seed_costlog(db, provider="apify", usd_cents=3_500, timestamp=window_start + timedelta(hours=1))
+    _seed_costlog(db, provider="apify", usd_cents=4_500, timestamp=window_start + timedelta(hours=2))
     # Non-apify in-window — must be ignored.
-    _seed_costlog(db, provider="openai", usd_cents=10_000, timestamp=now - timedelta(days=1))
+    _seed_costlog(db, provider="openai", usd_cents=10_000, timestamp=window_start + timedelta(hours=1))
     # Apify but PRIOR month — must be ignored.
     _seed_costlog(db, provider="apify", usd_cents=99_999, timestamp=last_month)
 
