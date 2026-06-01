@@ -645,22 +645,39 @@ def _run_segment_roundups_after_briefs(session: Session) -> dict:
                 top_posts_n=5,
                 now=brief_now,
             )
-            roundups_summary["generated"] += 1
-            cost_cents = (
-                int(round(report.cost_usd_estimate * 100))
-                if report.cost_usd_estimate else 0
-            )
-            roundups_summary["cost_usd_cents"] += cost_cents
-            roundups_summary["results"].append({
-                "segment": segment.value,
-                "status": "ok" if report.llm_output is not None else "persist_skipped",
-                "iso_year": report.iso_year,
-                "iso_week": report.iso_week,
-                "cost_cents": cost_cents,
-                "channels_evaluated": report.aggregation.channels_evaluated,
-                "channels_with_posts": report.aggregation.channels_with_posts,
-                "total_posts": report.aggregation.total_posts,
-            })
+            # generate_and_persist_roundup returns normally even when the
+            # roundup failed JSON-parse / schema-validation: the report then
+            # carries ``llm_output is None`` and ``_persist_roundup`` skipped
+            # the write (no row persisted). Count that as a failure, not a
+            # generation — same contract as the brief counter (PR #210) — so
+            # the cron summary reflects what actually landed in
+            # segment_roundup. Cost + the results entry are still recorded
+            # for both outcomes so other summary fields stay unchanged.
+            if report is None or report.llm_output is None:
+                roundups_summary["failed"] += 1
+                roundups_summary["errors"].append({
+                    "segment": segment.value,
+                    "error_class": "no_llm_output",
+                    "error_message": "llm_output is None (JSON-parse/schema failure, roundup not persisted)",
+                })
+            else:
+                roundups_summary["generated"] += 1
+            if report is not None:
+                cost_cents = (
+                    int(round(report.cost_usd_estimate * 100))
+                    if report.cost_usd_estimate else 0
+                )
+                roundups_summary["cost_usd_cents"] += cost_cents
+                roundups_summary["results"].append({
+                    "segment": segment.value,
+                    "status": "ok" if report.llm_output is not None else "persist_skipped",
+                    "iso_year": report.iso_year,
+                    "iso_week": report.iso_week,
+                    "cost_cents": cost_cents,
+                    "channels_evaluated": report.aggregation.channels_evaluated,
+                    "channels_with_posts": report.aggregation.channels_with_posts,
+                    "total_posts": report.aggregation.total_posts,
+                })
         except Exception as exc:  # noqa: BLE001 — per-segment isolation
             logger.exception("roundups.failed segment=%s", segment.value)
             roundups_summary["failed"] += 1
