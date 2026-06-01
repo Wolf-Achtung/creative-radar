@@ -26,6 +26,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.services import insight_engine as engine_module
+from app.services.anthropic_client import _unwrap_single_key
 from app.schemas.insights import (
     ChannelStats,
     LLMReport,
@@ -431,3 +432,49 @@ def test_try_parse_llm_json_unrescuable_returns_error_and_empty_path():
     # ``.pos`` muss gegen das gestrippte ``cleaned`` zeigen — der Test in
     # Test 4 verwendet diese Eigenschaft als Diagnostik-Anker.
     assert error.pos > 0
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2026-06-01 — {"<wrapper>": {...}} unwrap net (B). Under forced
+# tool-use Opus nested the whole report under one stray top-level key
+# (regression from #189); ``_unwrap_single_key`` recovers exactly that
+# shape before ``model_validate`` so the brief validates + persists again.
+# ---------------------------------------------------------------------------
+
+
+def test_unwrap_single_key_recovers_wrapped_valid_report():
+    """``{"what": {<valid flat report>}}`` → unwrapped → LLMReport validates.
+    Regression against the exact production bug."""
+    wrapped = {"what": _valid_llm_body()}
+    candidate = _unwrap_single_key(wrapped, expected_field="headline")
+    assert candidate is not wrapped  # net fired
+    report = LLMReport.model_validate(candidate)
+    assert report.headline == "M2-retry-recovered"
+
+
+def test_unwrap_single_key_leaves_flat_report_untouched():
+    """A legitimate flat report (many top-level keys) is returned as-is —
+    the net must never touch the happy path."""
+    flat = _valid_llm_body()
+    candidate = _unwrap_single_key(flat, expected_field="headline")
+    assert candidate is flat  # net did NOT fire
+    LLMReport.model_validate(candidate)  # still valid
+
+
+def test_unwrap_single_key_does_not_unwrap_non_dict_value():
+    """Edge case (netflix string capture): ``{"what": "<string>"}`` must NOT
+    be unwrapped — the value is not a dict, so it is left to fail
+    validation loudly instead of being silently mis-unwrapped."""
+    wrapped_string = {"what": "Netflix US zieht 308k ...</what>"}
+    candidate = _unwrap_single_key(wrapped_string, expected_field="headline")
+    assert candidate is wrapped_string  # net did NOT fire
+    with pytest.raises(ValueError):
+        LLMReport.model_validate(candidate)
+
+
+def test_unwrap_single_key_does_not_unwrap_when_inner_lacks_expected_field():
+    """Single-key wrapper whose inner dict lacks ``headline`` is left alone —
+    conservative: only unwrap when the inner dict looks like the report."""
+    wrapped_other = {"data": {"foo": 1, "bar": 2}}
+    candidate = _unwrap_single_key(wrapped_other, expected_field="headline")
+    assert candidate is wrapped_other  # net did NOT fire

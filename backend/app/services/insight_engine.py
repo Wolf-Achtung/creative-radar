@@ -57,6 +57,7 @@ from app.config import settings
 from app.services.anthropic_client import (
     AnthropicAPIError,
     AnthropicAuthError,
+    _unwrap_single_key,
     is_anthropic_configured,
     messages_create_strict_json,
 )
@@ -531,9 +532,12 @@ OPUS_MODEL_ALIAS = "claude-opus-4-7"
 
 _BRIEF_TOOL_NAME = "submit_weekly_brief"
 _BRIEF_TOOL_DESCRIPTION = (
-    "Submit the structured weekly pair brief. Call this tool exactly once "
-    "with the full report payload as the argument; do not return any prose "
-    "outside the tool call."
+    "Submit the structured weekly pair brief. Call this tool exactly once. "
+    "Pass the report fields DIRECTLY as the top-level tool arguments "
+    "(headline, tldr, trends, actions, cross_market_insight, risks, "
+    "data_caveats, plus the optional sections) — do NOT nest them under any "
+    "wrapper key such as 'what', 'report' or 'payload'. Do not return any "
+    "prose outside the tool call."
 )
 _BRIEF_TOOL_INPUT_SCHEMA: dict[str, Any] = LLMReport.model_json_schema()
 
@@ -769,7 +773,7 @@ Regeln:
   die transfer_opportunity zusammen — Granularitaet pro Achse ist im
   Schema bewusst nicht modelliert.
 
-OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
+OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief`` zurück. Fülle dessen Felder DIREKT auf der obersten Ebene aus — KEIN umschließendes Objekt und KEIN verschachtelnder Key (also NICHT {"what": {...}} oder ähnlich). Die obersten Schlüssel sind exakt: headline, tldr, trends, actions, cross_market_insight, risks, data_caveats — dazu die optionalen Sektionen aktuell_im_fokus, ganz_konkret, konkurrenz, tonalitaet, watch_outs, fuer_cutter, fuer_motion_designer, fuer_creative_producer, vergleichbare_posts. Das folgende Schema beschreibt die erwarteten Felder und ihren Inhalt:
 
 {
   "headline": "Max 90 Zeichen. EIN Hauptgedanke — keine zwei verketteten Aussagen mit 'und'. Marktstory in aktiver Sprache (zieht, läuft, dreht, hält, zerläuft), kein Zahlen-Konzentrat. Geschrieben für GF und CD, nicht für den Schnitt — die in ANTI-PATTERN HEADLINE/TLDR gelisteten Aggregations-Begriffe (Coverage, Cross-Market Match, Längen-Bucket, Engagement-Sum) sind hier verboten. Beispiel gut: 'Disney US zieht 10% Aktivierung, DE bleibt bei knapp 7%'. Beispiel schlecht: 'Title-Coverage 60% bei DE, Längen-Bucket <30s dominiert'.",
@@ -3724,8 +3728,23 @@ def generate_weekly_report(
             # JSON-Parse-Fail → naechster Retry-Attempt (oder Loop-Ende).
             continue
 
+        # Defensive net (2026-06-01): under forced tool-use Opus sometimes
+        # nests the whole report under one stray top-level key
+        # (e.g. ``{"what": {...}}``), which fails schema-validation and the
+        # brief never persists. Unwrap that exact shape before validating;
+        # WARN so the net staying hot stays visible until the prompt-side
+        # fix (A) proves it redundant. ``_unwrap_single_key`` only fires on
+        # a single-key dict whose value is itself a dict carrying
+        # ``headline`` — flat reports pass through untouched.
+        candidate = _unwrap_single_key(parsed, expected_field="headline")
+        if candidate is not parsed:
+            logger.warning(
+                "insight-engine-llm-output-unwrapped",
+                extra={"pair": pair_key, "wrapper_key": next(iter(parsed))},
+            )
+
         try:
-            llm_output = LLMReport.model_validate(parsed)
+            llm_output = LLMReport.model_validate(candidate)
         except ValueError as exc:
             # JSON ist valide, aber Pydantic-Schema schlaegt fehl (z.B.
             # fehlende Required-Felder, falsche Typen). Schema-Fehler
