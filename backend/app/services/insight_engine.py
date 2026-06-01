@@ -2784,6 +2784,25 @@ def qualifying_to_ids(qualifying: list[tuple]) -> list:
     return [p for p, _, _ in qualifying]
 
 
+def last_completed_iso_week_anchor(now: Optional[datetime] = None) -> datetime:
+    """Return a UTC anchor inside the most recently COMPLETED ISO week.
+
+    The result is always the Sunday that ended the previous ISO week
+    (``now - now.isoweekday()`` days), so it lands in week ``KW-1`` on
+    *every* weekday — not just Monday. Read paths feed this as ``now`` to
+    ``aggregate_pair`` / ``generate_and_persist_report`` so the detail page
+    shows the last completed week (the one the Monday cron persisted),
+    instead of the in-progress current week.
+
+    Note on the Monday cron (``cron.py``): it uses ``now - 1 day`` and runs
+    on Mondays, where ``isoweekday() == 1`` makes this helper compute the
+    exact same anchor — so the cron could adopt this helper without any
+    behaviour change (left unchanged in this sprint by design).
+    """
+    now = now or datetime.now(timezone.utc)
+    return now - timedelta(days=now.isoweekday())
+
+
 def aggregate_pair(
     session: Session, pair_key: str, window_days: int = 30, *, now: Optional[datetime] = None
 ) -> PairAggregation:
@@ -4294,6 +4313,7 @@ __all__ = [
     "OPUS_MODEL_ALIAS",
     "SYSTEM_PROMPT",
     "aggregate_pair",
+    "last_completed_iso_week_anchor",
     "generate_weekly_report",
     "generate_and_persist_report",
 ]

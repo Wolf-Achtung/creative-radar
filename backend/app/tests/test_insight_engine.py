@@ -3673,3 +3673,37 @@ def test_breakout_score_is_deterministic_across_calls():
         scores2 = [r.breakout_score.weighted_score for r in agg2.us_channel.breakouts]
         assert scores1 == scores2
 
+
+# ---------- Option A: last_completed_iso_week_anchor -----------------------
+
+
+@pytest.mark.parametrize("dt", [
+    datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),   # Monday,    KW23/2026
+    datetime(2026, 6, 3, 9, 0, tzinfo=timezone.utc),   # Wednesday, KW23/2026
+    datetime(2026, 6, 7, 9, 0, tzinfo=timezone.utc),   # Sunday,    KW23/2026
+])
+def test_last_completed_iso_week_anchor_hits_previous_week_every_weekday(dt):
+    """On Mon/Wed/Sun of KW23 the anchor lands in the previous ISO week
+    (KW22). The old ``now - 1 day`` idiom only worked on Monday — this is
+    the core of the read/write Monday-mismatch fix."""
+    cal = dt.isocalendar()
+    assert (cal.year, cal.week) == (2026, 23)  # sanity: input really is KW23
+    anchor = insight_engine.last_completed_iso_week_anchor(dt)
+    a = anchor.isocalendar()
+    assert (a.year, a.week) == (2026, 22)
+
+
+@pytest.mark.parametrize("dt", [
+    datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc),
+    datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),   # New Year's Day (KW1)
+    datetime(2027, 1, 4, 12, 0, tzinfo=timezone.utc),   # Mon of ISO-week-1/2027
+])
+def test_last_completed_iso_week_anchor_is_exactly_one_iso_week_back(dt):
+    """Invariant incl. year boundaries: the anchor sits in the same ISO week
+    as ``dt - 7 days`` (exactly one ISO week earlier), independent of the
+    weekday — e.g. 2026-01-01 → 2025-KW52, 2027-01-04 → 2026-KW53."""
+    anchor = insight_engine.last_completed_iso_week_anchor(dt)
+    a = anchor.isocalendar()
+    expected = (dt - timedelta(days=7)).isocalendar()
+    assert (a.year, a.week) == (expected.year, expected.week)
+

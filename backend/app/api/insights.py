@@ -30,6 +30,7 @@ from app.services.insight_engine import (
     _platforms_dict_for,
     generate_and_persist_report,
     generate_weekly_report,
+    last_completed_iso_week_anchor,
 )
 from app.services.insights import build_overview
 
@@ -349,21 +350,35 @@ def weekly(
                 "reason": pair_def.get("reason") or "Pair ist aktuell deaktiviert.",
             },
         )
+    # Read the LAST COMPLETED ISO week, not the in-progress current week.
+    # The Monday cron persists briefs for the just-finished week; without
+    # this anchor the detail page targeted the current week (empty until a
+    # live regen) AND diverged from the homepage tiles, which already show
+    # the latest persisted brief (MAX(generated_at) — the cron's last-
+    # completed-week row). Passing the anchor as ``now`` makes both the
+    # cache lookup and any fallback aggregation key on the same week the
+    # cron wrote, so the detail page is a cache hit on the cron's row.
+    # ``aggregate_pair``'s default stays ``now`` (current week) — only the
+    # read endpoint is shifted (cron / dry-run-internal callers unaffected).
+    report_anchor = last_completed_iso_week_anchor()
     try:
         if dry_run:
-            # Dry-Run-Pfad ist unverändert — weder Cache-Lookup noch
-            # Persistenz. Nützlich für Prompt-Iteration.
+            # Dry-Run-Pfad: weder Cache-Lookup noch Persistenz, aber auf
+            # derselben (abgeschlossenen) Woche aggregieren wie der echte
+            # Pfad, damit Quality-Gate und Anzeige dieselbe Woche treffen.
             return generate_weekly_report(
                 session,
                 pair,
                 window_days=window_days,
                 dry_run=True,
+                now=report_anchor,
             )
         return generate_and_persist_report(
             session,
             pair,
             window_days=window_days,
             force=force,
+            now=report_anchor,
         )
     except AnthropicAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc

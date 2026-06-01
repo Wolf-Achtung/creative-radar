@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json as _json
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -222,3 +222,59 @@ def test_enabled_pair_full_run_with_mocked_llm(
     assert body["pair_key"] == "warnerbros"
     assert body["dry_run"] is False
     assert body["llm_output"]["headline"] == _MOCK_LLM_OUTPUT["headline"]
+
+
+# ---------- Option A: read the LAST COMPLETED ISO week, cache-hit ----------
+
+
+def test_weekly_endpoint_reads_last_completed_week_and_caches(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """The detail endpoint must operate on the last COMPLETED ISO week
+    (what the Monday cron persists), not the in-progress current week, and
+    must cache-hit on the persisted row instead of regenerating per visit.
+
+    Regression for the Monday read/write mismatch: first visit generates +
+    persists for KW-1, second visit is served from that row (no second LLM
+    call)."""
+    from datetime import datetime, timezone
+
+    from app.services.insight_engine import last_completed_iso_week_anchor
+
+    fake_message = SimpleNamespace(
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                name="submit_weekly_brief",
+                input=_MOCK_LLM_OUTPUT,
+            )
+        ],
+        usage=SimpleNamespace(input_tokens=1000, output_tokens=200),
+    )
+    llm_mock = MagicMock(return_value=fake_message)
+    monkeypatch.setattr(insight_engine, "messages_create_strict_json", llm_mock)
+    monkeypatch.setattr(insight_engine, "is_anthropic_configured", lambda: True)
+
+    expected = last_completed_iso_week_anchor().isocalendar()
+    current = datetime.now(timezone.utc).isocalendar()
+    # Anchor is always the PREVIOUS ISO week — never the current one.
+    assert (expected.year, expected.week) != (current.year, current.week)
+
+    # First visit: cache miss → generate + persist for the completed week.
+    r1 = client.get(
+        "/api/insights/weekly", params={"pair": "warnerbros", "dry_run": "false"}
+    )
+    assert r1.status_code == 200, r1.text
+    b1 = r1.json()
+    assert (b1["iso_year"], b1["iso_week"]) == (expected.year, expected.week)
+    assert llm_mock.call_count == 1
+
+    # Second visit: row exists for the completed week → cache hit, no regen.
+    r2 = client.get(
+        "/api/insights/weekly", params={"pair": "warnerbros", "dry_run": "false"}
+    )
+    assert r2.status_code == 200, r2.text
+    b2 = r2.json()
+    assert (b2["iso_year"], b2["iso_week"]) == (expected.year, expected.week)
+    assert b2["llm_output"]["headline"] == _MOCK_LLM_OUTPUT["headline"]
+    assert llm_mock.call_count == 1  # NOT regenerated on the second visit
