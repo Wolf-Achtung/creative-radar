@@ -496,8 +496,25 @@ def _run_brief_generation_after_sync(session: Session) -> dict:
                 window_days=30,
                 now=brief_now,
             )
-            briefs_summary["generated"] += 1
-            if report.cost_usd_estimate:
+            # generate_and_persist_report returns normally even when the
+            # brief failed JSON-parse / schema-validation: the report then
+            # carries ``llm_output is None`` and ``_persist_report`` skipped
+            # the write (no row persisted). Counting that as "generated"
+            # reported phantom successes — 2026-06-01 logged generated=8
+            # while all 8 schema-failed and nothing persisted. Treat a
+            # missing llm_output as a failure so the summary reflects what
+            # actually landed in insight_report. This only makes the failure
+            # visible; the root-cause schema mismatch is a separate fix.
+            if report is None or report.llm_output is None:
+                briefs_summary["failed"] += 1
+                briefs_summary["errors"].append({
+                    "pair": pair_key,
+                    "error_class": "no_llm_output",
+                    "error_message": "llm_output is None (JSON-parse/schema/citation failure, brief not persisted)",
+                })
+            else:
+                briefs_summary["generated"] += 1
+            if report is not None and report.cost_usd_estimate:
                 briefs_summary["cost_usd_cents"] += int(round(report.cost_usd_estimate * 100))
         except Exception as exc:  # noqa: BLE001 — per-pair isolation, see docstring
             logger.exception("brief_gen.failed pair=%s", pair_key)
