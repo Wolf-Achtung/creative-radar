@@ -114,7 +114,12 @@ def _enabled_pair_count() -> int:
 
 def test_cron_triggers_brief_gen_for_all_enabled_pairs(db, monkeypatch):
     monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
-    brief_mock = MagicMock(return_value=SimpleNamespace(cost_usd_estimate=1.50))
+    # llm_output non-None marks a real, persisted brief — the cron now
+    # counts ``report.llm_output is None`` as failed (parse/schema/citation
+    # fail → _persist_report skip), so success-path mocks must carry it.
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=1.50, llm_output=object())
+    )
     _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
     run_id = _seed_run(db)
 
@@ -169,7 +174,7 @@ def test_cron_brief_gen_handles_per_pair_failure(db, monkeypatch):
     def side_effect(session, pair_key, **kwargs):
         if pair_key == failing_pair:
             raise RuntimeError("simulated LLM blowup")
-        return SimpleNamespace(cost_usd_estimate=0.50)
+        return SimpleNamespace(cost_usd_estimate=0.50, llm_output=object())
 
     brief_mock = MagicMock(side_effect=side_effect)
     _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
@@ -194,9 +199,40 @@ def test_cron_brief_gen_handles_per_pair_failure(db, monkeypatch):
         assert run.status == "completed"
 
 
+def test_cron_brief_gen_counts_missing_llm_output_as_failed(db, monkeypatch):
+    """Regression 2026-06-01: generate_and_persist_report returns normally
+    with ``llm_output is None`` when the brief fails parse/schema/citation
+    checks (and _persist_report skips the write). Such a report must count
+    as ``failed``, not ``generated`` — otherwise the cron reports phantom
+    successes (that run logged generated=8 / failed=0 while nothing
+    persisted)."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=1.50, llm_output=None)
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    run_id = _seed_run(db)
+
+    asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+
+    n_pairs = _enabled_pair_count()
+    with Session(db) as session:
+        run = session.get(CronRun, run_id)
+        assert run.status == "completed"
+        briefs = run.summary_json["briefs"]
+        assert briefs["generated"] == 0
+        assert briefs["failed"] == n_pairs
+        # Cost is still accumulated for the paid-but-unpersisted calls.
+        assert briefs["cost_usd_cents"] == n_pairs * 150
+        assert len(briefs["errors"]) == n_pairs
+        assert all(e["error_class"] == "no_llm_output" for e in briefs["errors"])
+
+
 def test_cron_brief_gen_uses_yesterday_for_iso_week(db, monkeypatch):
     monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
-    brief_mock = MagicMock(return_value=SimpleNamespace(cost_usd_estimate=0.0))
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=0.0, llm_output=object())
+    )
     _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
     run_id = _seed_run(db)
 
