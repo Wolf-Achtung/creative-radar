@@ -1679,8 +1679,7 @@ export default function InsightWeekly({ pair }) {
 
       {status === 'slow' && (
         <div className="card insight-slow-hint">
-          <p className="section-kicker">Einen Moment bitte</p>
-          <p>Der Report wird gerade erstellt — das kann einen Moment dauern.</p>
+          <p>Der Report wird jetzt erstellt – das dauert bis zu 5 Minuten…</p>
         </div>
       )}
 
