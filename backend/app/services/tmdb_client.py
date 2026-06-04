@@ -88,6 +88,65 @@ class TMDbClient:
             page += 1
         return results
 
+    async def discover_series(self, region: str, language: str, date_from: date, date_to: date) -> list[dict[str, Any]]:
+        """TV sibling of ``discover_movies`` (series blind-spot fix).
+
+        Hits ``/discover/tv`` with the same region/language/popularity/page-cap
+        shape, but filters on ``first_air_date`` (TV has no ``release_date``).
+        ``discover_movies`` is untouched — this method is purely additive so the
+        movie pool stays exactly as before.
+        """
+        page = 1
+        results: list[dict[str, Any]] = []
+        while page <= 3:  # hard cap, mirrors discover_movies
+            data = await self._get(
+                "/discover/tv",
+                {
+                    "region": region,
+                    "language": language,
+                    "sort_by": "popularity.desc",
+                    "include_adult": "false",
+                    "first_air_date.gte": date_from.isoformat(),
+                    "first_air_date.lte": date_to.isoformat(),
+                    "page": page,
+                },
+            )
+            page_results = data.get("results") or []
+            if not page_results:
+                break
+            results.extend(page_results)
+            if page >= int(data.get("total_pages") or 1):
+                break
+            page += 1
+        return results
+
+    def normalize_tmdb_series(self, series: dict[str, Any]) -> dict[str, Any]:
+        """TV sibling of ``normalize_tmdb_movie``. Maps the TV field names
+        (``name`` / ``original_name`` / ``first_air_date``) onto the same
+        normalized shape the sync consumes; ``release_date`` is the series'
+        ``first_air_date``."""
+        air_date_raw = series.get("first_air_date")
+        release_year = None
+        if air_date_raw and isinstance(air_date_raw, str) and len(air_date_raw) >= 4:
+            try:
+                release_year = int(air_date_raw[:4])
+            except Exception:
+                release_year = None
+
+        aliases = [series.get("name"), series.get("original_name")]
+        aliases = sorted({alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()})
+
+        return {
+            "tmdb_id": series.get("id"),
+            "title_original": (series.get("original_name") or series.get("name") or "").strip(),
+            "title_local": (series.get("name") or "").strip() or None,
+            "release_date": air_date_raw,
+            "release_year": release_year,
+            "aliases": aliases,
+            "overview": series.get("overview"),
+            "popularity": series.get("popularity"),
+        }
+
     async def get_movie_release_dates(self, tmdb_id: int) -> dict[str, Any]:
         return await self._get(f"/movie/{tmdb_id}/release_dates")
 

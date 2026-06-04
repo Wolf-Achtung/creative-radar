@@ -116,3 +116,60 @@ async def test_discover_movies_still_includes_theatrical_types():
     parts = set(mask.split("|"))
     assert "2" in parts
     assert "3" in parts
+
+
+# ---------------------------------------------------------------- TV discover ---
+
+
+@pytest.mark.asyncio
+async def test_discover_series_hits_tv_endpoint_with_first_air_date_window():
+    """discover_series queries /discover/tv and filters on first_air_date."""
+    client, recorder = _make_client(
+        [{"results": [{"id": 10, "name": "Murderbot"}], "total_pages": 1}]
+    )
+
+    results = await client.discover_series(
+        region="US", language="en-US", date_from=date(2026, 1, 1), date_to=date(2026, 6, 1)
+    )
+
+    path, params = recorder.calls[0]
+    assert path == "/discover/tv"
+    assert params["first_air_date.gte"] == "2026-01-01"
+    assert params["first_air_date.lte"] == "2026-06-01"
+    assert params["sort_by"] == "popularity.desc"
+    assert "with_release_type" not in params  # movie-only filter, not TV
+    assert any(s["id"] == 10 for s in results)
+
+
+@pytest.mark.asyncio
+async def test_discover_series_paginates_up_to_cap():
+    """Page cap mirrors discover_movies (max 3 pages)."""
+    pages = [{"results": [{"id": i}], "total_pages": 9} for i in range(5)]
+    client, recorder = _make_client(pages)
+
+    results = await client.discover_series(
+        region="DE", language="de-DE", date_from=date(2026, 1, 1), date_to=date(2026, 12, 31)
+    )
+
+    assert len(recorder.calls) == 3  # hard-capped, not 9
+    assert len(results) == 3
+
+
+def test_normalize_tmdb_series_maps_tv_fields():
+    """name -> title_local, original_name -> title_original, first_air_date -> release_date."""
+    client = TMDbClient(api_key="dummy")
+    normalized = client.normalize_tmdb_series({
+        "id": 555,
+        "name": "Murderbot",
+        "original_name": "Murderbot",
+        "first_air_date": "2026-05-16",
+        "overview": "A SecUnit.",
+        "popularity": 42.0,
+    })
+
+    assert normalized["tmdb_id"] == 555
+    assert normalized["title_original"] == "Murderbot"
+    assert normalized["title_local"] == "Murderbot"
+    assert normalized["release_date"] == "2026-05-16"
+    assert normalized["release_year"] == 2026
+    assert "Murderbot" in normalized["aliases"]
