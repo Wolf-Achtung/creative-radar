@@ -143,6 +143,58 @@ def test_done_when_vision_returns_useful_json(session: Session,
     assert result.visual_analysis_status == "analyzed"
 
 
+def _sent_image_url(fake_client: MagicMock) -> str:
+    """Extract the image_url value passed to chat.completions.create()."""
+    kwargs = fake_client.chat.completions.create.call_args.kwargs
+    user_content = kwargs["messages"][1]["content"]
+    block = next(c for c in user_content if c.get("type") == "image_url")
+    return block["image_url"]["url"]
+
+
+def test_vision_inlines_evidence_as_base64_data_url(session: Session,
+                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """H1 fix: a stored evidence object key is read from storage and sent to
+    OpenAI as a base64 data URL — not a (possibly unreachable) presigned URL."""
+    import base64
+
+    asset = _make(session)
+    monkeypatch.setattr(visual_analysis, "capture_asset_screenshot", lambda a: _captured(a))
+
+    fake_storage = MagicMock()
+    fake_storage.read.return_value = b"\xff\xd8\xffJPEGBYTES"
+    monkeypatch.setattr(visual_analysis, "get_storage", lambda: fake_storage)
+
+    fake = _mock_openai(monkeypatch, return_content='{"ocr_text": "X"}')
+    result = analyze_asset_visual(session, asset)
+
+    assert result.visual_analysis_status == "analyzed"
+    sent = _sent_image_url(fake)
+    expected_b64 = base64.b64encode(b"\xff\xd8\xffJPEGBYTES").decode("ascii")
+    assert sent == f"data:image/jpeg;base64,{expected_b64}"
+    fake_storage.read.assert_called_once_with(f"evidence/{asset.id}_test.jpg")
+
+
+def test_vision_falls_back_to_url_when_storage_read_fails(session: Session,
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """If reading the evidence bytes fails, the call must fall back to the
+    resolved URL instead of regressing the whole path."""
+    monkeypatch.setattr(settings, "storage_backend", "local", raising=False)
+    asset = _make(session)
+    monkeypatch.setattr(visual_analysis, "capture_asset_screenshot", lambda a: _captured(a))
+
+    fake_storage = MagicMock()
+    fake_storage.read.side_effect = RuntimeError("object gone")
+    monkeypatch.setattr(visual_analysis, "get_storage", lambda: fake_storage)
+
+    fake = _mock_openai(monkeypatch, return_content='{"ocr_text": "X"}')
+    result = analyze_asset_visual(session, asset)
+
+    assert result.visual_analysis_status == "analyzed"
+    sent = _sent_image_url(fake)
+    assert not sent.startswith("data:")
+    assert sent == f"/storage/evidence/{asset.id}_test.jpg"
+
+
 def test_vision_empty_when_openai_returns_empty_object(session: Session,
                                                        monkeypatch: pytest.MonkeyPatch) -> None:
     asset = _make(session)

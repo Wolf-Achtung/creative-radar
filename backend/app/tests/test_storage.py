@@ -74,6 +74,32 @@ def test_s3_storage_uploads_and_signs(monkeypatch: pytest.MonkeyPatch) -> None:
     assert signed == "https://signed.example/test.bin?sig=abc"
 
 
+def test_local_file_storage_read_round_trip(tmp_path: Path) -> None:
+    storage = LocalFileStorage(base_path=tmp_path)
+    key = "evidence/read.jpg"
+    payload = b"\xff\xd8\xff image bytes"
+    storage.put(key, payload, "image/jpeg")
+    assert storage.read(key) == payload
+
+
+def test_s3_storage_read_returns_object_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "s3_bucket", "creative-radar-assets", raising=False)
+
+    body = MagicMock()
+    body.read.return_value = b"r2-image-bytes"
+    fake_client = MagicMock()
+    fake_client.get_object.return_value = {"Body": body}
+
+    with patch("app.services.storage.boto3.client", return_value=fake_client):
+        storage = S3Storage()
+        data = storage.read("evidence/x.jpg")
+
+    fake_client.get_object.assert_called_once_with(
+        Bucket="creative-radar-assets", Key="evidence/x.jpg"
+    )
+    assert data == b"r2-image-bytes"
+
+
 def test_s3_storage_exists_returns_false_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "s3_bucket", "creative-radar-assets", raising=False)
 
