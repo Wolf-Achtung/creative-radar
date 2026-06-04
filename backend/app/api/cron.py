@@ -362,6 +362,25 @@ def _run_vision_after_sync(
     chosen = list(asset_ids[:cap]) if cap > 0 else []
 
     started = time.monotonic()
+    counters = _vision_process_ids(session, chosen)
+
+    duration_seconds = round(time.monotonic() - started, 2)
+    estimated_cost_usd = round(counters["attempted"] * _VISION_COST_USD_PER_CALL, 4)
+
+    return {
+        **counters,
+        "skipped_cap": skipped_cap,
+        "duration_seconds": duration_seconds,
+        "estimated_cost_usd": estimated_cost_usd,
+    }
+
+
+def _vision_process_ids(session: Session, asset_ids: list[UUID]) -> dict:
+    """Run ``analyze_asset_visual`` over the given asset IDs, isolating
+    per-asset failures, and return the status counters. Shared by the
+    fresh-asset path (``_run_vision_after_sync``) and the backlog-drain
+    path (``_run_vision_backlog``) so the counting/error-isolation rules
+    stay identical."""
     counters = {
         "attempted": 0,
         "succeeded": 0,
@@ -369,13 +388,12 @@ def _run_vision_after_sync(
         "fetch_failed": 0,
         "vision_error": 0,
     }
-
-    for asset_id in chosen:
+    for asset_id in asset_ids:
         asset = session.get(Asset, asset_id)
         if asset is None:
-            # Asset disappeared between sync and vision. Should not happen
-            # in production (same session, same task), but treat as a soft
-            # skip rather than a hard failure.
+            # Asset disappeared between selection and vision. Should not
+            # happen in production (same session, same task), but treat as
+            # a soft skip rather than a hard failure.
             continue
         counters["attempted"] += 1
         try:
@@ -393,13 +411,47 @@ def _run_vision_after_sync(
             counters["fetch_failed"] += 1
         else:
             counters["vision_error"] += 1
+    return counters
 
+
+def _run_vision_backlog(
+    session: Session,
+    backlog_cap: int,
+    *,
+    exclude_ids: list[UUID],
+) -> dict:
+    """Drain up to ``backlog_cap`` oldest ``pending`` assets that the
+    feed-forward vision path never reached (historical backlog + per-run
+    ``skipped_cap`` overflow). Runs AFTER the fresh-asset vision step; the
+    ``created_asset_ids`` selection/cap is untouched.
+
+    ``exclude_ids`` are the asset IDs the fresh-asset step already handled
+    this run — they may still read as ``pending`` mid-transaction, so we
+    skip them to avoid double processing. ``backlog_cap`` bounds the cost
+    (N * ~$0.015 per run); 0 disables the drain entirely.
+    """
+    if backlog_cap <= 0:
+        return {"enabled": False, "backlog_cap": backlog_cap}
+
+    started = time.monotonic()
+    exclude = set(exclude_ids)
+    stmt = (
+        select(Asset)
+        .where(Asset.visual_analysis_status == "pending")
+        .order_by(Asset.created_at.asc())
+        .limit(backlog_cap + len(exclude))
+    )
+    candidates = [a.id for a in session.exec(stmt).all() if a.id not in exclude][:backlog_cap]
+
+    counters = _vision_process_ids(session, candidates)
     duration_seconds = round(time.monotonic() - started, 2)
     estimated_cost_usd = round(counters["attempted"] * _VISION_COST_USD_PER_CALL, 4)
 
     return {
+        "enabled": True,
+        "backlog_cap": backlog_cap,
+        "selected": len(candidates),
         **counters,
-        "skipped_cap": skipped_cap,
         "duration_seconds": duration_seconds,
         "estimated_cost_usd": estimated_cost_usd,
     }
@@ -770,6 +822,15 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             cap = settings.cron_vision_max_assets_per_run
             if created_asset_ids:
                 summary["vision"] = _run_vision_after_sync(session, created_asset_ids, cap)
+            # Backlog-Drain (Dauerfix gegen feed-forward-Lücke): nach den
+            # frisch erzeugten Assets bis zu N älteste ``pending``-Assets
+            # nachziehen. created_asset_ids-Selektion/Cap oben bleibt
+            # unberührt; backlog_cap=0 deaktiviert den Pfad.
+            backlog_cap = settings.cron_vision_backlog_max_assets_per_run
+            if backlog_cap > 0:
+                summary["vision_backlog"] = _run_vision_backlog(
+                    session, backlog_cap, exclude_ids=created_asset_ids
+                )
             summary["rematch"] = _run_rematch_after_sync(session)
             # Cadence-Sprint 2026-05-17 — Brief-Generation für die gerade
             # abgeschlossene ISO-Woche. Vor diesem Sprint hat der Sonntag-Cron
