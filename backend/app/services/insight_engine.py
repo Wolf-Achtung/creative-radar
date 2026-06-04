@@ -26,7 +26,7 @@ import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, NamedTuple, Optional
 
 import sqlalchemy as sa
 from sqlmodel import Session, select
@@ -1089,7 +1089,25 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
 """
 
 
-# ---------- Hashtag extraction ---------------------------------------------
+# ---------- Shared brief voice (C1) ----------------------------------------
+#
+# The title brief (Variante 1) must speak the SAME Cutter-Deutsch as the pair
+# brief — the tone rules from #222 (positive KERN-REGEL, meta-leak fix) and
+# #223 (Cast-X / X-Reminder pattern). Rather than duplicate that prose, we
+# expose the field-agnostic top of SYSTEM_PROMPT (persona, KERN-REGEL, VOICE,
+# GLOSSAR, ANTI-PATTERN / forbidden-vocab, PLATTFORM/FILMTITEL, TONALITÄTS-POOL,
+# LÄNGE) as ``BRIEF_VOICE``. The title prompt = BRIEF_VOICE + its own task.
+#
+# Crucially this is a *computed slice* of the UNCHANGED SYSTEM_PROMPT literal —
+# SYSTEM_PROMPT itself is byte-identical to before, so the pair-brief path and
+# every SYSTEM_PROMPT wording-assertion are provably untouched. The cut sits at
+# the pair output-schema block (``SCHEMA-VOKABEL`` onward) which is
+# pair-specific. A few field-coupled carve-outs above the cut (e.g. the
+# ``cross_market_insight`` / ``aktuell_im_fokus`` mentions) ride along; the
+# title task (C3) overrides those for its own field set.
+_VOICE_BOUNDARY_MARKER = "\nSCHEMA-VOKABEL"
+BRIEF_VOICE = SYSTEM_PROMPT[: SYSTEM_PROMPT.index(_VOICE_BOUNDARY_MARKER)]
+
 
 # Unicode-aware so German Umlauts and emoji-adjacent tags work. We strip the
 # leading hash and lowercase to make the frequency count case-insensitive.
@@ -3548,6 +3566,298 @@ def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
     )
 
 
+class _BriefLLMResult(NamedTuple):
+    """Result of the shared tool-use LLM call+retry loop (C2). ``llm_output``
+    is the schema-validated object (or None on parse/schema/truncation/strict-
+    citation failure → caller persist-skips); tokens/cost reflect ALL attempts."""
+    llm_output: Optional[Any]
+    raw_text: Optional[str]
+    input_tokens: int
+    output_tokens: int
+    cost: Optional[float]
+    anthropic_calls: int
+
+
+def _run_brief_llm(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    tool_name: str,
+    tool_description: str,
+    input_schema: dict,
+    validate: Callable[[Any], Any],
+    model: str,
+    max_tokens: int,
+    log_subject: str,
+    call_extra: dict,
+    record_meta: dict,
+    operation: str,
+    citation_validate: Optional[Callable[[Any], bool]] = None,
+    strict_citations: bool = False,
+    unwrap_expected_field: str = "headline",
+) -> _BriefLLMResult:
+    """Shared brief generation kernel (C2 — extracted verbatim from the pair
+    path so the pair brief and the title brief share ONE call+retry loop, not
+    two copies).
+
+    Owns: the forced tool-use Anthropic call, content extraction, the
+    JSON-parse retry loop (``MAX_RECALLS``), the truncation guard (#224), the
+    single-key unwrap net, schema validation via ``validate``, the
+    soft/strict citation check via ``citation_validate``, and per-call cost
+    accounting. Returns ``llm_output=None`` on any terminal failure so the
+    caller skips persistence. Behaviour is identical to the pre-extraction
+    pair path; ``log_subject`` is logged under the ``pair`` key and
+    ``record_meta``/``operation`` drive ``record_anthropic_call``.
+    """
+
+    def _call_and_extract(attempt_index: int) -> tuple[Any, str]:
+        attempt_extra = {**call_extra, "attempt": attempt_index}
+        logger.info("brief_anthropic_call_start", extra=attempt_extra)
+        started = time.monotonic()
+        try:
+            msg = messages_create_strict_json(
+                model=model,
+                system=system_prompt,
+                user_message=user_prompt,
+                tool_name=tool_name,
+                tool_description=tool_description,
+                input_schema=input_schema,
+                max_tokens=max_tokens,
+            )
+        except Exception as call_exc:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            logger.error(
+                "brief_anthropic_call_done",
+                extra={
+                    **attempt_extra,
+                    "duration_ms": duration_ms,
+                    "outcome": "error",
+                    "error_type": type(call_exc).__name__,
+                },
+            )
+            raise
+        duration_ms = int((time.monotonic() - started) * 1000)
+        logger.info(
+            "brief_anthropic_call_done",
+            extra={
+                **attempt_extra,
+                "duration_ms": duration_ms,
+                "outcome": "success",
+                "stop_reason": getattr(msg, "stop_reason", None),
+            },
+        )
+        text = ""
+        try:
+            tool_input: Optional[Any] = None
+            text_fallback = ""
+            for block in msg.content or []:
+                block_type = getattr(block, "type", None)
+                if block_type == "tool_use" and tool_input is None:
+                    tool_input = getattr(block, "input", None)
+                elif block_type == "text":
+                    text_fallback += getattr(block, "text", "")
+            if tool_input is not None:
+                text = json.dumps(tool_input, ensure_ascii=False, default=str)
+            else:
+                text = text_fallback
+        except Exception as extract_exc:  # pragma: no cover — defensive
+            logger.warning("insight-engine-content-extract-failed: %s", extract_exc)
+        return msg, text
+
+    MAX_RECALLS = 2
+    call_attempts: list[tuple[Any, str]] = []
+
+    parsed: Optional[Any] = None
+    parse_error: Optional[json.JSONDecodeError] = None
+    parse_path: str = ""
+    llm_output: Optional[Any] = None
+    raw_for_response: Optional[str] = None
+    schema_validation_failed = False
+    citation_strict_failed = False
+    truncated_failed = False
+    raw_text = ""
+
+    for attempt_n in range(MAX_RECALLS + 1):
+        if attempt_n > 0:
+            reason = (
+                "truncated-max-tokens"
+                if truncated_failed
+                else (
+                    "citation-strict-unverified"
+                    if citation_strict_failed and parsed is not None
+                    else "json-parse"
+                )
+            )
+            logger.warning(
+                "insight-engine-json-parse-retry",
+                extra={
+                    "pair": log_subject,
+                    "attempt": attempt_n,
+                    "max_attempts": MAX_RECALLS,
+                    "reason": reason,
+                    "error_type": type(parse_error).__name__ if parse_error else "Unknown",
+                    "error_message": str(parse_error)[:200] if parse_error else "",
+                },
+            )
+        try:
+            message, raw_text = _call_and_extract(attempt_index=attempt_n)
+        except Exception as call_exc:
+            if attempt_n == 0:
+                raise
+            logger.error(
+                "insight-engine-json-parse-recall-aborted",
+                extra={
+                    "pair": log_subject,
+                    "attempt": attempt_n,
+                    "error_type": type(call_exc).__name__,
+                    "error_message": str(call_exc)[:200],
+                },
+            )
+            break
+        call_attempts.append((message, raw_text))
+
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            truncated_failed = True
+            parsed = None
+            llm_output = None
+            raw_for_response = raw_text
+            logger.warning(
+                "insight-engine-brief-truncated",
+                extra={
+                    "pair": log_subject,
+                    "attempt": attempt_n,
+                    "max_attempts": MAX_RECALLS,
+                    "stop_reason": "max_tokens",
+                    "max_tokens": max_tokens,
+                },
+            )
+            continue
+        truncated_failed = False
+
+        parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
+        citation_strict_failed = False
+
+        if parsed is None:
+            continue
+
+        candidate = _unwrap_single_key(parsed, expected_field=unwrap_expected_field)
+        if candidate is not parsed:
+            logger.warning(
+                "insight-engine-llm-output-unwrapped",
+                extra={"pair": log_subject, "wrapper_key": next(iter(parsed))},
+            )
+
+        try:
+            llm_output = validate(candidate)
+        except ValueError as exc:
+            cleaned_for_log = _strip_codefence(raw_text)
+            logger.error(
+                "insight-engine-schema-validation-failed",
+                extra={
+                    "error_message": str(exc)[:500],
+                    "raw_response_length": len(cleaned_for_log),
+                    "raw_response_first_500": cleaned_for_log[:500],
+                },
+            )
+            raw_for_response = raw_text
+            schema_validation_failed = True
+            llm_output = None
+            break
+
+        citation_ok = citation_validate(llm_output) if citation_validate else True
+        if strict_citations and not citation_ok:
+            citation_strict_failed = True
+            raw_for_response = raw_text
+            llm_output = None
+            continue
+
+        break
+
+    if llm_output is not None:
+        if parse_path == "lenient" or len(call_attempts) > 1:
+            logger.info(
+                "insight-engine-json-parse-recovered",
+                extra={
+                    "pair": log_subject,
+                    "parse_path": parse_path,
+                    "anthropic_calls": len(call_attempts),
+                    "recall_count": len(call_attempts) - 1,
+                },
+            )
+    elif schema_validation_failed:
+        pass
+    elif citation_strict_failed:
+        logger.error(
+            "insight-engine-citation-strict-exhausted",
+            extra={
+                "pair": log_subject,
+                "anthropic_calls": len(call_attempts),
+                "recall_count": len(call_attempts) - 1,
+            },
+        )
+    elif truncated_failed:
+        logger.error(
+            "insight-engine-brief-truncated-exhausted",
+            extra={
+                "pair": log_subject,
+                "anthropic_calls": len(call_attempts),
+                "recall_count": len(call_attempts) - 1,
+                "outcome": "truncated",
+                "max_tokens": max_tokens,
+            },
+        )
+    else:
+        cleaned = _strip_codefence(raw_text)
+        pos = parse_error.pos if parse_error and parse_error.pos is not None else 0
+        logger.error(
+            "insight-engine-json-parse-failed",
+            extra={
+                "pair": log_subject,
+                "error_message": str(parse_error) if parse_error else "",
+                "char_position": pos,
+                "raw_response_length": len(cleaned),
+                "raw_response_first_500": cleaned[:500],
+                "raw_response_around_error": cleaned[max(0, pos - 200): pos + 200],
+                "anthropic_calls": len(call_attempts),
+                "recall_count": len(call_attempts) - 1,
+            },
+        )
+        raw_for_response = raw_text
+
+    input_tokens_total = 0
+    output_tokens_total = 0
+    for msg_attempt, _ in call_attempts:
+        usage = getattr(msg_attempt, "usage", None)
+        if usage is None:
+            continue
+        in_t = int(getattr(usage, "input_tokens", 0) or 0)
+        out_t = int(getattr(usage, "output_tokens", 0) or 0)
+        if not (in_t or out_t):
+            continue
+        input_tokens_total += in_t
+        output_tokens_total += out_t
+        record_anthropic_call(
+            usage,
+            model=model,
+            operation=operation,
+            meta=record_meta,
+        )
+
+    cost = (
+        _estimate_cost_usd(input_tokens_total, output_tokens_total)
+        if (input_tokens_total or output_tokens_total)
+        else None
+    )
+    return _BriefLLMResult(
+        llm_output=llm_output,
+        raw_text=raw_for_response,
+        input_tokens=input_tokens_total,
+        output_tokens=output_tokens_total,
+        cost=cost,
+        anthropic_calls=len(call_attempts),
+    )
+
+
 def generate_weekly_report(
     session: Session,
     pair_key: str,
@@ -3599,365 +3909,34 @@ def generate_weekly_report(
         )
 
     user_prompt = _build_user_prompt(agg, previous_context=previous_context)
-    call_extra = {
-        "pair": pair_key,
-        "window_days": window_days,
-        "model": model,
-        "prompt_chars": len(user_prompt),
-    }
-
-    def _call_and_extract(attempt_index: int) -> tuple[Any, str]:
-        """One Anthropic call + content-block extraction. ``attempt_index``
-        is 0 for the initial call, 1..N for retries — surfaced in the
-        ``brief_anthropic_call_*`` events so retries are correlatable in
-        Railway alongside the original cron line.
-
-        Sprint 28.05.2026 (Structured-Outputs-Haertung): Call laeuft jetzt
-        ueber ``messages_create_strict_json`` mit Tool-Use + forciertem
-        ``tool_choice``. Die Anthropic-API validiert das Tool-Argument
-        gegen ``LLMReport.model_json_schema()`` und gibt es als
-        ``tool_use``-Block mit ``.input`` (bereits geparstes Dict) zurueck.
-
-        Extraktion: bevorzugt den ``tool_use``-Block — sein ``.input`` wird
-        zu JSON-Text reserialisiert, sodass der bestehende strict→lenient-
-        Parser (``_try_parse_llm_json``) ihn unveraendert als Strict-Pass
-        konsumiert. Findet sich kein ``tool_use``-Block (sollte
-        API-erzwungen nicht passieren, aber falls Anthropic mal abweicht
-        oder ein Mock im Test die alte Text-Form liefert), faellt die
-        Extraktion auf reine ``text``-Bloecke zurueck. Der nachgelagerte
-        Retry-Loop + Lenient-Parser bleiben damit als Sicherheitsnetz
-        stehen, kein toter Code.
-        """
-        attempt_extra = {**call_extra, "attempt": attempt_index}
-        logger.info("brief_anthropic_call_start", extra=attempt_extra)
-        started = time.monotonic()
-        try:
-            msg = messages_create_strict_json(
-                model=model,
-                system=SYSTEM_PROMPT,
-                user_message=user_prompt,
-                tool_name=_BRIEF_TOOL_NAME,
-                tool_description=_BRIEF_TOOL_DESCRIPTION,
-                input_schema=_BRIEF_TOOL_INPUT_SCHEMA,
-                max_tokens=max_tokens,
-            )
-        except Exception as call_exc:
-            duration_ms = int((time.monotonic() - started) * 1000)
-            logger.error(
-                "brief_anthropic_call_done",
-                extra={
-                    **attempt_extra,
-                    "duration_ms": duration_ms,
-                    "outcome": "error",
-                    "error_type": type(call_exc).__name__,
-                },
-            )
-            raise
-        duration_ms = int((time.monotonic() - started) * 1000)
-        logger.info(
-            "brief_anthropic_call_done",
-            extra={
-                **attempt_extra,
-                "duration_ms": duration_ms,
-                "outcome": "success",
-                "stop_reason": getattr(msg, "stop_reason", None),
-            },
-        )
-        text = ""
-        try:
-            tool_input: Optional[Any] = None
-            text_fallback = ""
-            for block in msg.content or []:
-                block_type = getattr(block, "type", None)
-                if block_type == "tool_use" and tool_input is None:
-                    tool_input = getattr(block, "input", None)
-                elif block_type == "text":
-                    text_fallback += getattr(block, "text", "")
-            if tool_input is not None:
-                text = json.dumps(tool_input, ensure_ascii=False, default=str)
-            else:
-                text = text_fallback
-        except Exception as extract_exc:  # pragma: no cover — defensive
-            logger.warning("insight-engine-content-extract-failed: %s", extract_exc)
-        return msg, text
-
-    # Sprint M2 — JSON-Parse-Retry-Logic. The 17.05 Disney + 25.05
-    # warnerbros incidents showed Anthropic intermittently returns a 200
-    # with invalid JSON mid-document (Fall (d) — no truncation). The flow
-    # below tries strict parse, falls back to a lenient substring extract
-    # (covers preamble/postamble), and re-issues up to ``MAX_RECALLS``
-    # fresh ``messages_create_strict_json`` calls if the response still won't
-    # parse. Each re-call is a real Anthropic call (Anthropic doesn't
-    # honor idempotency keys — see anthropic_client.py:140 docstring) so
-    # ``record_anthropic_call`` fires per call: F0.7 cost cap captures
-    # every retry without special-casing. If all attempts fail, the
-    # function returns ``llm_output=None`` exactly as before and
-    # ``_persist_report`` skips persistence — the cron loop survives.
-    #
-    # Sprint 28.05.2026 (Structured-Outputs-Haertung): mit Tool-Use +
-    # forciertem ``tool_choice`` ist die JSON-Validitaet der Antwort jetzt
-    # API-erzwungen — der Retry-Loop und der Lenient-Parser bleiben aber
-    # als Sicherheitsnetz erhalten, falls die API ausnahmsweise einen
-    # Text-Block statt Tool-Use liefert (Fallback-Extraktions-Pfad in
-    # ``_call_and_extract``).
-    MAX_RECALLS = 2
-    call_attempts: list[tuple[Any, str]] = []
-    strict_citations = bool(settings.insight_citation_strict_enforce)
-
-    # Loop-State: ``parsed`` ist die letzte JSON-Decode-Ausgabe (oder
-    # None bei Parse-Fail), ``llm_output`` der schema-validierte
-    # ``LLMReport`` (oder None bei Schema-Fail oder Citation-Fail im
-    # Strikt-Modus), ``schema_validation_done`` markiert deterministische
-    # Schema-Fails (kein Retry sinnvoll). ``citation_strict_failed``
-    # markiert Strikt-Modus-Citation-Fails (retryable wie ein Parse-Fail).
-    parsed: Optional[Any] = None
-    parse_error: Optional[json.JSONDecodeError] = None
-    parse_path: str = ""
-    llm_output: Optional[LLMReport] = None
-    raw_for_response: Optional[str] = None
-    schema_validation_failed = False
-    citation_strict_failed = False
-    truncated_failed = False
-
-    for attempt_n in range(MAX_RECALLS + 1):
-        if attempt_n > 0:
-            # Log-Reason: Parse-Fail vs Citation-Strikt-Fail unterscheiden,
-            # damit Phase-1-Telemetrie das Retry-Verhalten aufschluesseln
-            # kann (interessant fuer den B→A-Cutover-Entscheid).
-            reason = (
-                "truncated-max-tokens"
-                if truncated_failed
-                else (
-                    "citation-strict-unverified"
-                    if citation_strict_failed and parsed is not None
-                    else "json-parse"
-                )
-            )
-            logger.warning(
-                "insight-engine-json-parse-retry",
-                extra={
-                    "pair": pair_key,
-                    "attempt": attempt_n,
-                    "max_attempts": MAX_RECALLS,
-                    "reason": reason,
-                    "error_type": type(parse_error).__name__ if parse_error else "Unknown",
-                    "error_message": str(parse_error)[:200] if parse_error else "",
-                },
-            )
-        try:
-            message, raw_text = _call_and_extract(attempt_index=attempt_n)
-        except Exception as call_exc:
-            # A re-call itself raised (rate-limit exhaustion, API error).
-            # Stop retrying — finaler Fallback (persist-skip) übernimmt.
-            if attempt_n == 0:
-                raise  # initial call propagates (existing behavior)
-            logger.error(
-                "insight-engine-json-parse-recall-aborted",
-                extra={
-                    "pair": pair_key,
-                    "attempt": attempt_n,
-                    "error_type": type(call_exc).__name__,
-                    "error_message": str(call_exc)[:200],
-                },
-            )
-            break
-        call_attempts.append((message, raw_text))
-
-        # Truncation-Guard (2026-06): stop_reason == "max_tokens" heißt, der
-        # Output ist mitten im Tool-JSON abgeschnitten. Das partielle Dict
-        # WÜRDE valide parsen und (weil die Tail-Sektionen Optional sind)
-        # still mit null-Feldern durch die Schema-Validierung rutschen — ein
-        # geräuschloser Teil-Brief. Stattdessen behandeln wir Truncation wie
-        # einen Parse-Fail: retrybar, und bei Erschöpfung llm_output=None
-        # (Persist-Skip) statt stillem Datenverlust.
-        if getattr(message, "stop_reason", None) == "max_tokens":
-            truncated_failed = True
-            parsed = None
-            llm_output = None
-            raw_for_response = raw_text
-            logger.warning(
-                "insight-engine-brief-truncated",
-                extra={
-                    "pair": pair_key,
-                    "attempt": attempt_n,
-                    "max_attempts": MAX_RECALLS,
-                    "stop_reason": "max_tokens",
-                    "max_tokens": max_tokens,
-                },
-            )
-            continue
-        truncated_failed = False
-
-        parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
-        # Citation-Flag pro Attempt zuruecksetzen, damit ein vorheriges
-        # Strikt-Fail nicht das Retry-Ergebnis vergiftet.
-        citation_strict_failed = False
-
-        if parsed is None:
-            # JSON-Parse-Fail → naechster Retry-Attempt (oder Loop-Ende).
-            continue
-
-        # Defensive net (2026-06-01): under forced tool-use Opus sometimes
-        # nests the whole report under one stray top-level key
-        # (e.g. ``{"what": {...}}``), which fails schema-validation and the
-        # brief never persists. Unwrap that exact shape before validating;
-        # WARN so the net staying hot stays visible until the prompt-side
-        # fix (A) proves it redundant. ``_unwrap_single_key`` only fires on
-        # a single-key dict whose value is itself a dict carrying
-        # ``headline`` — flat reports pass through untouched.
-        candidate = _unwrap_single_key(parsed, expected_field="headline")
-        if candidate is not parsed:
-            logger.warning(
-                "insight-engine-llm-output-unwrapped",
-                extra={"pair": pair_key, "wrapper_key": next(iter(parsed))},
-            )
-
-        try:
-            llm_output = LLMReport.model_validate(candidate)
-        except ValueError as exc:
-            # JSON ist valide, aber Pydantic-Schema schlaegt fehl (z.B.
-            # fehlende Required-Felder, falsche Typen). Schema-Fehler
-            # werden NICHT erneut gecallt — deterministischer Prompt-/
-            # Schema-Drift, kein transienter Anthropic-Glitch.
-            cleaned_for_log = _strip_codefence(raw_text)
-            logger.error(
-                "insight-engine-schema-validation-failed",
-                extra={
-                    "error_message": str(exc)[:500],
-                    "raw_response_length": len(cleaned_for_log),
-                    "raw_response_first_500": cleaned_for_log[:500],
-                },
-            )
-            raw_for_response = raw_text
-            schema_validation_failed = True
-            llm_output = None
-            break
-
-        # Schema-OK → Citation-Validator. Im Soft-Modus (Phase 1, Default)
-        # ignoriert der Caller das Ergebnis (Brief geht raus, Telemetrie
-        # landet im Log). Im Strikt-Modus (Phase 2 nach ENV-Flip) faellt
-        # ein nicht-belegtes Zitat in die Retry-Strecke.
-        citation_ok = _validate_citations(
-            llm_output,
-            agg,
-            pair_key=pair_key,
-            iso_year=agg.iso_year,
-            iso_week=agg.iso_week,
-        )
-        if strict_citations and not citation_ok:
-            citation_strict_failed = True
-            # Antwort verwerfen, bis MAX_RECALLS erreicht — wenn am Ende
-            # immer noch nicht belegt, kommt das raw_text in
-            # raw_llm_text, llm_output bleibt None (Persist-Skip).
-            raw_for_response = raw_text
-            llm_output = None
-            continue
-
-        # Erfolg: gueltige + (im Soft-Modus auch unverifizierte) Antwort.
-        break
-
-    if llm_output is not None:
-        # Surface which path rescued the parse — strict vs lenient (A) vs
-        # re-call (B) vs A-after-B. Only logged when something non-trivial
-        # happened so the happy-path log stream stays quiet.
-        if parse_path == "lenient" or len(call_attempts) > 1:
-            logger.info(
-                "insight-engine-json-parse-recovered",
-                extra={
-                    "pair": pair_key,
-                    "parse_path": parse_path,
-                    "anthropic_calls": len(call_attempts),
-                    "recall_count": len(call_attempts) - 1,
-                },
-            )
-    elif schema_validation_failed:
-        pass  # bereits oben geloggt
-    elif citation_strict_failed:
-        # Strikt-Modus, alle Retries ohne belegbare Zitate verbraucht.
-        # Eigenes Log-Event damit Wolf die "wie oft scheitert Strikt?"-
-        # Frage filtern kann; raw_for_response steht bereits.
-        logger.error(
-            "insight-engine-citation-strict-exhausted",
-            extra={
-                "pair": pair_key,
-                "anthropic_calls": len(call_attempts),
-                "recall_count": len(call_attempts) - 1,
-            },
-        )
-    elif truncated_failed:
-        # Alle Versuche endeten mit stop_reason="max_tokens". Kein
-        # stiller Teil-Brief: llm_output bleibt None → _persist_report
-        # skippt. outcome="truncated" macht den Fall in Railway filterbar.
-        logger.error(
-            "insight-engine-brief-truncated-exhausted",
-            extra={
-                "pair": pair_key,
-                "anthropic_calls": len(call_attempts),
-                "recall_count": len(call_attempts) - 1,
-                "outcome": "truncated",
-                "max_tokens": max_tokens,
-            },
-        )
-    else:
-        # Finaler Fallback nach allen Retries. PR #154 hatte diesen Log
-        # angelegt; M2 zieht ihn unverändert nach hinten (nach allen
-        # Retries) und ergänzt ``anthropic_calls`` + ``recall_count``
-        # damit künftige Postmortems sehen, ob die Re-Calls schon gelaufen
-        # sind oder ob der Erstfehler durchschlug. Die ``raw_response_*``-
-        # Felder kommen aus dem LETZTEN Versuch — am informativsten für
-        # die "kommt das wieder?"-Frage.
-        cleaned = _strip_codefence(raw_text)
-        pos = parse_error.pos if parse_error and parse_error.pos is not None else 0
-        logger.error(
-            "insight-engine-json-parse-failed",
-            extra={
-                "pair": pair_key,
-                "error_message": str(parse_error) if parse_error else "",
-                "char_position": pos,
-                "raw_response_length": len(cleaned),
-                "raw_response_first_500": cleaned[:500],
-                "raw_response_around_error": cleaned[max(0, pos - 200): pos + 200],
-                "anthropic_calls": len(call_attempts),
-                "recall_count": len(call_attempts) - 1,
-            },
-        )
-        raw_for_response = raw_text
-
-    # Cost accounting: jeder Call wird einzeln in costlog erfasst, damit
-    # F0.7-Cap die wahre Spend-Summe sieht (eine Pair-Generation kann
-    # jetzt bis zu MAX_RECALLS+1 Calls produzieren). Die Token-Summe wird
-    # für ``InsightReport.cost_usd_estimate`` aggregiert — auf der
-    # Persist-Skip-Strecke spiegelt sie damit den echten "bezahlter
-    # Leerlauf" wider, nicht nur den letzten Call.
-    input_tokens_total = 0
-    output_tokens_total = 0
-    for msg_attempt, _ in call_attempts:
-        usage = getattr(msg_attempt, "usage", None)
-        if usage is None:
-            continue
-        in_t = int(getattr(usage, "input_tokens", 0) or 0)
-        out_t = int(getattr(usage, "output_tokens", 0) or 0)
-        if not (in_t or out_t):
-            continue
-        input_tokens_total += in_t
-        output_tokens_total += out_t
-        record_anthropic_call(
-            usage,
-            model=model,
-            operation="weekly_brief",
-            meta={
-                "pair_key": agg.pair_key,
-                "iso_week": agg.iso_week,
-                "iso_year": agg.iso_year,
-            },
-        )
-
-    input_tokens = input_tokens_total
-    output_tokens = output_tokens_total
-    cost = (
-        _estimate_cost_usd(input_tokens, output_tokens)
-        if (input_tokens or output_tokens)
-        else None
+    result = _run_brief_llm(
+        system_prompt=SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        tool_name=_BRIEF_TOOL_NAME,
+        tool_description=_BRIEF_TOOL_DESCRIPTION,
+        input_schema=_BRIEF_TOOL_INPUT_SCHEMA,
+        validate=LLMReport.model_validate,
+        model=model,
+        max_tokens=max_tokens,
+        log_subject=pair_key,
+        call_extra={
+            "pair": pair_key,
+            "window_days": window_days,
+            "model": model,
+            "prompt_chars": len(user_prompt),
+        },
+        record_meta={
+            "pair_key": agg.pair_key,
+            "iso_week": agg.iso_week,
+            "iso_year": agg.iso_year,
+        },
+        operation="weekly_brief",
+        # Soft-Modus (Default): _validate_citations laeuft immer (Telemetrie),
+        # der Strikt-Pfad greift nur bei insight_citation_strict_enforce.
+        citation_validate=lambda out: _validate_citations(
+            out, agg, pair_key=pair_key, iso_year=agg.iso_year, iso_week=agg.iso_week
+        ),
+        strict_citations=bool(settings.insight_citation_strict_enforce),
     )
 
     return InsightReport(
@@ -3970,12 +3949,12 @@ def generate_weekly_report(
         generated_at=generated_at,
         model=model,
         dry_run=False,
-        llm_output=llm_output,
+        llm_output=result.llm_output,
         aggregation=agg,
-        cost_usd_estimate=cost,
-        input_tokens=input_tokens or None,
-        output_tokens=output_tokens or None,
-        raw_llm_text=raw_for_response,
+        cost_usd_estimate=result.cost,
+        input_tokens=result.input_tokens or None,
+        output_tokens=result.output_tokens or None,
+        raw_llm_text=result.raw_text,
     )
 
 
@@ -4376,6 +4355,7 @@ __all__ = [
     "PAIRS",
     "OPUS_MODEL_ALIAS",
     "SYSTEM_PROMPT",
+    "BRIEF_VOICE",
     "aggregate_pair",
     "last_completed_iso_week_anchor",
     "generate_weekly_report",
