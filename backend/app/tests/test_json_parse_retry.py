@@ -407,6 +407,72 @@ def test_failed_pair_does_not_abort_subsequent_pair(db, monkeypatch):
 # und gegen versehentliche Refactors abgesichert ist.
 # ---------------------------------------------------------------------------
 
+def _msg_trunc(text: str, **kw):
+    """SDK-Message mit stop_reason='max_tokens' — simuliert Tail-Truncation."""
+    m = _msg(text, **kw)
+    m.stop_reason = "max_tokens"
+    return m
+
+
+def test_truncated_response_is_retried_then_recovered(db, monkeypatch, caplog):
+    """stop_reason='max_tokens' beim ersten Call → Retry; zweiter Call sauber
+    → Brief recovered. Der truncierte (partielle) Body darf NICHT das Ergebnis
+    sein."""
+    _patch_engine_basics(monkeypatch, "test_pair_trunc_recover")
+    body = _valid_llm_body()
+    # Erster Call: vollständig PARSEBARES JSON, aber stop_reason=max_tokens →
+    # der Guard muss es trotzdem verwerfen (beweist: Guard, nicht Parse-Fail).
+    anthropic_mock = MagicMock(side_effect=[
+        _msg_trunc(json.dumps(body)),
+        _msg(json.dumps(body)),
+    ])
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
+    monkeypatch.setattr(engine_module, "record_anthropic_call", MagicMock())
+
+    with caplog.at_level(logging.WARNING, logger="app.services.insight_engine"):
+        with Session(db) as session:
+            report = engine_module.generate_weekly_report(
+                session, "test_pair_trunc_recover", window_days=30,
+            )
+
+    assert report.llm_output is not None
+    assert report.llm_output.headline == "M2-retry-recovered"
+    assert anthropic_mock.call_count == 2
+    trunc_warns = [r for r in caplog.records if "insight-engine-brief-truncated" in r.getMessage()]
+    assert any(getattr(r, "stop_reason", None) == "max_tokens" for r in trunc_warns)
+    retry_records = [
+        r for r in caplog.records
+        if "insight-engine-json-parse-retry" in r.getMessage()
+    ]
+    assert any(getattr(r, "reason", None) == "truncated-max-tokens" for r in retry_records)
+
+
+def test_all_attempts_truncated_never_persists_partial(db, monkeypatch, caplog):
+    """Alle Versuche stop_reason='max_tokens' → llm_output bleibt None
+    (Persist-Skip), KEIN stiller Teil-Brief, truncated-exhausted-Log feuert."""
+    _patch_engine_basics(monkeypatch, "test_pair_trunc_all")
+    body = _valid_llm_body()  # parseable, aber jeder Call ist truncated
+    anthropic_mock = MagicMock(return_value=_msg_trunc(json.dumps(body)))
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", anthropic_mock)
+    monkeypatch.setattr(engine_module, "record_anthropic_call", MagicMock())
+
+    with caplog.at_level(logging.WARNING, logger="app.services.insight_engine"):
+        with Session(db) as session:
+            report = engine_module.generate_weekly_report(
+                session, "test_pair_trunc_all", window_days=30,
+            )
+
+    # Kein stiller Teil-Brief — der parseable-aber-truncierte Body wird verworfen.
+    assert report.llm_output is None
+    assert anthropic_mock.call_count == 3  # initial + 2 Re-Calls
+    exhausted = [
+        r for r in caplog.records
+        if "insight-engine-brief-truncated-exhausted" in r.getMessage()
+    ]
+    assert len(exhausted) == 1
+    assert exhausted[0].outcome == "truncated"
+
+
 def test_try_parse_llm_json_strict_path_for_clean_input():
     text = '{"a": 1}'
     parsed, error, path = engine_module._try_parse_llm_json(text)

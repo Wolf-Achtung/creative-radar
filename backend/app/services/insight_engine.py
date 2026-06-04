@@ -3659,6 +3659,7 @@ def generate_weekly_report(
                 **attempt_extra,
                 "duration_ms": duration_ms,
                 "outcome": "success",
+                "stop_reason": getattr(msg, "stop_reason", None),
             },
         )
         text = ""
@@ -3715,6 +3716,7 @@ def generate_weekly_report(
     raw_for_response: Optional[str] = None
     schema_validation_failed = False
     citation_strict_failed = False
+    truncated_failed = False
 
     for attempt_n in range(MAX_RECALLS + 1):
         if attempt_n > 0:
@@ -3722,9 +3724,13 @@ def generate_weekly_report(
             # damit Phase-1-Telemetrie das Retry-Verhalten aufschluesseln
             # kann (interessant fuer den B→A-Cutover-Entscheid).
             reason = (
-                "citation-strict-unverified"
-                if citation_strict_failed and parsed is not None
-                else "json-parse"
+                "truncated-max-tokens"
+                if truncated_failed
+                else (
+                    "citation-strict-unverified"
+                    if citation_strict_failed and parsed is not None
+                    else "json-parse"
+                )
             )
             logger.warning(
                 "insight-engine-json-parse-retry",
@@ -3755,6 +3761,32 @@ def generate_weekly_report(
             )
             break
         call_attempts.append((message, raw_text))
+
+        # Truncation-Guard (2026-06): stop_reason == "max_tokens" heißt, der
+        # Output ist mitten im Tool-JSON abgeschnitten. Das partielle Dict
+        # WÜRDE valide parsen und (weil die Tail-Sektionen Optional sind)
+        # still mit null-Feldern durch die Schema-Validierung rutschen — ein
+        # geräuschloser Teil-Brief. Stattdessen behandeln wir Truncation wie
+        # einen Parse-Fail: retrybar, und bei Erschöpfung llm_output=None
+        # (Persist-Skip) statt stillem Datenverlust.
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            truncated_failed = True
+            parsed = None
+            llm_output = None
+            raw_for_response = raw_text
+            logger.warning(
+                "insight-engine-brief-truncated",
+                extra={
+                    "pair": pair_key,
+                    "attempt": attempt_n,
+                    "max_attempts": MAX_RECALLS,
+                    "stop_reason": "max_tokens",
+                    "max_tokens": max_tokens,
+                },
+            )
+            continue
+        truncated_failed = False
+
         parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
         # Citation-Flag pro Attempt zuruecksetzen, damit ein vorheriges
         # Strikt-Fail nicht das Retry-Ergebnis vergiftet.
@@ -3849,6 +3881,20 @@ def generate_weekly_report(
                 "pair": pair_key,
                 "anthropic_calls": len(call_attempts),
                 "recall_count": len(call_attempts) - 1,
+            },
+        )
+    elif truncated_failed:
+        # Alle Versuche endeten mit stop_reason="max_tokens". Kein
+        # stiller Teil-Brief: llm_output bleibt None → _persist_report
+        # skippt. outcome="truncated" macht den Fall in Railway filterbar.
+        logger.error(
+            "insight-engine-brief-truncated-exhausted",
+            extra={
+                "pair": pair_key,
+                "anthropic_calls": len(call_attempts),
+                "recall_count": len(call_attempts) - 1,
+                "outcome": "truncated",
+                "max_tokens": max_tokens,
             },
         )
     else:
