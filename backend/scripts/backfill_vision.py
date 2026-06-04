@@ -39,10 +39,12 @@ import sys
 from sqlmodel import Session, select
 
 from app.database import engine
-from app.models.entities import Asset
+from app.models.entities import Asset, Channel, Post
 from app.services.visual_analysis import analyze_asset_visual
 
 logger = logging.getLogger("backfill_vision")
+
+PLATFORMS = ("youtube", "instagram", "tiktok")
 
 # Mirrors api/cron.py:_VISION_COST_USD_PER_CALL — approximate gpt-4o-mini
 # Vision cost per call. Kept as a local constant so this script does not
@@ -74,12 +76,23 @@ def _has_image_source(asset: Asset) -> bool:
     )
 
 
-def _select_pending(session: Session, limit: int | None) -> list[Asset]:
+def _select_pending(
+    session: Session, limit: int | None, platform: str | None = None
+) -> list[Asset]:
     stmt = (
         select(Asset)
         .where(Asset.visual_analysis_status == "pending")
-        .order_by(Asset.created_at.asc())
     )
+    if platform is not None:
+        # Restrict to one platform (asset -> post -> channel). Used to target
+        # the reachable YouTube backlog and skip IG/TT assets whose signed CDN
+        # URLs have expired (would just burn fetches on a guaranteed 403).
+        stmt = (
+            stmt.join(Post, Asset.post_id == Post.id)
+            .join(Channel, Post.channel_id == Channel.id)
+            .where(Channel.platform == platform)
+        )
+    stmt = stmt.order_by(Asset.created_at.asc())
     if limit is not None:
         stmt = stmt.limit(limit)
     return list(session.exec(stmt).all())
@@ -93,8 +106,9 @@ def run(
     limit: int | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     cost_per_call: float = VISION_COST_USD_PER_CALL,
+    platform: str | None = None,
 ) -> dict:
-    assets = _select_pending(session, limit)
+    assets = _select_pending(session, limit, platform)
     total = len(assets)
     with_image = sum(1 for a in assets if _has_image_source(a))
     projected_cost = round(with_image * cost_per_call, 4)
@@ -102,6 +116,7 @@ def run(
     print("=" * 70)
     print("VISION BACKFILL" + ("  [APPLY]" if apply else "  [DRY-RUN]"))
     print("=" * 70)
+    print(f"Platform filter:           {platform or 'all'}")
     print(f"Pending assets selected:   {total}")
     print(f"  with fetchable image:    {with_image}  (incur a Vision call)")
     print(f"  without image (free):    {total - with_image}  (short-circuit no_source)")
@@ -112,6 +127,7 @@ def run(
 
     summary = {
         "mode": "apply" if apply else "dry_run",
+        "platform": platform,
         "total_pending": total,
         "with_image": with_image,
         "without_image": total - with_image,
@@ -202,6 +218,9 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"Progress-log cadence (default {DEFAULT_BATCH_SIZE}).")
     parser.add_argument("--cost", type=float, default=VISION_COST_USD_PER_CALL,
                         help=f"Per-call cost estimate in USD (default {VISION_COST_USD_PER_CALL}).")
+    parser.add_argument("--platform", choices=PLATFORMS, default=None,
+                        help="Only process assets on this platform (default: all). "
+                             "Use 'youtube' to target the reachable backlog.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
@@ -216,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             batch_size=args.batch_size,
             cost_per_call=args.cost,
+            platform=args.platform,
         )
     # Exit 2 signals the budget self-stop fired mid-backlog (wrapper can react).
     return 2 if summary.get("budget_stopped") else 0

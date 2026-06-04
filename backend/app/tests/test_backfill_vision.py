@@ -21,9 +21,10 @@ def session() -> Session:
 
 
 def _make(session: Session, *, status: str = "pending",
-          with_image: bool = True, created_at: datetime | None = None) -> Asset:
+          with_image: bool = True, created_at: datetime | None = None,
+          platform: str = "instagram") -> Asset:
     channel = Channel(
-        id=uuid4(), name=f"Ch-{uuid4().hex[:6]}", platform="instagram",
+        id=uuid4(), name=f"Ch-{uuid4().hex[:6]}", platform=platform,
         url=f"https://example.com/c/{uuid4().hex[:6]}", market=Market.US,
     )
     session.add(channel)
@@ -121,6 +122,38 @@ def test_budget_self_stop(monkeypatch, session):
         select(Asset).where(Asset.visual_analysis_status == "pending")
     ).all())
     assert len(pending) == 3
+
+
+def test_platform_filter_selects_only_that_platform(monkeypatch, session):
+    from scripts import backfill_vision as backfill
+
+    yt = [_make(session, platform="youtube").id for _ in range(2)]
+    _make(session, platform="instagram")
+    _make(session, platform="tiktok")
+    call_log: list = []
+    monkeypatch.setattr(backfill, "analyze_asset_visual", _stub_analyze(call_log))
+
+    summary = backfill.run(session, apply=True, platform="youtube")
+
+    assert summary["platform"] == "youtube"
+    assert summary["total_pending"] == 2
+    assert sorted(call_log, key=str) == sorted(yt, key=str)
+
+
+def test_no_platform_filter_processes_all(monkeypatch, session):
+    from scripts import backfill_vision as backfill
+
+    _make(session, platform="youtube")
+    _make(session, platform="instagram")
+    _make(session, platform="tiktok")
+    call_log: list = []
+    monkeypatch.setattr(backfill, "analyze_asset_visual", _stub_analyze(call_log))
+
+    summary = backfill.run(session, apply=True)  # no platform -> unchanged behaviour
+
+    assert summary["platform"] is None
+    assert summary["total_pending"] == 3
+    assert len(call_log) == 3
 
 
 def test_apply_skips_non_pending(monkeypatch, session):
