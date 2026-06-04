@@ -134,6 +134,14 @@ class Settings(BaseSettings):
     # is verified. 0 disables the auto-vision step entirely.
     cron_vision_max_assets_per_run: int = 50
 
+    # Vision-Backlog-Drain — neben den frisch erzeugten Assets zieht jeder
+    # Cron-Lauf zusätzlich bis zu N älteste ``pending``-Assets nach, die nie
+    # eine Vision-Analyse bekommen haben (feed-forward-Lücke + skipped_cap-
+    # Überlauf). 200 * ~$0.015 = ~$3/Lauf, wöchentlich ~$13/Monat, gedeckelt.
+    # 0 deaktiviert den Backlog-Drain (z.B. in Tests). Läuft NACH den
+    # created_asset_ids; deren Selektion/Cap bleibt unberührt.
+    cron_vision_backlog_max_assets_per_run: int = 200
+
     # Sprint F0.6 Hard-Cap-Vollausbau — Apify-Monatsbudget. Versicherung
     # gegen Spike-Anomalien (Faktor 10+), kein Optimierungs-Hebel.
     # Default $50 nach Apify-Pay-per-Event-Cost-Tracking-Fix (PR #116):

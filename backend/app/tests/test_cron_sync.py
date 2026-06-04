@@ -316,6 +316,9 @@ def test_cron_run_always_emits_rematch_summary(client_with_auth, db):
 def test_cron_run_below_cap_analyzes_all_new_assets(client_with_auth, db, monkeypatch):
     _seed_ig_channel(db, handle="netflixde")
     monkeypatch.setattr(settings, "cron_vision_max_assets_per_run", 10, raising=False)
+    # Isolate the fresh-asset cap path: disable the backlog drain so this
+    # test only observes created_asset_ids handling.
+    monkeypatch.setattr(settings, "cron_vision_backlog_max_assets_per_run", 0, raising=False)
     call_log: list = []
 
     items = [_ig_item(f"below-cap-{i}") for i in range(3)]
@@ -351,6 +354,9 @@ def test_cron_run_below_cap_analyzes_all_new_assets(client_with_auth, db, monkey
 def test_cron_run_above_cap_analyzes_fifo_and_leaves_rest(client_with_auth, db, monkeypatch):
     _seed_ig_channel(db, handle="netflixde")
     monkeypatch.setattr(settings, "cron_vision_max_assets_per_run", 2, raising=False)
+    # Isolate the fresh-asset FIFO/cap path: disable the backlog drain so the
+    # 3 over-cap assets stay pending for the assertion below.
+    monkeypatch.setattr(settings, "cron_vision_backlog_max_assets_per_run", 0, raising=False)
     call_log: list = []
 
     # Five posts arriving in a deterministic order; the cron sync persists
@@ -407,6 +413,101 @@ def test_cron_run_above_cap_analyzes_fifo_and_leaves_rest(client_with_auth, db, 
         )
         # Call log must contain exactly those two ids.
         assert sorted(call_log, key=str) == sorted(analyzed_ids, key=str)
+
+
+# --------------------------------------------------------------------------
+# Vision backlog drain (Dauerfix gegen feed-forward-Lücke). These exercise
+# _run_vision_backlog directly: oldest-pending selection, cap, exclude_ids.
+# --------------------------------------------------------------------------
+
+
+def _seed_pending_asset(db, channel, *, slug: str, created_at: datetime):
+    """Create one Post + pending Asset and return the asset id."""
+    from app.models.entities import Asset as AssetModel, Post
+    with Session(db) as session:
+        post = Post(
+            channel_id=channel.id,
+            platform="instagram",
+            post_url=f"https://www.instagram.com/p/{slug}/",
+            created_at=created_at,
+        )
+        session.add(post)
+        session.commit()
+        session.refresh(post)
+        asset = AssetModel(
+            post_id=post.id,
+            visual_analysis_status="pending",
+            created_at=created_at,
+        )
+        session.add(asset)
+        session.commit()
+        session.refresh(asset)
+        return asset.id
+
+
+def test_vision_backlog_drains_oldest_pending_up_to_cap(db, monkeypatch):
+    from app.api import cron as cron_module
+    channel = _seed_ig_channel(db, handle="netflixde")
+    base = datetime.now(timezone.utc) - timedelta(days=10)
+    # 4 pending assets, ascending age (oldest first).
+    ids = [
+        _seed_pending_asset(db, channel, slug=f"backlog-{i}", created_at=base + timedelta(hours=i))
+        for i in range(4)
+    ]
+    call_log: list = []
+
+    with patch("app.api.cron.analyze_asset_visual", side_effect=_make_vision_stub(call_log)):
+        with Session(db) as session:
+            result = cron_module._run_vision_backlog(session, backlog_cap=2, exclude_ids=[])
+
+    assert result["enabled"] is True
+    assert result["selected"] == 2
+    assert result["attempted"] == 2
+    assert result["succeeded"] == 2
+    assert result["estimated_cost_usd"] == round(2 * 0.015, 4)
+    # Oldest two were chosen (created_at asc ordering).
+    assert sorted(call_log, key=str) == sorted(ids[:2], key=str)
+
+    with Session(db) as session:
+        still_pending = list(session.exec(
+            select(Asset).where(Asset.visual_analysis_status == "pending")
+        ).all())
+        assert len(still_pending) == 2  # the two newest remain for the next run
+
+
+def test_vision_backlog_excludes_fresh_ids(db, monkeypatch):
+    from app.api import cron as cron_module
+    channel = _seed_ig_channel(db, handle="netflixde")
+    base = datetime.now(timezone.utc) - timedelta(days=10)
+    ids = [
+        _seed_pending_asset(db, channel, slug=f"excl-{i}", created_at=base + timedelta(hours=i))
+        for i in range(3)
+    ]
+    call_log: list = []
+
+    # Exclude the two oldest (as if just processed by the fresh-asset step).
+    with patch("app.api.cron.analyze_asset_visual", side_effect=_make_vision_stub(call_log)):
+        with Session(db) as session:
+            result = cron_module._run_vision_backlog(
+                session, backlog_cap=50, exclude_ids=ids[:2]
+            )
+
+    assert result["selected"] == 1
+    assert call_log == [ids[2]]
+
+
+def test_vision_backlog_disabled_when_cap_zero(db):
+    from app.api import cron as cron_module
+    channel = _seed_ig_channel(db, handle="netflixde")
+    _seed_pending_asset(db, channel, slug="zero", created_at=datetime.now(timezone.utc))
+    call_log: list = []
+
+    with patch("app.api.cron.analyze_asset_visual", side_effect=_make_vision_stub(call_log)):
+        with Session(db) as session:
+            result = cron_module._run_vision_backlog(session, backlog_cap=0, exclude_ids=[])
+
+    assert result == {"enabled": False, "backlog_cap": 0}
+    assert call_log == []
 
 
 def test_list_cron_runs_returns_newest_first_and_respects_limit(client_with_auth, db):

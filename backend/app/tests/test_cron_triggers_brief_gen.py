@@ -68,6 +68,11 @@ def _patch_cron_neighbors(monkeypatch, db, *, brief_gen_mock=None, anthropic_cos
     """Stubbt alle Cron-Pipeline-Nachbarn ausserhalb der Brief-Gen-Stage
     konstant, damit jeder Test nur die Brief-Gen-Semantik beobachtet."""
     monkeypatch.setattr("app.api.cron.engine", db)
+    # Vision-Backlog-Drain aus: diese Tests seeden keine Assets und prüfen
+    # nur die Brief-Gen-Stage; abgeschaltet bleibt das Verhalten
+    # deterministisch unabhängig vom Default.
+    from app.config import settings as _settings
+    monkeypatch.setattr(_settings, "cron_vision_backlog_max_assets_per_run", 0, raising=False)
 
     monkeypatch.setattr(
         cron_module, "compute_apify_monthly_spend",

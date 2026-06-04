@@ -364,6 +364,8 @@ def test_cron_background_runs_briefs_before_roundups(db, monkeypatch):
         lambda s, since: {"estimated_cost_usd": 0.0},
     )
     monkeypatch.setattr("app.api.cron.engine", db)
+    from app.config import settings as _settings
+    monkeypatch.setattr(_settings, "cron_vision_backlog_max_assets_per_run", 0, raising=False)
 
     with Session(db) as session:
         run = CronRun()
