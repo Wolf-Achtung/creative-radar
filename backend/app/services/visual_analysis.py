@@ -255,6 +255,12 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
             data["visual_notes"] = (
                 "Bild konnte nicht ausgewertet werden. Die Caption wurde ersatzweise analysiert."
             )
+            # Surface the OpenAI error detail that _classify_openai_exception
+            # only keyword-matches and otherwise discards. On a 400 the body
+            # carries the decisive ``error.code`` (invalid_image_url vs
+            # model_not_found vs unsupported_parameter). All fields are read
+            # via getattr so a non-OpenAI exception can't AttributeError here.
+            _exc_response = getattr(exc, "response", None)
             logger.warning(
                 "visual-analysis-failed",
                 extra={
@@ -262,6 +268,16 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
                     "visual_source_url": image_url,
                     "error_class": type(exc).__name__,
                     "classified_status": classified,
+                    "model": settings.openai_model,
+                    # Truncated so presigned-URL signatures don't flood the log.
+                    "openai_image_url_prefix": (openai_image_url or "")[:80],
+                    "openai_error_code": getattr(exc, "code", None),
+                    "openai_error_message": getattr(exc, "message", None),
+                    "openai_error_body": getattr(exc, "body", None),
+                    "openai_response_text": (
+                        getattr(_exc_response, "text", None) or ""
+                    )[:1000] or None,
+                    "error_text": str(exc)[:1000],
                 },
             )
     
