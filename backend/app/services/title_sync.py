@@ -12,6 +12,97 @@ def _norm(value: str | None) -> str:
     return " ".join((value or "").lower().split())
 
 
+def _upsert_normalized_title(
+    session: Session,
+    normalized: dict,
+    market: str,
+    *,
+    is_series: bool,
+) -> None:
+    """Upsert one normalized TMDb item (movie OR series) into ``title``.
+
+    Variante A (Movie/TV tmdb_id-Namespace-Kollision): TMDb movie- und
+    tv-IDs sind getrennte Namespaces — dieselbe Ganzzahl kann ein Film und
+    eine Serie sein. Der Existenz-Lookup wird deshalb nach ``content_type``
+    gescoped, sodass Film und Serie mit gleicher ``tmdb_id`` als zwei Rows
+    koexistieren statt sich gegenseitig zu überschreiben. Keine Migration —
+    ``content_type`` ist eine bestehende Spalte.
+
+    Der Movie-Pfad ist im Mapping unverändert; einzige Movie-seitige
+    Änderung ist der ``content_type != 'Series'``-Scope am Lookup.
+    """
+    tmdb_id = normalized.get("tmdb_id")
+    type_filter = (
+        Title.content_type == "Series" if is_series else Title.content_type != "Series"
+    )
+
+    title = session.exec(
+        select(Title).where(Title.tmdb_id == tmdb_id, type_filter)
+    ).first()
+    if not title:
+        release_year = normalized.get("release_year")
+        title_original = normalized.get("title_original")
+        if release_year and title_original:
+            candidates = session.exec(
+                select(Title).where(Title.title_original == title_original, type_filter)
+            ).all()
+            title = next(
+                (
+                    item
+                    for item in candidates
+                    if (item.release_date_de and item.release_date_de.year == release_year)
+                    or (item.release_date_us and item.release_date_us.year == release_year)
+                ),
+                None,
+            )
+
+    if title is None:
+        title = Title(
+            tmdb_id=tmdb_id,
+            title_original=normalized.get("title_original") or normalized.get("title_local") or f"TMDb-{tmdb_id}",
+            title_local=normalized.get("title_local"),
+            source="TMDb",
+            market_relevance=Market.MIXED,
+        )
+        if is_series:
+            title.content_type = "Series"
+
+    title.tmdb_id = tmdb_id
+    title.source = title.source or "TMDb"
+    title.aliases = sorted(set((title.aliases or []) + (normalized.get("aliases") or [])))
+    if normalized.get("title_local"):
+        title.title_local = normalized["title_local"]
+
+    rd = normalized.get("release_date")
+    if rd:
+        parsed = date.fromisoformat(rd)
+        if market == "DE":
+            title.release_date_de = parsed
+        elif market == "US":
+            title.release_date_us = parsed
+
+    if market in ["DE", "US"] and title.market_relevance in [Market.UNKNOWN, Market.INT]:
+        title.market_relevance = Market.MIXED
+
+    session.add(title)
+    session.commit()
+    session.refresh(title)
+
+    for alias in normalized.get("aliases") or []:
+        if _norm(alias) == _norm(title.title_original):
+            continue
+        existing_kw = session.exec(
+            select(TitleKeyword).where(
+                TitleKeyword.title_id == title.id,
+                TitleKeyword.keyword == alias,
+                TitleKeyword.keyword_type == "alias",
+            )
+        ).first()
+        if not existing_kw:
+            session.add(TitleKeyword(title_id=title.id, keyword=alias, keyword_type="alias", active=True))
+    session.commit()
+
+
 async def sync_titles_from_tmdb(
     session: Session,
     markets: list[str] | None = None,
@@ -27,7 +118,9 @@ async def sync_titles_from_tmdb(
     date_to = today + timedelta(weeks=lookahead_weeks)
 
     fetched_count = upserted_count = deduped_count = 0
-    seen_tmdb_ids: set[int] = set()
+    # Namespaced by media type: TMDb movie- und tv-IDs überlappen, also darf
+    # ein Film mit id=550 eine Serie mit id=550 im selben Lauf nicht dedupen.
+    seen_keys: set[tuple[str, int]] = set()
 
     run = TitleSyncRun(source="tmdb", markets=markets, date_from=date_from, date_to=date_to, status="running")
     session.add(run)
@@ -36,6 +129,8 @@ async def sync_titles_from_tmdb(
     try:
         for market in markets:
             language = region_language.get(market, "en-US")
+
+            # --- Movies (unverändert: /discover/movie, normalize_tmdb_movie) ---
             movies = await client.discover_movies(region=market, language=language, date_from=date_from, date_to=date_to)
             for raw in movies:
                 normalized = client.normalize_tmdb_movie(raw)
@@ -43,71 +138,26 @@ async def sync_titles_from_tmdb(
                 if not tmdb_id:
                     continue
                 fetched_count += 1
-                if tmdb_id in seen_tmdb_ids:
+                if ("movie", tmdb_id) in seen_keys:
                     deduped_count += 1
                     continue
-                seen_tmdb_ids.add(tmdb_id)
+                seen_keys.add(("movie", tmdb_id))
+                _upsert_normalized_title(session, normalized, market, is_series=False)
+                upserted_count += 1
 
-                title = session.exec(select(Title).where(Title.tmdb_id == tmdb_id)).first()
-                if not title:
-                    release_year = normalized.get("release_year")
-                    title_original = normalized.get("title_original")
-                    if release_year and title_original:
-                        candidates = session.exec(select(Title).where(Title.title_original == title_original)).all()
-                        title = next(
-                            (
-                                item
-                                for item in candidates
-                                if (item.release_date_de and item.release_date_de.year == release_year)
-                                or (item.release_date_us and item.release_date_us.year == release_year)
-                            ),
-                            None,
-                        )
-
-                is_new = title is None
-                if is_new:
-                    title = Title(
-                        tmdb_id=tmdb_id,
-                        title_original=normalized.get("title_original") or normalized.get("title_local") or f"TMDb-{tmdb_id}",
-                        title_local=normalized.get("title_local"),
-                        source="TMDb",
-                        market_relevance=Market.MIXED,
-                    )
-
-                title.tmdb_id = tmdb_id
-                title.source = title.source or "TMDb"
-                title.aliases = sorted(set((title.aliases or []) + (normalized.get("aliases") or [])))
-                if normalized.get("title_local"):
-                    title.title_local = normalized["title_local"]
-
-                rd = normalized.get("release_date")
-                if rd:
-                    parsed = date.fromisoformat(rd)
-                    if market == "DE":
-                        title.release_date_de = parsed
-                    elif market == "US":
-                        title.release_date_us = parsed
-
-                if market in ["DE", "US"] and title.market_relevance in [Market.UNKNOWN, Market.INT]:
-                    title.market_relevance = Market.MIXED
-
-                session.add(title)
-                session.commit()
-                session.refresh(title)
-
-                for alias in normalized.get("aliases") or []:
-                    if _norm(alias) == _norm(title.title_original):
-                        continue
-                    existing_kw = session.exec(
-                        select(TitleKeyword).where(
-                            TitleKeyword.title_id == title.id,
-                            TitleKeyword.keyword == alias,
-                            TitleKeyword.keyword_type == "alias",
-                        )
-                    ).first()
-                    if not existing_kw:
-                        session.add(TitleKeyword(title_id=title.id, keyword=alias, keyword_type="alias", active=True))
-                session.commit()
+            # --- Series (additiv: /discover/tv, normalize_tmdb_series) ---
+            series = await client.discover_series(region=market, language=language, date_from=date_from, date_to=date_to)
+            for raw in series:
+                normalized = client.normalize_tmdb_series(raw)
+                tmdb_id = normalized.get("tmdb_id")
+                if not tmdb_id:
+                    continue
+                fetched_count += 1
+                if ("tv", tmdb_id) in seen_keys:
+                    deduped_count += 1
+                    continue
+                seen_keys.add(("tv", tmdb_id))
+                _upsert_normalized_title(session, normalized, market, is_series=True)
                 upserted_count += 1
 
         run.fetched_count = fetched_count

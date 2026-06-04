@@ -73,6 +73,7 @@ def _patch_cron_neighbors(monkeypatch, db, *, brief_gen_mock=None, anthropic_cos
     # deterministisch unabhängig vom Default.
     from app.config import settings as _settings
     monkeypatch.setattr(_settings, "cron_vision_backlog_max_assets_per_run", 0, raising=False)
+    monkeypatch.setenv("ENABLE_TITLE_SYNC_IN_CRON", "false")
 
     monkeypatch.setattr(
         cron_module, "compute_apify_monthly_spend",

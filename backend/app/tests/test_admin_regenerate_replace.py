@@ -424,6 +424,7 @@ def test_cron_brief_gen_still_respects_cache_hit_after_pr150(db, monkeypatch):
     monkeypatch.setattr("app.api.cron.engine", db)
     from app.config import settings as _settings
     monkeypatch.setattr(_settings, "cron_vision_backlog_max_assets_per_run", 0, raising=False)
+    monkeypatch.setenv("ENABLE_TITLE_SYNC_IN_CRON", "false")
     monkeypatch.setattr(
         cron_module, "compute_apify_monthly_spend",
         lambda session: SimpleNamespace(

@@ -57,6 +57,7 @@ from app.services.segment_roundup import (
     parse_cron_roundup_segments,
 )
 from app.services.title_rematch import rematch_unassigned_assets
+from app.services.title_sync import sync_titles_from_tmdb
 from app.services.visual_analysis import analyze_asset_visual
 from app.services.youtube_connector import (
     YouTubeAPIError,
@@ -457,6 +458,29 @@ def _run_vision_backlog(
     }
 
 
+async def _run_title_sync_after_scrape(session: Session) -> dict:
+    """Pull the TMDb title catalogue (movies + TV series) as a cron stage,
+    BEFORE the rematch step so freshly synced titles are available to match
+    against in the same run. Mirrors the brief-gen contract: per-stage
+    try/except (a TMDb outage must not fail the whole cron) and a kill-switch.
+
+    Kill-Switch: ENV ``ENABLE_TITLE_SYNC_IN_CRON`` (Default ``true``). Off →
+    stage skipped, scrape/rematch/briefs run normally; no code deploy needed.
+    ``sync_titles_from_tmdb`` writes its own ``TitleSyncRun`` audit row, so
+    idempotency and logging are already handled there.
+    """
+    enabled = os.getenv("ENABLE_TITLE_SYNC_IN_CRON", "true").lower() == "true"
+    if not enabled:
+        logger.info("title_sync.skipped reason=env_disabled")
+        return {"enabled": False}
+    try:
+        result = await sync_titles_from_tmdb(session)
+    except Exception as exc:  # noqa: BLE001 — top-level guard, best-effort stage
+        logger.exception("cron title-sync failed")
+        return {"enabled": True, "error": str(exc)[:500]}
+    return {"enabled": True, **result}
+
+
 def _run_rematch_after_sync(session: Session) -> dict:
     """Sprint 10e — auto re-match unassigned assets after every cron sync.
 
@@ -831,6 +855,10 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
                 summary["vision_backlog"] = _run_vision_backlog(
                     session, backlog_cap, exclude_ids=created_asset_ids
                 )
+            # Title-Katalog-Sync (Movies + TV) VOR dem Rematch, damit frisch
+            # gezogene Titel im selben Lauf gematcht werden. Hinter
+            # ENABLE_TITLE_SYNC_IN_CRON (Default true); eigener try/except.
+            summary["title_sync"] = await _run_title_sync_after_scrape(session)
             summary["rematch"] = _run_rematch_after_sync(session)
             # Cadence-Sprint 2026-05-17 — Brief-Generation für die gerade
             # abgeschlossene ISO-Woche. Vor diesem Sprint hat der Sonntag-Cron
