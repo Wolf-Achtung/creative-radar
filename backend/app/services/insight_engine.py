@@ -906,7 +906,7 @@ WICHTIG — Adressat: Trailerhaus ist KEIN Inhouse-Studio für die beobachteten 
 
 Sektion-Titel im Frontend: 'Diese Woche: was funktioniert gut, was nicht'.
 
-- 6 bis 10 Einträge, in logischer Reihenfolge nummeriert (1, 2, 3, ...)
+- 6 bis 8 Einträge, in logischer Reihenfolge nummeriert (1, 2, 3, ...)
 - Jeder Eintrag hat drei Felder:
     (a) pattern: Was ist diese Woche beobachtbar? Konkrete Zahlen-Belege (Reaktionen, Sekunden, Hashtag-Anzahl). Keine Anweisung, sondern Befund.
     (b) lern_take: Was lernen wir daraus? Ein Satz, klare Lehre.

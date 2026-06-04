@@ -473,6 +473,25 @@ def test_all_attempts_truncated_never_persists_partial(db, monkeypatch, caplog):
     assert exhausted[0].outcome == "truncated"
 
 
+def _ganz_konkret_entries(n: int) -> list[dict]:
+    return [{"nummer": i + 1, "pattern": f"p{i}", "lern_take": f"t{i}"} for i in range(n)]
+
+
+def test_ganz_konkret_accepts_up_to_eight():
+    body = _valid_llm_body()
+    body["ganz_konkret"] = _ganz_konkret_entries(8)
+    report = LLMReport.model_validate(body)
+    assert report.ganz_konkret is not None
+    assert len(report.ganz_konkret) == 8
+
+
+def test_ganz_konkret_rejects_more_than_eight():
+    body = _valid_llm_body()
+    body["ganz_konkret"] = _ganz_konkret_entries(9)
+    with pytest.raises(ValueError):
+        LLMReport.model_validate(body)
+
+
 def test_try_parse_llm_json_strict_path_for_clean_input():
     text = '{"a": 1}'
     parsed, error, path = engine_module._try_parse_llm_json(text)
