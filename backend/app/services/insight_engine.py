@@ -906,7 +906,7 @@ WICHTIG — Adressat: Trailerhaus ist KEIN Inhouse-Studio für die beobachteten 
 
 Sektion-Titel im Frontend: 'Diese Woche: was funktioniert gut, was nicht'.
 
-- 6 bis 10 Einträge, in logischer Reihenfolge nummeriert (1, 2, 3, ...)
+- 6 bis 8 Einträge, in logischer Reihenfolge nummeriert (1, 2, 3, ...)
 - Jeder Eintrag hat drei Felder:
     (a) pattern: Was ist diese Woche beobachtbar? Konkrete Zahlen-Belege (Reaktionen, Sekunden, Hashtag-Anzahl). Keine Anweisung, sondern Befund.
     (b) lern_take: Was lernen wir daraus? Ein Satz, klare Lehre.
@@ -3555,11 +3555,12 @@ def generate_weekly_report(
     window_days: int = 30,
     dry_run: bool = False,
     model: str = OPUS_MODEL_ALIAS,
-    # Sprint-Trailerhaus-Prompt-v1: bumped from 8k → 12k because the new
-    # ``ganz genau`` mode targets ~1500-2000 words across nine sections.
-    # Old reports with the smaller schema were occasionally truncated near
-    # the data_caveats tail at 8k.
-    max_tokens: int = 12000,
+    # Sprint-Trailerhaus-Prompt-v1: bumped 8k → 12k for the ``ganz genau``
+    # mode (~1500-2000 words across nine sections). 2026-06: bumped 12k → 20k
+    # after primevideo KW23 showed tail-truncation (fuer_cutter … last four
+    # Optional sections dropping to null) — 12k was grenzwertig against the
+    # full JSON brief; 20k gives comfortable headroom.
+    max_tokens: int = 20000,
     now: Optional[datetime] = None,
     previous_context: Optional[str] = None,
 ) -> InsightReport:
@@ -3659,6 +3660,7 @@ def generate_weekly_report(
                 **attempt_extra,
                 "duration_ms": duration_ms,
                 "outcome": "success",
+                "stop_reason": getattr(msg, "stop_reason", None),
             },
         )
         text = ""
@@ -3715,6 +3717,7 @@ def generate_weekly_report(
     raw_for_response: Optional[str] = None
     schema_validation_failed = False
     citation_strict_failed = False
+    truncated_failed = False
 
     for attempt_n in range(MAX_RECALLS + 1):
         if attempt_n > 0:
@@ -3722,9 +3725,13 @@ def generate_weekly_report(
             # damit Phase-1-Telemetrie das Retry-Verhalten aufschluesseln
             # kann (interessant fuer den B→A-Cutover-Entscheid).
             reason = (
-                "citation-strict-unverified"
-                if citation_strict_failed and parsed is not None
-                else "json-parse"
+                "truncated-max-tokens"
+                if truncated_failed
+                else (
+                    "citation-strict-unverified"
+                    if citation_strict_failed and parsed is not None
+                    else "json-parse"
+                )
             )
             logger.warning(
                 "insight-engine-json-parse-retry",
@@ -3755,6 +3762,32 @@ def generate_weekly_report(
             )
             break
         call_attempts.append((message, raw_text))
+
+        # Truncation-Guard (2026-06): stop_reason == "max_tokens" heißt, der
+        # Output ist mitten im Tool-JSON abgeschnitten. Das partielle Dict
+        # WÜRDE valide parsen und (weil die Tail-Sektionen Optional sind)
+        # still mit null-Feldern durch die Schema-Validierung rutschen — ein
+        # geräuschloser Teil-Brief. Stattdessen behandeln wir Truncation wie
+        # einen Parse-Fail: retrybar, und bei Erschöpfung llm_output=None
+        # (Persist-Skip) statt stillem Datenverlust.
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            truncated_failed = True
+            parsed = None
+            llm_output = None
+            raw_for_response = raw_text
+            logger.warning(
+                "insight-engine-brief-truncated",
+                extra={
+                    "pair": pair_key,
+                    "attempt": attempt_n,
+                    "max_attempts": MAX_RECALLS,
+                    "stop_reason": "max_tokens",
+                    "max_tokens": max_tokens,
+                },
+            )
+            continue
+        truncated_failed = False
+
         parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
         # Citation-Flag pro Attempt zuruecksetzen, damit ein vorheriges
         # Strikt-Fail nicht das Retry-Ergebnis vergiftet.
@@ -3849,6 +3882,20 @@ def generate_weekly_report(
                 "pair": pair_key,
                 "anthropic_calls": len(call_attempts),
                 "recall_count": len(call_attempts) - 1,
+            },
+        )
+    elif truncated_failed:
+        # Alle Versuche endeten mit stop_reason="max_tokens". Kein
+        # stiller Teil-Brief: llm_output bleibt None → _persist_report
+        # skippt. outcome="truncated" macht den Fall in Railway filterbar.
+        logger.error(
+            "insight-engine-brief-truncated-exhausted",
+            extra={
+                "pair": pair_key,
+                "anthropic_calls": len(call_attempts),
+                "recall_count": len(call_attempts) - 1,
+                "outcome": "truncated",
+                "max_tokens": max_tokens,
             },
         )
     else:
@@ -4100,7 +4147,7 @@ def generate_and_persist_report(
     force: bool = False,
     replace: bool = False,
     model: str = OPUS_MODEL_ALIAS,
-    max_tokens: int = 12000,
+    max_tokens: int = 20000,
     now: Optional[datetime] = None,
 ) -> InsightReport:
     """Cache-aware variant of ``generate_weekly_report`` for the

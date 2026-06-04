@@ -637,7 +637,10 @@ class LLMReport(BaseModel):
     data_caveats: list[str]
     # --- New (Trailerhaus-Prompt-v1, all optional for backwards-compat) ---
     aktuell_im_fokus: Optional[list[TitelImFokus]] = None
-    ganz_konkret: Optional[list[SchnittAufgabe]] = None
+    # Hard cap at 8 (2026-06): 10 verbose entries early in the document were
+    # the main token hog driving tail-truncation of the last Optional
+    # sections. Prompt asks for 6-8; the schema enforces the ceiling.
+    ganz_konkret: Optional[list[SchnittAufgabe]] = Field(default=None, max_length=8)
     konkurrenz: Optional[Konkurrenz] = None
     tonalitaet: Optional[list[Tonalitaet]] = None
     watch_outs: Optional[list[WatchOut]] = None
