@@ -164,3 +164,116 @@ def test_dry_run_makes_no_llm_call(monkeypatch):
     assert report.dry_run is True
     assert report.llm_output is None
     assert report.aggregation["title_original"] == "Mortal Kombat"
+
+
+# --------------------------------------------------------------------------
+# C4 — persistence + cache (real sqlite table via metadata.create_all).
+# --------------------------------------------------------------------------
+
+import os  # noqa: E402
+import tempfile  # noqa: E402
+
+import pytest  # noqa: E402
+from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
+
+from app.models.entities import (  # noqa: E402
+    Asset, AssetType, Channel, Market, Post, ReviewStatus, Title,
+    TitleInsightReport as TitleInsightReportRow,
+)
+
+
+@pytest.fixture
+def db():
+    fd, path = tempfile.mkstemp(prefix="cr_title_brief_", suffix=".db")
+    os.close(fd)
+    engine = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _seed_title_with_post(session, *, now) -> Title:
+    title = Title(id=uuid4(), title_original="Mortal Kombat", content_type="Film")
+    session.add(title)
+    channel = Channel(id=uuid4(), name="primevideo", handle="primevideo",
+                      url="https://x/primevideo", platform="instagram", market=Market.US)
+    session.add(channel)
+    session.commit()
+    post = Post(id=uuid4(), channel_id=channel.id, platform="instagram",
+                post_url="https://ig/p/seed", detected_at=now,
+                visible_likes=200, visible_comments=20, visible_views=2000)
+    session.add(post)
+    session.commit()
+    session.add(Asset(id=uuid4(), post_id=post.id, title_id=title.id,
+                      asset_type=AssetType.UNKNOWN, review_status=ReviewStatus.NEW))
+    session.commit()
+    return title
+
+
+def test_persist_then_cache_hit(db, monkeypatch):
+    now = datetime(2026, 6, 4, tzinfo=timezone.utc)
+    monkeypatch.setattr(tb, "is_anthropic_configured", lambda: True)
+    monkeypatch.setattr(engine_module, "record_anthropic_call", MagicMock())
+    llm = MagicMock(return_value=_fake_msg(_valid_body()))
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", llm)
+
+    with Session(db) as session:
+        _seed_title_with_post(session, now=now)
+        # First call: generates + persists.
+        r1 = tb.generate_and_persist_title_brief(session, "Mortal Kombat", now=now)
+        assert r1 is not None and r1.llm_output is not None
+        assert llm.call_count == 1
+        rows = session.exec(__import__("sqlmodel").select(TitleInsightReportRow)).all()
+        assert len(rows) == 1
+
+        # Second call without replace: cache hit, NO new LLM call.
+        r2 = tb.generate_and_persist_title_brief(session, "Mortal Kombat", now=now)
+        assert r2 is not None and r2.llm_output is not None
+        assert llm.call_count == 1  # unchanged
+
+
+def test_replace_overwrites(db, monkeypatch):
+    now = datetime(2026, 6, 4, tzinfo=timezone.utc)
+    monkeypatch.setattr(tb, "is_anthropic_configured", lambda: True)
+    monkeypatch.setattr(engine_module, "record_anthropic_call", MagicMock())
+    monkeypatch.setattr(engine_module, "messages_create_strict_json",
+                        MagicMock(return_value=_fake_msg(_valid_body(headline="V1"))))
+
+    with Session(db) as session:
+        _seed_title_with_post(session, now=now)
+        tb.generate_and_persist_title_brief(session, "Mortal Kombat", now=now)
+        # replace=True regenerates with a new body and overwrites.
+        monkeypatch.setattr(engine_module, "messages_create_strict_json",
+                            MagicMock(return_value=_fake_msg(_valid_body(headline="V2"))))
+        r2 = tb.generate_and_persist_title_brief(session, "Mortal Kombat", now=now, replace=True)
+        assert r2.llm_output.headline == "V2"
+        rows = session.exec(__import__("sqlmodel").select(TitleInsightReportRow)).all()
+        assert len(rows) == 1  # overwritten, not duplicated
+        assert rows[0].llm_output["headline"] == "V2"
+
+
+def test_failed_generation_not_persisted(db, monkeypatch):
+    now = datetime(2026, 6, 4, tzinfo=timezone.utc)
+    monkeypatch.setattr(tb, "is_anthropic_configured", lambda: True)
+    monkeypatch.setattr(engine_module, "record_anthropic_call", MagicMock())
+    # Truncated -> llm_output None -> skip persist.
+    monkeypatch.setattr(engine_module, "messages_create_strict_json",
+                        MagicMock(return_value=_fake_msg(_valid_body(), stop_reason="max_tokens")))
+
+    with Session(db) as session:
+        _seed_title_with_post(session, now=now)
+        r = tb.generate_and_persist_title_brief(session, "Mortal Kombat", now=now)
+        assert r is not None and r.llm_output is None
+        rows = session.exec(__import__("sqlmodel").select(TitleInsightReportRow)).all()
+        assert rows == []  # nothing persisted
+
+
+def test_persist_unknown_title_returns_none(db):
+    with Session(db) as session:
+        assert tb.generate_and_persist_title_brief(session, "No Such Title") is None

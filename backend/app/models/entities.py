@@ -566,3 +566,28 @@ class InsightReport(SQLModel, table=True):
     cost_usd_cents: Optional[int] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+
+
+class TitleInsightReport(SQLModel, table=True):
+    """Persisted title brief — one row per (title_id, iso_year, iso_week).
+
+    Title analogue of ``insight_report`` (C4). Own table per plan: the pair
+    table's ``pair_key`` NOT-NULL PK and PairAggregation-shaped ``aggregation``
+    column don't fit a title-keyed row. ``aggregation`` is the serialised
+    ``TitleAggregation`` dict, ``llm_output`` the serialised ``TitleLLMReport``
+    — same JSON-blob approach as ``insight_report`` so Pydantic additions
+    survive without a migration.
+    """
+    __tablename__ = "title_insight_report"
+    __table_args__ = _CR_TABLE_ARGS
+    title_id: UUID = Field(primary_key=True)
+    iso_year: int = Field(primary_key=True)
+    iso_week: int = Field(primary_key=True)
+    window_days: int
+    aggregation: dict = Field(sa_column=Column(JSON, nullable=False))
+    llm_output: dict = Field(sa_column=Column(JSON, nullable=False))
+    generated_at: datetime = Field(default_factory=utc_now, index=True)
+    model: str = Field(max_length=64)
+    cost_usd_cents: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None

@@ -28,13 +28,14 @@ from uuid import UUID
 from sqlmodel import Session
 
 from app.schemas.insights import TitleInsightReport, TitleLLMReport
+from app.models.entities import TitleInsightReport as TitleInsightReportRow
 from app.services.anthropic_client import AnthropicAuthError, is_anthropic_configured
 from app.services.insight_engine import (
     BRIEF_VOICE,
     OPUS_MODEL_ALIAS,
     _run_brief_llm,
 )
-from app.services.title_aggregation import TitleAggregation, aggregate_title
+from app.services.title_aggregation import TitleAggregation, _resolve_title, aggregate_title
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +238,9 @@ def generate_title_brief(
     ref_now = now or datetime.now(timezone.utc)
     iso = ref_now.isocalendar()
     generated_at = datetime.now(timezone.utc)
-    agg_dict = dataclasses.asdict(agg)
+    # JSON-safe (datetime/UUID -> str) so the dict round-trips through the
+    # JSON persistence column and Pydantic without custom encoders.
+    agg_dict = json.loads(json.dumps(dataclasses.asdict(agg), default=str))
 
     if dry_run:
         return TitleInsightReport(
@@ -304,3 +307,119 @@ def generate_title_brief(
         output_tokens=result.output_tokens or None,
         raw_llm_text=result.raw_text,
     )
+
+
+def _persist_title_report(session: Session, report: TitleInsightReport) -> None:
+    """Upsert one ``title_insight_report`` row keyed by (title_id, iso_year,
+    iso_week). Last-Write-Wins via delete-then-insert (SQLite has no portable
+    composite UPSERT) — same approach as ``_persist_report`` for the pair."""
+    if report.llm_output is None:
+        logger.warning(
+            "title-insight-report-persist-skipped: title=%s week=%d/%d (no llm_output)",
+            report.title_id, report.iso_year, report.iso_week,
+        )
+        return
+
+    cost_cents: Optional[int] = (
+        int(round(report.cost_usd_estimate * 100)) if report.cost_usd_estimate else None
+    )
+    title_uuid = UUID(report.title_id)
+    existing = session.get(
+        TitleInsightReportRow, (title_uuid, report.iso_year, report.iso_week)
+    )
+    if existing is not None:
+        session.delete(existing)
+        session.flush()
+
+    row = TitleInsightReportRow(
+        title_id=title_uuid,
+        iso_year=report.iso_year,
+        iso_week=report.iso_week,
+        window_days=report.window_days,
+        aggregation=report.aggregation,
+        llm_output=report.llm_output.model_dump(mode="json"),
+        generated_at=report.generated_at,
+        model=report.model,
+        cost_usd_cents=cost_cents,
+        input_tokens=report.input_tokens,
+        output_tokens=report.output_tokens,
+    )
+    session.add(row)
+    session.commit()
+
+
+def _hydrate_title_from_persisted(
+    row: TitleInsightReportRow, *, window_days: int
+) -> TitleInsightReport:
+    """Rebuild a Pydantic ``TitleInsightReport`` from a stored row (cache-hit
+    path). ``aggregation``/``llm_output`` round-trip through the JSON blobs."""
+    llm_output = TitleLLMReport.model_validate(row.llm_output) if row.llm_output else None
+    cost_usd_estimate: Optional[float] = (
+        round(row.cost_usd_cents / 100.0, 4) if row.cost_usd_cents is not None else None
+    )
+    title_original = (row.aggregation or {}).get("title_original", "")
+    return TitleInsightReport(
+        title_id=str(row.title_id),
+        title_original=title_original,
+        iso_week=row.iso_week,
+        iso_year=row.iso_year,
+        window_days=row.window_days,
+        generated_at=row.generated_at,
+        model=row.model,
+        dry_run=False,
+        llm_output=llm_output,
+        aggregation=row.aggregation,
+        cost_usd_estimate=cost_usd_estimate,
+        input_tokens=row.input_tokens,
+        output_tokens=row.output_tokens,
+    )
+
+
+def generate_and_persist_title_brief(
+    session: Session,
+    title_ref: Union[str, UUID],
+    *,
+    window_days: int = 30,
+    force: bool = False,
+    replace: bool = False,
+    model: str = OPUS_MODEL_ALIAS,
+    max_tokens: int = 20000,
+    now: Optional[datetime] = None,
+) -> Optional[TitleInsightReport]:
+    """Cache-aware title-brief generation + persistence (C4).
+
+    Returns ``None`` if no title matches ``title_ref`` (caller -> 404).
+    Cache pre-check on (title_id, iso_year, iso_week): an existing row is
+    returned unless ``replace=True``. ``replace=True`` regenerates and
+    overwrites (Last-Write-Wins). A generation that fails (parse/schema/
+    truncation -> llm_output None) is NOT persisted; the report is returned
+    so the caller can surface the failure.
+
+    v1 note: no Postgres advisory lock (unlike the pair pipeline). This is a
+    manual single-title endpoint with no cron concurrency; parallel
+    regenerate clicks could double-spend, which is acceptable for the
+    operator-triggered path.
+    """
+    title = _resolve_title(session, title_ref)
+    if title is None:
+        return None
+
+    ref_now = now or datetime.now(timezone.utc)
+    iso = ref_now.isocalendar()
+
+    existing = session.get(TitleInsightReportRow, (title.id, iso.year, iso.week))
+    if existing is not None and not replace:
+        return _hydrate_title_from_persisted(existing, window_days=window_days)
+
+    report = generate_title_brief(
+        session, title.id, window_days=window_days, now=now,
+        model=model, max_tokens=max_tokens,
+    )
+    if report is None:
+        return None
+    if report.llm_output is None:
+        # Generation failed (parse/schema/truncation) — skip persist, surface.
+        return report
+
+    _persist_title_report(session, report)
+    return report
