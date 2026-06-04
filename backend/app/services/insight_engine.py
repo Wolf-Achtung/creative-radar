@@ -3555,11 +3555,12 @@ def generate_weekly_report(
     window_days: int = 30,
     dry_run: bool = False,
     model: str = OPUS_MODEL_ALIAS,
-    # Sprint-Trailerhaus-Prompt-v1: bumped from 8k → 12k because the new
-    # ``ganz genau`` mode targets ~1500-2000 words across nine sections.
-    # Old reports with the smaller schema were occasionally truncated near
-    # the data_caveats tail at 8k.
-    max_tokens: int = 12000,
+    # Sprint-Trailerhaus-Prompt-v1: bumped 8k → 12k for the ``ganz genau``
+    # mode (~1500-2000 words across nine sections). 2026-06: bumped 12k → 20k
+    # after primevideo KW23 showed tail-truncation (fuer_cutter … last four
+    # Optional sections dropping to null) — 12k was grenzwertig against the
+    # full JSON brief; 20k gives comfortable headroom.
+    max_tokens: int = 20000,
     now: Optional[datetime] = None,
     previous_context: Optional[str] = None,
 ) -> InsightReport:
@@ -4146,7 +4147,7 @@ def generate_and_persist_report(
     force: bool = False,
     replace: bool = False,
     model: str = OPUS_MODEL_ALIAS,
-    max_tokens: int = 12000,
+    max_tokens: int = 20000,
     now: Optional[datetime] = None,
 ) -> InsightReport:
     """Cache-aware variant of ``generate_weekly_report`` for the

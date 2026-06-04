@@ -167,7 +167,7 @@ def messages_create_strict_json(
     tool_name: str,
     tool_description: str,
     input_schema: dict[str, Any],
-    max_tokens: int = 12000,
+    max_tokens: int = 20000,
 ) -> Any:
     """Messages-API-Call mit API-erzwungenem JSON via Tool-Use.
 
