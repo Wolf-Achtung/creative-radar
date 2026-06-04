@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from typing import Any
@@ -13,7 +14,7 @@ from app.prompts import visual_analysis as visual_analysis_prompt
 from app.services.cost_log import record_openai_call
 from app.services.match_key import slugify_match_key
 from app.services.screenshot_capture import capture_asset_screenshot
-from app.services.storage import resolve_url
+from app.services.storage import get_storage, is_object_key, resolve_url
 
 
 # Status values the model is allowed to feed back via data["visual_analysis_status"].
@@ -173,6 +174,38 @@ def _heuristic_analysis(asset: Asset, post: Post | None, title: Title | None) ->
 
 logger = logging.getLogger(__name__)
 
+_IMAGE_CONTENT_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "png": "image/png", "webp": "image/webp", "gif": "image/gif",
+}
+
+
+def _openai_image_payload(image_url: str) -> str:
+    """Build the value for the OpenAI ``image_url.url`` field.
+
+    For a stored evidence object key we inline the bytes as a
+    ``data:<ctype>;base64,...`` URL — read straight from the storage backend
+    (same creds that wrote it), so the Vision call no longer depends on the
+    object being publicly fetchable by OpenAI (the H1 root cause: an S3/R2
+    presigned URL whose host OpenAI could not reach -> 400 invalid_image_url).
+
+    For anything that is already a URL/path (legacy http thumbnail,
+    ``/storage/`` path) we keep the prior behaviour. On any read failure we
+    fall back to ``resolve_url`` so the change can never regress a path that
+    used to work.
+    """
+    if is_object_key(image_url):
+        try:
+            raw = get_storage().read(image_url)
+            ext = image_url.rsplit(".", 1)[-1].lower() if "." in image_url else "jpg"
+            ctype = _IMAGE_CONTENT_TYPES.get(ext, "image/jpeg")
+            b64 = base64.b64encode(raw).decode("ascii")
+            return f"data:{ctype};base64,{b64}"
+        except Exception:  # noqa: BLE001 — fall back to URL, never regress
+            logger.warning("vision-base64-read-failed; falling back to url", extra={"key": image_url})
+    return resolve_url(image_url) or image_url
+
+
 def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
     post = session.get(Post, asset.post_id)
     channel = session.get(Channel, post.channel_id) if post else None
@@ -204,9 +237,10 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
         data["visual_analysis_status"] = "text_fallback"
         data["visual_notes"] = "Bild konnte nicht ausgewertet werden. Die Caption wurde ersatzweise analysiert."
     else:
-        # image_url may be a bare object key (post-F0.1) — resolve it to a fetchable
-        # URL (presigned for S3, /storage/<key> for local) before sending to OpenAI.
-        openai_image_url = resolve_url(image_url) or image_url
+        # image_url may be a bare object key (post-F0.1). For stored evidence we
+        # inline the bytes as a base64 data URL (host-independent); for legacy
+        # URLs we resolve as before. See _openai_image_payload.
+        openai_image_url = _openai_image_payload(image_url)
         client = OpenAI(api_key=settings.openai_api_key)
         prompt = visual_analysis_prompt.build_user_message(
             channel_name=channel.name if channel else "Unbekannt",

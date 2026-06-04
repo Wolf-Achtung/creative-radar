@@ -20,6 +20,10 @@ class StorageBackend(ABC):
         """Return a URL the caller can use to fetch the object."""
 
     @abstractmethod
+    def read(self, key: str) -> bytes:
+        """Return the raw bytes stored under `key`."""
+
+    @abstractmethod
     def exists(self, key: str) -> bool: ...
 
     @abstractmethod
@@ -59,6 +63,9 @@ class LocalFileStorage(StorageBackend):
     def get_url(self, key: str) -> str:
         return f"/storage/{key}"
 
+    def read(self, key: str) -> bytes:
+        return self._path(key).read_bytes()
+
     def exists(self, key: str) -> bool:
         return self._path(key).is_file()
 
@@ -96,6 +103,9 @@ class S3Storage(StorageBackend):
             Params={"Bucket": self._bucket, "Key": key},
             ExpiresIn=self._ttl,
         )
+
+    def read(self, key: str) -> bytes:
+        return self._client.get_object(Bucket=self._bucket, Key=key)["Body"].read()
 
     def exists(self, key: str) -> bool:
         try:
