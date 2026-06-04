@@ -71,34 +71,37 @@ def test_select_channels_a_class_meets_threshold():
     assert "inactive_one" in handles
 
 
-def test_select_channels_b_class_rotates_across_three_runs():
+def test_select_channels_b_class_returned_in_full_regardless_of_run_index():
+    """The B-class third-rotation was removed (2026-06): every run must now
+    return the *full* B-class, independent of run_index. This replaces the
+    old ``..._rotates_across_three_runs`` test, which asserted the now-removed
+    disjoint-thirds behaviour."""
     engine = _engine()
     with Session(engine) as session:
         b_handles = [f"b{i:02d}" for i in range(9)]
         for h in b_handles:
             _seed_channel(session, handle=h)
 
-        run0 = select_channels_for_cron(session, "instagram", run_index=0,
-                                         a_class_threshold=1, a_class_max=10)
-        run1 = select_channels_for_cron(session, "instagram", run_index=1,
-                                         a_class_threshold=1, a_class_max=10)
-        run2 = select_channels_for_cron(session, "instagram", run_index=2,
-                                         a_class_threshold=1, a_class_max=10)
+        runs = [
+            select_channels_for_cron(session, "instagram", run_index=idx,
+                                     a_class_threshold=1, a_class_max=10)
+            for idx in range(3)
+        ]
 
-    seen = set()
-    for run in (run0, run1, run2):
-        seen.update(c.handle for c in run)
-    assert seen == set(b_handles)
-    assert {c.handle for c in run0} & {c.handle for c in run1} == set()
-    assert {c.handle for c in run1} & {c.handle for c in run2} == set()
+    handle_sets = [{c.handle for c in run} for run in runs]
+    # Every run sees the complete B-class ...
+    for hs in handle_sets:
+        assert hs == set(b_handles)
+    # ... and run_index no longer changes the selection at all.
+    assert handle_sets[0] == handle_sets[1] == handle_sets[2]
 
 
-def test_select_channels_a_class_max_caps_per_run_but_demoted_overflow_rotates_via_b_class():
+def test_select_channels_a_class_max_caps_per_run_but_demoted_overflow_synced_via_b_class():
     """A-class is capped per-run for cost, but channels above the cap must
-    not be lost — they fall into B-class rotation so they still get synced
-    eventually. Concrete: 5 hot channels, cap=2 → 2 A-class + the other 3
-    distributed across the three B-class run-thirds, so each run sees
-    2 + ceil(3/3) = 3 channels and the three runs together cover all 5."""
+    not be lost — they fall into B-class so they still get synced. Since the
+    B-class rotation was removed, the demoted overflow now appears in *every*
+    run. Concrete: 5 hot channels, cap=2 → 2 A-class + the other 3 demoted to
+    B-class, so each run sees all 2 + 3 = 5 channels."""
     engine = _engine()
     with Session(engine) as session:
         handles = [f"hot{i}" for i in range(5)]
@@ -106,14 +109,17 @@ def test_select_channels_a_class_max_caps_per_run_but_demoted_overflow_rotates_v
             ch = _seed_channel(session, handle=h)
             _seed_assets(session, ch, count=10)
 
-        seen_overall: set[str] = set()
-        for run_index in range(3):
-            run = select_channels_for_cron(session, "instagram", run_index=run_index,
-                                            a_class_threshold=1, a_class_max=2)
-            assert len(run) <= 3, f"run {run_index} oversized: {[c.handle for c in run]}"
-            seen_overall.update(c.handle for c in run)
+        runs = [
+            select_channels_for_cron(session, "instagram", run_index=run_index,
+                                     a_class_threshold=1, a_class_max=2)
+            for run_index in range(3)
+        ]
 
-    assert seen_overall == set(handles)
+    for run_index, run in enumerate(runs):
+        assert len(run) == 5, f"run {run_index} wrong size: {[c.handle for c in run]}"
+        assert {c.handle for c in run} == set(handles)
+    # run_index no longer changes the selection.
+    assert {c.handle for c in runs[0]} == {c.handle for c in runs[1]} == {c.handle for c in runs[2]}
 
 
 def test_select_channels_filters_inactive_and_non_mvp():

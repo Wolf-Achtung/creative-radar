@@ -2,9 +2,16 @@
 
 A-Class: hohe Aktivität (assets_30d >= threshold) — wird jeden Cron-Lauf gesynct,
 gedeckelt durch ``a_class_max`` (Cost-Cap).
-B-Class: alle übrigen mvp+active Channels der Plattform — über drei Cron-Läufe
-rotiert, sodass jeder B-Channel etwa alle ``3 * interval_days`` Tage einmal
-gesynct wird.
+B-Class: alle übrigen mvp+active Channels der Plattform — werden jeden Cron-Lauf
+vollständig gesynct.
+
+Historie: Bis 2026-06 wurde die B-Class über drei Cron-Läufe gedrittelt
+(``run_index``-Rotation). Das war ein Frühphasen-Konstrukt für eine 3-tägige
+Cadence und wurde beim Umstieg auf den wöchentlichen Schedule
+(``cron-sync.yml`` ``'0 6 * * 1'``) nie nachkalibriert: ``compute_run_index``
+rechnete weiter 3-tägig, sodass ``run_index`` faktisch nicht sauber rotierte
+und ~2/3 der B-Class über Wochen nie selektiert wurden. Die Rotation ist
+deshalb entfernt — die volle B-Class läuft jetzt jeden Lauf.
 
 Threshold-Default ist 1, weil die Datenbasis 2026-05-04 nur ~31 Posts gesamt
 enthält; ENV ``CRON_A_CLASS_THRESHOLD`` macht das konfigurierbar, sobald das
@@ -49,9 +56,13 @@ def select_channels_for_cron(
 ) -> list[Channel]:
     """Pick the channels to sync for one cron run on the given platform.
 
-    ``run_index`` ∈ {0, 1, 2} — selects which third of B-class to include.
-    Returns the union of A-class (always) and the run_index-th third of
-    B-class, deterministically ordered by handle for stable rotation.
+    Returns the union of A-class (always, capped by ``a_class_max``) and the
+    full B-class, deterministically ordered by handle.
+
+    ``run_index`` is vestigial: it no longer affects selection since the
+    B-class third-rotation was removed (see module docstring). It is retained
+    in the signature so the cron call sites (``api/cron.py``) and the
+    ``CronRun.run_index`` audit column keep working unchanged.
     """
     threshold = a_class_threshold if a_class_threshold is not None else _a_class_threshold_default()
     max_a = a_class_max if a_class_max is not None else _a_class_max_default()
@@ -89,18 +100,11 @@ def select_channels_for_cron(
 
     b_class = [c for c in candidates if c.id not in a_ids]
 
-    # For small B-class lists rotating saves no real cost — include all every run.
-    # Rotation kicks in once there are enough channels for the three thirds to
-    # actually be three distinct buckets.
-    if len(b_class) < 3:
-        b_third = b_class
-    else:
-        third_size = (len(b_class) + 2) // 3
-        start = (run_index % 3) * third_size
-        end = start + third_size
-        b_third = b_class[start:end]
-
-    return a_class + b_third
+    # No rotation: the full B-class is synced every run (the third-rotation was
+    # removed because run_index never cycled cleanly under the weekly schedule,
+    # see module docstring). The F0.6 Apify monthly hard-cap pre-flight in
+    # ``api/cron.py`` is the structural guard against the higher per-run volume.
+    return a_class + b_class
 
 
 def compute_run_index(reference_date: datetime | None = None) -> int:
