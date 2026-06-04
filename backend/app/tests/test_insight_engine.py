@@ -1349,6 +1349,28 @@ def _extract_few_shot_tldr(prompt: str) -> str:
     return m.group(1) if m else ""
 
 
+def test_brief_voice_is_shared_prefix_of_system_prompt():
+    """C1 — BRIEF_VOICE is the field-agnostic tone slice the title brief
+    reuses. It must be a true prefix of the (unchanged) SYSTEM_PROMPT, carry
+    the voice anchors (#222/#223), and stop before the pair output-schema."""
+    voice = insight_engine.BRIEF_VOICE
+    prompt = insight_engine.SYSTEM_PROMPT
+    # Byte-identical pair prompt: voice is a literal prefix.
+    assert prompt.startswith(voice)
+    assert len(voice) < len(prompt)
+    # Voice anchors present.
+    assert "VOICE-IDENTITÄT" in voice
+    assert "Schnittraum" in voice
+    assert "KERN-REGEL" in voice
+    assert "Cast-irgendwas" in voice            # #223 pattern rule
+    assert "Engagement-Driver" in voice         # #222 anti-pattern
+    assert "TONALITÄTS-POOL" in voice
+    # Pair output-schema block stays OUT of the shared voice.
+    assert "SCHEMA-VOKABEL" not in voice
+    assert "FEW-SHOT" not in voice
+    assert "submit_weekly_brief" not in voice
+
+
 def test_anti_pattern_block_includes_headline_tldr_extension():
     """Sprint 3 — the headline+tldr-only anti-pattern carve-out must
     name the four aggregation terms that belong to detail sections, not

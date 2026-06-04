@@ -1089,7 +1089,25 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
 """
 
 
-# ---------- Hashtag extraction ---------------------------------------------
+# ---------- Shared brief voice (C1) ----------------------------------------
+#
+# The title brief (Variante 1) must speak the SAME Cutter-Deutsch as the pair
+# brief — the tone rules from #222 (positive KERN-REGEL, meta-leak fix) and
+# #223 (Cast-X / X-Reminder pattern). Rather than duplicate that prose, we
+# expose the field-agnostic top of SYSTEM_PROMPT (persona, KERN-REGEL, VOICE,
+# GLOSSAR, ANTI-PATTERN / forbidden-vocab, PLATTFORM/FILMTITEL, TONALITÄTS-POOL,
+# LÄNGE) as ``BRIEF_VOICE``. The title prompt = BRIEF_VOICE + its own task.
+#
+# Crucially this is a *computed slice* of the UNCHANGED SYSTEM_PROMPT literal —
+# SYSTEM_PROMPT itself is byte-identical to before, so the pair-brief path and
+# every SYSTEM_PROMPT wording-assertion are provably untouched. The cut sits at
+# the pair output-schema block (``SCHEMA-VOKABEL`` onward) which is
+# pair-specific. A few field-coupled carve-outs above the cut (e.g. the
+# ``cross_market_insight`` / ``aktuell_im_fokus`` mentions) ride along; the
+# title task (C3) overrides those for its own field set.
+_VOICE_BOUNDARY_MARKER = "\nSCHEMA-VOKABEL"
+BRIEF_VOICE = SYSTEM_PROMPT[: SYSTEM_PROMPT.index(_VOICE_BOUNDARY_MARKER)]
+
 
 # Unicode-aware so German Umlauts and emoji-adjacent tags work. We strip the
 # leading hash and lowercase to make the frequency count case-insensitive.
@@ -4376,6 +4394,7 @@ __all__ = [
     "PAIRS",
     "OPUS_MODEL_ALIAS",
     "SYSTEM_PROMPT",
+    "BRIEF_VOICE",
     "aggregate_pair",
     "last_completed_iso_week_anchor",
     "generate_weekly_report",
