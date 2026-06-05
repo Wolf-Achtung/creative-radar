@@ -259,17 +259,22 @@ function LLMDetailSections({ output }) {
           <ul className="insight-list">
             {output.aktuell_im_fokus.map((item, i) => (
               <li key={i}>
-                {item.post_url ? (
+                {/* V0b: Der Filmname ist KEIN Link mehr — der frühere
+                    <a href={item.post_url}> am Titel suggerierte eine
+                    Film-Übersicht, führte aber auf einen einzelnen
+                    externen Post. Der Name bleibt reiner Text; daneben
+                    ein klar beschrifteter Einzel-Post-Link (nur wenn URL
+                    vorhanden). */}
+                <strong>{item.titel}</strong>
+                {item.post_url && (
                   <a
                     href={item.post_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: 'inherit', textDecoration: 'underline' }}
+                    style={{ marginLeft: '0.5rem', fontSize: '0.85em' }}
                   >
-                    <strong>{item.titel}</strong>
+                    Top-Post ansehen ↗
                   </a>
-                ) : (
-                  <strong>{item.titel}</strong>
                 )}
                 <span style={{ color: '#888', marginLeft: '0.5rem', fontSize: '0.9em' }}>
                   · {item.markt} · {item.format_typ}
