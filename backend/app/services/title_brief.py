@@ -114,12 +114,10 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_title_brief`
   "markt_vergleich": "DE vs US vs UK für diesen Titel, mit Zahlen — oder null, wenn der Titel nur in einem Markt vorkam.",
   "verlauf": "Kampagnen-Bogen über die Wochen (Anlauf, Spitze, Abflachen), abgeleitet aus den Wochen-Buckets — oder null bei zu wenig Wochen-Daten.",
   "top_post_kommentar": "Was an den stärksten Posts auffällt (Format, Länge, was den Cut trägt) — oder null.",
-  "fuer_cutter": {
-    "schnitt_pace": "Rhythmus-Beobachtung aus den Top-Posts dieses Titels, in Cutter-Sprache — oder null.",
-    "hook_strategie": "welche Anfangs-Form bei diesem Titel wirkt — oder null.",
-    "empfohlene_laengen": "z.B. '20-25s primär' — oder null.",
-    "was_diese_woche": "3-4 Sätze Fließtext: was der Titel diese Woche zeigt, was man für eigene Cuts mitnimmt — oder null."
-  },
+  "cutter_schnitt_pace": "Rhythmus-Beobachtung aus den Top-Posts dieses Titels, in Cutter-Sprache — oder null.",
+  "cutter_hook_strategie": "welche Anfangs-Form bei diesem Titel wirkt — oder null.",
+  "cutter_empfohlene_laengen": "z.B. '20-25s primär' — oder null.",
+  "cutter_was_diese_woche": "3-4 Sätze Fließtext: was der Titel diese Woche zeigt, was man für eigene Cuts mitnimmt — oder null.",
   "data_caveats": ["Lautstärke-/Lücken-Hinweise: wie viele Posts, welche Plattformen/Märkte fehlen, was den Brief relativiert."],
   "cited_post_ids": ["post_url-Strings aus den Top-Posts unten, auf denen deine Zahlen beruhen. Niemals erfinden — nur URLs, die im Datenblock stehen."]
 }
