@@ -1,6 +1,7 @@
 import logging
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from uuid import UUID
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -9,7 +10,16 @@ from sqlmodel import Session, select
 from app.database import get_session
 
 logger = logging.getLogger(__name__)
-from app.models.entities import Channel, ChannelSegment, InsightReport as InsightReportRow, Post, SegmentRoundup
+from app.models.entities import (
+    Asset,
+    Channel,
+    ChannelSegment,
+    InsightReport as InsightReportRow,
+    Market,
+    Post,
+    SegmentRoundup,
+    Title,
+)
 from app.schemas.insights import (
     InsightReport,
     PairInfo,
@@ -17,6 +27,10 @@ from app.schemas.insights import (
     SegmentRoundupListResponse,
     SegmentRoundupLLMReport,
     SegmentRoundupSummary,
+    TitleMarketPosts,
+    TitlePlatformPosts,
+    TitlePostRef,
+    TitlePostsResponse,
 )
 from app.services.anthropic_client import (
     AnthropicAPIError,
@@ -472,3 +486,78 @@ def roundups_latest(
         )
 
     return SegmentRoundupListResponse(roundups=summaries)
+
+
+# Feste Spalten-Reihenfolge der Film-Übersicht (V3 Sprint 1). Posts in
+# anderen Märkten (INT/MIXED) gehören nicht in die DE/US/UK-Drei-Spalten-UI.
+_TITLE_POSTS_MARKETS = [Market.DE, Market.US, Market.UK]
+
+
+@router.get("/title/{title_id}/posts", response_model=TitlePostsResponse)
+def title_posts(
+    title_id: UUID,
+    session: Session = Depends(get_session),
+) -> TitlePostsResponse:
+    """Read-only: alle Posts eines Titels, gruppiert nach Markt (DE/US/UK)
+    und Plattform — die Datengrundlage der film-zentrierten Detailseite
+    (Sprint 2). Kette title_id -> Asset -> Post -> Channel.
+
+    ``markets`` enthält immer die drei Spalten DE/US/UK; ein Titel ohne
+    Posts (oder eine unbekannte title_id) liefert wohlgeformte leere Gruppen,
+    keinen Fehler. Posts werden über ``post.id`` dedupliziert (ein Titel kann
+    auf mehreren Assets desselben Posts liegen).
+    """
+    title = session.get(Title, title_id)
+
+    rows = session.exec(
+        select(Post, Channel, Asset)
+        .join(Asset, Asset.post_id == Post.id)
+        .join(Channel, Channel.id == Post.channel_id)
+        .where(Asset.title_id == title_id)
+    ).all()
+
+    # Dedupe per post.id; bucket by market -> platform.
+    seen: set = set()
+    # {market_value: {platform: [TitlePostRef]}}
+    buckets: dict[str, dict[str, list[TitlePostRef]]] = {
+        m.value: defaultdict(list) for m in _TITLE_POSTS_MARKETS
+    }
+    allowed = {m.value for m in _TITLE_POSTS_MARKETS}
+    total = 0
+    for post, channel, asset in rows:
+        if post.id in seen:
+            continue
+        seen.add(post.id)
+        market = getattr(channel.market, "value", channel.market)
+        if market not in allowed:
+            continue  # INT/MIXED gehören nicht in die DE/US/UK-Spalten
+        platform = post.platform or "unknown"
+        buckets[market][platform].append(
+            TitlePostRef(
+                post_url=post.post_url,
+                platform=platform,
+                market=market,
+                thumbnail_url=asset.thumbnail_url,
+                views=post.visible_views,
+                published_at=post.published_at,
+            )
+        )
+        total += 1
+
+    markets = [
+        TitleMarketPosts(
+            market=m.value,
+            platforms=[
+                TitlePlatformPosts(platform=plat, posts=posts)
+                for plat, posts in sorted(buckets[m.value].items())
+            ],
+        )
+        for m in _TITLE_POSTS_MARKETS
+    ]
+
+    return TitlePostsResponse(
+        title_id=str(title_id),
+        title_original=title.title_original if title else None,
+        total_posts=total,
+        markets=markets,
+    )

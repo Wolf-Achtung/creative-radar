@@ -951,3 +951,41 @@ class SegmentRoundupListResponse(BaseModel):
     eigene Segment-Liste als "noch kein Roundup"-Zustand.
     """
     roundups: list[SegmentRoundupSummary]
+
+
+# --- V3 Sprint 1: film-zentrierte Posts-pro-Titel-Übersicht ---------------
+# Bewusst schlankes Read-Modell — NUR was die Detailseite (Sprint 2) zeigt.
+# Kein Brief-Ballast (activation_rate/breakout_score). Spätere Felder
+# (Kommentare, Top-Ten) werden explizit ergänzt, nicht auf Vorrat.
+
+class TitlePostRef(BaseModel):
+    """Ein einzelner Post in der Film-Übersicht."""
+    post_url: Optional[str] = None
+    platform: str
+    market: str
+    thumbnail_url: Optional[str] = None
+    views: Optional[int] = None
+    published_at: Optional[datetime] = None
+
+
+class TitlePlatformPosts(BaseModel):
+    """Posts eines Markts, gruppiert nach Plattform."""
+    platform: str
+    posts: list[TitlePostRef]
+
+
+class TitleMarketPosts(BaseModel):
+    """Ein Markt-Bucket (DE/US/UK) mit seinen Plattform-Gruppen."""
+    market: str
+    platforms: list[TitlePlatformPosts]
+
+
+class TitlePostsResponse(BaseModel):
+    """Antwort fuer ``GET /api/insights/title/{title_id}/posts``. ``markets``
+    enthaelt immer die drei Spalten DE/US/UK (ggf. mit leerer
+    ``platforms``-Liste) — title_id ohne Posts liefert wohlgeformte leere
+    Gruppen, keinen Fehler."""
+    title_id: str
+    title_original: Optional[str] = None
+    total_posts: int
+    markets: list[TitleMarketPosts]
