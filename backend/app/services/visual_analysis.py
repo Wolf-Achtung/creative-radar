@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from openai import OpenAI
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.config import settings
 from app.models.entities import Asset, AssetType, Channel, Post, Title
@@ -102,20 +102,6 @@ def _as_float(value: Any, fallback: float = 0.35) -> float:
     except Exception:
         return fallback
     return max(0.0, min(1.0, number))
-
-
-def _find_title_match(session: Session, visual_text: str, caption: str) -> Title | None:
-    haystack = f"{visual_text}\n{caption}".lower()
-    titles = list(session.exec(select(Title).where(Title.active == True)).all())  # noqa: E712
-    for title in titles:
-        candidates = [title.title_original, title.title_local, title.franchise]
-        for keyword in title.keywords:
-            if keyword.active:
-                candidates.append(keyword.keyword)
-        for candidate in candidates:
-            if candidate and candidate.lower() in haystack:
-                return title
-    return None
 
 
 _NO_ANALYSIS_POSSIBLE_NOTE = (
@@ -224,12 +210,13 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
     image_url = asset.visual_evidence_url or asset.thumbnail_url or asset.screenshot_url
     caption = (post.caption if post else "") or ""
 
-    if not title:
-        possible_title = _find_title_match(session, asset.ocr_text or "", caption)
-        if possible_title:
-            asset.title_id = possible_title.id
-            title = possible_title
-
+    # Variante D / X: Vision weist KEINE title_id mehr zu. Der frühere
+    # ``_find_title_match``-Pfad war der ungeschützte .first()/Franchise-
+    # Substring-Matcher (kein Spezifitäts-/Zeit-Tiebreak) und füllte genau
+    # die vom Ingest bewusst offen gelassenen mehrdeutigen Fälle falsch auf.
+    # Vision bleibt rein beschreibend (OCR/Placement/Notes unten); das Asset
+    # bleibt ``title_id=None`` und wird vom nachgelagerten Rematch
+    # (find_best_title_match, D-Logik) korrekt zugewiesen.
     if not image_url:
         data = _heuristic_analysis(asset, post, title)
     elif not settings.openai_api_key:

@@ -74,6 +74,7 @@ def rematch_unassigned_assets(session: Session, *, commit_batch_size: int = 50) 
             session,
             caption,
             fields=match_fields,
+            published_at=post.published_at if post else None,
             cached_bundle=bundle,
             cached_normalized_index=normalized_index,
         )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from uuid import UUID
 import re
@@ -176,6 +177,43 @@ def is_safe_auto_match(match: MatchResult) -> bool:
     return bool(match.title and match.source in _SAFE_SOURCES and match.confidence >= 0.95)
 
 
+def _release_anchor(title: Title):
+    """Title-Referenz-Releasedatum: DE bevorzugt, sonst US."""
+    return title.release_date_de or title.release_date_us
+
+
+def _resolve_by_release_proximity(
+    entries: list[tuple[Title, float, str, str]],
+    published_at: datetime | None,
+) -> tuple[Title, float, str, str] | None:
+    """Variante D Teil 2 — Zeit-Tiebreak für gleich spezifische Strong-Hits.
+
+    Wählt aus gleich langen Treffern den Titel, dessen Release-Datum (DE
+    bevorzugt, sonst US) dem ``published_at`` des Posts am nächsten liegt
+    (kleinste absolute Tagesdifferenz). Greift NUR wenn: ``published_at``
+    bekannt ist, alle Kandidaten dieselbe (nicht-leere) Franchise teilen und
+    JEDER ein Release-Datum hat. Sonst ``None`` → Caller fällt auf den
+    OPEN-Kandidat-Pfad zurück. Kein DB-Zugriff; nutzt ausschließlich Felder,
+    die bereits auf den Title-Rows liegen."""
+    if not isinstance(published_at, datetime):
+        return None
+    franchises = {(entry[0].franchise or "").strip().casefold() for entry in entries}
+    if len(franchises) != 1 or "" in franchises:
+        return None
+    pub = published_at if published_at.tzinfo else published_at.replace(tzinfo=timezone.utc)
+    pub_date = pub.date()
+    scored: list[tuple[int, tuple[Title, float, str, str]]] = []
+    for entry in entries:
+        anchor = _release_anchor(entry[0])
+        if anchor is None:
+            return None  # unvollständige Datenlage -> kein Zeit-Tiebreak
+        scored.append((abs((anchor - pub_date).days), entry))
+    scored.sort(key=lambda item: item[0])
+    if len(scored) >= 2 and scored[0][0] == scored[1][0]:
+        return None  # kein eindeutig nächster Titel -> OPEN
+    return scored[0][1]
+
+
 def find_title_matches(session: Session, text: str | None) -> list[Title]:
     result = find_best_title_match(session, text)
     return [result.title] if result.title else []
@@ -187,6 +225,7 @@ def find_best_title_match(
     fields: dict[str, str | list[str] | None] | None = None,
     studio: str | None = None,
     *,
+    published_at: datetime | None = None,
     cached_bundle: list[tuple[Title, dict[str, list[str]]]] | None = None,
     cached_normalized_index: dict[str, list[tuple[Title, str]]] | None = None,
 ) -> MatchResult:
@@ -231,16 +270,40 @@ def find_best_title_match(
                 weak_best = (title_refs[0][0], ratio, "fuzzy", normalized)
 
     if strong_hits:
+        # Per Titel den spezifischsten Strong-Hit behalten: längster
+        # matched_text gewinnt (Spezifitäts-Signal für die Sequel-
+        # Disambiguierung unten), bei Gleichstand der höhere Score.
         by_title: dict[str, tuple[Title, float, str, str]] = {}
         for title, source, matched_text in strong_hits:
-            current = by_title.get(str(title.id))
             score = 1.0 if source in {"exact", "exact_local", "exact_alias", "hashtag"} else 0.97
-            if current is None or score > current[1]:
-                by_title[str(title.id)] = (title, score, source, matched_text)
+            candidate = (title, score, source, matched_text)
+            current = by_title.get(str(title.id))
+            if current is None or (len(matched_text), score) > (len(current[3]), current[1]):
+                by_title[str(title.id)] = candidate
 
-        if len(by_title) == 1:
-            title, confidence, source, matched_text = next(iter(by_title.values()))
+        entries = list(by_title.values())
+        if len(entries) == 1:
+            title, confidence, source, matched_text = entries[0]
             return MatchResult(title=title, confidence=confidence, source=source, suggested_title=matched_text)
+
+        # Variante D Teil 1 — Spezifität: der eindeutig längste matched_text
+        # gewinnt (z.B. "mortal kombat ii" schlägt "mortal kombat").
+        max_len = max(len(entry[3]) for entry in entries)
+        longest = [entry for entry in entries if len(entry[3]) == max_len]
+        if len(longest) == 1:
+            title, confidence, source, matched_text = longest[0]
+            return MatchResult(title=title, confidence=confidence, source=source, suggested_title=matched_text)
+
+        # Variante D Teil 2 — bei gleich langen Treffern derselben Franchise:
+        # Zeit-Tiebreak über Release-Nähe zum Post-Datum.
+        resolved = _resolve_by_release_proximity(longest, published_at)
+        if resolved is not None:
+            title, confidence, source, matched_text = resolved
+            return MatchResult(title=title, confidence=confidence, source=source, suggested_title=matched_text)
+
+        # Variante D Teil 3 — weder Spezifität noch Zeit lösen eindeutig auf:
+        # NICHT raten. title=None -> der bestehende Pfad legt einen
+        # OPEN-TitleCandidate zur manuellen Prüfung an.
         return MatchResult(title=None, confidence=0.0, source="ambiguous", suggested_title=None)
 
     if weak_best[0]:
