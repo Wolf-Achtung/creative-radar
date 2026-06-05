@@ -1716,13 +1716,6 @@ export default function InsightWeekly({ pair }) {
         <>
           <StaleWarning generatedAt={report.generated_at} />
 
-          {report.aggregation?.notes?.length > 0 && (
-            <div className="card insight-notes">
-              <p className="section-kicker">Notes</p>
-              <ul>{report.aggregation.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
-            </div>
-          )}
-
           {/* Sprint 28.05.2026 (IA-Umbau, Baustein 1) — Kern-Reihenfolge:
               Headline+TLDR → Drei Maerkte → Breakouts → Top-Posts. Davor:
               Hero/Banner/StaleWarning/Notes (Meta + Caveats). Die
