@@ -174,25 +174,62 @@ class TitleAggregation:
     weekly: list[TitleWeekBucket]
 
 
+class AmbiguousTitleError(Exception):
+    """Raised when a title NAME resolves to more than one Title (e.g. a film
+    and its same-named context, or a sequel sharing a substring). Carries the
+    candidate list so the caller can disambiguate by title_id or tmdb_id —
+    never a silent ``.first()`` guess."""
+    def __init__(self, candidates: list[dict]):
+        self.candidates = candidates
+        super().__init__(f"ambiguous title name — {len(candidates)} candidates")
+
+
+def _title_candidates(titles) -> list[dict]:
+    return [
+        {"title_id": str(t.id), "title_original": t.title_original, "tmdb_id": t.tmdb_id}
+        for t in titles
+    ]
+
+
 def _resolve_title(session: Session, title_ref: Union[str, UUID, Title]) -> Optional[Title]:
+    """Resolve a title reference to exactly ONE Title — deterministically.
+
+    Order: Title passthrough -> UUID (id) -> UUID-string (id) -> exact
+    case-insensitive name -> single substring match. A name that matches
+    multiple titles (multiple exact, or no-exact-but-multiple-substring) raises
+    ``AmbiguousTitleError`` with the candidates instead of guessing the
+    alphabetical first. No match -> None (unchanged).
+    """
     if isinstance(title_ref, Title):
         return title_ref
     if isinstance(title_ref, UUID):
         return session.get(Title, title_ref)
-    # string: try UUID, then case-insensitive exact, then contains
+    # string: try UUID first
     try:
         return session.get(Title, UUID(str(title_ref)))
     except (ValueError, AttributeError):
         pass
     name = str(title_ref).strip()
-    exact = session.exec(
+    # (a) exact, case-insensitive
+    exact = list(session.exec(
         select(Title).where(func.lower(Title.title_original) == name.lower())
-    ).first()
-    if exact:
-        return exact
-    return session.exec(
+    ).all())
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        # (b) multiple exact -> ambiguous, never guess
+        raise AmbiguousTitleError(_title_candidates(exact))
+    # (c) no exact: substring
+    subs = list(session.exec(
         select(Title).where(Title.title_original.ilike(f"%{name}%")).order_by(Title.title_original)
-    ).first()
+    ).all())
+    if len(subs) == 1:
+        return subs[0]
+    if len(subs) > 1:
+        # (b) multiple substring, no exact -> ambiguous
+        raise AmbiguousTitleError(_title_candidates(subs))
+    # (d) no match
+    return None
 
 
 def aggregate_title(

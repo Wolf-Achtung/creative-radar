@@ -45,7 +45,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import get_session
-from app.models.entities import Channel, CostLog, Post
+from app.models.entities import Channel, CostLog, Post, Title
 from app.services.anthropic_client import (
     AnthropicAPIError,
     AnthropicAuthError,
@@ -59,6 +59,7 @@ from app.core.feature_flags import is_segment_roundups_enabled
 from app.models.entities import ChannelSegment
 from app.services.insight_engine import PAIRS, generate_and_persist_report
 from app.services.title_brief import generate_and_persist_title_brief
+from app.services.title_aggregation import AmbiguousTitleError
 from app.services.segment_roundup import (
     ROUNDUP_DEFAULT_TOP_POSTS_N,
     ROUNDUP_DEFAULT_WINDOW_DAYS,
@@ -597,11 +598,23 @@ def regenerate_insights(
     return {"results": results, "total_cost_cents": total_cost_cents}
 
 
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        UUID(str(value))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 @router.post("/insights/title/regenerate")
 def regenerate_title_insight(
-    title: str = Query(
-        ...,
-        description="Title-ID (UUID) ODER Titel-Name (case-insensitive, dann Substring).",
+    title: str | None = Query(
+        None,
+        description="Title-ID (UUID) ODER Titel-Name (exakt, sonst eindeutiger Substring).",
+    ),
+    tmdb_id: int | None = Query(
+        None,
+        description="TMDb-ID — eindeutiger Schlüssel, bevorzugt für gleichnamige Sequels.",
     ),
     window_days: int = Query(30, ge=7, le=365),
     replace: bool = Query(
@@ -617,19 +630,58 @@ def regenerate_title_insight(
 ):
     """Manueller Titel-Brief-Trigger (C5) — generiert/cached EINEN Titel-Brief
     über alle Channels/Plattformen/Märkte. Auth wie ``/insights/regenerate``
-    (Bearer + Admin-Session via Router-Dependency). 404 bei unbekanntem Titel.
-    Keine Cron-Integration; Titel-Auswahl ist ein separater späterer Schritt.
+    (Bearer + Admin-Session via Router-Dependency).
+
+    Auflösungs-Priorität (Defekt-1-Fix): (1) ``title`` als UUID = title_id,
+    (2) ``tmdb_id`` exakt, (3) ``title`` als Name (gehärteter Resolver:
+    exakt -> eindeutiger Substring; mehrdeutig -> 409 + Kandidaten). Mindestens
+    einer von ``title``/``tmdb_id`` ist Pflicht (sonst 400). 404 bei
+    unbekanntem Titel. Keine Cron-Integration.
     """
+    # Resolve the reference deterministically by priority.
+    ref: str | UUID
+    if title and _looks_like_uuid(title):
+        ref = title  # (1) title_id
+    elif tmdb_id is not None:
+        # (2) tmdb_id — exact. tmdb_id is indexed but NOT unique, so guard >1.
+        matches = list(session.exec(select(Title).where(Title.tmdb_id == tmdb_id)).all())
+        if not matches:
+            raise HTTPException(status_code=404, detail=f"Kein Titel mit tmdb_id={tmdb_id}")
+        if len(matches) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "ambiguous_tmdb_id",
+                    "candidates": [
+                        {"title_id": str(t.id), "title_original": t.title_original, "tmdb_id": t.tmdb_id}
+                        for t in matches
+                    ],
+                },
+            )
+        ref = matches[0].id  # UUID
+    elif title:
+        ref = title  # (3) name -> hardened resolver (may raise AmbiguousTitleError)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Mindestens 'title' (UUID oder Name) oder 'tmdb_id' erforderlich.",
+        )
+
     try:
         report = generate_and_persist_title_brief(
-            session, title, window_days=window_days, force=True, replace=replace,
+            session, ref, window_days=window_days, force=True, replace=replace,
         )
+    except AmbiguousTitleError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "ambiguous_title", "candidates": exc.candidates},
+        ) from exc
     except (AnthropicAuthError, AnthropicRateLimitError, AnthropicAPIError) as exc:
-        logger.warning("regenerate-title-insight failed for title=%s: %s", title, exc)
+        logger.warning("regenerate-title-insight failed for ref=%s: %s", ref, exc)
         raise HTTPException(status_code=502, detail=f"Anthropic-Fehler: {exc}") from exc
 
     if report is None:
-        raise HTTPException(status_code=404, detail=f"Unbekannter Titel: {title!r}")
+        raise HTTPException(status_code=404, detail=f"Unbekannter Titel: {title or tmdb_id!r}")
 
     cost_cents = (
         int(round(report.cost_usd_estimate * 100)) if report.cost_usd_estimate else 0
