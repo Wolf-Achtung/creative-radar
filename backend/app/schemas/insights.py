@@ -503,6 +503,13 @@ class TitelImFokus(BaseModel):
     # aus der ``PairAggregation``, auf denen die ``kennzahl`` beruht
     # (kann mehrere Posts oder einen ``match_key`` einschliessen).
     cited_post_ids: list[str] = Field(default_factory=list)
+    # V3 Sprint 1 — film-zentrierte Übersicht. ``title_id`` wird als
+    # Post-LLM-Enrichment deterministisch über die Kette
+    # post_url -> Post -> Asset.title_id gesetzt (niemals über den Namen).
+    # Optional + Default None: alte persistierte Briefe ohne das Feld
+    # deserialisieren weiter valide; bleibt None, wenn die Kette nichts
+    # Eindeutiges findet (Nicht-Film, kein Matcher-Treffer, oder >1 title_id).
+    title_id: Optional[str] = None
 
     @field_validator("verdict", mode="before")
     @classmethod
