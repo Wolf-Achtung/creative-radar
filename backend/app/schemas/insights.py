@@ -695,7 +695,15 @@ class TitleLLMReport(BaseModel):
     markt_vergleich: Optional[str] = None        # null for single-market titles
     verlauf: Optional[str] = None                # campaign arc; filled when >=2 weekly buckets
     top_post_kommentar: Optional[str] = None
-    fuer_cutter: Optional[FuerCutter] = None
+    # Cutter-Takeaways als FLACHE Top-Level-Felder (A1): ein einzelnes nested
+    # object (fuer_cutter) inmitten sonst flacher Felder wurde vom Modell
+    # flachgezogen -> <parameter>-Leak -> generation_failed. Flach = im selben
+    # Modus wie der Rest des Title-Briefs. (Pair-Brief behält sein nested
+    # FuerCutter — dort sind nested objects der Normalfall und laufen sauber.)
+    cutter_schnitt_pace: Optional[str] = None
+    cutter_hook_strategie: Optional[str] = None
+    cutter_empfohlene_laengen: Optional[str] = None
+    cutter_was_diese_woche: Optional[str] = None
     cited_post_ids: list[str] = Field(default_factory=list)
 
 

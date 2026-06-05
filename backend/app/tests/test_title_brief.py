@@ -125,43 +125,43 @@ def test_generate_title_brief_happy_path(monkeypatch):
     assert report.input_tokens == 4000
 
 
-def test_title_tool_schema_inlines_nested_objects():
-    """Bugfix: the forced tool-use input_schema must present fuer_cutter as a
-    DIRECT nested object (no $ref / anyOf), so Claude fills it as JSON instead
-    of leaking <parameter ...> XML into a string (Mortal-Kombat failure)."""
+def test_title_tool_schema_is_flat_no_nested_objects():
+    """A1 fix: the title tool schema must be FULLY FLAT — no nested object
+    (the lone fuer_cutter object among flat fields was flattened by the model
+    into <parameter> leaks -> generation_failed). The four cutter_* fields are
+    now top-level strings."""
     s = tb._TITLE_TOOL_INPUT_SCHEMA
     assert "$defs" not in s
-    fc = s["properties"]["fuer_cutter"]
-    assert fc.get("type") == "object"
-    assert "$ref" not in fc and "anyOf" not in fc
-    assert {"schnitt_pace", "hook_strategie", "empfohlene_laengen", "was_diese_woche"}.issubset(
-        fc["properties"].keys()
-    )
-    # Optionality preserved via required-list, not the dropped null-union.
-    assert s["required"] == ["headline", "tldr", "plattform_vergleich", "data_caveats"]
-    # No $ref leftover anywhere in the schema (all nested objects inlined).
+    assert "fuer_cutter" not in s["properties"]
+    for f in ("cutter_schnitt_pace", "cutter_hook_strategie",
+              "cutter_empfohlene_laengen", "cutter_was_diese_woche"):
+        assert s["properties"][f].get("type") == "string"
+    # No nested objects / anyOf / $ref anywhere -> no leak surface left.
+    assert all(p.get("type") != "object" for p in s["properties"].values())
     assert "$ref" not in json.dumps(s)
+    assert s["required"] == ["headline", "tldr", "plattform_vergleich", "data_caveats"]
 
 
-def test_generate_title_brief_with_fuer_cutter_object(monkeypatch):
-    """Regression for the Mortal-Kombat failure: a brief with a filled
-    fuer_cutter OBJECT validates + survives the pipeline (previously the field
-    arrived as a string and schema-validation failed -> generation_failed)."""
+def test_generate_title_brief_with_flat_cutter_fields(monkeypatch):
+    """Regression for the Mortal-Kombat failure: the cutter takeaways now arrive
+    as four flat top-level strings and validate + survive the pipeline (no more
+    nested object -> no <parameter> leak -> no generation_failed)."""
     agg = _make_agg()
     monkeypatch.setattr(tb, "aggregate_title", lambda *a, **k: agg)
-    body = _valid_body(fuer_cutter={
-        "schnitt_pace": "Top-Cuts unter 25s",
-        "hook_strategie": "Cold-Open mit Fight-Beat",
-        "empfohlene_laengen": "20-25s",
-        "was_diese_woche": "Kurze Fight-Cuts ziehen, lange Featurettes laufen leer.",
-    })
+    body = _valid_body(
+        cutter_schnitt_pace="Top-Cuts unter 25s",
+        cutter_hook_strategie="Cold-Open mit Fight-Beat",
+        cutter_empfohlene_laengen="20-25s",
+        cutter_was_diese_woche="Kurze Fight-Cuts ziehen, lange Featurettes laufen leer.",
+    )
     _patch_llm(monkeypatch, _fake_msg(body))
 
     report = tb.generate_title_brief(None, "Mortal Kombat")
     assert report.llm_output is not None
-    assert report.llm_output.fuer_cutter is not None
-    assert report.llm_output.fuer_cutter.schnitt_pace == "Top-Cuts unter 25s"
-    assert report.llm_output.fuer_cutter.hook_strategie == "Cold-Open mit Fight-Beat"
+    assert report.llm_output.cutter_schnitt_pace == "Top-Cuts unter 25s"
+    assert report.llm_output.cutter_hook_strategie == "Cold-Open mit Fight-Beat"
+    assert report.llm_output.cutter_empfohlene_laengen == "20-25s"
+    assert report.llm_output.cutter_was_diese_woche.startswith("Kurze Fight-Cuts")
 
 
 def test_generate_title_brief_unknown_returns_none(monkeypatch):
