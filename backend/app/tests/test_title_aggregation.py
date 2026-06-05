@@ -9,7 +9,11 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.models.entities import Asset, AssetType, Channel, Market, Post, ReviewStatus, Title
-from app.services.title_aggregation import aggregate_title
+from app.services.title_aggregation import (
+    AmbiguousTitleError,
+    _resolve_title,
+    aggregate_title,
+)
 
 
 @pytest.fixture
@@ -134,3 +138,65 @@ def test_aggregate_title_resolves_by_substring(session):
     # substring match ("Test" -> "Test Movie")
     agg = aggregate_title(session, "Test", now=now)
     assert agg is not None and agg.title_original == "Test Movie"
+
+
+# --- _resolve_title: deterministic, ambiguity -> error (Defekt 1) ----------
+
+def _named_title(session, *, name, tmdb_id) -> Title:
+    t = Title(id=uuid4(), title_original=name, content_type="Film", tmdb_id=tmdb_id)
+    session.add(t)
+    session.commit()
+    return t
+
+
+def test_resolve_exact_unique(session):
+    t = _named_title(session, name="Solo Title", tmdb_id=1)
+    assert _resolve_title(session, "Solo Title").id == t.id
+    # case-insensitive
+    assert _resolve_title(session, "solo title").id == t.id
+
+
+def test_resolve_by_uuid_and_uuid_string(session):
+    t = _named_title(session, name="By Id", tmdb_id=2)
+    assert _resolve_title(session, t.id).id == t.id
+    assert _resolve_title(session, str(t.id)).id == t.id
+
+
+def test_resolve_two_exact_raises_ambiguous(session):
+    a = _named_title(session, name="Dup", tmdb_id=10)
+    b = _named_title(session, name="dup", tmdb_id=11)  # same name, diff case
+    with pytest.raises(AmbiguousTitleError) as exc:
+        _resolve_title(session, "Dup")
+    ids = {c["title_id"] for c in exc.value.candidates}
+    assert ids == {str(a.id), str(b.id)}
+    # candidate carries tmdb_id for disambiguation
+    assert {c["tmdb_id"] for c in exc.value.candidates} == {10, 11}
+
+
+def test_resolve_single_substring(session):
+    t = _named_title(session, name="The Matrix Reloaded", tmdb_id=20)
+    assert _resolve_title(session, "Reloaded").id == t.id
+
+
+def test_resolve_multi_substring_no_exact_raises_ambiguous(session):
+    a = _named_title(session, name="Mortal Kombat", tmdb_id=460465)
+    b = _named_title(session, name="Mortal Kombat II", tmdb_id=931285)
+    with pytest.raises(AmbiguousTitleError) as exc:
+        _resolve_title(session, "Mortal")  # no exact, two substrings
+    ids = {c["title_id"] for c in exc.value.candidates}
+    assert ids == {str(a.id), str(b.id)}
+
+
+def test_resolve_no_match_returns_none(session):
+    _named_title(session, name="Only One", tmdb_id=30)
+    assert _resolve_title(session, "Nope") is None
+
+
+def test_resolve_mk_exact_is_deterministic(session):
+    """Exact 'Mortal Kombat' resolves the 2021 film deterministically even
+    though 'Mortal Kombat II' shares the substring; MKII is only reachable via
+    its exact name / tmdb_id / title_id, never an alphabetical guess."""
+    mk = _named_title(session, name="Mortal Kombat", tmdb_id=460465)
+    mk2 = _named_title(session, name="Mortal Kombat II", tmdb_id=931285)
+    assert _resolve_title(session, "Mortal Kombat").id == mk.id
+    assert _resolve_title(session, "Mortal Kombat II").id == mk2.id
