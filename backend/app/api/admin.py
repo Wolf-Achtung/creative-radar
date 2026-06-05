@@ -58,6 +58,7 @@ from app.services.budget_check import (
 from app.core.feature_flags import is_segment_roundups_enabled
 from app.models.entities import ChannelSegment
 from app.services.insight_engine import PAIRS, generate_and_persist_report
+from app.services.title_brief import generate_and_persist_title_brief
 from app.services.segment_roundup import (
     ROUNDUP_DEFAULT_TOP_POSTS_N,
     ROUNDUP_DEFAULT_WINDOW_DAYS,
@@ -594,6 +595,56 @@ def regenerate_insights(
         })
 
     return {"results": results, "total_cost_cents": total_cost_cents}
+
+
+@router.post("/insights/title/regenerate")
+def regenerate_title_insight(
+    title: str = Query(
+        ...,
+        description="Title-ID (UUID) ODER Titel-Name (case-insensitive, dann Substring).",
+    ),
+    window_days: int = Query(30, ge=7, le=365),
+    replace: bool = Query(
+        False,
+        description=(
+            "Ohne ``replace=true`` liefert der Endpoint einen bereits "
+            "persistierten Titel-Brief der laufenden ISO-Woche aus dem Cache. "
+            "Mit ``replace=true`` echte Neugenerierung + UPSERT "
+            "(Last-Write-Wins). Operator-only — ~$0.40 Opus-Cost pro Lauf."
+        ),
+    ),
+    session: Session = Depends(get_session),
+):
+    """Manueller Titel-Brief-Trigger (C5) — generiert/cached EINEN Titel-Brief
+    über alle Channels/Plattformen/Märkte. Auth wie ``/insights/regenerate``
+    (Bearer + Admin-Session via Router-Dependency). 404 bei unbekanntem Titel.
+    Keine Cron-Integration; Titel-Auswahl ist ein separater späterer Schritt.
+    """
+    try:
+        report = generate_and_persist_title_brief(
+            session, title, window_days=window_days, force=True, replace=replace,
+        )
+    except (AnthropicAuthError, AnthropicRateLimitError, AnthropicAPIError) as exc:
+        logger.warning("regenerate-title-insight failed for title=%s: %s", title, exc)
+        raise HTTPException(status_code=502, detail=f"Anthropic-Fehler: {exc}") from exc
+
+    if report is None:
+        raise HTTPException(status_code=404, detail=f"Unbekannter Titel: {title!r}")
+
+    cost_cents = (
+        int(round(report.cost_usd_estimate * 100)) if report.cost_usd_estimate else 0
+    )
+    return {
+        "title_id": report.title_id,
+        "title_original": report.title_original,
+        "iso_year": report.iso_year,
+        "iso_week": report.iso_week,
+        "window_days": report.window_days,
+        "status": "ok" if report.llm_output is not None else "generation_failed",
+        "cost_cents": cost_cents,
+        "llm_output": report.llm_output.model_dump(mode="json") if report.llm_output else None,
+        "raw_llm_text": report.raw_llm_text if report.llm_output is None else None,
+    }
 
 
 # ---------- Segment-Roundup-Trigger (Master-Plan-Schritt-3 Pilot) -----

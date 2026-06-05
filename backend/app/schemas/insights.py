@@ -675,6 +675,53 @@ class InsightReport(BaseModel):
     )
 
 
+class TitleLLMReport(BaseModel):
+    """Title-centric brief (Variante 1) — describes ONE title across all
+    channels/platforms/markets. Mirrors the LLMReport contract: required core
+    (headline, tldr, plattform_vergleich, data_caveats) + optional tail. The
+    #224 truncation guard catches a dropped required field (schema-fail ->
+    persist-skip), so a truncated title brief is never silently persisted.
+
+    Field names are title-specific (plattform_vergleich / markt_vergleich /
+    verlauf) — NOT the pair brief's cross_market_insight / aktuell_im_fokus.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    headline: str
+    tldr: str
+    plattform_vergleich: str  # core: what carries where for THIS title, with numbers
+    data_caveats: list[str]
+    # Optional tail — null when the data doesn't support the section.
+    markt_vergleich: Optional[str] = None        # null for single-market titles
+    verlauf: Optional[str] = None                # campaign arc; filled when >=2 weekly buckets
+    top_post_kommentar: Optional[str] = None
+    fuer_cutter: Optional[FuerCutter] = None
+    cited_post_ids: list[str] = Field(default_factory=list)
+
+
+class TitleInsightReport(BaseModel):
+    """Pydantic wrapper for a generated title brief — the title analogue of
+    ``InsightReport``. ``aggregation`` is the serialised ``TitleAggregation``
+    dict (the dataclass from ``services.title_aggregation``)."""
+    title_id: str
+    title_original: str
+    iso_week: int
+    iso_year: int
+    window_days: int
+    generated_at: datetime
+    model: str
+    dry_run: bool = False
+    llm_output: Optional[TitleLLMReport] = None
+    aggregation: dict
+    cost_usd_estimate: Optional[float] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    raw_llm_text: Optional[str] = Field(
+        default=None,
+        description="Raw assistant text — populated only when JSON parsing fails.",
+    )
+
+
 class PairInfo(BaseModel):
     """One enabled pair as exposed by ``GET /api/pairs`` (Sprint 2026-05-12).
 
