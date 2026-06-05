@@ -127,6 +127,44 @@ def test_rematch_creates_candidate_for_fuzzy_whitelist_match():
         assert candidates[0].asset_id == asset.id
 
 
+def test_rematch_open_fallback_for_ambiguous_no_release():
+    """Variante D Teil 3: matcht der Text zwei gleich spezifische Titel
+    derselben Franchise ohne Release-Datum, löst weder Spezifität noch Zeit
+    eindeutig auf → KEINE Zuweisung (title_id bleibt None), aber ein
+    OPEN-TitleCandidate zur manuellen Prüfung."""
+    with _session() as session:
+        a = Title(title_original="Alpha One", franchise="Saga", aliases=["Saga Collection"], active=True)
+        b = Title(title_original="Alpha Two", franchise="Saga", aliases=["Saga Collection"], active=True)
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(a)
+        session.add(b)
+        session.add(channel)
+        session.commit()
+        session.refresh(channel)
+
+        post = Post(channel_id=channel.id, post_url="https://example.com/post-ambig",
+                    caption="Behind the Saga Collection shoot")
+        session.add(post)
+        session.commit()
+        session.refresh(post)
+
+        asset = Asset(post_id=post.id, title_id=None, ai_summary_de="Saga Collection feature")
+        session.add(asset)
+        session.commit()
+        session.refresh(asset)
+
+        summary = rematch_unassigned_assets(session)
+        refreshed = session.get(Asset, asset.id)
+        candidates = session.exec(select(TitleCandidate)).all()
+
+        assert summary.auto_matched == 0
+        assert refreshed is not None
+        assert refreshed.title_id is None          # im Zweifel NICHTS zuweisen
+        assert summary.still_unmatched == 1
+        assert len(candidates) == 1                # OPEN-Kandidat zur Review
+        assert candidates[0].asset_id == asset.id
+
+
 def test_rematch_batches_commits_for_many_auto_matches(monkeypatch):
     """Sprint 10g: with ``commit_batch_size=10`` and 25 matched assets we
     expect 3 batched commits inside the loop (2 full batches × 10 + 1

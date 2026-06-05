@@ -19,6 +19,7 @@ from app.models.entities import (
     Market,
     Post,
     ReviewStatus,
+    Title,
 )
 from app.services import visual_analysis
 from app.services.screenshot_capture import VisualEvidenceResult
@@ -141,6 +142,29 @@ def test_done_when_vision_returns_useful_json(session: Session,
     # in-repo pipeline. 'done' remains tolerated by the selector and counter
     # for 14d, but new writes use 'analyzed'.
     assert result.visual_analysis_status == "analyzed"
+
+
+def test_vision_no_longer_assigns_title_id(session: Session,
+                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    """Variante D / X: Vision weist keine title_id mehr zu. Selbst wenn ein
+    aktiver Titel als Substring im OCR/Caption steht, bleibt das Asset
+    title_id=None — die Zuweisung übernimmt der nachgelagerte Rematch über
+    find_best_title_match (D-Logik), nicht der frühere ungeschützte Matcher."""
+    title = Title(title_original="Solo", franchise="Solo", active=True)
+    session.add(title)
+    session.commit()
+
+    asset = _make(session)
+    asset.ocr_text = "Solo official trailer"
+    session.add(asset)
+    session.commit()
+
+    monkeypatch.setattr(visual_analysis, "capture_asset_screenshot", lambda a: _captured(a))
+    _mock_openai(monkeypatch, return_content='{"ocr_text": "Solo", "visual_summary_de": "Trailer"}')
+
+    result = analyze_asset_visual(session, asset)
+
+    assert result.title_id is None
 
 
 def _sent_image_url(fake_client: MagicMock) -> str:

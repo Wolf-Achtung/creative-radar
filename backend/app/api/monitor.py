@@ -163,7 +163,9 @@ def _phase_a_create_post(
             "detected_keywords": item.get("detected_keywords") or [],
             "suggested_title": item.get("suggested_title"),
         }
-        match = find_best_title_match(session, caption, fields=match_fields)
+        match = find_best_title_match(
+            session, caption, fields=match_fields, published_at=item.get("published_at")
+        )
         title = match.title if is_safe_auto_match(match) else None
         if only_whitelist_matches and not title:
             return None, None, None, float(match.confidence), "no_match", caption
