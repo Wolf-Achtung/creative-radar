@@ -1717,11 +1717,16 @@ export default function InsightWeekly({ pair }) {
           <StaleWarning generatedAt={report.generated_at} />
 
           {/* Sprint 28.05.2026 (IA-Umbau, Baustein 1) — Kern-Reihenfolge:
-              Headline+TLDR → Drei Maerkte → Breakouts → Top-Posts. Davor:
-              Hero/Banner/StaleWarning/Notes (Meta + Caveats). Die
+              Headline+TLDR → Top-Posts → Drei Maerkte → Breakouts. Davor:
+              Hero/Banner/StaleWarning (Meta + Caveats). Die
               LLM-Detail-Sektionen rendern weiter unten in LLMOutput
               (kommen in Commit 2 in Klapp-Container). */}
           <LLMHeadlineCard output={report.llm_output} raw={report.raw_llm_text} />
+
+          <TopRankingSection
+            aggregation={report.aggregation}
+            pairKey={pair}
+          />
 
           <CrossMarketHeadlineSection
             aggregation={report.aggregation}
@@ -1729,11 +1734,6 @@ export default function InsightWeekly({ pair }) {
           />
 
           <BreakoutsSection
-            aggregation={report.aggregation}
-            pairKey={pair}
-          />
-
-          <TopRankingSection
             aggregation={report.aggregation}
             pairKey={pair}
           />
