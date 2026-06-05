@@ -3,6 +3,7 @@ call are mocked — no DB, no network. Exercises prompt build, the shared
 _run_brief_llm path (happy/truncation), soft citation, dry-run, unknown title."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -122,6 +123,45 @@ def test_generate_title_brief_happy_path(monkeypatch):
     assert report.iso_week == datetime(2026, 6, 4, tzinfo=timezone.utc).isocalendar().week
     assert report.cost_usd_estimate is not None
     assert report.input_tokens == 4000
+
+
+def test_title_tool_schema_inlines_nested_objects():
+    """Bugfix: the forced tool-use input_schema must present fuer_cutter as a
+    DIRECT nested object (no $ref / anyOf), so Claude fills it as JSON instead
+    of leaking <parameter ...> XML into a string (Mortal-Kombat failure)."""
+    s = tb._TITLE_TOOL_INPUT_SCHEMA
+    assert "$defs" not in s
+    fc = s["properties"]["fuer_cutter"]
+    assert fc.get("type") == "object"
+    assert "$ref" not in fc and "anyOf" not in fc
+    assert {"schnitt_pace", "hook_strategie", "empfohlene_laengen", "was_diese_woche"}.issubset(
+        fc["properties"].keys()
+    )
+    # Optionality preserved via required-list, not the dropped null-union.
+    assert s["required"] == ["headline", "tldr", "plattform_vergleich", "data_caveats"]
+    # No $ref leftover anywhere in the schema (all nested objects inlined).
+    assert "$ref" not in json.dumps(s)
+
+
+def test_generate_title_brief_with_fuer_cutter_object(monkeypatch):
+    """Regression for the Mortal-Kombat failure: a brief with a filled
+    fuer_cutter OBJECT validates + survives the pipeline (previously the field
+    arrived as a string and schema-validation failed -> generation_failed)."""
+    agg = _make_agg()
+    monkeypatch.setattr(tb, "aggregate_title", lambda *a, **k: agg)
+    body = _valid_body(fuer_cutter={
+        "schnitt_pace": "Top-Cuts unter 25s",
+        "hook_strategie": "Cold-Open mit Fight-Beat",
+        "empfohlene_laengen": "20-25s",
+        "was_diese_woche": "Kurze Fight-Cuts ziehen, lange Featurettes laufen leer.",
+    })
+    _patch_llm(monkeypatch, _fake_msg(body))
+
+    report = tb.generate_title_brief(None, "Mortal Kombat")
+    assert report.llm_output is not None
+    assert report.llm_output.fuer_cutter is not None
+    assert report.llm_output.fuer_cutter.schnitt_pace == "Top-Cuts unter 25s"
+    assert report.llm_output.fuer_cutter.hook_strategie == "Cold-Open mit Fight-Beat"
 
 
 def test_generate_title_brief_unknown_returns_none(monkeypatch):

@@ -46,7 +46,53 @@ _TITLE_TOOL_DESCRIPTION = (
     "plattform_vergleich, data_caveats, plus the optional sections) — do NOT "
     "nest them under any wrapper key. Do not return any prose outside the tool call."
 )
-_TITLE_TOOL_INPUT_SCHEMA: dict[str, Any] = TitleLLMReport.model_json_schema()
+
+
+def _inline_tool_schema(schema: dict) -> dict:
+    """Inline ``$defs`` ``$ref``s and collapse ``anyOf:[T, null]`` -> ``T`` so
+    the forced tool-use input_schema presents nested objects DIRECTLY.
+
+    Why: Mortal-Kombat's first title brief came back with ``fuer_cutter`` as a
+    STRING carrying ``<parameter name="schnitt_pace">…`` XML instead of a JSON
+    object — Claude's known tool-use leak when a nested optional object is
+    expressed as ``anyOf:[{"$ref": …}, {"type":"null"}]`` (the Pydantic default
+    for ``Optional[FuerCutter]``). Claude fills *inline* nested objects
+    reliably but improvises the XML format on the ``$ref`` indirection. The
+    content was good; only the schema shape sent to the API was fragile.
+
+    Optionality is preserved via the top-level ``required`` list (Pydantic
+    lists only the non-default fields there), so dropping the ``null`` union
+    does NOT make a field mandatory. The pair brief carries the same latent
+    risk but is left untouched (separate path); only the title tool schema is
+    hardened here.
+    """
+    defs = schema.get("$defs", {})
+
+    def resolve(node: Any) -> Any:
+        if isinstance(node, dict):
+            if "$ref" in node:
+                ref = node["$ref"].split("/")[-1]
+                return resolve(dict(defs.get(ref, {})))
+            if "anyOf" in node:
+                variants = [v for v in node["anyOf"] if v.get("type") != "null"]
+                if len(variants) == 1:
+                    merged = resolve(variants[0])
+                    for carry in ("default", "description", "title"):
+                        if carry in node and carry not in merged:
+                            merged[carry] = node[carry]
+                    return merged
+                return {**node, "anyOf": [resolve(v) for v in node["anyOf"]]}
+            return {k: resolve(v) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [resolve(v) for v in node]
+        return node
+
+    out = resolve(dict(schema))
+    out.pop("$defs", None)
+    return out
+
+
+_TITLE_TOOL_INPUT_SCHEMA: dict[str, Any] = _inline_tool_schema(TitleLLMReport.model_json_schema())
 
 
 # Title-specific task + output schema, appended to the shared BRIEF_VOICE.
