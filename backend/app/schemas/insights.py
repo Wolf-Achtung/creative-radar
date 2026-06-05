@@ -503,6 +503,13 @@ class TitelImFokus(BaseModel):
     # aus der ``PairAggregation``, auf denen die ``kennzahl`` beruht
     # (kann mehrere Posts oder einen ``match_key`` einschliessen).
     cited_post_ids: list[str] = Field(default_factory=list)
+    # V3 Sprint 1 — film-zentrierte Übersicht. ``title_id`` wird als
+    # Post-LLM-Enrichment deterministisch über die Kette
+    # post_url -> Post -> Asset.title_id gesetzt (niemals über den Namen).
+    # Optional + Default None: alte persistierte Briefe ohne das Feld
+    # deserialisieren weiter valide; bleibt None, wenn die Kette nichts
+    # Eindeutiges findet (Nicht-Film, kein Matcher-Treffer, oder >1 title_id).
+    title_id: Optional[str] = None
 
     @field_validator("verdict", mode="before")
     @classmethod
@@ -944,3 +951,41 @@ class SegmentRoundupListResponse(BaseModel):
     eigene Segment-Liste als "noch kein Roundup"-Zustand.
     """
     roundups: list[SegmentRoundupSummary]
+
+
+# --- V3 Sprint 1: film-zentrierte Posts-pro-Titel-Übersicht ---------------
+# Bewusst schlankes Read-Modell — NUR was die Detailseite (Sprint 2) zeigt.
+# Kein Brief-Ballast (activation_rate/breakout_score). Spätere Felder
+# (Kommentare, Top-Ten) werden explizit ergänzt, nicht auf Vorrat.
+
+class TitlePostRef(BaseModel):
+    """Ein einzelner Post in der Film-Übersicht."""
+    post_url: Optional[str] = None
+    platform: str
+    market: str
+    thumbnail_url: Optional[str] = None
+    views: Optional[int] = None
+    published_at: Optional[datetime] = None
+
+
+class TitlePlatformPosts(BaseModel):
+    """Posts eines Markts, gruppiert nach Plattform."""
+    platform: str
+    posts: list[TitlePostRef]
+
+
+class TitleMarketPosts(BaseModel):
+    """Ein Markt-Bucket (DE/US/UK) mit seinen Plattform-Gruppen."""
+    market: str
+    platforms: list[TitlePlatformPosts]
+
+
+class TitlePostsResponse(BaseModel):
+    """Antwort fuer ``GET /api/insights/title/{title_id}/posts``. ``markets``
+    enthaelt immer die drei Spalten DE/US/UK (ggf. mit leerer
+    ``platforms``-Liste) — title_id ohne Posts liefert wohlgeformte leere
+    Gruppen, keinen Fehler."""
+    title_id: str
+    title_original: Optional[str] = None
+    total_posts: int
+    markets: list[TitleMarketPosts]

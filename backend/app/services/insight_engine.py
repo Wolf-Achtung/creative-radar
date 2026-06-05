@@ -3858,6 +3858,44 @@ def _run_brief_llm(
     )
 
 
+def _resolve_title_id_for_post_url(session: Session, post_url: Optional[str]) -> Optional[str]:
+    """Deterministic post_url -> Post -> Asset.title_id resolution (V3 Sprint 1).
+
+    ``post_url`` is a unique key (``Post.post_url``), so this never goes
+    through the title NAME (which would reintroduce the MK/MKII ambiguity
+    fixed in #230/#231). Returns the stringified title_id only when the post's
+    assets carry EXACTLY ONE distinct non-NULL title_id; otherwise None
+    (no post, non-film, matcher not (yet) assigned, or >1 distinct -> no guess).
+    """
+    if not post_url:
+        return None
+    post = session.exec(select(Post).where(Post.post_url == post_url)).first()
+    if post is None:
+        return None
+    title_ids = {
+        tid for tid in session.exec(
+            select(Asset.title_id).where(
+                Asset.post_id == post.id, Asset.title_id.is_not(None)
+            )
+        ).all()
+    }
+    if len(title_ids) != 1:
+        return None
+    return str(next(iter(title_ids)))
+
+
+def _enrich_fokus_title_ids(session: Session, llm_output) -> None:
+    """In-place: set ``title_id`` on each ``aktuell_im_fokus`` item via the
+    deterministic chain. No-op when the field is absent/empty. Existing
+    non-None values are preserved (idempotent)."""
+    if llm_output is None:
+        return
+    for item in getattr(llm_output, "aktuell_im_fokus", None) or []:
+        if getattr(item, "title_id", None):
+            continue
+        item.title_id = _resolve_title_id_for_post_url(session, getattr(item, "post_url", None))
+
+
 def generate_weekly_report(
     session: Session,
     pair_key: str,
@@ -3938,6 +3976,12 @@ def generate_weekly_report(
         ),
         strict_citations=bool(settings.insight_citation_strict_enforce),
     )
+
+    # V3 Sprint 1 — Post-LLM-Enrichment: title_id pro Fokus-Item über die
+    # deterministische Kette post_url -> Post -> Asset.title_id setzen
+    # (niemals über den Namen). Macht die Filmnamen im Frontend (Sprint 2)
+    # auf eine film-zentrierte Ansicht verlinkbar.
+    _enrich_fokus_title_ids(session, result.llm_output)
 
     return InsightReport(
         pair_key=agg.pair_key,
