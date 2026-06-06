@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { endpoints } from './api/client';
+import { endpoints, proxyImageUrl } from './api/client';
 import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
 
@@ -1501,6 +1501,191 @@ function TopRankingSection({ aggregation, pairKey }) {
   );
 }
 
+// ---- V3 Sprint 2: film-zentrierte Detailansicht --------------------------
+//
+// Inline-Expand in der Overview (KEIN Router): ein Dropdown speist sich aus
+// den bereits geladenen ``aktuell_im_fokus``-Titeln (nur die mit gesetzter
+// ``title_id`` — der deterministische Enrichment-Wert aus V3 Sprint 1). Die
+// Auswahl lädt ``GET /api/insights/title/{id}/posts`` und rendert die Posts
+// in drei festen Markt-Spalten DE/US/UK, je Spalte nach Plattform gruppiert.
+//
+// Die drei Spalten werden IMMER gerendert (Shape-Garantie des Backends +
+// defensives Markt-Lookup), leere Märkte zeigen einen dezenten Hinweis statt
+// zu verschwinden — so bleibt der DE/US/UK-Vergleich visuell stabil.
+
+const TITLE_DETAIL_MARKETS = ['DE', 'US', 'UK'];
+
+function FilmPostCard({ post }) {
+  const platform = post.platform || 'tiktok';
+  const { relative, absolute } = formatRelativeDate(post.published_at);
+  // thumbnail_url ist eine CDN-URL (Instagram/TikTok/YouTube) — über den
+  // Backend-Image-Proxy leiten, sonst greift Hotlink-Protection. proxyImageUrl
+  // gibt Nicht-CDN-/leere Werte unverändert zurück.
+  const thumbSrc = proxyImageUrl(post.thumbnail_url);
+  const [imageFailed, setImageFailed] = useState(!thumbSrc);
+  return (
+    <a
+      href={post.post_url || '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="film-post-card"
+    >
+      <div
+        className={
+          imageFailed
+            ? `film-post-thumb platform-${platform} fallback-active`
+            : `film-post-thumb platform-${platform}`
+        }
+      >
+        {thumbSrc && !imageFailed && (
+          <img src={thumbSrc} alt="" loading="lazy" onError={() => setImageFailed(true)} />
+        )}
+        {imageFailed && (
+          <div className="thumbnail-fallback">
+            <span className="thumbnail-fallback-content fallback-acronym">
+              {PLATFORM_ACRONYM[platform] || 'TT'}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="film-post-body">
+        <span className={`platform-pill platform-${platform}`}>
+          {PLATFORM_LABEL[platform] || platform}
+        </span>
+        <div className="film-post-metric">
+          <strong>{post.views != null ? formatRankedNumber(post.views) : '—'}</strong>
+          <span>Aufrufe</span>
+        </div>
+        {relative && (
+          <span className="film-post-date" title={absolute}>{relative}</span>
+        )}
+      </div>
+    </a>
+  );
+}
+
+function FilmMarketColumn({ market, marketData }) {
+  const platforms = Array.isArray(marketData?.platforms) ? marketData.platforms : [];
+  const groups = platforms.filter((pg) => pg.posts?.length > 0);
+  return (
+    <div className="film-market-column">
+      <h4>{market}</h4>
+      {groups.length > 0 ? (
+        groups.map((pg) => (
+          <div key={pg.platform} className="film-platform-group">
+            <p className="film-platform-label">{PLATFORM_LABEL[pg.platform] || pg.platform}</p>
+            <div className="film-post-list">
+              {pg.posts.map((post, i) => (
+                <FilmPostCard key={post.post_url || `${market}-${pg.platform}-${i}`} post={post} />
+              ))}
+            </div>
+          </div>
+        ))
+      ) : (
+        <p className="film-market-empty">Keine Posts</p>
+      )}
+    </div>
+  );
+}
+
+// Dropdown-Quelle: aktuell_im_fokus-Titel mit title_id (dedupliziert,
+// Reihenfolge wie im Brief). Ohne solche Titel rendert die Sektion nichts.
+function FilmDetailSection({ fokusItems }) {
+  const titleOptions = useMemo(() => {
+    const seen = new Map();
+    for (const item of fokusItems || []) {
+      if (item?.title_id && !seen.has(item.title_id)) {
+        seen.set(item.title_id, item.titel || 'Unbenannter Titel');
+      }
+    }
+    return Array.from(seen, ([id, name]) => ({ id, name }));
+  }, [fokusItems]);
+
+  const [selectedId, setSelectedId] = useState('');
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'done' | 'error'
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setData(null);
+      setStatus('idle');
+      setError(null);
+      return undefined;
+    }
+    // cancelled-Guard: schneller Wechsel des Dropdowns darf keine veraltete
+    // Antwort über eine neuere schreiben.
+    let cancelled = false;
+    setStatus('loading');
+    setError(null);
+    endpoints
+      .titlePosts(selectedId)
+      .then((res) => {
+        if (!cancelled) { setData(res); setStatus('done'); }
+      })
+      .catch((err) => {
+        if (!cancelled) { setError(err.message || String(err)); setStatus('error'); }
+      });
+    return () => { cancelled = true; };
+  }, [selectedId]);
+
+  if (titleOptions.length === 0) return null;
+
+  const marketByName = {};
+  if (Array.isArray(data?.markets)) {
+    for (const m of data.markets) marketByName[m.market] = m;
+  }
+
+  return (
+    <section className="card film-detail-section">
+      <div className="film-detail-header">
+        <h3>Film-Detailansicht</h3>
+        <select
+          className="film-detail-select"
+          value={selectedId}
+          onChange={(e) => setSelectedId(e.target.value)}
+          aria-label="Film auswählen"
+        >
+          <option value="">Film auswählen …</option>
+          {titleOptions.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {status === 'idle' && (
+        <p className="film-detail-hint">
+          Wähle einen Titel, um alle Posts nach Markt (DE / US / UK) und Plattform zu sehen.
+        </p>
+      )}
+      {status === 'loading' && (
+        <p className="film-detail-hint">Lade Posts …</p>
+      )}
+      {status === 'error' && (
+        <p className="film-detail-error">Konnte Posts nicht laden: {error}</p>
+      )}
+      {status === 'done' && data && (
+        data.total_posts === 0 ? (
+          <p className="film-detail-empty">
+            Für „{data.title_original || 'diesen Titel'}" liegen in diesem Zeitraum noch keine Posts vor.
+          </p>
+        ) : (
+          <>
+            <p className="film-detail-meta">
+              <strong>{data.title_original || 'Titel'}</strong> · {formatNumber(data.total_posts)} Posts
+            </p>
+            <div className="film-market-grid">
+              {TITLE_DETAIL_MARKETS.map((m) => (
+                <FilmMarketColumn key={m} market={m} marketData={marketByName[m]} />
+              ))}
+            </div>
+          </>
+        )
+      )}
+    </section>
+  );
+}
+
 // 60s slow-marker — purely informational ("dauert länger als erwartet"),
 // the request itself is NOT aborted because Opus 4.7 can legitimately take
 // 30-90s on the largest reports and aborting would surface a misleading
@@ -1722,6 +1907,14 @@ export default function InsightWeekly({ pair }) {
               LLM-Detail-Sektionen rendern weiter unten in LLMOutput
               (kommen in Commit 2 in Klapp-Container). */}
           <LLMHeadlineCard output={report.llm_output} raw={report.raw_llm_text} />
+
+          {/* V3 Sprint 2 — film-zentrierte Detailansicht. Dropdown speist
+              sich aus den aktuell_im_fokus-Titeln mit title_id; Auswahl lädt
+              die Posts-pro-Titel-Übersicht inline. Rendert nichts, wenn kein
+              Fokus-Titel eine title_id trägt. */}
+          {report.llm_output?.aktuell_im_fokus?.length > 0 && (
+            <FilmDetailSection fokusItems={report.llm_output.aktuell_im_fokus} />
+          )}
 
           <TopRankingSection
             aggregation={report.aggregation}
