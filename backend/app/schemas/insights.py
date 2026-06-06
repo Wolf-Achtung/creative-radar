@@ -963,6 +963,11 @@ class TitlePostRef(BaseModel):
     post_url: Optional[str] = None
     platform: str
     market: str
+    # V3 Sprint 2 (Thumbnail-Fix): asset_id ermöglicht dem Frontend den
+    # ``/api/thumbnails/{asset_id}``-Proxy (plattformspezifischer Referer),
+    # der TikTok/Instagram-Hotlinkschutz schlägt — der generische
+    # ``/api/img``-Proxy sendet einen leeren Referer und wird geblockt.
+    asset_id: Optional[str] = None
     thumbnail_url: Optional[str] = None
     views: Optional[int] = None
     published_at: Optional[datetime] = None
