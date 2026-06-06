@@ -1,9 +1,9 @@
 from uuid import UUID
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from app.database import get_session
-from app.models.entities import Asset, Channel, Post, ReviewStatus, Title
+from app.models.entities import Asset, CandidateStatus, Channel, Post, ReviewStatus, Title, TitleCandidate
 from app.schemas.dto import AssetReviewUpdate
 from app.admin_session import require_admin_session
 from app.services.match_key import slugify_match_key
@@ -91,13 +91,69 @@ def _card_for(session: Session, asset: Asset) -> dict:
     return _asset_card(asset, post, channel, title)
 
 
+def _cards_for_assets(session: Session, assets: list[Asset]) -> list[dict]:
+    """Batch-Variante von ``_card_for`` — drei Bulk-Selects (Posts, Channels,
+    Titles) statt 3 ``session.get`` pro Asset. Beseitigt das N+1, das bei der
+    Voll-Liste (~4k Assets → ~12k Queries) den Endpoint blockierte.
+    """
+    if not assets:
+        return []
+    post_ids = {a.post_id for a in assets if a.post_id}
+    posts_by_id: dict = {}
+    if post_ids:
+        posts_by_id = {
+            p.id: p for p in session.exec(select(Post).where(Post.id.in_(post_ids))).all()
+        }
+    channel_ids = {p.channel_id for p in posts_by_id.values() if p.channel_id}
+    channels_by_id: dict = {}
+    if channel_ids:
+        channels_by_id = {
+            c.id: c for c in session.exec(select(Channel).where(Channel.id.in_(channel_ids))).all()
+        }
+    title_ids = {a.title_id for a in assets if a.title_id}
+    titles_by_id: dict = {}
+    if title_ids:
+        titles_by_id = {
+            t.id: t for t in session.exec(select(Title).where(Title.id.in_(title_ids))).all()
+        }
+    cards = []
+    for asset in assets:
+        post = posts_by_id.get(asset.post_id) if asset.post_id else None
+        channel = channels_by_id.get(post.channel_id) if post else None
+        title = titles_by_id.get(asset.title_id) if asset.title_id else None
+        cards.append(_asset_card(asset, post, channel, title))
+    return cards
+
+
 @router.get("")
-def list_assets(review_status: ReviewStatus | None = None, session: Session = Depends(get_session)):
+def list_assets(
+    review_status: ReviewStatus | None = None,
+    candidate_queue: bool = False,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+):
+    """Review-Liste der Assets, neueste zuerst, paginiert (Default 50).
+
+    - ``candidate_queue=true``: NUR Assets mit mindestens einem OPEN-
+      ``TitleCandidate`` (Default-Ansicht des "Treffer prüfen"-Tabs — macht
+      das Candidate-Review ohne 4k-Karten-Freeze sofort nutzbar).
+    - ``review_status``: optionaler Status-Filter (Rückwärtskompat, Enum).
+    - ``limit``/``offset``: Pagination für den "Alle anzeigen"-Fall.
+
+    Karten werden via ``_cards_for_assets`` gebaut (Bulk-Fetch statt N+1).
+    """
     statement = select(Asset).order_by(Asset.created_at.desc())
+    if candidate_queue:
+        open_candidate_asset_ids = select(TitleCandidate.asset_id).where(
+            TitleCandidate.status == CandidateStatus.OPEN
+        )
+        statement = statement.where(Asset.id.in_(open_candidate_asset_ids))
     if review_status is not None:
         statement = statement.where(Asset.review_status == review_status)
+    statement = statement.limit(limit).offset(offset)
     assets = session.exec(statement).all()
-    return [_card_for(session, asset) for asset in assets]
+    return _cards_for_assets(session, assets)
 
 
 @router.get("/{asset_id}")

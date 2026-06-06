@@ -120,7 +120,17 @@ export const endpoints = {
   // gruppiert nach Markt (DE/US/UK) und Plattform. Leere/unbekannte
   // title_id liefert wohlgeformte leere Gruppen, keinen Fehler.
   titlePosts: (titleId) => api(`/api/insights/title/${titleId}/posts`),
-  assets: () => api('/api/assets'),
+  // V3 Perf-Fix: candidate_queue=true lädt nur Assets mit OPEN-Candidate
+  // (Default des "Treffer prüfen"-Tabs); limit/offset paginieren den
+  // "Alle anzeigen"-Fall. Ohne Argumente: Backend-Default (limit 50).
+  assets: ({ candidate_queue, limit, offset } = {}) => {
+    const params = new URLSearchParams();
+    if (candidate_queue) params.set('candidate_queue', 'true');
+    if (limit != null) params.set('limit', String(limit));
+    if (offset != null) params.set('offset', String(offset));
+    const qs = params.toString();
+    return api(`/api/assets${qs ? `?${qs}` : ''}`);
+  },
   reviewAsset: (id, payload) => api(`/api/assets/${id}/review`, { method: 'PATCH', body: JSON.stringify(payload) }),
   analyzeAssetVisual: (id) => api(`/api/assets/${id}/analyze-visual`, { method: 'POST' }),
   analyzeVisualBatch: (limit = 10) => api(`/api/assets/analyze-visual-batch?limit=${limit}`, { method: 'POST' }),

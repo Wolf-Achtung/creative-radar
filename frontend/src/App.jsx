@@ -30,6 +30,9 @@ function Router() {
 export const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
 export const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'Quellen'];
 
+// V3 Perf-Fix: Seitengröße für den "Alle anzeigen"-Modus von "Treffer prüfen".
+export const ASSET_PAGE_SIZE = 50;
+
 export const ACTION_HELP = [
   ['Für Report freigeben', 'Der Treffer ist relevant und kommt in den Report-Anhang.'],
   ['Als Top-Fund markieren', 'Besonders stark oder strategisch wichtig; erscheint prominent im Weekly Report.'],
@@ -409,9 +412,34 @@ export function ReviewPanel({
   openCandidatesByAssetId = {},
   onConfirmCandidate = () => {},
   onDismissCandidate = () => {},
+  assetMode = 'candidates',
+  assetsHasMore = false,
+  onSwitchAssetMode = () => {},
+  onLoadMoreAssets = () => {},
 }) {
+  const modeKicker = assetMode === 'candidates'
+    ? `${visibleAssets.length} Vorschläge zur Prüfung`
+    : `${visibleAssets.length} von ${assets.length} geladen${assetsHasMore ? ' (weitere verfügbar)' : ''}`;
   return (
-    <Section title="Treffer prüfen" kicker={`${visibleAssets.length} von ${assets.length} Treffern sichtbar`}><p className="muted small">Hier korrigieren Sie einzelne Treffer. Reports können auch automatisch aus Vorschlägen erstellt werden.</p>
+    <Section title="Treffer prüfen" kicker={modeKicker}><p className="muted small">Standard: nur Assets mit offenem Titel-Vorschlag. „Alle Treffer" lädt den vollen Bestand seitenweise.</p>
+      <div className="review-mode-toggle">
+        <button
+          type="button"
+          className={assetMode === 'candidates' ? 'active' : ''}
+          onClick={() => onSwitchAssetMode('candidates')}
+          disabled={busy || assetMode === 'candidates'}
+        >
+          Nur Titel-Vorschläge
+        </button>
+        <button
+          type="button"
+          className={assetMode === 'all' ? 'active' : ''}
+          onClick={() => onSwitchAssetMode('all')}
+          disabled={busy || assetMode === 'all'}
+        >
+          Alle Treffer (seitenweise)
+        </button>
+      </div>
       <ReviewGuide />
       <div className="filterbar">
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
@@ -456,6 +484,16 @@ export function ReviewPanel({
           />
         );
       })}
+      {assetMode === 'candidates' && assets.length === 0 && (
+        <p className="muted small">Keine offenen Titel-Vorschläge. Über „Alle Treffer" den vollen Bestand prüfen.</p>
+      )}
+      {assetMode === 'all' && assetsHasMore && (
+        <div className="section-actions">
+          <button type="button" className="secondary" onClick={onLoadMoreAssets} disabled={busy}>
+            Weitere {ASSET_PAGE_SIZE} laden
+          </button>
+        </div>
+      )}
     </Section>
   );
 }
@@ -631,6 +669,11 @@ export function AdminApp({ onLogout }) {
   const [channels, setChannels] = useState([]);
   const [titles, setTitles] = useState([]);
   const [assets, setAssets] = useState([]);
+  // V3 Perf-Fix: 'candidates' (Default, nur OPEN-Candidate-Assets) | 'all'
+  // (paginiert). Verhindert den 4163-Karten-Freeze.
+  const [assetMode, setAssetMode] = useState('candidates');
+  const [assetOffset, setAssetOffset] = useState(0);
+  const [assetsHasMore, setAssetsHasMore] = useState(false);
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -693,13 +736,45 @@ export function AdminApp({ onLogout }) {
     try { await fn(); } catch (err) { setError(err.message || String(err)); } finally { setBusy(false); }
   }
 
+  // V3 Perf-Fix: Asset-Fetch je Modus. 'candidates' lädt nur die OPEN-
+  // Candidate-Assets (~Dutzend) → kein Freeze; 'all' lädt die erste 50er-Seite.
+  function fetchAssetsForMode(mode) {
+    return mode === 'candidates'
+      ? endpoints.assets({ candidate_queue: true })
+      : endpoints.assets({ limit: ASSET_PAGE_SIZE, offset: 0 });
+  }
+
   async function load() {
-    const [h, c, t, a, stats, candidates] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), endpoints.assets(), endpoints.titleWhitelistStats().catch(() => null), endpoints.titleCandidates().catch(() => [])]);
+    const [h, c, t, a, stats, candidates] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), fetchAssetsForMode(assetMode), endpoints.titleWhitelistStats().catch(() => null), endpoints.titleCandidates().catch(() => [])]);
     setHealth(h); setChannels(c); setTitles(t); setAssets(a); setWhitelistStats(stats); setTitleCandidates(candidates);
+    setAssetOffset(0);
+    setAssetsHasMore(assetMode === 'all' && a.length === ASSET_PAGE_SIZE);
     try { setReport(await endpoints.latestReport()); } catch (_) { setReport(null); }
   }
 
   useEffect(() => { run(load); }, []);
+
+  // Modus wechseln (Default-Kandidaten ↔ Alle paginiert) — lädt die Assets neu.
+  async function switchAssetMode(mode) {
+    await run(async () => {
+      const a = await fetchAssetsForMode(mode);
+      setAssets(a);
+      setAssetMode(mode);
+      setAssetOffset(0);
+      setAssetsHasMore(mode === 'all' && a.length === ASSET_PAGE_SIZE);
+    });
+  }
+
+  // "Mehr laden" im 'all'-Modus: nächste 50er-Seite anhängen.
+  async function loadMoreAssets() {
+    await run(async () => {
+      const nextOffset = assetOffset + ASSET_PAGE_SIZE;
+      const more = await endpoints.assets({ limit: ASSET_PAGE_SIZE, offset: nextOffset });
+      setAssets((prev) => [...prev, ...more]);
+      setAssetOffset(nextOffset);
+      setAssetsHasMore(more.length === ASSET_PAGE_SIZE);
+    });
+  }
 
   async function importChannelFile(event) {
     event.preventDefault();
@@ -948,6 +1023,10 @@ export function AdminApp({ onLogout }) {
           openCandidatesByAssetId={openCandidatesByAssetId}
           onConfirmCandidate={confirmCandidate}
           onDismissCandidate={dismissCandidate}
+          assetMode={assetMode}
+          assetsHasMore={assetsHasMore}
+          onSwitchAssetMode={switchAssetMode}
+          onLoadMoreAssets={loadMoreAssets}
         />
       )}
       {activeTab === 'Quellen' && (
