@@ -116,6 +116,10 @@ export const endpoints = {
     const params = new URLSearchParams({ pair, window_days: String(windowDays), dry_run: String(dryRun) });
     return api(`/api/insights/weekly?${params.toString()}`);
   },
+  // V3 Sprint 2 — film-zentrierte Detailansicht. Posts eines Titels,
+  // gruppiert nach Markt (DE/US/UK) und Plattform. Leere/unbekannte
+  // title_id liefert wohlgeformte leere Gruppen, keinen Fehler.
+  titlePosts: (titleId) => api(`/api/insights/title/${titleId}/posts`),
   assets: () => api('/api/assets'),
   reviewAsset: (id, payload) => api(`/api/assets/${id}/review`, { method: 'PATCH', body: JSON.stringify(payload) }),
   analyzeAssetVisual: (id) => api(`/api/assets/${id}/analyze-visual`, { method: 'POST' }),
