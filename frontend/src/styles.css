@@ -1510,3 +1510,158 @@ a:hover { text-decoration: underline; }
     border-top: 1px solid #ece4d8 !important;
   }
 }
+
+/* V3 Sprint 2 — film-zentrierte Detailansicht. Spiegelt die Drei-Spalten-
+   Grid- und Thumbnail-Muster der .ranking-section, eigene Klassen damit die
+   beiden Sektionen unabhaengig anpassbar bleiben. */
+.film-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.film-detail-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.film-detail-select {
+  padding: 6px 10px;
+  border: 1px solid #ece4d8;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  color: #1d2330;
+  min-width: 200px;
+}
+.film-detail-hint,
+.film-detail-empty,
+.film-detail-error {
+  margin: 0;
+  font-size: 14px;
+  color: #7c7468;
+}
+.film-detail-error { color: #b3261e; }
+.film-detail-meta {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #1d2330;
+}
+
+.film-market-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 980px) {
+  .film-market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .film-market-grid { grid-template-columns: 1fr; }
+}
+
+.film-market-column h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7c7468;
+}
+.film-market-empty {
+  margin: 0;
+  font-size: 13px;
+  color: #aaa39a;
+  font-style: italic;
+}
+.film-platform-group { margin-bottom: 14px; }
+.film-platform-label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9a9288;
+}
+
+.film-post-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: #f8f5ee;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  align-items: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.film-post-card:hover {
+  background: #f3eee2;
+  border-color: #ece4d8;
+}
+.film-post-thumb {
+  position: relative;
+  width: 56px;
+  aspect-ratio: 9 / 16;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.04);
+}
+.film-post-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  z-index: 1;
+}
+.film-post-thumb .thumbnail-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.film-post-thumb.platform-tiktok .thumbnail-fallback { background: #000; }
+.film-post-thumb.platform-instagram .thumbnail-fallback {
+  background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+}
+.film-post-thumb.platform-youtube .thumbnail-fallback { background: #ff0000; }
+.film-post-thumb .thumbnail-fallback-content.fallback-acronym {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.film-post-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.film-post-metric {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.film-post-metric strong {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1d2330;
+}
+.film-post-metric span {
+  font-size: 11px;
+  color: #7c7468;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.film-post-date {
+  font-size: 12px;
+  color: #7c7468;
+  opacity: 0.75;
+  cursor: help;
+}
