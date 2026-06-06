@@ -228,6 +228,36 @@ input, select, textarea { border: 1px solid #ddd4c6; border-radius: 10px; paddin
 .title-select { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
 .title-instruction { margin: 0 0 6px; color: #5e564a; font-size: 13px; }
 .missing-hint { margin: 0 0 8px; color: #904514; font-size: 13px; }
+
+/* Candidate-Review (Sprint Candidate-Wiring) — OPEN-TitleCandidate-Vorschlag
+   in der AssetCard. Spiegelt die .title-hint-Optik. */
+.candidate-suggestion {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #eef4fb;
+  border: 1px solid #c9dcf0;
+}
+.candidate-suggestion.has-warn { background: #fff3df; border-color: #f3c991; }
+.candidate-head { margin: 0 0 4px; font-size: 13px; color: #1d2330; }
+.candidate-conf { color: #6f675b; font-weight: 600; }
+.candidate-warn { margin: 4px 0; font-size: 13px; font-weight: 700; color: #904514; }
+.candidate-match,
+.candidate-nomatch { margin: 4px 0; }
+.candidate-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.candidate-ack {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #904514;
+  font-weight: 600;
+}
 .inline-title-form {
   display: grid;
   gap: 8px;

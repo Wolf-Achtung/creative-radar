@@ -205,8 +205,26 @@ export function ReviewGuide() {
   );
 }
 
-export function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onReportMissingTitle, recentlyCreatedTitleName }) {
+// Candidate-Review (Sprint Candidate-Wiring): einen OPEN-TitleCandidate-
+// ``suggested_title`` auf einen EXAKTEN aktiven Title abbilden (title_original
+// / title_local / aliases, case-insensitiv). Null wenn kein exakter Treffer —
+// dann ist kein Blind-Bestätigen möglich, der Admin ordnet manuell zu.
+export function findExactTitleForSuggestion(suggestedTitle, titles) {
+  if (!suggestedTitle) return null;
+  const needle = String(suggestedTitle).trim().toLowerCase();
+  if (!needle) return null;
+  return (titles || []).find((t) =>
+    [t.title_original, t.title_local, ...(t.aliases || [])]
+      .filter(Boolean)
+      .some((v) => String(v).trim().toLowerCase() === needle),
+  ) || null;
+}
+
+export function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAssignTitle, onReportMissingTitle, recentlyCreatedTitleName, openCandidate = null, candidateMatchedTitle = null, onConfirmCandidate = () => {}, onDismissCandidate = () => {} }) {
   const platform = asset.platform || asset.channel_platform || asset.media_type || 'instagram';
+  // Candidate-Review: bei bereits zugeordnetem Asset (asset.title_id) ist
+  // "Bestätigen" gesperrt, bis der Admin den Re-Assign bewusst quittiert.
+  const [confirmAck, setConfirmAck] = useState(false);
   const hasTitle = Boolean(asset.title_name || asset.placement_title_text || asset.title_id);
   const visualChecked = asset.visual_analysis_status === "done";
   const workflowSteps = [
@@ -270,6 +288,59 @@ export function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAs
           <strong>{titleHintValue}</strong>
           <small>{titleHintSource}</small>
         </div>
+        {openCandidate && (
+          <div className={`candidate-suggestion ${asset.title_id ? 'has-warn' : ''}`}>
+            <p className="candidate-head">
+              Offener Titel-Vorschlag: <strong>{openCandidate.suggested_title}</strong>
+              {openCandidate.confidence != null && (
+                <span className="candidate-conf"> · conf {Math.round(openCandidate.confidence * 100)}%</span>
+              )}
+            </p>
+            {asset.title_id ? (
+              <p className="candidate-warn" role="alert">
+                ⚠ Asset ist bereits zugeordnet zu „{getAssetDisplayTitle(asset, titles)}" — vor dem Zuordnen prüfen.
+              </p>
+            ) : candidateMatchedTitle ? (
+              <p className="candidate-match small muted">
+                Exakter Titel in der Liste: „{candidateMatchedTitle.title_original}" — wird beim Bestätigen zugeordnet.
+              </p>
+            ) : (
+              <p className="candidate-nomatch small muted">
+                Kein exakter Titel in der Liste — bitte unten manuell zuordnen oder den Vorschlag verwerfen.
+              </p>
+            )}
+            <div className="candidate-actions">
+              {asset.title_id && (
+                <label className="candidate-ack small">
+                  <input
+                    type="checkbox"
+                    checked={confirmAck}
+                    onChange={(e) => setConfirmAck(e.target.checked)}
+                    disabled={busy}
+                  />
+                  Re-Zuordnung bewusst bestätigen
+                </label>
+              )}
+              <button
+                type="button"
+                className="primary"
+                disabled={busy || !candidateMatchedTitle || (Boolean(asset.title_id) && !confirmAck)}
+                title={!candidateMatchedTitle ? 'Kein exakter Titel in der Liste — bitte manuell zuordnen' : 'Titel zuordnen und Kandidat schließen'}
+                onClick={() => onConfirmCandidate(asset, openCandidate, candidateMatchedTitle)}
+              >
+                Vorschlag bestätigen
+              </button>
+              <button
+                type="button"
+                className="secondary ghost"
+                disabled={busy}
+                onClick={() => onDismissCandidate(openCandidate)}
+              >
+                Verwerfen
+              </button>
+            </div>
+          </div>
+        )}
         {!hasTitle && showAssignmentSelect && <p className="title-instruction">Mögliche Titelzuordnung gefunden. Bitte bestätigen oder neu zuordnen.</p>}
         {!hasTitle && !showAssignmentSelect && <p className="title-instruction">Film ist nicht in der Titelliste? Bitte zur Prüfung vormerken.</p>}
         {showAssignmentSelect && (
@@ -335,6 +406,9 @@ export function ReviewPanel({
   onAssignTitle,
   onReportMissingTitle,
   recentlyCreatedByAssetId,
+  openCandidatesByAssetId = {},
+  onConfirmCandidate = () => {},
+  onDismissCandidate = () => {},
 }) {
   return (
     <Section title="Treffer prüfen" kicker={`${visibleAssets.length} von ${assets.length} Treffern sichtbar`}><p className="muted small">Hier korrigieren Sie einzelne Treffer. Reports können auch automatisch aus Vorschlägen erstellt werden.</p>
@@ -359,19 +433,29 @@ export function ReviewPanel({
         <input value={filters.query} onChange={(e) => setFilters({ ...filters, query: e.target.value })} placeholder="Suche nach Film, Kanal, Claim …" />
       </div>
       {assets.length === 0 && <p>Noch keine Treffer. Bitte zuerst Kanäle prüfen.</p>}
-      {visibleAssets.map((asset) => (
-        <AssetCard
-          key={asset.id}
-          asset={asset}
-          titles={titles}
-          busy={busy}
-          onReview={onReview}
-          onAnalyzeVisual={onAnalyzeVisual}
-          onAssignTitle={onAssignTitle}
-          onReportMissingTitle={onReportMissingTitle}
-          recentlyCreatedTitleName={recentlyCreatedByAssetId[asset.id] || ''}
-        />
-      ))}
+      {visibleAssets.map((asset) => {
+        const openCandidate = openCandidatesByAssetId[asset.id] || null;
+        const candidateMatchedTitle = openCandidate
+          ? findExactTitleForSuggestion(openCandidate.suggested_title, titles)
+          : null;
+        return (
+          <AssetCard
+            key={asset.id}
+            asset={asset}
+            titles={titles}
+            busy={busy}
+            onReview={onReview}
+            onAnalyzeVisual={onAnalyzeVisual}
+            onAssignTitle={onAssignTitle}
+            onReportMissingTitle={onReportMissingTitle}
+            recentlyCreatedTitleName={recentlyCreatedByAssetId[asset.id] || ''}
+            openCandidate={openCandidate}
+            candidateMatchedTitle={candidateMatchedTitle}
+            onConfirmCandidate={onConfirmCandidate}
+            onDismissCandidate={onDismissCandidate}
+          />
+        );
+      })}
     </Section>
   );
 }
@@ -577,6 +661,20 @@ export function AdminApp({ onLogout }) {
   const missingTitles = assets.filter((asset) => !(asset.title_name || asset.placement_title_text || asset.title_id)).length;
   const reportCandidates = assets.filter((asset) => asset.review_status === 'approved' || asset.review_status === 'highlight' || asset.include_in_report).length;
 
+  // Candidate-Review: OPEN-Candidates pro asset_id (erster gewinnt). Speist
+  // sich aus der bereits geladenen ``titleCandidates``-Liste — kein Extra-
+  // Fetch; nach Resolve/Ignore + ``load()`` faellt der Candidate aus dem
+  // ``open``-Filter und der Vorschlag verschwindet.
+  const openCandidatesByAssetId = useMemo(() => {
+    const map = {};
+    for (const candidate of titleCandidates || []) {
+      if (candidate?.status === 'open' && candidate.asset_id && !map[candidate.asset_id]) {
+        map[candidate.asset_id] = candidate;
+      }
+    }
+    return map;
+  }, [titleCandidates]);
+
   const visibleAssets = useMemo(() => {
     const query = filters.query.trim().toLowerCase();
     return assets.filter((asset) => {
@@ -715,6 +813,31 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // Candidate-Review BESTÄTIGEN: nutzt die bestehende ``assignTitle``-Logik
+  // (setzt title_id + de_us_match_key via PATCH /assets/{id}/review) UND
+  // schliesst zusaetzlich den Candidate (status=resolved). title_id wird nur
+  // auf explizite Bestaetigung mit einem exakt aufgeloesten Title gesetzt.
+  async function confirmCandidate(asset, candidate, matchedTitle) {
+    if (!matchedTitle || !candidate) return;
+    await assignTitle(asset, matchedTitle.id);
+    await run(async () => {
+      await endpoints.patchTitleCandidate(candidate.id, { status: 'resolved' });
+      await load();
+      setMessage(`„${matchedTitle.title_original}" zugeordnet, Kandidat geschlossen.`);
+    });
+  }
+
+  // Candidate-Review VERWERFEN: nur den Candidate auf ``ignored`` setzen.
+  // Das Asset bleibt unassigned — die normale Zuordnung bleibt moeglich.
+  async function dismissCandidate(candidate) {
+    if (!candidate) return;
+    await run(async () => {
+      await endpoints.patchTitleCandidate(candidate.id, { status: 'ignored' });
+      await load();
+      setMessage('Titel-Vorschlag verworfen. Asset bleibt offen.');
+    });
+  }
+
   async function syncTitleSources() {
     await run(async () => {
       const result = await endpoints.syncTmdbTitles({ markets: ['DE', 'US'], lookback_weeks: 8, lookahead_weeks: 24 });
@@ -822,6 +945,9 @@ export function AdminApp({ onLogout }) {
           onAssignTitle={assignTitle}
           onReportMissingTitle={reportMissingTitle}
           recentlyCreatedByAssetId={recentlyCreatedByAssetId}
+          openCandidatesByAssetId={openCandidatesByAssetId}
+          onConfirmCandidate={confirmCandidate}
+          onDismissCandidate={dismissCandidate}
         />
       )}
       {activeTab === 'Quellen' && (
