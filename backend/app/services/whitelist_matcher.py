@@ -21,6 +21,15 @@ class MatchResult:
 
 
 _SAFE_SOURCES = {"exact", "exact_alias", "exact_local", "hashtag", "unique_text"}
+# Substring-Magnet-Schutz (Klasse 1): Kandidatenstrings, deren Compact-Form
+# (normalisiert, ohne Spaces) NICHT länger als dieser Wert ist, werden aus den
+# UNSCHARFEN Substring-Pfaden ausgeschlossen — dem Compact-Hashtag-Fallback und
+# dem ``_contains_phrase``-Token-Match. Sie machten kurze Titel/Aliase ("chao",
+# "rio2", "mia", "Kara", "Yes") zu Sammel-Mülleimern, weil das Fragment in
+# fremden Captions/Hashtags vorkommt. Exakte Gleichheit und exakter Hashtag
+# bleiben längenunabhängig (s. find_best_title_match), kurze Titel matchen also
+# weiter über echte Volltreffer.
+_MIN_SUBSTRING_CANDIDATE_LEN = 4
 _GENERIC_WORDS = {
     "movie",
     "film",
@@ -150,11 +159,23 @@ def _extract_hashtag_matches(text: str, normalized_to_titles: dict[str, list[tup
         if " " not in split and len(split) > 8:
             compact_split = split.replace(" ", "")
             for compact_key, normalized_key in compact_to_normalized.items():
-                if not compact_key or len(compact_key) < 4:
+                # Substring-Magnet-Schutz (Klasse 1): kurze Compact-Keys ("chao",
+                # "rio2") feuerten in JEDEM langen Hashtag. Drei Härtungen:
+                #  1) Mindestlänge — Keys ≤ _MIN_SUBSTRING_CANDIDATE_LEN raus
+                #     (``not compact_key`` bleibt als redundanter Leer-Guard).
+                #  2) nur Vorwärtsrichtung ``compact_key in compact_split`` —
+                #     ein KNOWN-TITLE-Compact steckt im längeren Hashtag; die
+                #     umgekehrte Richtung machte den Key zum Fragment-Magneten.
+                #  3) Mindest-Coverage: der Key muss den Hashtag substantiell
+                #     abdecken, sonst ist der Treffer zufällig.
+                if not compact_key or len(compact_key) <= _MIN_SUBSTRING_CANDIDATE_LEN:
                     continue
-                if compact_key in compact_split or compact_split in compact_key:
-                    for title, source in normalized_to_titles[normalized_key]:
-                        hits.append((title, source, normalized_key))
+                if compact_key not in compact_split:
+                    continue
+                if len(compact_key) / len(compact_split) < 0.5:
+                    continue
+                for title, source in normalized_to_titles[normalized_key]:
+                    hits.append((title, source, normalized_key))
     return hits
 
 
@@ -260,7 +281,13 @@ def find_best_title_match(
                     mapped_source = "exact" if source_key == "exact" else ("exact_local" if source_key == "local" else "exact_alias")
                     strong_hits.append((title, mapped_source, normalized))
                 continue
-            if _contains_phrase(normalized_haystack, normalized):
+            # Substring-Magnet-Schutz (Klasse 1): kurze Kandidaten ("mia",
+            # "Yes", "Kara") nicht als Wortgrenzen-Token in fremde Captions
+            # matchen lassen. Exakte Gleichheit (Zweig oben) bleibt erlaubt.
+            if (
+                len(normalized.replace(" ", "")) > _MIN_SUBSTRING_CANDIDATE_LEN
+                and _contains_phrase(normalized_haystack, normalized)
+            ):
                 for title, source_key in title_refs:
                     mapped_source = "unique_text" if source_key == "exact" else ("exact_local" if source_key == "local" else "exact_alias")
                     strong_hits.append((title, mapped_source, normalized))
