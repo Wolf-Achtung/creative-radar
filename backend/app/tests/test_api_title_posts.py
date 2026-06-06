@@ -96,7 +96,8 @@ def test_groups_posts_by_market_and_platform(client: TestClient, db):
         ch_de_ig = _channel(session, handle="warnerdeig", platform="instagram", market=Market.DE)
         ch_us_tt = _channel(session, handle="warnerus", platform="tiktok", market=Market.US)
 
-        _asset(session, _post(session, ch_de_tt, "https://d/1", views=500), title, thumb="t1.jpg")
+        de_tt_asset = _asset(session, _post(session, ch_de_tt, "https://d/1", views=500), title, thumb="t1.jpg")
+        de_tt_asset_id = str(de_tt_asset.id)
         _asset(session, _post(session, ch_de_ig, "https://d/2", views=300), title)
         _asset(session, _post(session, ch_us_tt, "https://u/1", views=900), title)
 
@@ -113,6 +114,8 @@ def test_groups_posts_by_market_and_platform(client: TestClient, db):
     assert mm["DE"]["tiktok"][0]["views"] == 500
     assert mm["DE"]["tiktok"][0]["thumbnail_url"] == "t1.jpg"
     assert mm["DE"]["tiktok"][0]["market"] == "DE"
+    # V3 Sprint 2: asset_id ist gesetzt → Frontend kann /api/thumbnails/{id} nutzen.
+    assert mm["DE"]["tiktok"][0]["asset_id"] == de_tt_asset_id
     assert len(mm["US"]["tiktok"]) == 1
     assert mm["UK"] == {}  # no UK posts -> empty bucket
 

@@ -537,6 +537,7 @@ def title_posts(
                 post_url=post.post_url,
                 platform=platform,
                 market=market,
+                asset_id=str(asset.id),
                 thumbnail_url=asset.thumbnail_url,
                 views=post.visible_views,
                 published_at=post.published_at,
