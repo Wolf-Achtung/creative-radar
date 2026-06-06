@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { endpoints, proxyImageUrl } from './api/client';
+import { endpoints } from './api/client';
 import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
 
@@ -1518,10 +1518,16 @@ const TITLE_DETAIL_MARKETS = ['DE', 'US', 'UK'];
 function FilmPostCard({ post }) {
   const platform = post.platform || 'tiktok';
   const { relative, absolute } = formatRelativeDate(post.published_at);
-  // thumbnail_url ist eine CDN-URL (Instagram/TikTok/YouTube) — über den
-  // Backend-Image-Proxy leiten, sonst greift Hotlink-Protection. proxyImageUrl
-  // gibt Nicht-CDN-/leere Werte unverändert zurück.
-  const thumbSrc = proxyImageUrl(post.thumbnail_url);
+  // Exakt der funktionierende Pfad der RankedPostCard (Top-Posts): mit
+  // asset_id über den ``/api/thumbnails/{asset_id}``-Proxy, der plattform-
+  // spezifische Referer setzt und den TikTok/Instagram-Hotlinkschutz
+  // schlägt. Der generische ``/api/img``-Proxy (proxyImageUrl) sendet einen
+  // leeren Referer und wird 403-geblockt — deshalb NICHT hier. Fehlt das
+  // asset_id (sollte mit V3 Sprint 2 nie), fällt es auf die rohe CDN-URL
+  // zurück; der onError-Pfad schaltet bei 403/404 aufs Akronym um.
+  const thumbSrc = post.asset_id
+    ? `/api/thumbnails/${post.asset_id}`
+    : post.thumbnail_url;
   const [imageFailed, setImageFailed] = useState(!thumbSrc);
   return (
     <a
