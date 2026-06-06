@@ -229,6 +229,29 @@ input, select, textarea { border: 1px solid #ddd4c6; border-radius: 10px; paddin
 .title-instruction { margin: 0 0 6px; color: #5e564a; font-size: 13px; }
 .missing-hint { margin: 0 0 8px; color: #904514; font-size: 13px; }
 
+/* V3 Perf-Fix: Segmented-Toggle "Nur Titel-Vorschläge" / "Alle Treffer". */
+.review-mode-toggle {
+  display: inline-flex;
+  gap: 0;
+  margin: 0 0 12px;
+  border: 1px solid #ece4d8;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.review-mode-toggle button {
+  border: none;
+  background: #fff;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5e564a;
+  cursor: pointer;
+}
+.review-mode-toggle button + button { border-left: 1px solid #ece4d8; }
+.review-mode-toggle button.active { background: #F26B5E; color: #fff; }
+.review-mode-toggle button:disabled.active { opacity: 1; cursor: default; }
+.review-mode-toggle button:disabled:not(.active) { opacity: 0.5; cursor: default; }
+
 /* Candidate-Review (Sprint Candidate-Wiring) — OPEN-TitleCandidate-Vorschlag
    in der AssetCard. Spiegelt die .title-hint-Optik. */
 .candidate-suggestion {
