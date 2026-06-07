@@ -317,12 +317,12 @@ def test_cron_background_runs_briefs_before_roundups(db, monkeypatch):
     Schutz."""
     call_order: list[str] = []
 
-    def fake_brief_gen(session):
+    def fake_brief_gen(session, **kwargs):
         call_order.append("briefs")
         return {"enabled": True, "generated": 9, "skipped_cache_hit": 0,
                 "failed": 0, "cost_usd_cents": 200, "errors": []}
 
-    def fake_roundup_gen(session):
+    def fake_roundup_gen(session, **kwargs):
         call_order.append("roundups")
         return {"enabled": True, "skipped": False, "generated": 4,
                 "skipped_cache_hit": 0, "failed": 0, "cost_usd_cents": 100,

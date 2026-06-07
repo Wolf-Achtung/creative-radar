@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { endpoints, proxyImageUrl } from './api/client';
 import InsightWeekly from './InsightWeekly';
@@ -603,9 +603,27 @@ export function SourcesPanel({
   titleCandidates,
   onSyncTitleSources,
   onRematchAssets,
+  onFullSync,
+  cronBusy,
+  cronMessage,
 }) {
   return (
     <>
+      <Section title="Komplett aktualisieren" kicker="Voller Lauf für die laufende Woche">
+        <p className="muted small">
+          Löst den vollen Lauf aus: Posts scrapen, Bilder auswerten, Titel
+          synchronisieren, Treffer neu zuordnen sowie Briefs und Roundups für die
+          <strong> laufende Woche</strong> neu erzeugen (überschreibt bestehende).
+          Läuft im Hintergrund und dauert einige Minuten.
+        </p>
+        <div className="section-actions">
+          <button className="primary" onClick={onFullSync} disabled={busy || cronBusy}>
+            {cronBusy ? 'Läuft … (Scrape → Briefs, dauert einige Minuten)' : 'Jetzt komplett aktualisieren'}
+          </button>
+        </div>
+        {cronMessage && <p className="muted small cron-status">{cronMessage}</p>}
+      </Section>
+
       <Section title="Quellen prüfen" kicker="Kanäle und Monitoring">
         <p className="muted small source-intro">Kanal hier hinzufügen oder pflegen — danach in 'Treffer prüfen' zuordnen.</p>
         <div className="source-grid">
@@ -689,6 +707,12 @@ export function AdminApp({ onLogout }) {
   const [batchFeedback, setBatchFeedback] = useState(null);
   const [reportSuggestion, setReportSuggestion] = useState(null);
   const [reportForm, setReportForm] = useState({ report_type: 'weekly_overview', date_range: '30d', market: 'all', channel: 'all', limit: 10 });
+  // "Jetzt komplett aktualisieren": eigener lokaler State, NICHT das globale
+  // ``busy`` — der Lauf ist ein mehrminütiger BackgroundTask, ``busy`` würde
+  // sonst die ganze Admin-UI für die Dauer sperren.
+  const [cronBusy, setCronBusy] = useState(false);
+  const [cronMessage, setCronMessage] = useState('');
+  const cronPollRef = useRef(null);
 
   const sortedTitles = useMemo(() => {
     const map = new Map();
@@ -930,6 +954,78 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // "Jetzt komplett aktualisieren": triggert den vollen Cron-Lauf (laufende KW
+  // + Force) und pollt dann GET /cron/runs, bis der BackgroundTask fertig ist.
+  // Kein globales ``busy`` (sperrt sonst 5 Min die UI), kein Kosten-Dialog.
+  function summarizeCronRun(runRow) {
+    const s = runRow?.summary || {};
+    const briefs = s.briefs || {};
+    const rematch = s.rematch || {};
+    // IG/TT melden ``created_assets`` (umbenannt), YouTube ``created`` —
+    // beide Schlüssel berücksichtigen.
+    const created = Object.values(s.platforms || {}).reduce(
+      (sum, p) => sum + (Number(p?.created_assets ?? p?.created) || 0), 0,
+    );
+    return `Briefs: ${briefs.generated ?? 0} erzeugt`
+      + `, ${briefs.skipped_cache_hit ?? 0} übersprungen, ${briefs.failed ?? 0} fehlgeschlagen`
+      + ` · Treffer neu zugeordnet: ${rematch.auto_matched ?? 0}`
+      + ` · Neue Posts: ${created}`;
+  }
+
+  function clearCronPoll() {
+    if (cronPollRef.current) {
+      clearInterval(cronPollRef.current);
+      cronPollRef.current = null;
+    }
+  }
+
+  async function triggerFullSync() {
+    if (cronBusy) return;
+    setError('');
+    setCronMessage('');
+    setCronBusy(true);
+    try {
+      await endpoints.cronSyncAll({ targetWeek: 'current', force: true });
+      setCronMessage('Lauf gestartet … (Scrape → Briefs, dauert einige Minuten)');
+    } catch (err) {
+      // 409: ein Lauf läuft bereits — kein Fehler, sondern Hinweis. Wir pollen
+      // trotzdem weiter, damit der laufende Lauf sein Ergebnis hier anzeigt.
+      const msg = err?.message || String(err);
+      if (msg.includes('cron_run_already_running') || msg.includes('409')) {
+        setCronMessage('Ein Lauf läuft bereits — warte auf Abschluss …');
+      } else {
+        setCronBusy(false);
+        setError(msg);
+        return;
+      }
+    }
+    clearCronPoll();
+    cronPollRef.current = setInterval(async () => {
+      try {
+        const runs = await endpoints.cronRuns(1);
+        const latest = Array.isArray(runs) ? runs[0] : null;
+        if (!latest || latest.status === 'running') return;
+        clearCronPoll();
+        setCronBusy(false);
+        if (latest.status === 'completed') {
+          setCronMessage(`Fertig ✓ — ${summarizeCronRun(latest)}`);
+          await load();
+        } else if (latest.status === 'budget_exceeded') {
+          setCronMessage(`Abgebrochen (Budget): ${latest.summary?.reason || 'budget_exceeded'}`);
+        } else {
+          setCronMessage(`Lauf fehlgeschlagen: ${latest.error_message || latest.status}`);
+        }
+      } catch (err) {
+        clearCronPoll();
+        setCronBusy(false);
+        setError(err?.message || String(err));
+      }
+    }, 8000);
+  }
+
+  // Poll-Interval beim Unmount aufräumen.
+  useEffect(() => () => clearCronPoll(), []);
+
   async function generateReportSuggestion() {
     await run(async () => {
       const payload = {
@@ -1045,6 +1141,9 @@ export function AdminApp({ onLogout }) {
           titleCandidates={titleCandidates}
           onSyncTitleSources={syncTitleSources}
           onRematchAssets={rematchAssets}
+          onFullSync={triggerFullSync}
+          cronBusy={cronBusy}
+          cronMessage={cronMessage}
         />
       )}
 

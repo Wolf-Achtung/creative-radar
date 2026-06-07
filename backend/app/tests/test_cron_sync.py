@@ -124,6 +124,59 @@ def test_cron_sync_returns_202_with_run_id_and_persists_running_row(client_with_
         assert str(runs[0].id) == body["run_id"]
 
 
+def test_cron_sync_empty_post_defaults_to_completed_no_force(client_with_auth, db):
+    """GitHub-Action-Pfad: leerer POST ohne Query-Params darf NICHT 422en
+    (Query bewusst statt Body) und muss auf completed/false defaulten —
+    byte-identisch zum wöchentlichen Cron."""
+    _seed_ig_channel(db, handle="netflixde")
+    with patch("app.api.cron.run_public_channel_monitor",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("app.api.cron.run_tiktok_profile_monitor",
+               new_callable=AsyncMock, return_value=[]):
+        response = client_with_auth.post(
+            "/api/admin/cron/sync-all",
+            headers={"Authorization": "Bearer TESTTOKEN"},
+        )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["target_week"] == "completed"
+    assert body["force"] is False
+    run_id = body["run_id"]
+    with Session(db) as session:
+        run = session.get(CronRun, uuid4().__class__(run_id))
+        assert run.summary_json["run_mode"] == {"target_week": "completed", "force": False}
+
+
+def test_cron_sync_current_week_force_flows_into_run_mode(client_with_auth, db):
+    """Manueller Admin-Button: target_week=current&force=true wird angenommen,
+    in der 202-Antwort gespiegelt und ins summary_json.run_mode persistiert."""
+    _seed_ig_channel(db, handle="netflixde")
+    with patch("app.api.cron.run_public_channel_monitor",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("app.api.cron.run_tiktok_profile_monitor",
+               new_callable=AsyncMock, return_value=[]):
+        response = client_with_auth.post(
+            "/api/admin/cron/sync-all?target_week=current&force=true",
+            headers={"Authorization": "Bearer TESTTOKEN"},
+        )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["target_week"] == "current"
+    assert body["force"] is True
+    with Session(db) as session:
+        run = session.get(CronRun, uuid4().__class__(body["run_id"]))
+        assert run.summary_json["run_mode"] == {"target_week": "current", "force": True}
+
+
+def test_cron_sync_rejects_invalid_target_week(client_with_auth, db):
+    """Pattern-Guard: target_week außerhalb {completed,current} → 422."""
+    response = client_with_auth.post(
+        "/api/admin/cron/sync-all?target_week=nonsense",
+        headers={"Authorization": "Bearer TESTTOKEN"},
+    )
+    assert response.status_code == 422, response.text
+
+
 def test_cron_sync_background_completes_run(client_with_auth, db):
     _seed_ig_channel(db, handle="netflixde")
 

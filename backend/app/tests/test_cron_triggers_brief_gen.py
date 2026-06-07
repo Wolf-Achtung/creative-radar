@@ -293,6 +293,136 @@ def test_cron_brief_gen_cost_floor_alert_triggers(db, monkeypatch, caplog):
         assert briefs["failed"] == _enabled_pair_count()
 
 
+def _seed_brief_rows(db, *, anchor: datetime) -> int:
+    """Seed one persisted InsightReport per enabled pair for the ISO week of
+    ``anchor``. Returns the number of rows seeded. Used to exercise the
+    cache-hit pre-check (skip vs. force-bypass)."""
+    from app.models.entities import InsightReport
+    iso = anchor.isocalendar()
+    n = 0
+    with Session(db) as session:
+        for k, v in PAIRS.items():
+            if not v.get("enabled", False):
+                continue
+            session.add(InsightReport(
+                pair_key=k,
+                iso_year=iso.year,
+                iso_week=iso.week,
+                aggregation={},
+                llm_output={},
+                model="seed",
+            ))
+            n += 1
+        session.commit()
+    return n
+
+
+def test_cron_default_passes_no_force_and_completed_week(db, monkeypatch):
+    """Regression-Guard: ohne target_week/force (= wöchentlicher GitHub-Action-
+    Pfad) ruft die Brief-Stage ``generate_and_persist_report`` mit
+    ``force=False, replace=False`` und ``now`` in der gerade abgeschlossenen
+    KW (``utcnow - 1 day``) auf. summary.run_mode == completed/false."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=0.0, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    run_id = _seed_run(db)
+
+    asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+
+    n_pairs = _enabled_pair_count()
+    assert brief_mock.call_count == n_pairs
+    today_utc = datetime.now(timezone.utc).date()
+    for call in brief_mock.call_args_list:
+        assert call.kwargs["force"] is False
+        assert call.kwargs["replace"] is False
+        assert (today_utc - call.kwargs["now"].date()) == timedelta(days=1)
+
+    with Session(db) as session:
+        run = session.get(CronRun, run_id)
+        assert run.summary_json["run_mode"] == {"target_week": "completed", "force": False}
+
+
+def test_cron_force_current_week_passes_force_replace_and_current_week(db, monkeypatch):
+    """Manueller On-Demand-Lauf (Admin-Button): target_week='current' +
+    force=True → ``generate_and_persist_report(force=True, replace=True)`` und
+    ``now`` in der LAUFENDEN KW (nicht -1 day). summary.run_mode == current/true."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=0.0, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    run_id = _seed_run(db)
+
+    before = datetime.now(timezone.utc)
+    asyncio.run(cron_module._run_cron_sync_background(
+        run_id, run_index=0, target_week="current", force=True,
+    ))
+    after = datetime.now(timezone.utc)
+
+    n_pairs = _enabled_pair_count()
+    assert brief_mock.call_count == n_pairs
+    for call in brief_mock.call_args_list:
+        assert call.kwargs["force"] is True
+        assert call.kwargs["replace"] is True
+        passed_now = call.kwargs["now"]
+        # Laufende KW: now liegt zwischen before und after (KEIN -1 day).
+        assert before - timedelta(seconds=2) <= passed_now <= after + timedelta(seconds=2)
+
+    with Session(db) as session:
+        run = session.get(CronRun, run_id)
+        assert run.summary_json["run_mode"] == {"target_week": "current", "force": True}
+
+
+def test_cron_force_current_week_bypasses_cache_precheck(db, monkeypatch):
+    """Force-Pfad überspringt den Cache-Hit-Pre-Check: obwohl für jede aktive
+    Pair bereits ein Brief der laufenden KW existiert, wird jeder Pair neu
+    generiert (kein skipped_cache_hit)."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=0.0, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    seeded = _seed_brief_rows(db, anchor=datetime.now(timezone.utc))
+    run_id = _seed_run(db)
+
+    asyncio.run(cron_module._run_cron_sync_background(
+        run_id, run_index=0, target_week="current", force=True,
+    ))
+
+    assert seeded == _enabled_pair_count()
+    # Pre-Check übersprungen → trotz vorhandener Zeilen alle neu generiert.
+    assert brief_mock.call_count == seeded
+    with Session(db) as session:
+        run = session.get(CronRun, run_id)
+        briefs = run.summary_json["briefs"]
+        assert briefs["skipped_cache_hit"] == 0
+        assert briefs["generated"] == seeded
+
+
+def test_cron_default_honors_cache_precheck(db, monkeypatch):
+    """Gegenprobe: im Default-Pfad (kein force) führt ein bereits vorhandener
+    Brief der abgeschlossenen KW zu skipped_cache_hit, kein LLM-Call."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=0.0, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    # Abgeschlossene KW = utcnow - 1 day (gleicher Anker wie die Stage).
+    seeded = _seed_brief_rows(db, anchor=datetime.now(timezone.utc) - timedelta(days=1))
+    run_id = _seed_run(db)
+
+    asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+
+    assert brief_mock.call_count == 0
+    with Session(db) as session:
+        run = session.get(CronRun, run_id)
+        briefs = run.summary_json["briefs"]
+        assert briefs["skipped_cache_hit"] == seeded
+        assert briefs["generated"] == 0
+
+
 def test_cron_brief_gen_cost_floor_alert_silent_when_costs_present(db, monkeypatch, caplog):
     """Gegenprobe zum Alert-Test: wenn ``anthropic_cost_usd >= 5.0``, ist
     der Pfad nicht silent (Cost beweist, dass LLM-Calls gelaufen sind),

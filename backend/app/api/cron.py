@@ -26,7 +26,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
@@ -504,7 +504,12 @@ def _run_rematch_after_sync(session: Session) -> dict:
     return summary.to_dict()
 
 
-def _run_brief_generation_after_sync(session: Session) -> dict:
+def _run_brief_generation_after_sync(
+    session: Session,
+    *,
+    brief_now: datetime | None = None,
+    force: bool = False,
+) -> dict:
     """Cadence-Sprint 2026-05-17 — Brief-Generation als Cron-Stage.
 
     Iteriert über alle ``enabled=True``-Pairs aus ``PAIRS`` und ruft je Pair
@@ -513,6 +518,15 @@ def _run_brief_generation_after_sync(session: Session) -> dict:
     Per-Pair-Try/Except, damit ein fehlschlagender Pair die anderen nicht
     killt — der gleiche Robustness-Vertrag wie bei
     ``_run_rematch_after_sync``.
+
+    Manueller On-Demand-Modus (Admin-Button "Jetzt komplett aktualisieren"):
+    ``brief_now`` und ``force`` werden vom Aufrufer durchgereicht. Default
+    ``brief_now=None`` → ``utcnow - 1 day`` (abgeschlossene KW, wöchentlicher
+    GitHub-Action-Pfad byte-identisch). ``force=True`` (laufende KW + Force-
+    Overwrite): der Cache-Hit-Pre-Check wird übersprungen und
+    ``generate_and_persist_report`` mit ``force=True, replace=True`` aufgerufen
+    (explizite UPSERT-Semantik, siehe insight_engine PR #150). Im Nicht-Force-
+    Pfad bleibt alles wie zuvor — Pre-Check + ``skipped_cache_hit``-Counter.
 
     Kill-Switch: ENV ``ENABLE_BRIEF_GEN_IN_CRON`` (Default ``true``). Bei
     Incidents (Cost-Explosion, Mock-Leak, LLM-Outage) setzt Wolf den Wert im
@@ -543,7 +557,8 @@ def _run_brief_generation_after_sync(session: Session) -> dict:
         logger.info("brief_gen.skipped reason=env_disabled")
         return briefs_summary
 
-    brief_now = datetime.now(timezone.utc) - timedelta(days=1)
+    if brief_now is None:
+        brief_now = datetime.now(timezone.utc) - timedelta(days=1)
     iso_cal = brief_now.isocalendar()
     target_iso_year, target_iso_week = iso_cal.year, iso_cal.week
     enabled_pairs = [k for k, v in PAIRS.items() if v.get("enabled", False)]
@@ -554,23 +569,31 @@ def _run_brief_generation_after_sync(session: Session) -> dict:
             "pairs": len(enabled_pairs),
             "target_iso_year": target_iso_year,
             "target_iso_week": target_iso_week,
+            "force": force,
         },
     )
 
     for pair_key in enabled_pairs:
-        existing_row = session.get(
-            InsightReportRow,
-            (pair_key, target_iso_year, target_iso_week),
-        )
-        if existing_row is not None:
-            briefs_summary["skipped_cache_hit"] += 1
-            continue
+        # Force-Pfad (manueller On-Demand-Lauf): Cache-Hit-Pre-Check
+        # überspringen, damit ein bestehender Brief der laufenden KW
+        # überschrieben wird. Nicht-Force-Pfad: unverändert — vorhandener
+        # Brief zählt als skipped_cache_hit, kein LLM-Call.
+        if not force:
+            existing_row = session.get(
+                InsightReportRow,
+                (pair_key, target_iso_year, target_iso_week),
+            )
+            if existing_row is not None:
+                briefs_summary["skipped_cache_hit"] += 1
+                continue
         try:
             report = generate_and_persist_report(
                 session,
                 pair_key,
                 window_days=30,
                 now=brief_now,
+                force=force,
+                replace=force,
             )
             # generate_and_persist_report returns normally even when the
             # brief failed JSON-parse / schema-validation: the report then
@@ -613,11 +636,23 @@ def _run_brief_generation_after_sync(session: Session) -> dict:
     return briefs_summary
 
 
-def _run_segment_roundups_after_briefs(session: Session) -> dict:
+def _run_segment_roundups_after_briefs(
+    session: Session,
+    *,
+    brief_now: datetime | None = None,
+    force: bool = False,
+) -> dict:
     """Master-Plan-Schritt-4 — Segment-Roundup-Block additiv NACH dem
     Pair-Brief-Block. Reihenfolge ist Pflicht (Wolf-Konzept §6): Pair-
     Briefs zuerst, Roundups danach, damit bei mid-Run-Cap-Abbruch
     zuerst die Roundups entfallen, nie ein Pair-Brief.
+
+    Manueller On-Demand-Modus: ``brief_now``/``force`` analog zum Pair-Brief-
+    Block. Default ``brief_now=None`` → ``utcnow - 1 day`` (abgeschlossene KW).
+    ``force=True`` überspringt den Cache-Hit-Pre-Check; ``generate_and_persist_
+    roundup`` persistiert ohnehin Last-Write-Wins (``_persist_roundup`` macht
+    delete-then-insert), sodass der bestehende Roundup der laufenden KW
+    überschrieben wird. "Komplett heißt komplett" — Roundups werden mitgeforct.
 
     Mechanik (analog ``_run_brief_generation_after_sync``):
     1. Feature-Flag-Gate ``FEATURE_SEGMENT_ROUNDUPS_ENABLED``. Off →
@@ -686,7 +721,8 @@ def _run_segment_roundups_after_briefs(session: Session) -> dict:
         )
         return roundups_summary
 
-    brief_now = datetime.now(timezone.utc) - timedelta(days=1)
+    if brief_now is None:
+        brief_now = datetime.now(timezone.utc) - timedelta(days=1)
     iso_cal = brief_now.isocalendar()
     target_iso_year, target_iso_week = iso_cal.year, iso_cal.week
 
@@ -696,23 +732,27 @@ def _run_segment_roundups_after_briefs(session: Session) -> dict:
             "segments": [s.value for s in segments],
             "target_iso_year": target_iso_year,
             "target_iso_week": target_iso_week,
+            "force": force,
         },
     )
 
     for segment in segments:
-        existing_row = session.get(
-            SegmentRoundupRow,
-            (segment, target_iso_year, target_iso_week),
-        )
-        if existing_row is not None:
-            roundups_summary["skipped_cache_hit"] += 1
-            roundups_summary["results"].append({
-                "segment": segment.value,
-                "status": "cache_hit",
-                "iso_year": target_iso_year,
-                "iso_week": target_iso_week,
-            })
-            continue
+        # Force-Pfad: Cache-Hit-Pre-Check überspringen → generate_and_persist_
+        # roundup überschreibt den bestehenden Roundup (Last-Write-Wins).
+        if not force:
+            existing_row = session.get(
+                SegmentRoundupRow,
+                (segment, target_iso_year, target_iso_week),
+            )
+            if existing_row is not None:
+                roundups_summary["skipped_cache_hit"] += 1
+                roundups_summary["results"].append({
+                    "segment": segment.value,
+                    "status": "cache_hit",
+                    "iso_year": target_iso_year,
+                    "iso_week": target_iso_week,
+                })
+                continue
         try:
             report = generate_and_persist_roundup(
                 session,
@@ -775,9 +815,23 @@ def _run_segment_roundups_after_briefs(session: Session) -> dict:
     return roundups_summary
 
 
-async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
+async def _run_cron_sync_background(
+    run_id: UUID,
+    run_index: int,
+    target_week: str = "completed",
+    force: bool = False,
+) -> None:
     """Background task body. Owns its own Session — the request session is
-    closed by the time this runs."""
+    closed by the time this runs.
+
+    ``target_week``/``force`` steuern den manuellen On-Demand-Lauf (Admin-
+    Button "Jetzt komplett aktualisieren"). Defaults (``completed``/``False``)
+    = wöchentlicher GitHub-Action-Pfad, byte-identisch zum bisherigen
+    Verhalten: ``target_week="completed"`` → ``brief_now = utcnow - 1 day``
+    (gerade abgeschlossene KW), kein Force. ``target_week="current"`` +
+    ``force=True`` → ``brief_now = utcnow`` (laufende KW) mit Force-Overwrite
+    der Brief-/Roundup-Stages. Scrape/Vision/title_sync/rematch sind
+    KW-agnostisch und laufen in beiden Modi identisch."""
     with Session(engine) as session:
         run = session.get(CronRun, run_id)
         if not run:
@@ -842,7 +896,19 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
                 )
                 return
 
+            # Brief-/Roundup-Ziel-KW: laufende KW (manueller Force-Lauf) vs.
+            # gerade abgeschlossene KW (wöchentlicher Default). Siehe
+            # Docstring + H4-Mitigation-Kommentar am Brief-Stage-Aufruf.
+            brief_now = (
+                datetime.now(timezone.utc)
+                if target_week == "current"
+                else datetime.now(timezone.utc) - timedelta(days=1)
+            )
+
             summary, created_asset_ids = await _execute_platform_sync(session, run_index)
+            # Audit: Lauf-Modus ins summary_json, damit GET /runs den manuellen
+            # Force-Lauf vom wöchentlichen Cron unterscheidbar macht.
+            summary["run_mode"] = {"target_week": target_week, "force": force}
             cap = settings.cron_vision_max_assets_per_run
             if created_asset_ids:
                 summary["vision"] = _run_vision_after_sync(session, created_asset_ids, cap)
@@ -876,7 +942,9 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             # Aggregation tatsächlich vollständig vorliegt. Selbe Logik wie
             # ``aggregate_pair`` (insight_engine.py:1880), nur explizit
             # ein Tag zurück.
-            summary["briefs"] = _run_brief_generation_after_sync(session)
+            summary["briefs"] = _run_brief_generation_after_sync(
+                session, brief_now=brief_now, force=force
+            )
             # Master-Plan-Schritt-4 — Segment-Roundup-Block additiv NACH
             # den Pair-Briefs (Konzept §6, Wolf-Festlegung 25.05.). Der
             # zweite F0.7-Cap-Check im Roundup-Block stellt sicher, dass
@@ -884,7 +952,9 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
             # entfallen — Pair-Briefs sind hier bereits persistiert.
             # Hinter ``FEATURE_SEGMENT_ROUNDUPS_ENABLED``: Flag off =
             # Cron-Verhalten exakt wie vor Schritt 4.
-            summary["roundups"] = _run_segment_roundups_after_briefs(session)
+            summary["roundups"] = _run_segment_roundups_after_briefs(
+                session, brief_now=brief_now, force=force
+            )
             # Tech-Debt A5 — Apify-Cost dieses Runs ins summary_json.
             # ``record_apify_run`` läuft synchron im ``_run_actor``-Pfad ab
             # und stempelt UTC-now-Timestamps, also liegen alle Rows des
@@ -952,8 +1022,29 @@ async def _run_cron_sync_background(run_id: UUID, run_index: int) -> None:
 @router.post("/sync-all")
 async def cron_sync_all(
     background_tasks: BackgroundTasks,
+    target_week: str = Query(
+        "completed",
+        pattern="^(completed|current)$",
+        description=(
+            "``completed`` (Default, wöchentlicher GitHub-Action-Cron): Briefs/"
+            "Roundups für die gerade abgeschlossene KW (``utcnow - 1 day``). "
+            "``current`` (manueller Admin-Button): laufende KW (``utcnow``)."
+        ),
+    ),
+    force: bool = Query(
+        False,
+        description=(
+            "Force-Overwrite: bestehende Briefs/Roundups der Ziel-KW werden "
+            "neu generiert (UPSERT) statt per Cache-Hit übersprungen. Default "
+            "``false`` hält den wöchentlichen Cron byte-identisch."
+        ),
+    ),
     session: Session = Depends(get_session),
 ):
+    # Query-Params (nicht Body): der GitHub-Action-``curl`` sendet einen leeren
+    # POST ohne Body — ein required/optionaler Pydantic-Body würde dort
+    # 422en. Ohne Query-Params greifen die Defaults completed/false →
+    # wöchentlicher Lauf unverändert.
     _reap_stale_runs(session)
 
     running = session.exec(select(CronRun).where(CronRun.status == "running")).first()
@@ -973,9 +1064,14 @@ async def cron_sync_all(
     session.commit()
     session.refresh(run)
 
-    background_tasks.add_task(_run_cron_sync_background, run.id, run_index)
+    background_tasks.add_task(
+        _run_cron_sync_background, run.id, run_index, target_week, force
+    )
 
-    logger.info("cron-sync queued: run_id=%s run_index=%d", run.id, run_index)
+    logger.info(
+        "cron-sync queued: run_id=%s run_index=%d target_week=%s force=%s",
+        run.id, run_index, target_week, force,
+    )
 
     return JSONResponse(
         status_code=202,
@@ -984,6 +1080,8 @@ async def cron_sync_all(
             "started_at": run.started_at.isoformat(),
             "status": "running",
             "run_index": run_index,
+            "target_week": target_week,
+            "force": force,
             "message": "cron sync started in background",
         },
     )
