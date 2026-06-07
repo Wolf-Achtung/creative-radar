@@ -148,4 +148,15 @@ export const endpoints = {
   adminLogin: (password) => api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password }) }),
   adminLogout: () => api('/api/admin/logout', { method: 'POST' }),
   adminMe: () => api('/api/admin/me'),
+
+  // "Jetzt komplett aktualisieren" (Admin-Button): löst den vollen Cron-Lauf
+  // on-demand aus. Default targetWeek='current' + force=true → laufende KW mit
+  // Force-Overwrite (der wöchentliche GitHub-Action-Cron sendet keine Params →
+  // completed/false, byte-identisch). Antwort ist 202 mit run_id; der Lauf ist
+  // ein mehrminütiger BackgroundTask, dessen Status über cronRuns gepollt wird.
+  cronSyncAll: ({ targetWeek = 'current', force = true } = {}) => {
+    const params = new URLSearchParams({ target_week: targetWeek, force: String(force) });
+    return api(`/api/admin/cron/sync-all?${params.toString()}`, { method: 'POST' });
+  },
+  cronRuns: (limit = 1) => api(`/api/admin/cron/runs?limit=${limit}`),
 };
