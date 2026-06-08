@@ -970,6 +970,16 @@ class TitlePostRef(BaseModel):
     asset_id: Optional[str] = None
     thumbnail_url: Optional[str] = None
     views: Optional[int] = None
+    # V3 Sprint 3 (Top-Performer): die Engagement-Metriken lagen schon auf der
+    # Post-Row, wurden aber nicht durchgereicht. ``engagement_rate`` ist
+    # serverseitig berechnet = (likes + comments) / views (nur wenn views > 0,
+    # sonst 0.0) — Shares/Bookmarks bewusst NICHT in die Rate (nicht auf allen
+    # Plattformen verfügbar → würde verzerren), shares nur als Badge.
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    shares: Optional[int] = None
+    duration_seconds: Optional[int] = None
+    engagement_rate: Optional[float] = None
     published_at: Optional[datetime] = None
 
 

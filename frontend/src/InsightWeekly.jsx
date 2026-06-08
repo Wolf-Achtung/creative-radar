@@ -1515,6 +1515,26 @@ function TopRankingSection({ aggregation, pairKey }) {
 
 const TITLE_DETAIL_MARKETS = ['DE', 'US', 'UK'];
 
+// V3 Sprint 3 — Top-Performer-Sortierung der Film-Detailseite. Optik/Labels
+// gespiegelt von der Top-Posts-Ansicht (RANKED_METRIC_DEFS); client-seitig, da
+// der Detail-Endpoint kein Limit/Pagination hat und die Post-Zahl pro Titel
+// klein ist (kein Re-Fetch nötig). Default Engagement-Rate; das Backend liefert
+// die erste Ausgabe bereits engagement-sortiert.
+const FILM_SORT_OPTIONS = [
+  { key: 'engagement', label: 'Engagement-Rate' },
+  { key: 'views', label: 'Aufrufe' },
+  { key: 'likes', label: 'Reactions' },
+];
+
+function filmDetailSortFn(key) {
+  switch (key) {
+    case 'views': return (a, b) => (b.views || 0) - (a.views || 0);
+    case 'likes': return (a, b) => (b.likes || 0) - (a.likes || 0);
+    case 'engagement':
+    default:      return (a, b) => (b.engagement_rate || 0) - (a.engagement_rate || 0);
+  }
+}
+
 function FilmPostCard({ post }) {
   const platform = post.platform || 'tiktok';
   const { relative, absolute } = formatRelativeDate(post.published_at);
@@ -1562,6 +1582,20 @@ function FilmPostCard({ post }) {
           <strong>{post.views != null ? formatRankedNumber(post.views) : '—'}</strong>
           <span>Aufrufe</span>
         </div>
+        <div className="film-post-stats">
+          <span
+            className="film-post-stat film-post-stat-rate"
+            title="Engagement-Rate = (Reactions + Kommentare) / Aufrufe"
+          >
+            {post.engagement_rate != null ? formatRankedPercent(post.engagement_rate) : '—'} Engagement
+          </span>
+          {post.likes != null && (
+            <span className="film-post-stat">{formatRankedNumber(post.likes)} Reactions</span>
+          )}
+          {post.comments != null && (
+            <span className="film-post-stat">{formatRankedNumber(post.comments)} Komm.</span>
+          )}
+        </div>
         {relative && (
           <span className="film-post-date" title={absolute}>{relative}</span>
         )}
@@ -1570,9 +1604,10 @@ function FilmPostCard({ post }) {
   );
 }
 
-function FilmMarketColumn({ market, marketData }) {
+function FilmMarketColumn({ market, marketData, sortKey }) {
   const platforms = Array.isArray(marketData?.platforms) ? marketData.platforms : [];
   const groups = platforms.filter((pg) => pg.posts?.length > 0);
+  const sortFn = filmDetailSortFn(sortKey);
   return (
     <div className="film-market-column">
       <h4>{market}</h4>
@@ -1581,7 +1616,7 @@ function FilmMarketColumn({ market, marketData }) {
           <div key={pg.platform} className="film-platform-group">
             <p className="film-platform-label">{PLATFORM_LABEL[pg.platform] || pg.platform}</p>
             <div className="film-post-list">
-              {pg.posts.map((post, i) => (
+              {[...pg.posts].sort(sortFn).map((post, i) => (
                 <FilmPostCard key={post.post_url || `${market}-${pg.platform}-${i}`} post={post} />
               ))}
             </div>
@@ -1611,6 +1646,8 @@ function FilmDetailSection({ fokusItems }) {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'done' | 'error'
   const [error, setError] = useState(null);
+  // Sort-Wahl persistiert (Pattern wie TopRankingSection); Default Engagement-Rate.
+  const [sortKey, setSortKey] = useLocalStorage('filmDetailSort', 'engagement');
 
   useEffect(() => {
     if (!selectedId) {
@@ -1657,6 +1694,16 @@ function FilmDetailSection({ fokusItems }) {
             <option key={t.id} value={t.id}>{t.name}</option>
           ))}
         </select>
+        <select
+          className="ranking-sort-select"
+          value={sortKey}
+          onChange={(e) => setSortKey(e.target.value)}
+          aria-label="Sortierung"
+        >
+          {FILM_SORT_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>{o.label}</option>
+          ))}
+        </select>
       </div>
 
       {status === 'idle' && (
@@ -1682,7 +1729,7 @@ function FilmDetailSection({ fokusItems }) {
             </p>
             <div className="film-market-grid">
               {TITLE_DETAIL_MARKETS.map((m) => (
-                <FilmMarketColumn key={m} market={m} marketData={marketByName[m]} />
+                <FilmMarketColumn key={m} market={m} marketData={marketByName[m]} sortKey={sortKey} />
               ))}
             </div>
           </>

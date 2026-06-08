@@ -49,9 +49,12 @@ def _channel(session, *, handle, platform, market) -> Channel:
     return ch
 
 
-def _post(session, channel, url, *, views=100) -> Post:
+def _post(session, channel, url, *, views=100, likes=None, comments=None,
+          shares=None, duration=None) -> Post:
     post = Post(id=uuid4(), channel_id=channel.id, platform=channel.platform,
-                post_url=url, visible_views=views)
+                post_url=url, visible_views=views, visible_likes=likes,
+                visible_comments=comments, visible_shares=shares,
+                duration_seconds=duration)
     session.add(post)
     session.commit()
     return post
@@ -134,6 +137,96 @@ def test_dedupes_post_with_multiple_assets(client: TestClient, db):
     resp = client.get(f"/api/insights/title/{title_id}/posts")
     payload = resp.json()
     assert payload["total_posts"] == 1  # counted once
+
+
+def _seed_three_de_tiktok(session):
+    """Drei DE/TikTok-Posts mit unterschiedlichen Metriken im selben Bucket,
+    plus ein views=0-Post (Engagement-Rate 0 → NULLS LAST)."""
+    title = Title(id=uuid4(), title_original="Ranktest", active=True)
+    session.add(title)
+    session.commit()
+    ch = _channel(session, handle="warnerde", platform="tiktok", market=Market.DE)
+    # url -> (views, likes, comments): rate = (likes+comments)/views
+    _asset(session, _post(session, ch, "https://d/a", views=1000, likes=10, comments=10), title)  # rate 0.02
+    _asset(session, _post(session, ch, "https://d/b", views=200, likes=40, comments=20), title)   # rate 0.30
+    _asset(session, _post(session, ch, "https://d/c", views=5000, likes=100, comments=50), title)  # rate 0.03
+    _asset(session, _post(session, ch, "https://d/z", views=0, likes=5, comments=5), title)        # rate 0.0
+    return str(title.id)
+
+
+def _de_tiktok_urls(payload):
+    return [p["post_url"] for p in _markets_map(payload)["DE"]["tiktok"]]
+
+
+def test_schema_carries_engagement_fields_and_computed_rate(client: TestClient, db):
+    with Session(db) as session:
+        title = Title(id=uuid4(), title_original="Fields", active=True)
+        session.add(title)
+        session.commit()
+        title_id = str(title.id)
+        ch = _channel(session, handle="warnerde", platform="tiktok", market=Market.DE)
+        _asset(session, _post(session, ch, "https://d/1", views=200, likes=40,
+                              comments=20, shares=7, duration=15), title)
+
+    payload = client.get(f"/api/insights/title/{title_id}/posts").json()
+    post = _markets_map(payload)["DE"]["tiktok"][0]
+    # Regression: bestehende 7 Felder unverändert vorhanden.
+    for key in ("post_url", "platform", "market", "asset_id", "thumbnail_url",
+                "views", "published_at"):
+        assert key in post
+    # Neue Felder durchgereicht + Rate berechnet = (40+20)/200 = 0.3.
+    assert post["likes"] == 40
+    assert post["comments"] == 20
+    assert post["shares"] == 7
+    assert post["duration_seconds"] == 15
+    assert post["engagement_rate"] == pytest.approx(0.3)
+
+
+def test_default_sort_is_engagement_rate_views_zero_last(client: TestClient, db):
+    with Session(db) as session:
+        title_id = _seed_three_de_tiktok(session)
+    # Kein sort-Param → Default engagement: b(0.30) > c(0.03) > a(0.02) > z(0.0).
+    payload = client.get(f"/api/insights/title/{title_id}/posts").json()
+    assert _de_tiktok_urls(payload) == ["https://d/b", "https://d/c", "https://d/a", "https://d/z"]
+
+
+def test_sort_views_descending(client: TestClient, db):
+    with Session(db) as session:
+        title_id = _seed_three_de_tiktok(session)
+    payload = client.get(f"/api/insights/title/{title_id}/posts?sort=views").json()
+    # views: c(5000) > a(1000) > b(200) > z(0).
+    assert _de_tiktok_urls(payload) == ["https://d/c", "https://d/a", "https://d/b", "https://d/z"]
+
+
+def test_sort_likes_descending(client: TestClient, db):
+    with Session(db) as session:
+        title_id = _seed_three_de_tiktok(session)
+    payload = client.get(f"/api/insights/title/{title_id}/posts?sort=likes").json()
+    # likes: c(100) > b(40) > a(10) > z(5).
+    assert _de_tiktok_urls(payload) == ["https://d/c", "https://d/b", "https://d/a", "https://d/z"]
+
+
+def test_invalid_sort_falls_back_to_engagement(client: TestClient, db):
+    with Session(db) as session:
+        title_id = _seed_three_de_tiktok(session)
+    payload = client.get(f"/api/insights/title/{title_id}/posts?sort=bogus").json()
+    assert _de_tiktok_urls(payload) == ["https://d/b", "https://d/c", "https://d/a", "https://d/z"]
+
+
+def test_zero_and_null_views_no_division_error_rate_zero(client: TestClient, db):
+    with Session(db) as session:
+        title = Title(id=uuid4(), title_original="ZeroViews", active=True)
+        session.add(title)
+        session.commit()
+        title_id = str(title.id)
+        ch = _channel(session, handle="warnerde", platform="tiktok", market=Market.DE)
+        _asset(session, _post(session, ch, "https://d/zero", views=0, likes=5, comments=5), title)
+        _asset(session, _post(session, ch, "https://d/null", views=None, likes=3, comments=3), title)
+
+    payload = client.get(f"/api/insights/title/{title_id}/posts").json()
+    by_url = {p["post_url"]: p for p in _markets_map(payload)["DE"]["tiktok"]}
+    assert by_url["https://d/zero"]["engagement_rate"] == 0.0
+    assert by_url["https://d/null"]["engagement_rate"] == 0.0
 
 
 def test_excludes_int_and_mixed_markets(client: TestClient, db):
