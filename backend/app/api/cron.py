@@ -911,21 +911,32 @@ async def _run_cron_sync_background(
             summary["run_mode"] = {"target_week": target_week, "force": force}
             cap = settings.cron_vision_max_assets_per_run
             if created_asset_ids:
-                summary["vision"] = _run_vision_after_sync(session, created_asset_ids, cap)
+                # to_thread: die synchronen Langläufer-Stages (Vision/Backlog/
+                # Rematch/Briefs/Roundups) laufen blockierende I/O (OpenAI/
+                # Anthropic). Direkt im async-Loop aufgerufen würden sie den
+                # einen uvicorn-Event-Loop für die volle (~50-100 Min) Lauf-
+                # dauer starven → health/Admin/Frontend hängen. Auf einem
+                # Worker-Thread bleibt der Loop frei. STRIKT sequenziell
+                # einzeln awaiten (KEIN gather): alle Stages teilen die EINE
+                # BG-Task-Session (Z. oben) — parallele Threads auf derselben
+                # Session würden kollidieren. Die Reihenfolge der Kette bleibt.
+                summary["vision"] = await asyncio.to_thread(
+                    _run_vision_after_sync, session, created_asset_ids, cap
+                )
             # Backlog-Drain (Dauerfix gegen feed-forward-Lücke): nach den
             # frisch erzeugten Assets bis zu N älteste ``pending``-Assets
             # nachziehen. created_asset_ids-Selektion/Cap oben bleibt
             # unberührt; backlog_cap=0 deaktiviert den Pfad.
             backlog_cap = settings.cron_vision_backlog_max_assets_per_run
             if backlog_cap > 0:
-                summary["vision_backlog"] = _run_vision_backlog(
-                    session, backlog_cap, exclude_ids=created_asset_ids
+                summary["vision_backlog"] = await asyncio.to_thread(
+                    _run_vision_backlog, session, backlog_cap, exclude_ids=created_asset_ids
                 )
             # Title-Katalog-Sync (Movies + TV) VOR dem Rematch, damit frisch
             # gezogene Titel im selben Lauf gematcht werden. Hinter
             # ENABLE_TITLE_SYNC_IN_CRON (Default true); eigener try/except.
             summary["title_sync"] = await _run_title_sync_after_scrape(session)
-            summary["rematch"] = _run_rematch_after_sync(session)
+            summary["rematch"] = await asyncio.to_thread(_run_rematch_after_sync, session)
             # Cadence-Sprint 2026-05-17 — Brief-Generation für die gerade
             # abgeschlossene ISO-Woche. Vor diesem Sprint hat der Sonntag-Cron
             # nur Scrape gemacht; Briefs entstanden ausschließlich lazy beim
@@ -942,8 +953,8 @@ async def _run_cron_sync_background(
             # Aggregation tatsächlich vollständig vorliegt. Selbe Logik wie
             # ``aggregate_pair`` (insight_engine.py:1880), nur explizit
             # ein Tag zurück.
-            summary["briefs"] = _run_brief_generation_after_sync(
-                session, brief_now=brief_now, force=force
+            summary["briefs"] = await asyncio.to_thread(
+                _run_brief_generation_after_sync, session, brief_now=brief_now, force=force
             )
             # Master-Plan-Schritt-4 — Segment-Roundup-Block additiv NACH
             # den Pair-Briefs (Konzept §6, Wolf-Festlegung 25.05.). Der
@@ -952,8 +963,8 @@ async def _run_cron_sync_background(
             # entfallen — Pair-Briefs sind hier bereits persistiert.
             # Hinter ``FEATURE_SEGMENT_ROUNDUPS_ENABLED``: Flag off =
             # Cron-Verhalten exakt wie vor Schritt 4.
-            summary["roundups"] = _run_segment_roundups_after_briefs(
-                session, brief_now=brief_now, force=force
+            summary["roundups"] = await asyncio.to_thread(
+                _run_segment_roundups_after_briefs, session, brief_now=brief_now, force=force
             )
             # Tech-Debt A5 — Apify-Cost dieses Runs ins summary_json.
             # ``record_apify_run`` läuft synchron im ``_run_actor``-Pfad ab
