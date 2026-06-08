@@ -1,9 +1,9 @@
 name: Cron Sync
 
-# Triggers the Apify cron-sync endpoint every Monday at 06:00 UTC.
+# Triggers the Apify cron-sync endpoint every Monday at 03:00 UTC.
 # Schedule expression: minute hour day-of-month month day-of-week
-#   "0 6 * * 1"  — Monday (1) at 06:00 UTC
-# Berlin time: 07:00 CET (winter) / 08:00 CEST (summer).
+#   "0 3 * * 1"  — Monday (1) at 03:00 UTC
+# Berlin time: 05:00 Berlin (CEST, summer) / 04:00 CET (winter).
 #
 # Cadence-Sprint 2026-05-17: Schedule von Sonntag auf Montag verschoben,
 # damit Brief-Generation in derselben Cron-Stage läuft, in der Cutter Montag
@@ -24,7 +24,7 @@ name: Cron Sync
 
 on:
   schedule:
-    - cron: '0 6 * * 1'
+    - cron: '0 3 * * 1'
   workflow_dispatch:
 
 jobs:
