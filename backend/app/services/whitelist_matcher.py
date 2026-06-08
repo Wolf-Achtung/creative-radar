@@ -18,6 +18,15 @@ class MatchResult:
     confidence: float
     source: str
     suggested_title: str | None = None
+    # Korroborations-Flag: True, wenn ALLE Strong-Hits für diesen Titel
+    # ausschliesslich aus placement_title_text (field_key "suggested_title")
+    # stammen — d.h. weder caption/ocr_text/ai_summary noch sonst ein Feld
+    # stuetzt den Titel. Vision-OCR der placement-Zone faengt Hintergrund-/
+    # Lineup-/End-Card-Text ein (z.B. "Andor" auf einem Mandalorian-Clip);
+    # ein solcher Allein-Treffer darf KEIN stiller Auto-Match sein. Das Signal
+    # bleibt erhalten (Candidate statt Drop), nur is_safe_auto_match sperrt.
+    # Additiv mit Default → bestehende MatchResult-Konstruktionen unberuehrt.
+    only_from_placement: bool = False
 
 
 _SAFE_SOURCES = {"exact", "exact_alias", "exact_local", "hashtag", "unique_text"}
@@ -195,7 +204,12 @@ def _collect_text_fields(fields: dict[str, str | list[str] | None] | None, fallb
 
 
 def is_safe_auto_match(match: MatchResult) -> bool:
-    return bool(match.title and match.source in _SAFE_SOURCES and match.confidence >= 0.95)
+    return bool(
+        match.title
+        and match.source in _SAFE_SOURCES
+        and match.confidence >= 0.95
+        and not match.only_from_placement
+    )
 
 
 def _release_anchor(title: Title):
@@ -235,6 +249,27 @@ def _resolve_by_release_proximity(
     return scored[0][1]
 
 
+def _finalize_strong_hit(
+    entry: tuple[Title, float, str, str],
+    field_origins: set[str],
+) -> MatchResult:
+    """Mappt einen gewonnenen by_title-Eintrag auf ein MatchResult und setzt
+    das Korroborations-Flag an EINER Stelle. ``field_origins`` ist die Menge
+    aller field_keys, die fuer DIESEN Titel einen Strong-Hit geliefert haben.
+    ``only_from_placement`` ist nur True, wenn das die exakte Einermenge
+    ``{"suggested_title"}`` ist — sobald caption/ocr_text/ai_summary denselben
+    Titel ebenfalls treffen, bleibt es ein regulaerer (korroborierter) Treffer
+    und damit Auto-Match-faehig (Schutz der korrekten placement-Faelle)."""
+    title, confidence, source, matched_text = entry
+    return MatchResult(
+        title=title,
+        confidence=confidence,
+        source=source,
+        suggested_title=matched_text,
+        only_from_placement=(field_origins == {"suggested_title"}),
+    )
+
+
 def find_title_matches(session: Session, text: str | None) -> list[Title]:
     result = find_best_title_match(session, text)
     return [result.title] if result.title else []
@@ -263,23 +298,26 @@ def find_best_title_match(
         else build_normalized_index(titles_with_candidates)
     )
 
-    strong_hits: list[tuple[Title, str, str]] = []
+    # 4-Tupel: (title, source, matched_text, field_key). field_key traegt die
+    # Herkunfts-Information bis in den by_title-Aufbau, damit dort pro Titel
+    # die Menge der stuetzenden Felder (field_origins) gebildet werden kann.
+    strong_hits: list[tuple[Title, str, str, str]] = []
     weak_best: tuple[Title | None, float, str, str | None] = (None, 0.0, "none", None)
 
-    for _, raw in text_fields:
+    for field_key, raw in text_fields:
         normalized_haystack = _normalize_text(raw)
         if not normalized_haystack:
             continue
 
         hashtag_hits = _extract_hashtag_matches(raw, normalized_to_titles)
         for title, source_key, matched_text in hashtag_hits:
-            strong_hits.append((title, "hashtag" if source_key != "alias" else "hashtag", matched_text))
+            strong_hits.append((title, "hashtag" if source_key != "alias" else "hashtag", matched_text, field_key))
 
         for normalized, title_refs in normalized_to_titles.items():
             if normalized == normalized_haystack:
                 for title, source_key in title_refs:
                     mapped_source = "exact" if source_key == "exact" else ("exact_local" if source_key == "local" else "exact_alias")
-                    strong_hits.append((title, mapped_source, normalized))
+                    strong_hits.append((title, mapped_source, normalized, field_key))
                 continue
             # Substring-Magnet-Schutz (Klasse 1): kurze Kandidaten ("mia",
             # "Yes", "Kara") nicht als Wortgrenzen-Token in fremde Captions
@@ -290,7 +328,7 @@ def find_best_title_match(
             ):
                 for title, source_key in title_refs:
                     mapped_source = "unique_text" if source_key == "exact" else ("exact_local" if source_key == "local" else "exact_alias")
-                    strong_hits.append((title, mapped_source, normalized))
+                    strong_hits.append((title, mapped_source, normalized, field_key))
 
             ratio = SequenceMatcher(None, normalized_haystack, normalized).ratio()
             if ratio > 0.72 and ratio > weak_best[1]:
@@ -301,32 +339,41 @@ def find_best_title_match(
         # matched_text gewinnt (Spezifitäts-Signal für die Sequel-
         # Disambiguierung unten), bei Gleichstand der höhere Score.
         by_title: dict[str, tuple[Title, float, str, str]] = {}
-        for title, source, matched_text in strong_hits:
+        # Pro Titel ALLE beitragenden field_keys sammeln — unabhaengig davon,
+        # welcher Hit als spezifischster gewinnt. Daraus leitet _finalize_strong_hit
+        # only_from_placement ab (== {"suggested_title"} -> nur placement stuetzt).
+        field_origins_by_title: dict[str, set[str]] = {}
+        for title, source, matched_text, field_key in strong_hits:
+            tid = str(title.id)
+            field_origins_by_title.setdefault(tid, set()).add(field_key)
             score = 1.0 if source in {"exact", "exact_local", "exact_alias", "hashtag"} else 0.97
             candidate = (title, score, source, matched_text)
-            current = by_title.get(str(title.id))
+            current = by_title.get(tid)
             if current is None or (len(matched_text), score) > (len(current[3]), current[1]):
-                by_title[str(title.id)] = candidate
+                by_title[tid] = candidate
 
         entries = list(by_title.values())
         if len(entries) == 1:
-            title, confidence, source, matched_text = entries[0]
-            return MatchResult(title=title, confidence=confidence, source=source, suggested_title=matched_text)
+            return _finalize_strong_hit(
+                entries[0], field_origins_by_title[str(entries[0][0].id)]
+            )
 
         # Variante D Teil 1 — Spezifität: der eindeutig längste matched_text
         # gewinnt (z.B. "mortal kombat ii" schlägt "mortal kombat").
         max_len = max(len(entry[3]) for entry in entries)
         longest = [entry for entry in entries if len(entry[3]) == max_len]
         if len(longest) == 1:
-            title, confidence, source, matched_text = longest[0]
-            return MatchResult(title=title, confidence=confidence, source=source, suggested_title=matched_text)
+            return _finalize_strong_hit(
+                longest[0], field_origins_by_title[str(longest[0][0].id)]
+            )
 
         # Variante D Teil 2 — bei gleich langen Treffern derselben Franchise:
         # Zeit-Tiebreak über Release-Nähe zum Post-Datum.
         resolved = _resolve_by_release_proximity(longest, published_at)
         if resolved is not None:
-            title, confidence, source, matched_text = resolved
-            return MatchResult(title=title, confidence=confidence, source=source, suggested_title=matched_text)
+            return _finalize_strong_hit(
+                resolved, field_origins_by_title[str(resolved[0].id)]
+            )
 
         # Variante D Teil 3 — weder Spezifität noch Zeit lösen eindeutig auf:
         # NICHT raten. title=None -> der bestehende Pfad legt einen
