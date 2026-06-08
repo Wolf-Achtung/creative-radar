@@ -319,20 +319,29 @@ def find_best_title_match(
                     mapped_source = "exact" if source_key == "exact" else ("exact_local" if source_key == "local" else "exact_alias")
                     strong_hits.append((title, mapped_source, normalized, field_key))
                 continue
-            # Substring-Magnet-Schutz (Klasse 1): kurze Kandidaten ("mia",
-            # "Yes", "Kara") nicht als Wortgrenzen-Token in fremde Captions
-            # matchen lassen. Exakte Gleichheit (Zweig oben) bleibt erlaubt.
-            if (
+            # Substring-Magnet-Schutz: kurze Kandidaten ("mia", "Yes", "Kara")
+            # nicht über die UNSCHARFEN Pfade matchen lassen — weder als
+            # Wortgrenzen-Token (Klasse 1, Substring) NOCH als Fuzzy-Annäherung
+            # (Klasse 2). Initialen-/Kurz-Titel wie "M.I.A." (normalisiert
+            # "m i a", compact "mia"=3) erzeugten sonst über den Fuzzy-Zweig
+            # Fehltreffer: "M:I:6" → "m i 6" gegen "m i a" liefert ratio ~0.8.
+            # Die Compact-Länge wird EINMAL bestimmt und gilt für beide Zweige.
+            # Exakte Gleichheit (Zweig oben), Hashtag und exakter Text bleiben
+            # längenunabhängig — ≤4-Titel verlieren nur die Annäherung, nie den
+            # Volltreffer.
+            candidate_is_substring_safe = (
                 len(normalized.replace(" ", "")) > _MIN_SUBSTRING_CANDIDATE_LEN
-                and _contains_phrase(normalized_haystack, normalized)
-            ):
+            )
+
+            if candidate_is_substring_safe and _contains_phrase(normalized_haystack, normalized):
                 for title, source_key in title_refs:
                     mapped_source = "unique_text" if source_key == "exact" else ("exact_local" if source_key == "local" else "exact_alias")
                     strong_hits.append((title, mapped_source, normalized, field_key))
 
-            ratio = SequenceMatcher(None, normalized_haystack, normalized).ratio()
-            if ratio > 0.72 and ratio > weak_best[1]:
-                weak_best = (title_refs[0][0], ratio, "fuzzy", normalized)
+            if candidate_is_substring_safe:
+                ratio = SequenceMatcher(None, normalized_haystack, normalized).ratio()
+                if ratio > 0.72 and ratio > weak_best[1]:
+                    weak_best = (title_refs[0][0], ratio, "fuzzy", normalized)
 
     if strong_hits:
         # Per Titel den spezifischsten Strong-Hit behalten: längster
