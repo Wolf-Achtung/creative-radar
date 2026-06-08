@@ -493,9 +493,31 @@ def roundups_latest(
 _TITLE_POSTS_MARKETS = [Market.DE, Market.US, Market.UK]
 
 
+def _post_engagement_rate(views, likes, comments) -> float:
+    """V3 Sprint 3 — Engagement-Rate = (likes + comments) / views, NUR wenn
+    views > 0; sonst 0.0 (Division-by-zero-Schutz + NULLS-LAST-Sortierung).
+    Shares/Bookmarks bewusst ausgeschlossen (nicht plattformübergreifend
+    verfügbar)."""
+    v = views or 0
+    if v <= 0:
+        return 0.0
+    return ((likes or 0) + (comments or 0)) / v
+
+
+# Sortier-Schlüssel der Detailseite. Default ``engagement``; ungültige/fehlende
+# Werte fallen auf den Default zurück. Alle absteigend, 0/None ans Ende
+# (NULLS LAST), da die ``key``-Werte über ``or 0`` normalisiert werden.
+_TITLE_POSTS_SORTS = {
+    "engagement": lambda r: r.engagement_rate or 0.0,
+    "views": lambda r: r.views or 0,
+    "likes": lambda r: r.likes or 0,
+}
+
+
 @router.get("/title/{title_id}/posts", response_model=TitlePostsResponse)
 def title_posts(
     title_id: UUID,
+    sort: str = Query("engagement", description="Sortierung pro Plattform: engagement|views|likes"),
     session: Session = Depends(get_session),
 ) -> TitlePostsResponse:
     """Read-only: alle Posts eines Titels, gruppiert nach Markt (DE/US/UK)
@@ -506,8 +528,16 @@ def title_posts(
     Posts (oder eine unbekannte title_id) liefert wohlgeformte leere Gruppen,
     keinen Fehler. Posts werden über ``post.id`` dedupliziert (ein Titel kann
     auf mehreren Assets desselben Posts liegen).
+
+    V3 Sprint 3: ``sort`` ordnet die Posts INNERHALB jeder Plattform-Liste
+    (die market->platform->[posts]-Struktur bleibt) absteigend nach Engagement-
+    Rate (Default), Views oder Likes. Sortiert wird in Python über die bereits
+    in Python gebildeten Buckets — funktional identisch zu einem SQL-ORDER-BY
+    mit DESC NULLS LAST, aber ohne den NULLIF-Ausdruck und konsistent mit der
+    serverseitig berechneten ``engagement_rate``.
     """
     title = session.get(Title, title_id)
+    sort_key = _TITLE_POSTS_SORTS.get(sort, _TITLE_POSTS_SORTS["engagement"])
 
     rows = session.exec(
         select(Post, Channel, Asset)
@@ -540,6 +570,13 @@ def title_posts(
                 asset_id=str(asset.id),
                 thumbnail_url=asset.thumbnail_url,
                 views=post.visible_views,
+                likes=post.visible_likes,
+                comments=post.visible_comments,
+                shares=post.visible_shares,
+                duration_seconds=post.duration_seconds,
+                engagement_rate=_post_engagement_rate(
+                    post.visible_views, post.visible_likes, post.visible_comments
+                ),
                 published_at=post.published_at,
             )
         )
@@ -549,7 +586,10 @@ def title_posts(
         TitleMarketPosts(
             market=m.value,
             platforms=[
-                TitlePlatformPosts(platform=plat, posts=posts)
+                TitlePlatformPosts(
+                    platform=plat,
+                    posts=sorted(posts, key=sort_key, reverse=True),
+                )
                 for plat, posts in sorted(buckets[m.value].items())
             ],
         )

@@ -1718,3 +1718,20 @@ a:hover { text-decoration: underline; }
   opacity: 0.75;
   cursor: help;
 }
+/* V3 Sprint 3 — Performance-Badges der Detailseite (muted Tokens wie
+   .film-post-metric span; die Engagement-Rate als Akzent hervorgehoben). */
+.film-post-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.film-post-stat {
+  font-size: 11px;
+  color: #7c7468;
+  white-space: nowrap;
+}
+.film-post-stat-rate {
+  font-weight: 700;
+  color: #1d2330;
+  cursor: help;
+}
