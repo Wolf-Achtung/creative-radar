@@ -358,10 +358,17 @@ def find_best_title_match(
                 entries[0], field_origins_by_title[str(entries[0][0].id)]
             )
 
-        # Variante D Teil 1 — Spezifität: der eindeutig längste matched_text
-        # gewinnt (z.B. "mortal kombat ii" schlägt "mortal kombat").
-        max_len = max(len(entry[3]) for entry in entries)
-        longest = [entry for entry in entries if len(entry[3]) == max_len]
+        # Variante D Teil 1 — Spezifität, aber Score-Klasse VOR Länge: ein
+        # expliziter Hashtag/Exact-Treffer (score 1.0) schlägt einen längeren,
+        # schwächeren Floskel-Substring (unique_text 0.97). Sonst gewänne z.B.
+        # die Alltagsphrase "the boys" (8) gegen den eigentlichen #Jumanji (7),
+        # nur weil ihr matched_text ein Zeichen länger ist. Bei GLEICHEM Score
+        # bleibt die Längen-Spezifität der Tiebreak (z.B. "mortal kombat ii"
+        # schlägt "mortal kombat").
+        max_score = max(entry[1] for entry in entries)
+        top_score = [entry for entry in entries if entry[1] == max_score]
+        max_len = max(len(entry[3]) for entry in top_score)
+        longest = [entry for entry in top_score if len(entry[3]) == max_len]
         if len(longest) == 1:
             return _finalize_strong_hit(
                 longest[0], field_origins_by_title[str(longest[0][0].id)]
