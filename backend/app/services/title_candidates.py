@@ -63,10 +63,24 @@ def create_candidate_from_asset(
     if not match.suggested_title:
         match = find_best_title_match(session, asset.kinetic_text or asset.placement_title_text or "")
 
-    # Variante D: Guess-only-Pfad → kein Candidate. Whitelist-Treffer
-    # haben match.source != "none" (exact, hashtag, unique_text,
-    # fuzzy, brand_whitelist, ambiguous).
-    if skip_if_guess_only and match.source == "none":
+    # Variante D + Rausch-Filter: in den automatischen Zuflusspfaden
+    # (monitor, posts, title_rematch) werden Match-Quellen ohne Auto-Match-
+    # Nutzen NICHT zu Candidates — sie haben keinen title_id-Pfad
+    # (is_safe_auto_match scheitert) und keinen Konsumenten außer dem
+    # Review-Backlog:
+    #   - "none"           → reiner Token-Guess (Variante D, bisher schon)
+    #   - "ambiguous"      → mehrere gleichwertige Treffer → "Unklarer Titel"/0.35
+    #   - "brand_whitelist"→ Plattform-Marken (z.B. "Netflix Originals")/0.85
+    #   - "empty"          → Factory-internes Fallback-Label, wenn der Zweit-
+    #     Call (Z. unten, kinetic_text/placement_title_text) keinen Text hat.
+    #     Wäscht sonst einen geblockten Erst-Treffer (ambiguous ohne kinetic/
+    #     placement → "empty") an diesem Filter vorbei und erzeugt den
+    #     "Unklarer Titel"/0.35-Candidate im realen Rematch-Pfad.
+    # Echte Whitelist-Treffer (exact, hashtag, unique_text, fuzzy) bleiben
+    # erhalten. User-getriebene Calls (skip_if_guess_only=False) sind
+    # unberührt — der User-Intent überstimmt den Filter. Der Filter keyed auf
+    # match.source, NIE auf confidence (echte OPENAI/0.35-Candidates bleiben).
+    if skip_if_guess_only and match.source in ("none", "ambiguous", "brand_whitelist", "empty"):
         return None
 
     candidate = TitleCandidate(

@@ -128,10 +128,17 @@ def test_rematch_creates_candidate_for_fuzzy_whitelist_match():
 
 
 def test_rematch_open_fallback_for_ambiguous_no_release():
-    """Variante D Teil 3: matcht der Text zwei gleich spezifische Titel
-    derselben Franchise ohne Release-Datum, löst weder Spezifität noch Zeit
-    eindeutig auf → KEINE Zuweisung (title_id bleibt None), aber ein
-    OPEN-TitleCandidate zur manuellen Prüfung."""
+    """Variante D Teil 3 + Candidate-Insert-Filter-Sprint: matcht der Text
+    zwei gleich spezifische Titel derselben Franchise ohne Release-Datum,
+    löst weder Spezifität noch Zeit eindeutig auf → KEINE Zuweisung
+    (title_id bleibt None).
+
+    Verhaltensänderung (Candidate-Insert-Filter): ``source=="ambiguous"``
+    zählt jetzt als Rausch-Quelle ohne Auto-Match-Nutzen und erzeugt im
+    Auto-Pfad (rematch, ``skip_if_guess_only=True``) KEINEN Candidate mehr.
+    Vorher legte dieser Fall einen OPEN-Kandidaten zur Review an; das war
+    eine der unterdrückten Rausch-Quellen. ``still_unmatched`` zählt weiter,
+    sodass die Summary das unzugeordnete Asset weiterhin sichtbar macht."""
     with _session() as session:
         a = Title(title_original="Alpha One", franchise="Saga", aliases=["Saga Collection"], active=True)
         b = Title(title_original="Alpha Two", franchise="Saga", aliases=["Saga Collection"], active=True)
@@ -161,8 +168,8 @@ def test_rematch_open_fallback_for_ambiguous_no_release():
         assert refreshed is not None
         assert refreshed.title_id is None          # im Zweifel NICHTS zuweisen
         assert summary.still_unmatched == 1
-        assert len(candidates) == 1                # OPEN-Kandidat zur Review
-        assert candidates[0].asset_id == asset.id
+        assert summary.candidates_created == 0     # ambiguous → kein Candidate mehr
+        assert candidates == []
 
 
 def test_rematch_batches_commits_for_many_auto_matches(monkeypatch):
