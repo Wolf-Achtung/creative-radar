@@ -574,42 +574,45 @@ class WatchOut(BaseModel):
 
 
 class FuerCutter(BaseModel):
-    """Sprint 7-iter-2: Compliance-Listen (``must_show`` / ``no_go``) raus,
-    stattdessen ``was_diese_woche`` als Fließtext-Absatz. Listen-Schema-
-    Felder erzwingen Bullet-Output, egal was der Prompt sagt; ein Free-
-    Text-Feld zwingt den LLM zur Erzählung. ``extra='ignore'`` lässt
-    persistierte Sprint-1-7-Briefe mit ``must_show``/``no_go`` weiter
-    parsen — die Listen werden beim Re-Hydrate stillschweigend
-    verworfen, das Frontend rendert sie sowieso nicht mehr."""
+    """Sprint 9b (Entdopplung): ``was_diese_woche`` gestrichen — der
+    rollenspezifische ``schnitt_pace`` trägt die Schnitt-Beobachtung der
+    Woche disjunkt, ohne dass alle drei Rollen-Sektionen denselben
+    Wochen-Befund wiederholen. Sprint 7-iter-2 hatte zuvor die
+    Compliance-Listen (``must_show`` / ``no_go``) durch das Fließtext-Feld
+    ersetzt. ``extra='ignore'`` lässt persistierte Alt-Briefe mit
+    ``must_show`` / ``no_go`` ODER ``was_diese_woche`` weiter parsen — die
+    Felder werden beim Re-Hydrate stillschweigend verworfen, das Frontend
+    rendert sie ohnehin nicht mehr."""
     model_config = ConfigDict(extra="ignore")
 
     schnitt_pace: Optional[str] = None
     hook_strategie: Optional[str] = None
     empfohlene_laengen: Optional[str] = None
-    was_diese_woche: Optional[str] = None
 
 
 class FuerMotionDesigner(BaseModel):
-    """Sprint 7-iter-2: ``was_diese_woche`` als Fließtext-Absatz analog
-    zu ``FuerCutter``. ``extra='ignore'`` deckt persistierte Briefe ab,
-    falls dort z. B. zukünftig zusätzliche Felder eingebaut wurden."""
+    """Sprint 9b (Entdopplung): ``was_diese_woche`` gestrichen analog
+    ``FuerCutter`` — ``caption_style`` / ``text_overlay`` /
+    ``branding_einsatz`` tragen die Motion-Beobachtung disjunkt.
+    ``extra='ignore'`` deckt persistierte Alt-Briefe mit dem alten Feld
+    ab."""
     model_config = ConfigDict(extra="ignore")
 
     caption_style: Optional[str] = None
     text_overlay: Optional[str] = None
     branding_einsatz: Optional[str] = None
-    was_diese_woche: Optional[str] = None
 
 
 class FuerCreativeProducer(BaseModel):
-    """Sprint 7-iter-2: ``was_diese_woche`` als Fließtext-Absatz analog
-    zu ``FuerCutter``. ``extra='ignore'`` für Backwards-Compat."""
+    """Sprint 9b (Entdopplung): ``was_diese_woche`` (Commit A) und
+    ``cross_market_chancen`` (Commit B) gestrichen — ``cross_market_insight``
+    ist die einzige Markt-Vergleichs-Sektion, die Producer-Beobachtung
+    tragen ``strategische_pattern`` / ``format_empfehlungen`` disjunkt.
+    ``extra='ignore'`` für Backwards-Compat mit den alten Feldern."""
     model_config = ConfigDict(extra="ignore")
 
     strategische_pattern: Optional[str] = None
-    cross_market_chancen: Optional[str] = None
     format_empfehlungen: Optional[str] = None
-    was_diese_woche: Optional[str] = None
 
 
 class VergleichbarerPost(BaseModel):

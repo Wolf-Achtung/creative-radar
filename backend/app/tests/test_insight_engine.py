@@ -1592,13 +1592,87 @@ def test_voice_25_iter2_headline_form_section_present():
     assert "Sony US erzielt" in prompt or "Warner Deutschland setzt auf" in prompt
 
 
-def test_voice_25_iter2_was_diese_woche_clause_present():
-    """Schema-Vokabel-Klausel für was_diese_woche — Pflicht-Feld in
-    den drei Detail-Sektionen, kein Listen-Format."""
+def test_sprint9b_was_diese_woche_removed_from_prompt():
+    """Sprint 9b (Entdopplung, Commit A): ``was_diese_woche`` ist
+    vollständig aus dem Pair-Prompt gestrichen — weder Befüll-Auftrag
+    noch Schema-Feld noch Few-Shot. Regression-Guard: das Feld darf
+    nirgends im SYSTEM_PROMPT mehr auftauchen, sonst füllt der LLM den
+    redundanten Wochen-Befund in allen drei Rollen-Sektionen nach."""
     prompt = insight_engine.SYSTEM_PROMPT
-    assert "was_diese_woche" in prompt
-    # Compliance-Struktur explizit verboten in der Klausel.
-    assert "KEINE Listen" in prompt or "Listen" in prompt
+    assert "was_diese_woche" not in prompt
+    # Die rollenspezifischen Felder tragen den Inhalt disjunkt weiter.
+    assert "schnitt_pace" in prompt
+    assert "caption_style" in prompt
+    assert "strategische_pattern" in prompt
+
+
+def test_sprint9b_cross_market_chancen_removed_from_prompt():
+    """Sprint 9b (Entdopplung, Commit B): ``cross_market_chancen`` ist aus
+    fuer_creative_producer gestrichen (Schema + Few-Shot). ``cross_market_insight``
+    bleibt die einzige Markt-Vergleichs-Sektion — sonst beschreiben zwei
+    Sektionen denselben DE↔US/DE↔UK/US↔UK-Transfer."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "cross_market_chancen" not in prompt
+    # Die einzige verbleibende Markt-Sektion ist weiterhin da.
+    assert "cross_market_insight" in prompt
+
+
+def test_sprint9b_zahlen_katalog_clause_present():
+    """Sprint 9b (Entdopplung, Commit C): die Klausel etabliert
+    aktuell_im_fokus als einzigen Zahlen-Titel-Katalog; ganz_konkret /
+    trends / fuer_cutter referenzieren Belege statt sie neu aufzulisten."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "ZAHLEN-KATALOG-REGEL" in prompt
+    assert "EINZIGE Zahlen-Titel-Katalog" in prompt
+
+
+def test_sprint9b_lern_take_vs_action_separation():
+    """Sprint 9b (Entdopplung, Commit D): lern_take = Einsicht, Handlung
+    nur in actions, Muster-Konsequenz in trends.implication_for_creation.
+    Das Few-Shot zeigt für trends.implication keine duplizierte Handlung
+    mehr."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "die lebt ausschließlich in actions" in prompt
+    assert "NICHT die konkrete Einzel-Handlung, die in actions steht" in prompt
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert "Auf Muster-Ebene heißt das" in few_shot
+    assert "gegen die 22-Sekunden-Variante testen" not in few_shot
+
+
+def test_sprint9b_trends_vs_konkurrenz_scope_separation():
+    """Sprint 9b (Entdopplung, Commit E): trends speist sich aus den
+    Pair-eigenen Daten, konkurrenz.format_trend aus der Branche außerhalb
+    des Pairs — keine Dopplung derselben Bewegung."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "branchenweite Bewegungen gehören in konkurrenz.format_trend" in prompt
+    assert "AUSSERHALB des aktuellen Pairs" in prompt
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert "Bei Disney erzielen kurze Anfänge" in few_shot
+    assert "Außerhalb des aktuellen Pairs steigt branchenweit" in few_shot
+
+
+def test_sprint9b_laengen_granularity_separation():
+    """Sprint 9b (Entdopplung, Commit F): konkrete Sekunden-Längen leben
+    nur in fuer_cutter.empfohlene_laengen; format_empfehlungen (Producer)
+    trägt Format-Mix/Rhythmus, trends.implication bleibt übergeordnet —
+    beide ohne Sekunden-Detail."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "die EINZIGE Sektion mit Sekunden-Angaben" in prompt
+    assert "KEINE konkreten Sekunden-Längen, die stehen ausschließlich in fuer_cutter.empfohlene_laengen" in prompt
+
+
+def test_sprint9b_aktuell_vs_vergleichbare_time_axis():
+    """Sprint 9b (Entdopplung, Commit G): aktuell_im_fokus = diese Woche
+    (top_posts), vergleichbare_posts = historischer Benchmark
+    (historical_top_posts). Die Zeitachse ist scharf getrennt; das Few-Shot
+    nutzt für vergleichbare_posts keinen Post dieser Woche mehr."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "ZEITACHSE-REGEL" in prompt
+    assert "historische Benchmark aus historical_top_posts" in prompt
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    # vergleichbare_posts zeigt einen historischen Benchmark, nicht den
+    # Drawn-to-You-Post (us1) aus aktuell_im_fokus dieser Woche.
+    assert "hist-soul-2024" in few_shot
 
 
 def test_voice_25_iter2_few_shot_no_traegt():
@@ -1673,15 +1747,13 @@ def test_voice_25_iter2_few_shot_uses_holt_or_punktet_in_headline():
     )
 
 
-def test_voice_25_iter2_few_shot_has_was_diese_woche():
-    """Few-Shot demonstriert das was_diese_woche-Feld in mindestens
-    einer der drei Detail-Sektionen — sonst bleibt das Schema-Feld
-    eine Theorie."""
+def test_sprint9b_few_shot_has_no_was_diese_woche():
+    """Sprint 9b (Entdopplung, Commit A): das Few-Shot zeigt
+    ``was_diese_woche`` nicht mehr. Ein Few-Shot mit einem Feld, das im
+    Tool-Schema nicht mehr existiert, würde den Tool-Call brechen und dem
+    LLM die entfernte Redundanz nachträglich beibringen."""
     few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
-    assert '"was_diese_woche"' in few_shot
-    # Pattern aus der Schema-Klausel taucht im Beispiel auf (Ton-Pass:
-    # neutrale Überleitung statt der alten "Was hier auffällt"-Formel).
-    assert "Auffällig ist" in few_shot
+    assert '"was_diese_woche"' not in few_shot
 
 
 def test_voice_25_iter2_few_shot_no_must_show_no_go():

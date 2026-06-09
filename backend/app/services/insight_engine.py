@@ -737,16 +737,6 @@ format_typ (Beispiele, kein striktes Enum — bleibe in der Sprache der Audience
 kennzahl (Format-Empfehlung):
 - Einzeiler im Stil "X Sekunden, Y Reaktionen, Z% Aktivierung" — Doppel-Beziffung hier explizit erlaubt (Card ist der rohe Datenpunkt).
 
-was_diese_woche (Sprint 7-iter-2 — Pflicht-Feld in fuer_cutter, fuer_motion_designer, fuer_creative_producer):
-Ein Fließtext-Absatz, max 3-4 Sätze. Erzähle, was in den Daten der Sektion auffällt:
-- Was funktioniert, was nicht?
-- Welches Pattern wiederholt sich?
-- Welche konkrete Beobachtung trägt die Sektion?
-KEINE Listen, KEINE Bullet-Points, KEINE "Must Show / No-Go"-Struktur — die Compliance-Felder sind im Schema entfernt; formuliere als ausformulierten Fließtext im sachlichen Berichtston (siehe BERICHTSTON oben).
-
-Beispiel (Cutter):
-"Was hier auffällt: die starken Cuts liegen entweder kurz unter 25 Sekunden oder bei anderthalb Minuten — der mittlere Bereich verliert die Aufmerksamkeit. Drei Mandalorian-Erinnerungen fahren zwar Reichweite, aber die Reaktion bleibt aus. Wenn der Cut nicht klar in eines der zwei Lager fällt, kommt er nicht an."
-
 TLDR-STRUKTUR (Sprint 7 — drei Sätze, die einen Erzähl-Bogen bilden):
 - Satz 1: konkrete Beobachtung mit einer Zahl, ohne Wertung
 - Satz 2: Kontrast oder Ergänzung (typisch: andere Plattform, andere Markt-Hälfte, andere Mechanik)
@@ -796,7 +786,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
     {
       "nummer": 1,
       "pattern": "Was ist diese Woche beobachtbar — mit konkreten Zahlen-Belegen. Beispiel: Der MK2-DE-Cut läuft 56 Sekunden bei 1.052 Reaktionen, der vergleichbare US-Cut nur 22 Sekunden bei 11.100 Reaktionen. Faktor 10, gleicher Titel, gleiche Kampagne.",
-      "lern_take": "Was lernen wir daraus — in einem Satz. Beispiel: Bei Fight-Material zieht der kurze Cut die Reaktion, die lange Variante trägt sie nicht.",
+      "lern_take": "Die Einsicht aus dem Befund — was bedeutet das Beobachtete, in einem Satz. KEINE Handlungsanweisung (die lebt ausschließlich in actions) und keine übergeordnete Format-Konsequenz (die lebt in trends.implication_for_creation). Beispiel: Bei Fight-Material zieht der kurze Cut mehr Reaktion als die lange Variante.",
       "frage": "Welche Frage stellt sich daraus für Trailerhaus — Anwendung, Pitch-Argument, eigenes Projekt. Beispiel: Wie kurz schneiden wir Fight-Material in unseren eigenen Action-Trailern? Lohnt das als Argument im nächsten Warner-Pitch?",
       "bezug": "Exakt ein Titel aus aktuell_im_fokus oder einer dieser Strings: Format-Strategie / Posting-Rhythmus / Caption-Disziplin / Hashtag-Klammer",
       "cited_post_ids": ["Liste der IDs hinter pattern. Bei Markt-Vergleich beide Seiten als post_url ODER der match_key aus cross_market_matches. Siehe EVIDENZ-PFLICHT."]
@@ -804,9 +794,9 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   ],
   "trends": [
     {
-      "name": "kurzer Trend-Name auf Deutsch",
-      "evidence": "konkrete Zahl, Asset-URL oder Caption-Zitat aus den Daten",
-      "implication_for_creation": "was wir konkret in Schnitt, Hook oder Rhythmus ändern sollten",
+      "name": "kurzer Trend-Name auf Deutsch — abgeleitet aus den Daten DIESES Pairs (die Channels in diesem Brief), nicht aus der Branche allgemein; branchenweite Bewegungen gehören in konkurrenz.format_trend, keine Dopplung",
+      "evidence": "konkrete Zahl, Asset-URL oder Caption-Zitat aus den Daten dieses Pairs",
+      "implication_for_creation": "die übergeordnete Konsequenz dieses Trends für unsere Arbeit auf Muster-Ebene (Schnitt, Hook, Rhythmus) — NICHT die konkrete Einzel-Handlung, die in actions steht, und keine konkreten Sekunden-Angaben (die gehören in fuer_cutter.empfohlene_laengen)",
       "cited_post_ids": ["Liste der IDs aus dem JSON-Anhang, auf denen evidence beruht. Siehe EVIDENZ-PFLICHT."]
     }
   ],
@@ -820,7 +810,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   ],
   "konkurrenz": {
     "was_alle_machen": "Was bewegt diese Woche alle großen Studios — unabhängig von DE/US und unabhängig vom aktuellen Pair. Sachlich berichtet. Beispiel: Drei der großen Studios setzen gerade auf kurze Clips mit Reaktionen der Darsteller, auch Disney und Netflix.",
-    "format_trend": "Welcher Cut-Stil oder welche Asset-Form steigt in der Branche gerade — BTS, Cast-Reactions, Kinetic Type, Cold-Open, Event-Recaps. Mit Daten-Beleg, kein Bauchgefühl.",
+    "format_trend": "Welcher Cut-Stil oder welche Asset-Form steigt in der BRANCHE gerade — explizit bei Studios/Pairs AUSSERHALB des aktuellen Pairs (BTS, Cast-Reactions, Kinetic Type, Cold-Open, Event-Recaps). Mit Daten-Beleg, kein Bauchgefühl. Die Pair-eigenen Trends gehören in die trends-Sektion, nicht hierher — keine Dopplung derselben Bewegung in beiden Sektionen.",
     "genre_beobachtung": "Performt ein Genre gerade besonders — Horror trägt diese Woche oder Comedy zerläuft, Action sitzt — mit konkretem Beleg aus den Daten.",
     "neu_seit_letzten_wochen": "Was ist neu gegenüber den letzten Wochen — ein konkretes Pattern, ein Format-Wechsel, eine Hook-Form, die plötzlich auftaucht. Wenn nichts klar Neues sichtbar ist, sag das ehrlich."
   },
@@ -848,27 +838,23 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   "fuer_cutter": {
     "schnitt_pace": "Beobachtung zum Rhythmus, abgeleitet aus Top-Posts und Längen-Verteilung — in Cutter-Sprache (kurze Cuts funktionieren, lange laufen zu lang, etc.)",
     "hook_strategie": "welche Hook-Form wirkt diese Woche (Cold-Open, Title-First, BTS, Cast-Reaction, ...)",
-    "empfohlene_laengen": "z.B. 15-22s primär, 28s als langer Cut",
-    "was_diese_woche": "3-4 Sätze Fließtext zur Schnitt-Beobachtung der Woche. Sprint 7-iter-2: ersetzt die alten must_show/no_go-Listen — Fließtext zwingt zur Erzählung, die Compliance-Stack-Form ist explizit raus. Beispiel-Pattern: 'Was hier auffällt: ... (3-4 Sätze)'."
+    "empfohlene_laengen": "konkrete Sekunden-Längen für den Schnitt, z.B. 15-22s primär, 28s als langer Cut — die EINZIGE Sektion mit Sekunden-Angaben"
   },
   "fuer_motion_designer": {
     "caption_style": "Caption-Beobachtung aus den Top-Posts (qualitativ; Länge, Tonfall, Hashtag-Dichte — KEINE Zeichen-Counts oder Hashtag-Counts)",
     "text_overlay": "Empfehlung zu L3 und Text-Einsatz",
-    "branding_einsatz": "wie End Card und Logo platziert werden sollten",
-    "was_diese_woche": "3-4 Sätze Fließtext zur Motion-/Caption-Beobachtung der Woche. Sprint 7-iter-2."
+    "branding_einsatz": "wie End Card und Logo platziert werden sollten"
   },
   "fuer_creative_producer": {
     "strategische_pattern": "übergeordnetes Muster, das diese Woche sichtbar wird",
-    "cross_market_chancen": "wo Cuts zwischen den Märkten adaptiert werden sollten — DE↔US, DE↔UK oder US↔UK, in beliebiger Richtung; mehrere Achsen dürfen in einem Satz gebündelt werden",
-    "format_empfehlungen": "Formate, Längen, Posting-Rhythmus für die nächste Woche",
-    "was_diese_woche": "3-4 Sätze Fließtext zur Producer-Beobachtung der Woche. Sprint 7-iter-2."
+    "format_empfehlungen": "Format-Mix und Posting-Rhythmus für die nächste Woche (welche Formate in welchem Takt) — KEINE konkreten Sekunden-Längen, die stehen ausschließlich in fuer_cutter.empfohlene_laengen"
   },
   "vergleichbare_posts": [
     {
-      "post_id": "URL oder Slug aus historical_top_posts oder top_posts",
+      "post_id": "URL oder Slug AUS historical_top_posts — der historische Benchmark aus früheren Wochen, NICHT die Top-Posts dieser Woche (die stehen in aktuell_im_fokus)",
       "handle": "z.B. warnerbros",
       "performance_kpi": "z.B. 12k Reaktionen, 28s",
-      "relevanz_grund": "warum dieser Post als Referenz für den nächsten Cut dient"
+      "relevanz_grund": "warum dieser ältere Post als Vorbild für den nächsten Cut dient — die Zeitachse ist bewusst eine andere als aktuell_im_fokus (diese Woche)"
     }
   ]
 }
@@ -883,6 +869,8 @@ AKTUELL_IM_FOKUS-SEKTION — Hinweise zur Befüllung:
 - verdict: einer der drei Voice-2.5-Werte (Sprint 7): "funktioniert" / "kommt nicht an" / "noch ausbaufähig". Nur wenn die Daten klar sind, sonst null. Keine alten Wert-Strings ("trägt"/"zerläuft"/"sitzt"/"ausbaufähig"/"zweischneidig") — das Backend normalisiert sie zwar, aber der Output soll von Anfang an Voice-2.5-Vokabular führen.
 - post_url: optionale URL des Referenz-Posts. Wenn der Eintrag aus den top_posts oder historical_top_posts ableitbar ist und dort eine post_url existiert, übernimm exakt diese URL. Niemals URLs erfinden oder raten — lieber null als eine falsche URL.
 - Diese Sektion ist die Eintrittsstelle in den Brief: ein Cutter scannt sie in 10 Sekunden und weiß, welche Titel in den Schnitt-Aufgaben weiter unten gemeint sind.
+- ZAHLEN-KATALOG-REGEL (Sprint 9b): aktuell_im_fokus ist der EINZIGE Zahlen-Titel-Katalog des Briefs — nur hier stehen Titel mit ihrer kennzahl als Liste nebeneinander. ganz_konkret, trends und fuer_cutter dürfen dieselben Posts NICHT als neue Zahlen-Liste wiederholen: sie referenzieren den Beleg über cited_post_ids und nennen eine Zahl nur dort, wo sie eine konkrete Aussage trägt (ein Vergleich, eine Schlussfolgerung), nicht als erneute Bestandsaufnahme derselben Top-Posts. Wenn ein ganz_konkret- oder trends-Eintrag nur eine Zahl aus aktuell_im_fokus nacherzählt, ohne neuen Schluss, lass ihn weg.
+- ZEITACHSE-REGEL (Sprint 9b): aktuell_im_fokus beschreibt DIESE Woche und speist sich aus den top_posts. vergleichbare_posts ist die andere Zeitachse — der historische Benchmark aus historical_top_posts (frühere Wochen) als Vorbild für den nächsten Cut. Niemals einen Post dieser Woche aus aktuell_im_fokus auch in vergleichbare_posts wiederholen; das Vorbild kommt aus der Historie, nicht aus der laufenden Woche.
 
 
 GANZ_KONKRET-SEKTION — Hinweise zur Befüllung (v3.0 Lern-Modus):
@@ -894,7 +882,7 @@ Sektion-Titel im Frontend: 'Diese Woche: was funktioniert gut, was nicht'.
 - 6 bis 8 Einträge, in logischer Reihenfolge nummeriert (1, 2, 3, ...)
 - Jeder Eintrag hat drei Felder:
     (a) pattern: Was ist diese Woche beobachtbar? Konkrete Zahlen-Belege (Reaktionen, Sekunden, Hashtag-Anzahl). Keine Anweisung, sondern Befund.
-    (b) lern_take: Was lernen wir daraus? Ein Satz, klare Lehre.
+    (b) lern_take: Die Einsicht — was bedeutet der Befund? Ein Satz, klare Lehre. Keine Handlungsanweisung (gehört ausschließlich in actions) und keine übergeordnete Format-Konsequenz (gehört in trends.implication_for_creation).
     (c) frage: Welche Frage stellt sich Trailerhaus? Anwendung im eigenen Workflow, Pitch-Argument, oder Test-Idee. Optional — wenn keine sinnvolle Frage abfällt, lieber null als Floskel.
 - Tonfall: sachlich berichtend, beobachtend, nicht anweisend und nicht wertend. Keine 'Du-Ansagen', keine Pitch-Sprache, keine Ausrufezeichen.
 - Konkrete Daten nennen: Sekunden, Reaktionszahlen, Aufrufe, Caption-Längen — alles aus dem Material ableitbar.
@@ -1002,9 +990,9 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   ],
   "trends": [
     {
-      "name": "Kurze Anfänge unter 15 Sekunden erzielen mehr Resonanz",
+      "name": "Bei Disney erzielen kurze Anfänge unter 15 Sekunden mehr Resonanz",
       "evidence": "Disney US zeigt mit kurzen Clips, dass ein einzelner Bildmoment in den ersten Sekunden mehr Reaktionen erzielt als ein Clip von 30 bis 60 Sekunden",
-      "implication_for_creation": "Wir sollten eine Variante von 12 bis 15 Sekunden mit einem Beginn ohne Logo schneiden und gegen die 22-Sekunden-Variante testen."
+      "implication_for_creation": "Auf Muster-Ebene heißt das: bei eigenen Cuts entscheidet die erste Einstellung über die Resonanz, nicht die Gesamtlänge — der Anfang ist der Hebel, nicht der Umfang."
     }
   ],
   "actions": [
@@ -1016,7 +1004,7 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   ],
   "konkurrenz": {
     "was_alle_machen": "Diese Woche setzen drei der sechs großen Studios auf kurze Clips mit Reaktionen der Darsteller — Sony, Universal und Paramount. Warner bleibt bei langen Marken-Spots. Die Strategien teilen sich klar in zwei Gruppen: kurze Anfänge oder lange emotionale Formate, dazwischen liegt wenig.",
-    "format_trend": "Material vom Set in 12 bis 18 Sekunden nimmt zu — fünf von zehn der stärksten Posts über alle Pairs sind kurze Set-Ausschnitte mit den Darstellern. Vor vier Wochen waren es zwei.",
+    "format_trend": "Außerhalb des aktuellen Pairs steigt branchenweit das Material vom Set mit den Darstellern — fünf von zehn der stärksten Posts über die anderen Studios sind solche Set-Ausschnitte, vor vier Wochen zwei. Das ist eine andere Bewegung als der Pair-interne Längen-Trend oben: hier geht es um die Inhalts-Form (Set statt Trailer), nicht um die Cut-Länge.",
     "genre_beobachtung": "Science-Fiction erzielt aktuell gute Resonanz: Tron: Ares (acht US-Posts) und ein Teaser zu Sonys Project Hail Mary laufen über ihre Wochen stabil. Comedy bleibt verhalten — selbst Sonys Glennkill erreicht nur rund 25.000 Reaktionen.",
     "neu_seit_letzten_wochen": "Anfänge ohne Logo, die nur Datum und Bild zeigen (ohne Trailer-Schnitt), sind neu — Disney US erreicht damit rund 267.000 Reaktionen. Vor vier Wochen kam dieses Format nicht vor."
   },
@@ -1047,27 +1035,23 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   "fuer_cutter": {
     "schnitt_pace": "Die stärksten Clips liegen diese Woche entweder knapp unter 25 Sekunden oder bei etwa anderthalb Minuten. Der mittlere Bereich um 30 bis 60 Sekunden erzielt weniger Reaktionen — drei Mandalorian-Erinnerungen erreichen zwar Reichweite, aber wenig Resonanz.",
     "hook_strategie": "Bei kurzen Clips zu bekannten Titeln steht der vertraute Auftritt der Darsteller in den ersten zwei Sekunden, ohne vorgeschaltete Logo-Einblendung. Bei Marken-Spots dient eine konkrete Person als emotionaler Bezugspunkt — nicht das Logo, sondern im Beispiel das malende Kind.",
-    "empfohlene_laengen": "Knapp unter 25 Sekunden für vertraute Titel, etwa anderthalb Minuten für emotionale Marken-Spots, wenn die Geschichte es zulässt. Längen dazwischen vermeiden.",
-    "was_diese_woche": "Auffällig ist, dass die Mandalorian-Erinnerungen genau im mittleren Längenbereich liegen und Reichweite ohne Resonanz erzielen. Wenn ein Clip nicht klar in eine der beiden Gruppen fällt — kurz und vertraut oder lang und emotional — erzielt er wenig Reaktionen. Das ist die wichtigste Beobachtung für die kommende Woche."
+    "empfohlene_laengen": "Knapp unter 25 Sekunden für vertraute Titel, etwa anderthalb Minuten für emotionale Marken-Spots, wenn die Geschichte es zulässt. Längen dazwischen vermeiden."
   },
   "fuer_motion_designer": {
     "caption_style": "Die deutschen Bildunterschriften sind kürzer und stärker auf Hashtags ausgerichtet, die US-Texte erzählen mehr — bei Marken-Spots oft nur ein einzelner Hashtag, dafür eine durchgehende Geschichte im Text. Die US-Form erzielt diese Woche mehr Resonanz, weil sie eine Erzählung beginnt statt nur aufzuzählen.",
     "text_overlay": "Bei kurzen Clips zu bekannten Titeln kein eingeblendeter Text in den ersten Sekunden, damit der Auftritt der Darsteller allein wirkt. Bei Marken-Spots am Ende eine klare Zeile mit Datum oder Plattform, sonst kein eingeblendeter Text.",
-    "branding_einsatz": "Eine Logo-Einblendung am Ende, kurz und einmalig, Logo zentriert. Bei Erinnerungs-Clips auf das Datum beschränken und das Logo nicht doppeln.",
-    "was_diese_woche": "Auffällig ist, dass die US-Bildunterschriften erzählerisch arbeiten, während die deutschen eher aufzählen. Für eigene Clips lohnt es sich, zuerst den Text zu schreiben und erst danach die Hashtags zu ergänzen. Beim Branding gilt diese Woche, dass eine einzige Logo-Einblendung am Ende ausreicht."
+    "branding_einsatz": "Eine Logo-Einblendung am Ende, kurz und einmalig, Logo zentriert. Bei Erinnerungs-Clips auf das Datum beschränken und das Logo nicht doppeln."
   },
   "fuer_creative_producer": {
     "strategische_pattern": "Die Woche zeigt zwei klar getrennte Ansätze: kurze Clips zu bekannten Titeln erzielen verlässlich Reaktionen und lassen sich wiederholen, lange Marken-Spots erzielen die höchste Aktivierung, aber nur, wenn die emotionale Idee überzeugt. Der mittlere Bereich lohnt sich kaum.",
-    "cross_market_chancen": "Deutschland beherrscht den Ansatz mit kurzen, vertrauten Clips, hat diese Woche aber keinen eigenen emotionalen Spot. Genau hier liegt eine Lücke und damit ein Argument für einen Marken-Spot-Pitch bei deutschen Verleihern oder Streaming-Anbietern. Das US-Beispiel zeigt, dass sich der Aufwand rechnet, wenn die Idee überzeugt.",
-    "format_empfehlungen": "Pro Verleih-Kunde zwei Standardpakete: kurze Clips zu bekannten Titeln als wöchentliches Format und ein emotionaler Spot pro Quartal mit einer konkreten Person als Bezugspunkt. Mittellange Erinnerungs-Clips nur dort, wo die Kampagne sie erfordert.",
-    "was_diese_woche": "Auffällig ist, dass die beiden Ansätze nicht nur unterschiedliche Längen, sondern auch unterschiedliche Produktionsmodelle sind. Kurz und vertraut ist wöchentliches Geschäft, lang und emotional ist eine Investition pro Quartal. Ein eigener emotionaler Spot in Deutschland könnte die Lücke schließen, die diese Woche sichtbar wird."
+    "format_empfehlungen": "Pro Verleih-Kunde zwei Standardpakete: kurze Clips zu bekannten Titeln als wöchentliches Format und ein emotionaler Spot pro Quartal mit einer konkreten Person als Bezugspunkt. Mittellange Erinnerungs-Clips nur dort, wo die Kampagne sie erfordert."
   },
   "vergleichbare_posts": [
     {
-      "post_id": "https://tiktok.com/@disney/video/us1",
+      "post_id": "https://tiktok.com/@disney/video/hist-soul-2024",
       "handle": "disney",
-      "performance_kpi": "rund 11.000 Reaktionen, 22 Sekunden, etwa 10 % Aktivierung",
-      "relevanz_grund": "Referenz für die kurze Form um 22 Sekunden und für die neue deutsche Variante"
+      "performance_kpi": "rund 14.000 Reaktionen, 19 Sekunden, etwa 12 % Aktivierung",
+      "relevanz_grund": "Historischer Benchmark aus einer früheren Kampagne (nicht aus dieser Woche): die kurze Form um 20 Sekunden hat schon einmal funktioniert — Vorbild für die neue deutsche Variante"
     }
   ]
 }
