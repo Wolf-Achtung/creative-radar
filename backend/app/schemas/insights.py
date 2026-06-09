@@ -1039,3 +1039,32 @@ class MarketTimelineResponse(BaseModel):
     pair_key: str
     weeks: list[TimelineWeek]
     markets: dict[str, list[MarketTimelinePoint]]
+
+
+# --- V3 Sprint 7: ER-Prognose pro Markt (Admin-only) ----------------------
+# Lineare Regression über die ER-Zeitreihe + LLM-Einordnung. NUR ER (kein
+# Views-Forecast). Antwort des admin-gegateten POST /api/admin/insights/forecast.
+
+class MarketForecast(BaseModel):
+    """Regressions-Ausgabe für EINEN Markt. ``status='insufficient_data'``
+    (mit ``forecast_er=None``), wenn weniger als drei valide ER-Wochen
+    vorliegen — dann KEINE erfundene Zahl. Bei ``status='ok'``: Prognosewert
+    der ER für die nächste KW, R² als Güte-/Konfidenzmaß und die Richtung."""
+    status: str  # "ok" | "insufficient_data"
+    n_points: int
+    forecast_er: Optional[float] = None
+    r2: Optional[float] = None
+    slope: Optional[float] = None
+    direction: Optional[str] = None  # "steigend" | "fallend" | "stabil"
+
+
+class ForecastResponse(BaseModel):
+    """Antwort für ``POST /api/admin/insights/forecast``. Admin-only (Router-
+    Gate ``require_admin_session``). ``einordnung`` ist die sachliche LLM-
+    Interpretation der Regressions-Zahlen; ``None``, wenn die LLM deaktiviert
+    oder der Call fehlgeschlagen ist (die Regression steht trotzdem)."""
+    pair_key: str
+    n_axis_weeks: int
+    next_week: Optional[TimelineWeek] = None
+    markets: dict[str, MarketForecast]
+    einordnung: Optional[str] = None

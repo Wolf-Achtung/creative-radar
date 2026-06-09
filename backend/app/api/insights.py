@@ -50,6 +50,7 @@ from app.services.insight_engine import (
     last_completed_iso_week_anchor,
 )
 from app.services.insights import build_overview
+from app.services.market_timeline import compute_market_timeline, pair_handles
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
 
@@ -126,16 +127,10 @@ def _iso_week_start_utc(now: datetime | None = None) -> datetime:
 
 def _handles_for_pair(pair_def: dict) -> list[str]:
     """Alle Channel-Handles eines Pairs ueber alle Plattformen, lowercased
-    fuer den case-insensitive DB-Lookup. Reuse von
-    ``_platforms_dict_for`` aus insight_engine — ein einziger Pfad fuer
-    Pre-Sprint-4-Single-Platform UND Multi-Platform-Pairs."""
-    handles: list[str] = []
-    for platform_specs in _platforms_dict_for(pair_def).values():
-        for spec in platform_specs:
-            handle = spec.get("handle")
-            if handle:
-                handles.append(handle.lower())
-    return handles
+    fuer den case-insensitive DB-Lookup. Delegiert an die geteilte
+    ``services.market_timeline.pair_handles`` — eine Quelle der Wahrheit,
+    auch vom Timeline-/Forecast-Pfad genutzt."""
+    return pair_handles(pair_def)
 
 
 @pairs_router.get("/pairs", response_model=PairsResponse)
@@ -622,23 +617,6 @@ def _iso_week_monday(iso_year: int, iso_week: int) -> datetime:
     return datetime.fromisocalendar(iso_year, iso_week, 1).replace(tzinfo=timezone.utc)
 
 
-def _lueckenlose_wochen(
-    first: tuple[int, int], last: tuple[int, int]
-) -> list[tuple[int, int]]:
-    """Alle ISO-Wochen von ``first`` bis ``last`` einschließlich, lückenlos —
-    fehlende KW (ohne Brief) bleiben als Achsen-Punkt erhalten, werden NICHT
-    zusammengeschoben. Iteriert über Montags-Daten, damit Jahresgrenzen
-    (KW 52/53 → KW 1) korrekt sind."""
-    cur = _iso_week_monday(*first)
-    end = _iso_week_monday(*last)
-    weeks: list[tuple[int, int]] = []
-    while cur <= end:
-        iso = cur.isocalendar()
-        weeks.append((iso.year, iso.week))
-        cur += timedelta(days=7)
-    return weeks
-
-
 @router.get("/timeline", response_model=MarketTimelineResponse)
 def market_timeline(
     pair: str = Query(..., description="Pair-Key, z.B. 'warnerbros'"),
@@ -660,6 +638,10 @@ def market_timeline(
     ``None``), und die Post-Anzahl. KEINE Glättung, KEINE Prognose, KEINE
     Trendlinie (Sprint 7).
 
+    Die Kern-Berechnung lebt in ``services.market_timeline`` (geteilt mit dem
+    Sprint-7-Forecast-Endpoint); dieser Endpoint gießt das Ergebnis nur in die
+    Pydantic-Antwort.
+
     Caveat (vom Frontend sichtbar zu machen): Aufrufe sind Snapshots und
     wachsen über Zeit — die Wochenwerte spiegeln den AKTUELLEN DB-Stand, nicht
     den Stand zum jeweiligen Wochenzeitpunkt.
@@ -669,114 +651,13 @@ def market_timeline(
             status_code=404,
             detail=f"Unbekannter Pair-Key: {pair!r}. Verfügbar: {_enabled_pair_keys()}",
         )
-    pair_def = PAIRS[pair]
-    market_values = [m.value for m in _TITLE_POSTS_MARKETS]
-    empty_markets: dict[str, list[MarketTimelinePoint]] = {m: [] for m in market_values}
-
-    # 1) Brief-KWs des Pairs aus insight_report (nur als Wochen-Achsen-Quelle).
-    brief_week_rows = session.exec(
-        select(InsightReportRow.iso_year, InsightReportRow.iso_week)
-        .where(InsightReportRow.pair_key == pair)
-        .distinct()
-    ).all()
-    brief_weeks = sorted({(y, w) for y, w in brief_week_rows})
-    if not brief_weeks:
-        return MarketTimelineResponse(pair_key=pair, weeks=[], markets=empty_markets)
-
-    # 2) Lückenlose Achse min..max; optional auf die letzten N Wochen kürzen.
-    axis = _lueckenlose_wochen(brief_weeks[0], brief_weeks[-1])
-    if weeks is not None and weeks < len(axis):
-        axis = axis[-weeks:]
-    axis_set = set(axis)
-
-    # 3) Channel-Pool des Pairs (alle Plattformen), handle→channel_id→market.
-    handles = sorted(set(_handles_for_pair(pair_def)))
-    channel_market: dict[UUID, str] = {}
-    if handles:
-        rows = session.exec(
-            select(Channel.id, Channel.market, Channel.handle).where(
-                sa.func.lower(Channel.handle).in_(handles)
-            )
-        ).all()
-        for cid, cmarket, _chandle in rows:
-            mv = getattr(cmarket, "value", cmarket)
-            if mv in market_values:
-                channel_market[cid] = mv
-
-    # 4) Buckets initialisieren: (market, (year, week)) → Akkumulator.
-    buckets: dict[tuple[str, tuple[int, int]], dict[str, int]] = {
-        (m, wk): {"views": 0, "eng_num": 0, "eng_den": 0, "posts": 0}
-        for m in market_values
-        for wk in axis
+    result = compute_market_timeline(session, pair, PAIRS[pair], weeks=weeks)
+    markets_out = {
+        m: [MarketTimelinePoint(**p) for p in points]
+        for m, points in result["markets"].items()
     }
-
-    # 5) Posts des Pools im Achsen-Zeitraum laden und in Python bucketen —
-    #    KW-Zuordnung über published_at (Fallback detected_at), exakt wie
-    #    ``title_aggregation`` die Wochen-Buckets baut.
-    if channel_market:
-        span_start = _iso_week_monday(*axis[0])
-        span_end = _iso_week_monday(*axis[-1]) + timedelta(days=7)  # exklusiv
-        post_rows = session.exec(
-            select(
-                Post.channel_id,
-                Post.published_at,
-                Post.detected_at,
-                Post.visible_views,
-                Post.visible_likes,
-                Post.visible_comments,
-            )
-            .where(Post.channel_id.in_(list(channel_market.keys())))
-            .where(
-                sa.or_(
-                    sa.and_(
-                        Post.published_at.is_not(None),
-                        Post.published_at >= span_start,
-                        Post.published_at < span_end,
-                    ),
-                    sa.and_(
-                        Post.published_at.is_(None),
-                        Post.detected_at >= span_start,
-                        Post.detected_at < span_end,
-                    ),
-                )
-            )
-        ).all()
-        for cid, published_at, detected_at, views, likes, comments in post_rows:
-            market = channel_market.get(cid)
-            if market is None:
-                continue
-            ref_dt = published_at or detected_at
-            if ref_dt is None:
-                continue
-            iso = ref_dt.isocalendar()
-            wk = (iso.year, iso.week)
-            if wk not in axis_set:
-                continue
-            acc = buckets[(market, wk)]
-            v = views or 0
-            acc["views"] += v
-            acc["posts"] += 1
-            if v > 0:
-                acc["eng_num"] += (likes or 0) + (comments or 0)
-                acc["eng_den"] += v
-
-    # 6) Antwort positionsgleich zur Achse aufbauen.
-    markets_out: dict[str, list[MarketTimelinePoint]] = {}
-    for m in market_values:
-        points: list[MarketTimelinePoint] = []
-        for (y, w) in axis:
-            acc = buckets[(m, (y, w))]
-            er = acc["eng_num"] / acc["eng_den"] if acc["eng_den"] > 0 else None
-            points.append(
-                MarketTimelinePoint(
-                    iso_year=y, iso_week=w,
-                    views=acc["views"], er=er, posts=acc["posts"],
-                )
-            )
-        markets_out[m] = points
-
     return MarketTimelineResponse(
         pair_key=pair,
-        weeks=[TimelineWeek(iso_year=y, iso_week=w) for (y, w) in axis],
+        weeks=[TimelineWeek(iso_year=y, iso_week=w) for (y, w) in result["weeks"]],
         markets=markets_out,
     )

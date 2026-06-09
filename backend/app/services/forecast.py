@@ -1,0 +1,218 @@
+"""V3 Sprint 7 — ER-Prognose pro Markt: lineare Regression über die
+Engagement-Rate-Zeitreihe (Sprint 6) + eine sachliche LLM-Einordnung.
+
+Architektur-Trennung (Wolf-Festlegung):
+- Die Regression RECHNET (dependency-freies Least-Squares, kein numpy/scipy).
+- Die LLM ORDNET NUR EIN — sie bekommt die Regressions-AUSGABE + die ER-Reihe,
+  nicht die Rohdaten zum Selbst-Rechnen.
+
+NUR ER, kein Views-Forecast (Views sind zu spitzenlastig für Extrapolation).
+"""
+from __future__ import annotations
+
+import logging
+from datetime import timedelta
+from typing import Optional
+
+from sqlmodel import Session
+
+from app.services.anthropic_client import (
+    AnthropicAPIError,
+    is_anthropic_configured,
+    messages_create_text,
+)
+from app.services.insight_engine import OPUS_MODEL_ALIAS
+from app.services.market_timeline import (
+    TIMELINE_MARKET_VALUES,
+    compute_market_timeline,
+    iso_week_monday,
+)
+
+logger = logging.getLogger(__name__)
+
+# Mindestens 3 valide Punkte für eine sinnvolle Linie (Wolf-Festlegung).
+MIN_POINTS = 3
+# Steigungs-Schwelle, unter der wir "stabil" statt steigend/fallend melden.
+_FLAT_SLOPE_EPS = 1e-6
+
+
+def _linear_regression(points: list[tuple[float, float]]) -> dict:
+    """Least-Squares-Fit y = slope*x + intercept über ``points`` = [(x, y)].
+
+    Liefert ``slope``, ``intercept`` und ``r2`` (Bestimmtheitsmaß). Edge-sicher:
+    - Bei flacher Linie (alle y gleich, Syy=0) ist das Modell exakt → r2 = 1.0.
+    - Distinkte x sind hier garantiert (Achsen-Indizes), Sxx > 0 für n>=2.
+    Kein NaN/Infinity.
+    """
+    n = len(points)
+    mean_x = sum(x for x, _ in points) / n
+    mean_y = sum(y for _, y in points) / n
+    sxx = sum((x - mean_x) ** 2 for x, _ in points)
+    sxy = sum((x - mean_x) * (y - mean_y) for x, y in points)
+    syy = sum((y - mean_y) ** 2 for _, y in points)
+
+    slope = sxy / sxx if sxx > 0 else 0.0
+    intercept = mean_y - slope * mean_x
+    if syy <= 0:
+        # Keine Streuung in y → flache Linie, perfekt erklärt.
+        r2 = 1.0
+    else:
+        ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in points)
+        r2 = 1.0 - ss_res / syy
+    # Numerische Rundungs-Drift einklammern.
+    r2 = max(0.0, min(1.0, r2))
+    return {"slope": slope, "intercept": intercept, "r2": r2}
+
+
+def _forecast_one_market(points: list[dict]) -> dict:
+    """Regression über die ER-Werte EINES Markts. ``points`` ist die
+    achsen-positionsgleiche Liste aus ``compute_market_timeline`` (jeder Punkt
+    mit ``er`` = float|None). x = Achsen-Index, damit Lücken als Abstand zählen;
+    er=null-Wochen werden ausgeschlossen (nicht als 0 eingerechnet)."""
+    valid = [(i, p["er"]) for i, p in enumerate(points) if p["er"] is not None]
+    if len(valid) < MIN_POINTS:
+        return {"status": "insufficient_data", "n_points": len(valid)}
+
+    fit = _linear_regression([(float(i), float(er)) for i, er in valid])
+    forecast_x = float(len(points))  # nächste KW = Position nach dem letzten Achsen-Punkt
+    raw = fit["slope"] * forecast_x + fit["intercept"]
+    forecast_er = max(0.0, raw)  # ER ist eine Rate >= 0; negative Extrapolation auf 0 begrenzt
+
+    slope = fit["slope"]
+    if slope > _FLAT_SLOPE_EPS:
+        direction = "steigend"
+    elif slope < -_FLAT_SLOPE_EPS:
+        direction = "fallend"
+    else:
+        direction = "stabil"
+
+    return {
+        "status": "ok",
+        "n_points": len(valid),
+        "forecast_er": forecast_er,
+        "r2": fit["r2"],
+        "slope": slope,
+        "direction": direction,
+    }
+
+
+def _next_week(axis: list[tuple[int, int]]) -> Optional[tuple[int, int]]:
+    if not axis:
+        return None
+    nxt = iso_week_monday(*axis[-1]) + timedelta(days=7)
+    iso = nxt.isocalendar()
+    return (iso.year, iso.week)
+
+
+_EINORDNUNG_SYSTEM = """\
+Du bist Analyst bei Trailerhaus. Du ordnest eine bereits berechnete
+Engagement-Rate-Prognose sachlich ein — du rechnest NICHT selbst, du
+interpretierst die dir gelieferten Regressions-Zahlen.
+
+BERICHTSTON:
+- Sachlich berichten, nicht werten. Keine Dramatisierung, keine Formeln wie
+  "wird sicher steigen". Eine Prognose ist unsicher; benenne das.
+- Zahlen ausschreiben (zum Beispiel 8,4 Prozent), keine Abkürzungen.
+- Ländernamen oder Kürzel (Deutschland/DE, die USA/US, Großbritannien/UK)
+  beide erlaubt.
+- Ganze, ruhige Sätze, kein Stakkato.
+
+PFLICHT-INHALT:
+- Die Richtung der Prognose je Markt (steigend/fallend/stabil) mit dem
+  Prognosewert.
+- Eine explizite Nennung der dünnen Datenbasis (nur wenige Wochen) und dass
+  die Güte (Bestimmtheitsmaß) die Verlässlichkeit einordnet — niedrige Güte
+  heißt: wenig belastbar.
+- Keine Übertreibung. Maximal 4-5 Sätze gesamt."""
+
+
+def _build_einordnung_prompt(
+    pair_label: str, n_axis_weeks: int, per_market: dict, next_week: Optional[tuple[int, int]]
+) -> str:
+    lines = [
+        f"Pair: {pair_label}.",
+        f"Datenbasis: {n_axis_weeks} Wochen auf der Zeitachse (dünn).",
+    ]
+    if next_week:
+        lines.append(f"Prognose-Zielwoche: KW {next_week[1]}/{next_week[0]}.")
+    lines.append("")
+    lines.append("Regressions-Ausgabe je Markt (bereits berechnet — nur einordnen):")
+    for m in TIMELINE_MARKET_VALUES:
+        r = per_market.get(m, {})
+        if r.get("status") != "ok":
+            lines.append(f"- {m}: zu wenig Daten ({r.get('n_points', 0)} valide Wochen).")
+            continue
+        lines.append(
+            f"- {m}: Prognose Engagement-Rate {r['forecast_er'] * 100:.1f} Prozent, "
+            f"Richtung {r['direction']}, Bestimmtheitsmaß R² {r['r2']:.2f}, "
+            f"{r['n_points']} valide Wochen."
+        )
+    lines.append("")
+    lines.append(
+        "Schreibe eine kurze, sachliche Einordnung dieser Prognose (4-5 Sätze), "
+        "die Richtung und Prognosewert je Markt nennt, die dünne Datenbasis und "
+        "die Unsicherheit explizit benennt und nichts übertreibt."
+    )
+    return "\n".join(lines)
+
+
+def generate_er_forecast(
+    session: Session,
+    pair_key: str,
+    pair_def: dict,
+    *,
+    weeks: Optional[int] = None,
+) -> dict:
+    """Vollständige ER-Prognose für ein Pair: pro Markt Regression über die
+    ER-Zeitreihe + eine gemeinsame LLM-Einordnung.
+
+    Rückgabe (plain dict; der Endpoint gießt es in die Pydantic-Antwort)::
+
+        {
+          "pair_key": str,
+          "n_axis_weeks": int,
+          "next_week": {"iso_year","iso_week"} | None,
+          "markets": {"DE": {...}, "US": {...}, "UK": {...}},   # je _forecast_one_market
+          "einordnung": str | None,                              # None wenn LLM aus/fehlerhaft
+        }
+    """
+    timeline = compute_market_timeline(session, pair_key, pair_def, weeks=weeks)
+    axis = timeline["weeks"]
+    per_market = {
+        m: _forecast_one_market(timeline["markets"].get(m, []))
+        for m in TIMELINE_MARKET_VALUES
+    }
+    next_week = _next_week(axis)
+
+    einordnung: Optional[str] = None
+    any_ok = any(r.get("status") == "ok" for r in per_market.values())
+    if any_ok and is_anthropic_configured():
+        pair_label = pair_def.get("label") or pair_def.get("display_name") or pair_key
+        prompt = _build_einordnung_prompt(pair_label, len(axis), per_market, next_week)
+        try:
+            msg = messages_create_text(
+                model=OPUS_MODEL_ALIAS,
+                system=_EINORDNUNG_SYSTEM,
+                user_message=prompt,
+                max_tokens=400,
+            )
+            parts = [
+                getattr(block, "text", "")
+                for block in (getattr(msg, "content", None) or [])
+            ]
+            text = "".join(parts).strip()
+            einordnung = text or None
+        except AnthropicAPIError as exc:
+            # Best-effort: die Regression steht auch ohne Einordnung. Nicht 500en.
+            logger.warning("er-forecast einordnung failed for pair=%s: %s", pair_key, exc)
+            einordnung = None
+
+    return {
+        "pair_key": pair_key,
+        "n_axis_weeks": len(axis),
+        "next_week": (
+            {"iso_year": next_week[0], "iso_week": next_week[1]} if next_week else None
+        ),
+        "markets": per_market,
+        "einordnung": einordnung,
+    }
