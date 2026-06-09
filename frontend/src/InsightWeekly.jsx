@@ -1905,25 +1905,6 @@ function FilmDetailSection({ fokusItems }) {
 // "failed" state. Bump if Wolf raises max_tokens beyond 8k.
 const SLOW_THRESHOLD_MS = 60_000;
 
-// Sprint 28.05.2026 (IA-Umbau, Baustein 4) — Ansichts-Modus-Umschalter.
-// Drei Werte; steuert nur die ``defaultOpen``-States der vier Klapp-
-// Container + den initialen Rollen-Tab. KEIN hartes Ausblenden — alle
-// Sektionen bleiben erreichbar (Briefing-Vorgabe).
-//
-// "all" (Default): alle Container zu, User klappt nach Bedarf auf.
-// "cutter": Container A (Detail) + B (Rollen, Tab Cutter aktiv) auf,
-//           C (Plattform) + D (Methodik) zu.
-// "producer": A + B (Tab Producer) + C auf, D zu.
-const VIEW_MODES = {
-  all:      { A: false, B: false, C: false, D: false, roleTab: undefined },
-  cutter:   { A: true,  B: true,  C: false, D: false, roleTab: 'cutter' },
-  producer: { A: true,  B: true,  C: true,  D: false, roleTab: 'producer' },
-};
-const VIEW_MODE_LABELS = {
-  all: 'Alle Sektionen',
-  cutter: 'Cutter-Sicht',
-  producer: 'Producer-Sicht',
-};
 
 // Sprint 28.05.2026 (PDF-Baustein 2) — Print-Mode-State + Trigger.
 // Workflow:
@@ -2152,14 +2133,6 @@ export default function InsightWeekly({ pair }) {
   const [printMode, setPrintMode] = useState(false);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'slow' | 'done' | 'error'
-  // Persistiert global (nicht pro pairKey), damit Wolfs Cutter-Sicht
-  // ueber alle Studios konsistent bleibt — wenn Wolf zwischen Disney
-  // und Warner wechselt, soll der Mode mit.
-  const [viewMode, setViewMode] = useLocalStorage(
-    'creative-radar:view-mode',
-    'all',
-  );
-  const viewConfig = VIEW_MODES[viewMode] || VIEW_MODES.all;
   const [windowDays, setWindowDays] = useState(30);
   const [dryRun, setDryRun] = useState(false);
 
@@ -2254,21 +2227,11 @@ export default function InsightWeekly({ pair }) {
 
       {report && status !== 'error' && (
         <div className="viewmode-toolbar">
-          <label htmlFor="viewmode-select" className="viewmode-label">Ansicht:</label>
-          <select
-            id="viewmode-select"
-            className="viewmode-select"
-            value={viewMode}
-            onChange={(e) => setViewMode(e.target.value)}
-          >
-            <option value="all">{VIEW_MODE_LABELS.all}</option>
-            <option value="cutter">{VIEW_MODE_LABELS.cutter}</option>
-            <option value="producer">{VIEW_MODE_LABELS.producer}</option>
-          </select>
-          {/* Sprint 28.05.2026 (PDF-Baustein 2): Print-Button neben dem
-              ViewMode-Dropdown. Setzt printMode → Re-Render → window.print().
-              Im Print-CSS ist .pdf-export-btn ausgeblendet, sodass der
-              Button selbst nicht im Ausdruck erscheint. */}
+          {/* PDF-Export-Button (PDF-Baustein 2): setzt printMode → Re-Render
+              → window.print(). Im Print-CSS ist .pdf-export-btn ausgeblendet,
+              sodass der Button selbst nicht im Ausdruck erscheint. Der frühere
+              Ansicht-Schalter (Alle/Cutter/Producer) ist in Sprint 9a-Nach-
+              besserung entfernt; die Detail-Karten starten fest zugeklappt. */}
           <button
             type="button"
             className="pdf-export-btn"
@@ -2277,9 +2240,6 @@ export default function InsightWeekly({ pair }) {
           >
             Als PDF speichern
           </button>
-          <span className="viewmode-hint" aria-hidden="true">
-            steuert nur Default-Klappzustände — alle Sektionen bleiben erreichbar
-          </span>
         </div>
       )}
 
@@ -2355,15 +2315,17 @@ export default function InsightWeekly({ pair }) {
             pairKey={pair}
           />
 
-          {/* Sprint 28.05.2026 (IA-Umbau, Baustein 4): defaultOpen pro
-              Container vom ViewMode gesteuert. Container-Inhalt bleibt
-              lazy-mounted ueber CollapsibleCard's ``{isOpen && children}``. */}
+          {/* Sprint 9a-Nachbesserung: feste Default-Klappzustände (alle zu).
+              Der frühere ViewMode-Schalter ist entfernt. Container-Inhalt
+              bleibt lazy-mounted über CollapsibleCard's ``{isOpen && children}``;
+              die Print-Integration (effectiveOpen = printMode || isOpen) hält
+              sie im PDF-Export vollständig. */}
           {report.llm_output && (
             <>
               <CollapsibleCard
                 title="Diese Woche im Detail"
                 subtitle="Worum geht's · Pattern · Trends + Actions · Watch-Outs · Tonalität · Konkurrenz"
-                defaultOpen={viewConfig.A}
+                defaultOpen={false}
               >
                 <LLMDetailSections output={report.llm_output} />
               </CollapsibleCard>
@@ -2371,12 +2333,11 @@ export default function InsightWeekly({ pair }) {
               <CollapsibleCard
                 title="Kreativ-Empfehlungen"
                 subtitle="Cutter · Motion-Designer · Creative Producer · Vergleichbare Posts"
-                defaultOpen={viewConfig.B}
+                defaultOpen={false}
               >
                 <LLMRoleSections
                   output={report.llm_output}
                   pairKey={pair}
-                  initialActiveTab={viewConfig.roleTab}
                 />
               </CollapsibleCard>
             </>
@@ -2385,7 +2346,7 @@ export default function InsightWeekly({ pair }) {
           <CollapsibleCard
             title="Plattform-Details"
             subtitle="TikTok · Instagram · YouTube — Channel-Stats pro Markt"
-            defaultOpen={viewConfig.C}
+            defaultOpen={false}
           >
             <MultiPlatformStats aggregation={report.aggregation} />
           </CollapsibleCard>
@@ -2394,7 +2355,7 @@ export default function InsightWeekly({ pair }) {
             <CollapsibleCard
               title="Methodik / Daten-Caveats"
               subtitle="Risks · Data Caveats"
-              defaultOpen={viewConfig.D}
+              defaultOpen={false}
             >
               <LLMMetaSection output={report.llm_output} />
             </CollapsibleCard>

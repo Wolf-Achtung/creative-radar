@@ -782,28 +782,8 @@ a:hover { text-decoration: underline; }
   color: #6b6657;
   flex-wrap: wrap;
 }
-.viewmode-label {
-  font-weight: 600;
-}
-.viewmode-select {
-  background: #fbf8f2;
-  color: #1d2330;
-  border: 1px solid #ece4d8;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-}
-.viewmode-hint {
-  color: #9a8f7e;
-  font-size: 12px;
-  flex-basis: 100%;
-  text-align: right;
-}
 @media (max-width: 700px) {
   .viewmode-toolbar { justify-content: flex-start; }
-  .viewmode-hint { text-align: left; }
 }
 
 /* Sprint 28.05.2026 (IA-Umbau, Baustein 3) — Rollen-Tab-Switcher.
