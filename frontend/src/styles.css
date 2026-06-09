@@ -1820,6 +1820,36 @@ a:hover { text-decoration: underline; }
   line-height: 1.5;
 }
 
+/* V3 Sprint 8 (B) — Gesamt-Glossar-Block. Natives <details>, dependency-frei. */
+.glossary-block-summary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1d2330;
+  list-style: revert;
+}
+.glossary-block-summary:focus-visible {
+  outline: 2px solid #F26B5E;
+  outline-offset: 2px;
+}
+.glossary-block-list {
+  margin: 14px 0 0;
+  display: grid;
+  gap: 12px;
+}
+.glossary-block-entry { margin: 0; }
+.glossary-block-term {
+  font-weight: 600;
+  font-size: 13px;
+  color: #1d2330;
+}
+.glossary-block-def {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #4a4f5a;
+}
+
 .film-market-column h4 {
   margin: 0 0 10px;
   font-size: 12px;
