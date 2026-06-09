@@ -1743,6 +1743,11 @@ a:hover { text-decoration: underline; }
   font-size: 10px;
   color: #1d2330;
 }
+.market-timeline-views {
+  font-size: 9px;
+  color: #b3ada2;
+  white-space: nowrap;
+}
 .market-timeline-week {
   font-size: 10px;
   color: #9a9288;

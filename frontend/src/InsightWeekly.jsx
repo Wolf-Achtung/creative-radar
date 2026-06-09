@@ -1919,6 +1919,16 @@ const VIEW_MODE_LABELS = {
 // aggregierte ER als Tooltip + kleine Sekundärzahl.
 const TIMELINE_MARKETS = ['DE', 'US', 'UK'];
 
+// Dezente Zweitzeile: gerundete Aufrufe pro KW-Balken (deutsche Schreibweise,
+// kompakt, damit die schmale Spalte nicht bricht). Views sind hier NICHT die
+// Balkenhöhe (das ist die ER) — nur sekundärer Kontext unter dem ER-Label.
+function formatViewsCompact(views) {
+  const v = Number(views) || 0;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace('.', ',')} Mio`;
+  if (v >= 1_000) return `${Math.round(v / 1_000)} Tsd`;
+  return String(v);
+}
+
 function MarketTimelineSection({ pair }) {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'done' | 'error'
@@ -1934,12 +1944,14 @@ function MarketTimelineSection({ pair }) {
   }, [pair]);
 
   const weeks = Array.isArray(data?.weeks) ? data.weeks : [];
-  // Gemeinsamer Views-Maßstab über alle Märkte/Wochen (>=1, Division-Schutz).
-  const maxViews = useMemo(() => {
+  // Gemeinsamer ER-Maßstab über ALLE Märkte/Wochen (>0, Division-Schutz),
+  // damit die Balkenhöhen von DE/US/UK visuell vergleichbar sind. Höhe und
+  // Label zeigen dieselbe Metrik (Engagement-Rate) — NICHT Views.
+  const maxEr = useMemo(() => {
     let mx = 0;
     const markets = data?.markets || {};
     for (const m of TIMELINE_MARKETS) {
-      for (const p of markets[m] || []) mx = Math.max(mx, p.views || 0);
+      for (const p of markets[m] || []) mx = Math.max(mx, p.er || 0);
     }
     return mx || 1;
   }, [data]);
@@ -1977,22 +1989,27 @@ function MarketTimelineSection({ pair }) {
                 <div className="market-timeline-bars">
                   {weeks.map((wk, i) => {
                     const p = points[i] || { views: 0, er: null, posts: 0 };
-                    const pct = Math.round(((p.views || 0) / maxViews) * 100);
+                    // Balkenhöhe = ER (gemeinsamer Maßstab). Kein Balken, wenn
+                    // keine ER (er=null, z.B. kein Post mit views>0).
+                    const pct = p.er != null ? Math.round((p.er / maxEr) * 100) : 0;
                     const erText = p.er != null ? formatRankedPercent(p.er) : '—';
                     const title =
                       `KW ${wk.iso_week}/${wk.iso_year} · ${m}\n` +
-                      `${formatNumber(p.views || 0)} Aufrufe\n` +
                       `${erText} Engagement\n` +
+                      `${formatNumber(p.views || 0)} Aufrufe\n` +
                       `${formatNumber(p.posts || 0)} Posts`;
                     return (
                       <div key={`${wk.iso_year}-${wk.iso_week}`} className="market-timeline-col" title={title}>
                         <div className="market-timeline-bar-track">
                           <div
-                            className={p.posts > 0 ? 'market-timeline-bar' : 'market-timeline-bar market-timeline-bar-empty'}
-                            style={{ height: `${p.posts > 0 ? Math.max(pct, 2) : 0}%` }}
+                            className={p.er != null ? 'market-timeline-bar' : 'market-timeline-bar market-timeline-bar-empty'}
+                            style={{ height: `${p.er != null ? Math.max(pct, 2) : 0}%` }}
                           />
                         </div>
                         <span className="market-timeline-er">{erText}</span>
+                        {p.posts > 0 && (
+                          <span className="market-timeline-views">{formatViewsCompact(p.views)}</span>
+                        )}
                         <span className="market-timeline-week">KW{wk.iso_week}</span>
                       </div>
                     );
