@@ -737,16 +737,6 @@ format_typ (Beispiele, kein striktes Enum — bleibe in der Sprache der Audience
 kennzahl (Format-Empfehlung):
 - Einzeiler im Stil "X Sekunden, Y Reaktionen, Z% Aktivierung" — Doppel-Beziffung hier explizit erlaubt (Card ist der rohe Datenpunkt).
 
-was_diese_woche (Sprint 7-iter-2 — Pflicht-Feld in fuer_cutter, fuer_motion_designer, fuer_creative_producer):
-Ein Fließtext-Absatz, max 3-4 Sätze. Erzähle, was in den Daten der Sektion auffällt:
-- Was funktioniert, was nicht?
-- Welches Pattern wiederholt sich?
-- Welche konkrete Beobachtung trägt die Sektion?
-KEINE Listen, KEINE Bullet-Points, KEINE "Must Show / No-Go"-Struktur — die Compliance-Felder sind im Schema entfernt; formuliere als ausformulierten Fließtext im sachlichen Berichtston (siehe BERICHTSTON oben).
-
-Beispiel (Cutter):
-"Was hier auffällt: die starken Cuts liegen entweder kurz unter 25 Sekunden oder bei anderthalb Minuten — der mittlere Bereich verliert die Aufmerksamkeit. Drei Mandalorian-Erinnerungen fahren zwar Reichweite, aber die Reaktion bleibt aus. Wenn der Cut nicht klar in eines der zwei Lager fällt, kommt er nicht an."
-
 TLDR-STRUKTUR (Sprint 7 — drei Sätze, die einen Erzähl-Bogen bilden):
 - Satz 1: konkrete Beobachtung mit einer Zahl, ohne Wertung
 - Satz 2: Kontrast oder Ergänzung (typisch: andere Plattform, andere Markt-Hälfte, andere Mechanik)
@@ -848,20 +838,17 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   "fuer_cutter": {
     "schnitt_pace": "Beobachtung zum Rhythmus, abgeleitet aus Top-Posts und Längen-Verteilung — in Cutter-Sprache (kurze Cuts funktionieren, lange laufen zu lang, etc.)",
     "hook_strategie": "welche Hook-Form wirkt diese Woche (Cold-Open, Title-First, BTS, Cast-Reaction, ...)",
-    "empfohlene_laengen": "z.B. 15-22s primär, 28s als langer Cut",
-    "was_diese_woche": "3-4 Sätze Fließtext zur Schnitt-Beobachtung der Woche. Sprint 7-iter-2: ersetzt die alten must_show/no_go-Listen — Fließtext zwingt zur Erzählung, die Compliance-Stack-Form ist explizit raus. Beispiel-Pattern: 'Was hier auffällt: ... (3-4 Sätze)'."
+    "empfohlene_laengen": "z.B. 15-22s primär, 28s als langer Cut"
   },
   "fuer_motion_designer": {
     "caption_style": "Caption-Beobachtung aus den Top-Posts (qualitativ; Länge, Tonfall, Hashtag-Dichte — KEINE Zeichen-Counts oder Hashtag-Counts)",
     "text_overlay": "Empfehlung zu L3 und Text-Einsatz",
-    "branding_einsatz": "wie End Card und Logo platziert werden sollten",
-    "was_diese_woche": "3-4 Sätze Fließtext zur Motion-/Caption-Beobachtung der Woche. Sprint 7-iter-2."
+    "branding_einsatz": "wie End Card und Logo platziert werden sollten"
   },
   "fuer_creative_producer": {
     "strategische_pattern": "übergeordnetes Muster, das diese Woche sichtbar wird",
     "cross_market_chancen": "wo Cuts zwischen den Märkten adaptiert werden sollten — DE↔US, DE↔UK oder US↔UK, in beliebiger Richtung; mehrere Achsen dürfen in einem Satz gebündelt werden",
-    "format_empfehlungen": "Formate, Längen, Posting-Rhythmus für die nächste Woche",
-    "was_diese_woche": "3-4 Sätze Fließtext zur Producer-Beobachtung der Woche. Sprint 7-iter-2."
+    "format_empfehlungen": "Formate, Längen, Posting-Rhythmus für die nächste Woche"
   },
   "vergleichbare_posts": [
     {
@@ -1047,20 +1034,17 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   "fuer_cutter": {
     "schnitt_pace": "Die stärksten Clips liegen diese Woche entweder knapp unter 25 Sekunden oder bei etwa anderthalb Minuten. Der mittlere Bereich um 30 bis 60 Sekunden erzielt weniger Reaktionen — drei Mandalorian-Erinnerungen erreichen zwar Reichweite, aber wenig Resonanz.",
     "hook_strategie": "Bei kurzen Clips zu bekannten Titeln steht der vertraute Auftritt der Darsteller in den ersten zwei Sekunden, ohne vorgeschaltete Logo-Einblendung. Bei Marken-Spots dient eine konkrete Person als emotionaler Bezugspunkt — nicht das Logo, sondern im Beispiel das malende Kind.",
-    "empfohlene_laengen": "Knapp unter 25 Sekunden für vertraute Titel, etwa anderthalb Minuten für emotionale Marken-Spots, wenn die Geschichte es zulässt. Längen dazwischen vermeiden.",
-    "was_diese_woche": "Auffällig ist, dass die Mandalorian-Erinnerungen genau im mittleren Längenbereich liegen und Reichweite ohne Resonanz erzielen. Wenn ein Clip nicht klar in eine der beiden Gruppen fällt — kurz und vertraut oder lang und emotional — erzielt er wenig Reaktionen. Das ist die wichtigste Beobachtung für die kommende Woche."
+    "empfohlene_laengen": "Knapp unter 25 Sekunden für vertraute Titel, etwa anderthalb Minuten für emotionale Marken-Spots, wenn die Geschichte es zulässt. Längen dazwischen vermeiden."
   },
   "fuer_motion_designer": {
     "caption_style": "Die deutschen Bildunterschriften sind kürzer und stärker auf Hashtags ausgerichtet, die US-Texte erzählen mehr — bei Marken-Spots oft nur ein einzelner Hashtag, dafür eine durchgehende Geschichte im Text. Die US-Form erzielt diese Woche mehr Resonanz, weil sie eine Erzählung beginnt statt nur aufzuzählen.",
     "text_overlay": "Bei kurzen Clips zu bekannten Titeln kein eingeblendeter Text in den ersten Sekunden, damit der Auftritt der Darsteller allein wirkt. Bei Marken-Spots am Ende eine klare Zeile mit Datum oder Plattform, sonst kein eingeblendeter Text.",
-    "branding_einsatz": "Eine Logo-Einblendung am Ende, kurz und einmalig, Logo zentriert. Bei Erinnerungs-Clips auf das Datum beschränken und das Logo nicht doppeln.",
-    "was_diese_woche": "Auffällig ist, dass die US-Bildunterschriften erzählerisch arbeiten, während die deutschen eher aufzählen. Für eigene Clips lohnt es sich, zuerst den Text zu schreiben und erst danach die Hashtags zu ergänzen. Beim Branding gilt diese Woche, dass eine einzige Logo-Einblendung am Ende ausreicht."
+    "branding_einsatz": "Eine Logo-Einblendung am Ende, kurz und einmalig, Logo zentriert. Bei Erinnerungs-Clips auf das Datum beschränken und das Logo nicht doppeln."
   },
   "fuer_creative_producer": {
     "strategische_pattern": "Die Woche zeigt zwei klar getrennte Ansätze: kurze Clips zu bekannten Titeln erzielen verlässlich Reaktionen und lassen sich wiederholen, lange Marken-Spots erzielen die höchste Aktivierung, aber nur, wenn die emotionale Idee überzeugt. Der mittlere Bereich lohnt sich kaum.",
     "cross_market_chancen": "Deutschland beherrscht den Ansatz mit kurzen, vertrauten Clips, hat diese Woche aber keinen eigenen emotionalen Spot. Genau hier liegt eine Lücke und damit ein Argument für einen Marken-Spot-Pitch bei deutschen Verleihern oder Streaming-Anbietern. Das US-Beispiel zeigt, dass sich der Aufwand rechnet, wenn die Idee überzeugt.",
-    "format_empfehlungen": "Pro Verleih-Kunde zwei Standardpakete: kurze Clips zu bekannten Titeln als wöchentliches Format und ein emotionaler Spot pro Quartal mit einer konkreten Person als Bezugspunkt. Mittellange Erinnerungs-Clips nur dort, wo die Kampagne sie erfordert.",
-    "was_diese_woche": "Auffällig ist, dass die beiden Ansätze nicht nur unterschiedliche Längen, sondern auch unterschiedliche Produktionsmodelle sind. Kurz und vertraut ist wöchentliches Geschäft, lang und emotional ist eine Investition pro Quartal. Ein eigener emotionaler Spot in Deutschland könnte die Lücke schließen, die diese Woche sichtbar wird."
+    "format_empfehlungen": "Pro Verleih-Kunde zwei Standardpakete: kurze Clips zu bekannten Titeln als wöchentliches Format und ein emotionaler Spot pro Quartal mit einer konkreten Person als Bezugspunkt. Mittellange Erinnerungs-Clips nur dort, wo die Kampagne sie erfordert."
   },
   "vergleichbare_posts": [
     {

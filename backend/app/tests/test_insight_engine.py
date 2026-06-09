@@ -1592,13 +1592,18 @@ def test_voice_25_iter2_headline_form_section_present():
     assert "Sony US erzielt" in prompt or "Warner Deutschland setzt auf" in prompt
 
 
-def test_voice_25_iter2_was_diese_woche_clause_present():
-    """Schema-Vokabel-Klausel für was_diese_woche — Pflicht-Feld in
-    den drei Detail-Sektionen, kein Listen-Format."""
+def test_sprint9b_was_diese_woche_removed_from_prompt():
+    """Sprint 9b (Entdopplung, Commit A): ``was_diese_woche`` ist
+    vollständig aus dem Pair-Prompt gestrichen — weder Befüll-Auftrag
+    noch Schema-Feld noch Few-Shot. Regression-Guard: das Feld darf
+    nirgends im SYSTEM_PROMPT mehr auftauchen, sonst füllt der LLM den
+    redundanten Wochen-Befund in allen drei Rollen-Sektionen nach."""
     prompt = insight_engine.SYSTEM_PROMPT
-    assert "was_diese_woche" in prompt
-    # Compliance-Struktur explizit verboten in der Klausel.
-    assert "KEINE Listen" in prompt or "Listen" in prompt
+    assert "was_diese_woche" not in prompt
+    # Die rollenspezifischen Felder tragen den Inhalt disjunkt weiter.
+    assert "schnitt_pace" in prompt
+    assert "caption_style" in prompt
+    assert "strategische_pattern" in prompt
 
 
 def test_voice_25_iter2_few_shot_no_traegt():
@@ -1673,15 +1678,13 @@ def test_voice_25_iter2_few_shot_uses_holt_or_punktet_in_headline():
     )
 
 
-def test_voice_25_iter2_few_shot_has_was_diese_woche():
-    """Few-Shot demonstriert das was_diese_woche-Feld in mindestens
-    einer der drei Detail-Sektionen — sonst bleibt das Schema-Feld
-    eine Theorie."""
+def test_sprint9b_few_shot_has_no_was_diese_woche():
+    """Sprint 9b (Entdopplung, Commit A): das Few-Shot zeigt
+    ``was_diese_woche`` nicht mehr. Ein Few-Shot mit einem Feld, das im
+    Tool-Schema nicht mehr existiert, würde den Tool-Call brechen und dem
+    LLM die entfernte Redundanz nachträglich beibringen."""
     few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
-    assert '"was_diese_woche"' in few_shot
-    # Pattern aus der Schema-Klausel taucht im Beispiel auf (Ton-Pass:
-    # neutrale Überleitung statt der alten "Was hier auffällt"-Formel).
-    assert "Auffällig ist" in few_shot
+    assert '"was_diese_woche"' not in few_shot
 
 
 def test_voice_25_iter2_few_shot_no_must_show_no_go():
