@@ -1661,6 +1661,41 @@ function FilmMarketColumn({ market, marketData, sortKey }) {
   );
 }
 
+// V3 Sprint 4 — Markt-Vergleichsleiste. Eine Kachel pro Markt (gleiche
+// Reihenfolge wie das Grid), je drei Kennzahlen: Posts, Σ Views, aggregierte
+// Engagement-Rate. Leere Märkte bleiben sichtbar (Werte "—"). Aggregation via
+// computeMarketSummary; ER über formatRankedPercent (konsistent zur Karte),
+// Views über formatRankedNumber (wie die Karten-Headline). Kein Delta/Index
+// zwischen Märkten (bewusst Scope-out).
+function FilmMarketSummaryBar({ markets, marketByName }) {
+  return (
+    <div className="film-market-summary-bar">
+      {markets.map((m) => {
+        const { posts, views, engagementRate } = computeMarketSummary(marketByName[m]);
+        return (
+          <div key={m} className="film-market-summary-cell">
+            <h5 className="film-market-summary-market">{m}</h5>
+            <div className="film-market-summary-metrics">
+              <div className="film-market-summary-metric">
+                <strong>{formatNumber(posts)}</strong>
+                <span>Posts</span>
+              </div>
+              <div className="film-market-summary-metric">
+                <strong>{posts > 0 ? formatRankedNumber(views) : '—'}</strong>
+                <span>Aufrufe</span>
+              </div>
+              <div className="film-market-summary-metric">
+                <strong>{engagementRate != null ? formatRankedPercent(engagementRate) : '—'}</strong>
+                <span>Engagement</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Dropdown-Quelle: aktuell_im_fokus-Titel mit title_id (dedupliziert,
 // Reihenfolge wie im Brief). Ohne solche Titel rendert die Sektion nichts.
 function FilmDetailSection({ fokusItems }) {
@@ -1759,6 +1794,7 @@ function FilmDetailSection({ fokusItems }) {
             <p className="film-detail-meta">
               <strong>{data.title_original || 'Titel'}</strong> · {formatNumber(data.total_posts)} Posts
             </p>
+            <FilmMarketSummaryBar markets={TITLE_DETAIL_MARKETS} marketByName={marketByName} />
             <div className="film-market-grid">
               {TITLE_DETAIL_MARKETS.map((m) => (
                 <FilmMarketColumn key={m} market={m} marketData={marketByName[m]} sortKey={sortKey} />
