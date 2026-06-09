@@ -127,6 +127,15 @@ export const endpoints = {
     if (weeks != null) params.set('weeks', String(weeks));
     return api(`/api/insights/timeline?${params.toString()}`);
   },
+  // V3 Sprint 7 — ER-Prognose pro Markt (admin-only, POST → LLM-Call). Gated
+  // über require_admin_session: ohne Admin-Session antwortet der Endpoint 401,
+  // die Frontend-Sektion rendert dann nichts. credentials:'include' (api())
+  // schickt das Admin-Session-Cookie mit.
+  insightsForecast: (pair, { weeks } = {}) => {
+    const params = new URLSearchParams({ pair });
+    if (weeks != null) params.set('weeks', String(weeks));
+    return api(`/api/admin/insights/forecast?${params.toString()}`, { method: 'POST' });
+  },
   // V3 Perf-Fix: candidate_queue=true lädt nur Assets mit OPEN-Candidate
   // (Default des "Treffer prüfen"-Tabs); limit/offset paginieren den
   // "Alle anzeigen"-Fall. Ohne Argumente: Backend-Default (limit 50).

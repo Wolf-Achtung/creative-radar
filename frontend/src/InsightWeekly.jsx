@@ -2024,6 +2024,97 @@ function MarketTimelineSection({ pair }) {
   );
 }
 
+// V3 Sprint 7 — ER-Prognose pro Markt (ADMIN-ONLY). Option A: Sektion bei der
+// Zeitreihe, aber endpoint-gegated: der Forecast-POST verlangt eine Admin-
+// Session (require_admin_session). Ohne Session → 401 → die Sektion rendert
+// NICHTS (kein Skelett, kein Leck). Lineare Regression über die ER-Reihe +
+// LLM-Einordnung kommen fertig vom Backend. R² ist bewusst SICHTBAR — die
+// Beurteilbarkeit ist der Grund, warum die Prognose vorerst nur Admin sieht.
+// Spätere User-Freischaltung = dieses Gate entfernen (ein Schalter), kein Umzug.
+const FORECAST_MARKETS = ['DE', 'US', 'UK'];
+
+function formatR2(r2) {
+  if (r2 == null) return '—';
+  return (Number(r2) || 0).toFixed(2).replace('.', ',');
+}
+
+function ErForecastSection({ pair }) {
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState('loading'); // 'loading' | 'done' | 'hidden'
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus('loading');
+    endpoints
+      .insightsForecast(pair)
+      .then((res) => { if (!cancelled) { setData(res); setStatus('done'); } })
+      // 401 (kein Admin) ODER jeder andere Fehler → Sektion bleibt unsichtbar.
+      .catch(() => { if (!cancelled) { setStatus('hidden'); } });
+    return () => { cancelled = true; };
+  }, [pair]);
+
+  // Nichts rendern, solange unklar oder kein Admin — keine Anzeige für User.
+  if (status !== 'done' || !data) return null;
+
+  const next = data.next_week;
+  const markets = data.markets || {};
+
+  return (
+    <section className="card er-forecast-section">
+      <div className="er-forecast-header">
+        <h3>ER-Prognose (Admin)</h3>
+        {next && (
+          <span className="er-forecast-target">für KW {next.iso_week}/{next.iso_year}</span>
+        )}
+      </div>
+      <p className="er-forecast-note">
+        Lineare Regression über die Engagement-Rate der bisherigen Wochen, dazu
+        eine Einordnung. Dünne Datenbasis ({data.n_axis_weeks}{' '}
+        {data.n_axis_weeks === 1 ? 'Woche' : 'Wochen'}) — das Bestimmtheitsmaß R²
+        zeigt, wie verlässlich die Linie ist (1,00 = perfekt, niedrig = wenig
+        belastbar). Nur im Admin-Bereich sichtbar.
+      </p>
+
+      <div className="er-forecast-grid">
+        {FORECAST_MARKETS.map((m) => {
+          const f = markets[m] || { status: 'insufficient_data', n_points: 0 };
+          return (
+            <div key={m} className="er-forecast-cell">
+              <h4 className="er-forecast-market">{m}</h4>
+              {f.status === 'ok' ? (
+                <>
+                  <div className="er-forecast-value">
+                    <strong>{formatRankedPercent(f.forecast_er)}</strong>
+                    <span>Prognose ER</span>
+                  </div>
+                  <div className="er-forecast-meta">
+                    <span className={`er-forecast-dir er-forecast-dir-${f.direction}`}>
+                      {f.direction}
+                    </span>
+                    <span className="er-forecast-r2" title="Bestimmtheitsmaß (Güte der Regression)">
+                      R² {formatR2(f.r2)}
+                    </span>
+                    <span className="er-forecast-n">{f.n_points} Wochen</span>
+                  </div>
+                </>
+              ) : (
+                <p className="er-forecast-insufficient">
+                  Zu wenig Daten ({f.n_points} valide {f.n_points === 1 ? 'Woche' : 'Wochen'}) —
+                  keine Prognose.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {data.einordnung && (
+        <p className="er-forecast-einordnung">{data.einordnung}</p>
+      )}
+    </section>
+  );
+}
+
 export default function InsightWeekly({ pair }) {
   const [report, setReport] = useState(null);
   const [printMode, setPrintMode] = useState(false);
@@ -2222,6 +2313,10 @@ export default function InsightWeekly({ pair }) {
           {/* V3 Sprint 6 — deskriptive Markt-Zeitreihe über die Brief-Wochen
               des Pairs. Eigener read-only Call, rendert nichts ohne Wochen. */}
           <MarketTimelineSection pair={pair} />
+
+          {/* V3 Sprint 7 — ER-Prognose (admin-only, endpoint-gegated): rendert
+              nichts ohne Admin-Session (Forecast-POST → 401). */}
+          <ErForecastSection pair={pair} />
 
           <BreakoutsSection
             aggregation={report.aggregation}
