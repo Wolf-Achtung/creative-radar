@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useId, useMemo, useRef, us
 import { endpoints } from './api/client';
 import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
+import { GLOSSARY, GLOSSARY_ORDER, glossaryDefinition } from './glossary';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
@@ -117,14 +118,47 @@ function HelpTooltip({ text, label = 'Erklärung anzeigen' }) {
   );
 }
 
-const TOOLTIP_TEXTS = {
-  coverage:
-    'Coverage: Anteil der Posts, die einem konkreten Filmtitel zugeordnet werden konnten. Zeigt, wie zielgerichtet ein Channel kommuniziert.',
-  crossMarketMatch:
-    'Cross-Market Matches: Posts, die in DE und US denselben Filmtitel bewerben — ermöglicht den direkten Performance-Vergleich beider Märkte.',
-  activationRate:
-    'Aktivierungs-Rate: Wie viele der Zuschauer reagiert haben (Like, Kommentar, Save). 5–10 % sind auf TikTok normal, darüber stark.',
-};
+// V3 Sprint 8 (A) — Info-Punkt am Begriff. Dünner Wrapper über das UNVERÄNDERTE
+// HelpTooltip: nimmt einen Glossar-Key und rendert die Kurzerklärung aus der
+// zentralen Quelle (glossary.js). So speisen sich Info-Punkte und der Gesamt-
+// Glossar-Block aus derselben Quelle. Rendert nichts bei unbekanntem Key.
+function GlossaryHint({ term }) {
+  const entry = GLOSSARY[term];
+  if (!entry) return null;
+  return (
+    <HelpTooltip
+      text={glossaryDefinition(term)}
+      label={`Was bedeutet ${entry.de.term}?`}
+    />
+  );
+}
+
+// V3 Sprint 8 (B) — Gesamt-Glossar als ausklappbarer Block, standardmäßig zu.
+// Listet alle Begriffe (DE) aus derselben Quelle wie die Info-Punkte. Nutzt das
+// native <details>/<summary> — dependency-frei, mobil-tauglich, ohne JS-State.
+function GlossaryBlock() {
+  return (
+    <details className="card glossary-block">
+      <summary className="glossary-block-summary">Begriffe erklärt</summary>
+      <dl className="glossary-block-list">
+        {GLOSSARY_ORDER.map((key) => {
+          const entry = GLOSSARY[key];
+          if (!entry) return null;
+          return (
+            <div key={key} className="glossary-block-entry">
+              <dt className="glossary-block-term">{entry.de.term}</dt>
+              <dd className="glossary-block-def">{entry.de.definition}</dd>
+            </div>
+          );
+        })}
+      </dl>
+    </details>
+  );
+}
+
+// Sprint 8: die früheren TOOLTIP_TEXTS sind in die zentrale Glossar-Quelle
+// (glossary.js) migriert — Coverage/Aktivierung/Cross-Market lesen jetzt von
+// dort. Eine Quelle für Info-Punkte UND den Gesamt-Glossar-Block.
 
 function CoverageBanner({ report }) {
   const cov = report?.coverage_pct ?? 0;
@@ -162,7 +196,7 @@ function ChannelStatsCard({ stats }) {
       <div className="insight-kpi-row">
         <div>
           <strong>{formatPct(stats.coverage_pct)}</strong>
-          <span>Coverage<HelpTooltip text={TOOLTIP_TEXTS.coverage} label="Was bedeutet Coverage?" /></span>
+          <span>Coverage<HelpTooltip text={glossaryDefinition('coverage')} label="Was bedeutet Coverage?" /></span>
         </div>
         <div><strong>{stats.avg_duration_seconds != null ? `${stats.avg_duration_seconds}s` : '—'}</strong><span>Ø Duration</span></div>
         <div><strong>{formatNumber(Math.round(stats.avg_engagement))}</strong><span>Ø Engagement</span></div>
@@ -1305,7 +1339,7 @@ function BreakoutsSection({ aggregation, pairKey }) {
   return (
     <section className="ranking-section card breakouts-section">
       <div className="ranking-header">
-        <h3>Breakouts dieser Woche</h3>
+        <h3>Breakouts dieser Woche<GlossaryHint term="breakout" /></h3>
       </div>
       <p className="breakouts-intro">
         Posts, die deutlich über dem Kanal-Schnitt liegen — relativ, nicht absolut.
@@ -1457,7 +1491,7 @@ function TopRankingSection({ aggregation, pairKey }) {
             <option value="saves">Saves</option>
             <option value="breakout">Breakout (relativ)</option>
           </select>
-          <HelpTooltip text={TOOLTIP_TEXTS.activationRate} label="Was bedeutet Aktivierungs-Rate?" />
+          <HelpTooltip text={glossaryDefinition('activationRate')} label="Was bedeutet Aktivierungs-Rate?" />
         </div>
       </div>
 
@@ -1710,7 +1744,7 @@ function FilmMarketSummaryBar({ markets, marketByName }) {
   const deSummary = computeMarketSummary(marketByName.DE);
   return (
     <div className="film-market-summary-bar">
-      {markets.map((m) => {
+      {markets.map((m, idx) => {
         const summary = computeMarketSummary(marketByName[m]);
         const { posts, views, engagementRate } = summary;
         const isReference = m === 'DE';
@@ -1729,7 +1763,7 @@ function FilmMarketSummaryBar({ markets, marketByName }) {
               </div>
               <div className="film-market-summary-metric">
                 <strong>{engagementRate != null ? formatRankedPercent(engagementRate) : '—'}</strong>
-                <span>Engagement</span>
+                <span>Engagement{idx === 0 && <GlossaryHint term="er" />}</span>
               </div>
             </div>
             {isReference ? (
@@ -2062,7 +2096,7 @@ function ErForecastSection({ pair }) {
   return (
     <section className="card er-forecast-section">
       <div className="er-forecast-header">
-        <h3>ER-Prognose (Admin)</h3>
+        <h3>ER-Prognose (Admin)<GlossaryHint term="forecast" /></h3>
         {next && (
           <span className="er-forecast-target">für KW {next.iso_week}/{next.iso_year}</span>
         )}
@@ -2070,9 +2104,9 @@ function ErForecastSection({ pair }) {
       <p className="er-forecast-note">
         Lineare Regression über die Engagement-Rate der bisherigen Wochen, dazu
         eine Einordnung. Dünne Datenbasis ({data.n_axis_weeks}{' '}
-        {data.n_axis_weeks === 1 ? 'Woche' : 'Wochen'}) — das Bestimmtheitsmaß R²
-        zeigt, wie verlässlich die Linie ist (1,00 = perfekt, niedrig = wenig
-        belastbar). Nur im Admin-Bereich sichtbar.
+        {data.n_axis_weeks === 1 ? 'Woche' : 'Wochen'}) — das Bestimmtheitsmaß
+        R²<GlossaryHint term="r2" /> zeigt, wie verlässlich die Linie ist
+        (1,00 = perfekt, niedrig = wenig belastbar). Nur im Admin-Bereich sichtbar.
       </p>
 
       <div className="er-forecast-grid">
@@ -2367,6 +2401,10 @@ export default function InsightWeekly({ pair }) {
               <LLMMetaSection output={report.llm_output} />
             </CollapsibleCard>
           )}
+
+          {/* V3 Sprint 8 (B) — Gesamt-Glossar am Ende der Insight-Ansicht,
+              ausklappbar, aus derselben Quelle wie die Info-Punkte. */}
+          <GlossaryBlock />
         </>
       )}
 
