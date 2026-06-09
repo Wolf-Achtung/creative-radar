@@ -1661,6 +1661,20 @@ def test_sprint9b_laengen_granularity_separation():
     assert "KEINE konkreten Sekunden-Längen, die stehen ausschließlich in fuer_cutter.empfohlene_laengen" in prompt
 
 
+def test_sprint9b_aktuell_vs_vergleichbare_time_axis():
+    """Sprint 9b (Entdopplung, Commit G): aktuell_im_fokus = diese Woche
+    (top_posts), vergleichbare_posts = historischer Benchmark
+    (historical_top_posts). Die Zeitachse ist scharf getrennt; das Few-Shot
+    nutzt für vergleichbare_posts keinen Post dieser Woche mehr."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "ZEITACHSE-REGEL" in prompt
+    assert "historische Benchmark aus historical_top_posts" in prompt
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    # vergleichbare_posts zeigt einen historischen Benchmark, nicht den
+    # Drawn-to-You-Post (us1) aus aktuell_im_fokus dieser Woche.
+    assert "hist-soul-2024" in few_shot
+
+
 def test_voice_25_iter2_few_shot_no_traegt():
     """Im kompletten Few-Shot darf 'trägt' / 'tragen' nicht als
     eigenständiges Verb auftauchen — die Voice-Anchoring kommt sonst

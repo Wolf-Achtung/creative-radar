@@ -851,10 +851,10 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   },
   "vergleichbare_posts": [
     {
-      "post_id": "URL oder Slug aus historical_top_posts oder top_posts",
+      "post_id": "URL oder Slug AUS historical_top_posts — der historische Benchmark aus früheren Wochen, NICHT die Top-Posts dieser Woche (die stehen in aktuell_im_fokus)",
       "handle": "z.B. warnerbros",
       "performance_kpi": "z.B. 12k Reaktionen, 28s",
-      "relevanz_grund": "warum dieser Post als Referenz für den nächsten Cut dient"
+      "relevanz_grund": "warum dieser ältere Post als Vorbild für den nächsten Cut dient — die Zeitachse ist bewusst eine andere als aktuell_im_fokus (diese Woche)"
     }
   ]
 }
@@ -870,6 +870,7 @@ AKTUELL_IM_FOKUS-SEKTION — Hinweise zur Befüllung:
 - post_url: optionale URL des Referenz-Posts. Wenn der Eintrag aus den top_posts oder historical_top_posts ableitbar ist und dort eine post_url existiert, übernimm exakt diese URL. Niemals URLs erfinden oder raten — lieber null als eine falsche URL.
 - Diese Sektion ist die Eintrittsstelle in den Brief: ein Cutter scannt sie in 10 Sekunden und weiß, welche Titel in den Schnitt-Aufgaben weiter unten gemeint sind.
 - ZAHLEN-KATALOG-REGEL (Sprint 9b): aktuell_im_fokus ist der EINZIGE Zahlen-Titel-Katalog des Briefs — nur hier stehen Titel mit ihrer kennzahl als Liste nebeneinander. ganz_konkret, trends und fuer_cutter dürfen dieselben Posts NICHT als neue Zahlen-Liste wiederholen: sie referenzieren den Beleg über cited_post_ids und nennen eine Zahl nur dort, wo sie eine konkrete Aussage trägt (ein Vergleich, eine Schlussfolgerung), nicht als erneute Bestandsaufnahme derselben Top-Posts. Wenn ein ganz_konkret- oder trends-Eintrag nur eine Zahl aus aktuell_im_fokus nacherzählt, ohne neuen Schluss, lass ihn weg.
+- ZEITACHSE-REGEL (Sprint 9b): aktuell_im_fokus beschreibt DIESE Woche und speist sich aus den top_posts. vergleichbare_posts ist die andere Zeitachse — der historische Benchmark aus historical_top_posts (frühere Wochen) als Vorbild für den nächsten Cut. Niemals einen Post dieser Woche aus aktuell_im_fokus auch in vergleichbare_posts wiederholen; das Vorbild kommt aus der Historie, nicht aus der laufenden Woche.
 
 
 GANZ_KONKRET-SEKTION — Hinweise zur Befüllung (v3.0 Lern-Modus):
@@ -1047,10 +1048,10 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   },
   "vergleichbare_posts": [
     {
-      "post_id": "https://tiktok.com/@disney/video/us1",
+      "post_id": "https://tiktok.com/@disney/video/hist-soul-2024",
       "handle": "disney",
-      "performance_kpi": "rund 11.000 Reaktionen, 22 Sekunden, etwa 10 % Aktivierung",
-      "relevanz_grund": "Referenz für die kurze Form um 22 Sekunden und für die neue deutsche Variante"
+      "performance_kpi": "rund 14.000 Reaktionen, 19 Sekunden, etwa 12 % Aktivierung",
+      "relevanz_grund": "Historischer Benchmark aus einer früheren Kampagne (nicht aus dieser Woche): die kurze Form um 20 Sekunden hat schon einmal funktioniert — Vorbild für die neue deutsche Variante"
     }
   ]
 }
