@@ -58,6 +58,8 @@ from app.services.budget_check import (
 from app.core.feature_flags import is_segment_roundups_enabled
 from app.models.entities import ChannelSegment
 from app.services.insight_engine import PAIRS, generate_and_persist_report
+from app.services.forecast import generate_er_forecast
+from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
 from app.services.title_aggregation import AmbiguousTitleError
 from app.services.segment_roundup import (
@@ -697,6 +699,42 @@ def regenerate_title_insight(
         "llm_output": report.llm_output.model_dump(mode="json") if report.llm_output else None,
         "raw_llm_text": report.raw_llm_text if report.llm_output is None else None,
     }
+
+
+# ---------- ER-Prognose pro Markt (V3 Sprint 7, Admin-only) -----------
+
+
+@router.post("/insights/forecast", response_model=ForecastResponse)
+def forecast_insights(
+    pair: str = Query(..., description="Pair-Key, z.B. 'warnerbros'"),
+    weeks: int | None = Query(
+        None, ge=1,
+        description="Optionale Begrenzung der Zeitreihe auf die letzten N Wochen.",
+    ),
+    session: Session = Depends(get_session),
+) -> ForecastResponse:
+    """Admin-only ER-Prognose pro Markt (DE/US/UK) für die nächste ISO-Woche.
+
+    Auth über den Router-Gate ``require_admin_session`` (Bearer + Admin-Session)
+    — kein eigener Auth-Pfad. Lineare Regression über die ER-Zeitreihe (Sprint 6,
+    geteilter ``compute_market_timeline``-Kern) + eine sachliche LLM-Einordnung,
+    die NUR die Regressions-Ausgabe interpretiert. NUR ER, kein Views-Forecast.
+
+    POST, weil ein (kostenpflichtiger) LLM-Call ausgelöst wird — analog
+    ``/insights/regenerate``.
+    """
+    if pair not in PAIRS:
+        raise HTTPException(status_code=404, detail=f"Unbekannter Pair-Key: {pair!r}")
+
+    result = generate_er_forecast(session, pair, PAIRS[pair], weeks=weeks)
+    nxt = result.get("next_week")
+    return ForecastResponse(
+        pair_key=result["pair_key"],
+        n_axis_weeks=result["n_axis_weeks"],
+        next_week=TimelineWeek(**nxt) if nxt else None,
+        markets={m: MarketForecast(**r) for m, r in result["markets"].items()},
+        einordnung=result.get("einordnung"),
+    )
 
 
 # ---------- Segment-Roundup-Trigger (Master-Plan-Schritt-3 Pilot) -----
