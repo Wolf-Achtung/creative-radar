@@ -1567,6 +1567,27 @@ function computeMarketSummary(marketData) {
   return { posts, views, engagementRate };
 }
 
+// V3 Sprint 5 — Markt-Delta gegen DE (Intra-Fenster). Pure, division-sicher:
+// nimmt die Summary EINES Markts und die DE-Referenz-Summary und liefert den
+// Abstand zu DE. Kein JSX, keine Formatierung (die liegt im UI).
+//
+// - viewsFactor: marktViews / deViews. ``null`` wenn DE fehlt oder deViews<=0
+//   (Division durch 0 → nicht berechenbar). marktViews=0 ist erlaubt → 0.
+// - erDeltaPp: (marktER - deER) in Prozentpunkten. ``null`` wenn die DE-ER
+//   oder die eigene ER null ist (kein Post mit views>0).
+function computeMarketDelta(marketSummary, deSummary) {
+  const deViews = deSummary?.views;
+  const viewsFactor =
+    deSummary && deViews > 0 ? (marketSummary?.views || 0) / deViews : null;
+
+  const deER = deSummary?.engagementRate;
+  const marketER = marketSummary?.engagementRate;
+  const erDeltaPp =
+    deER != null && marketER != null ? (marketER - deER) * 100 : null;
+
+  return { viewsFactor, erDeltaPp };
+}
+
 function FilmPostCard({ post }) {
   const platform = post.platform || 'tiktok';
   const { relative, absolute } = formatRelativeDate(post.published_at);
@@ -1661,17 +1682,39 @@ function FilmMarketColumn({ market, marketData, sortKey }) {
   );
 }
 
+// V3 Sprint 5 — Anzeige-Helfer für das Markt-Delta gegen DE. Reine
+// Formatierung der computeMarketDelta-Rohwerte; null → "—".
+// Deutsche Komma-Konvention (wie formatBreakoutMultiplier).
+function formatViewsFactor(factor) {
+  if (factor == null) return '—';
+  return `${factor.toFixed(1).replace('.', ',')}× DE`;
+}
+function formatErDeltaPp(pp) {
+  if (pp == null) return '—';
+  const sign = pp < 0 ? '−' : '+'; // echtes Minuszeichen − bei negativ
+  return `${sign}${Math.abs(pp).toFixed(1).replace('.', ',')} pp`;
+}
+
 // V3 Sprint 4 — Markt-Vergleichsleiste. Eine Kachel pro Markt (gleiche
 // Reihenfolge wie das Grid), je drei Kennzahlen: Posts, Σ Views, aggregierte
 // Engagement-Rate. Leere Märkte bleiben sichtbar (Werte "—"). Aggregation via
 // computeMarketSummary; ER über formatRankedPercent (konsistent zur Karte),
-// Views über formatRankedNumber (wie die Karten-Headline). Kein Delta/Index
-// zwischen Märkten (bewusst Scope-out).
+// Views über formatRankedNumber (wie die Karten-Headline).
+//
+// V3 Sprint 5 — Markt-Delta gegen DE: US/UK zeigen zusätzlich ihren Abstand
+// zur DE-Referenz (Views-Faktor + ER-Prozentpunkte, via computeMarketDelta).
+// DE ist die Basis und zeigt kein Delta (nur ein "Referenz"-Label). Kein
+// KW-über-KW-Trend (eigener Sprint).
 function FilmMarketSummaryBar({ markets, marketByName }) {
+  // DE ist die feste Referenz für alle Deltas (Intra-Fenster, gegen DE).
+  const deSummary = computeMarketSummary(marketByName.DE);
   return (
     <div className="film-market-summary-bar">
       {markets.map((m) => {
-        const { posts, views, engagementRate } = computeMarketSummary(marketByName[m]);
+        const summary = computeMarketSummary(marketByName[m]);
+        const { posts, views, engagementRate } = summary;
+        const isReference = m === 'DE';
+        const delta = isReference ? null : computeMarketDelta(summary, deSummary);
         return (
           <div key={m} className="film-market-summary-cell">
             <h5 className="film-market-summary-market">{m}</h5>
@@ -1689,6 +1732,20 @@ function FilmMarketSummaryBar({ markets, marketByName }) {
                 <span>Engagement</span>
               </div>
             </div>
+            {isReference ? (
+              <p className="film-market-summary-delta film-market-summary-delta-base">
+                Referenzmarkt
+              </p>
+            ) : (
+              <p className="film-market-summary-delta">
+                <span title="Aufrufe relativ zur DE-Referenz">
+                  {formatViewsFactor(delta.viewsFactor)}
+                </span>
+                <span title="Engagement-Rate-Abstand zu DE in Prozentpunkten">
+                  {formatErDeltaPp(delta.erDeltaPp)} ER
+                </span>
+              </p>
+            )}
           </div>
         );
       })}
