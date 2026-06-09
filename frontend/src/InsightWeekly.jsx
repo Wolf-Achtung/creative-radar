@@ -1744,7 +1744,7 @@ function FilmMarketSummaryBar({ markets, marketByName }) {
   const deSummary = computeMarketSummary(marketByName.DE);
   return (
     <div className="film-market-summary-bar">
-      {markets.map((m) => {
+      {markets.map((m, idx) => {
         const summary = computeMarketSummary(marketByName[m]);
         const { posts, views, engagementRate } = summary;
         const isReference = m === 'DE';
@@ -1763,7 +1763,7 @@ function FilmMarketSummaryBar({ markets, marketByName }) {
               </div>
               <div className="film-market-summary-metric">
                 <strong>{engagementRate != null ? formatRankedPercent(engagementRate) : '—'}</strong>
-                <span>Engagement<GlossaryHint term="er" /></span>
+                <span>Engagement{idx === 0 && <GlossaryHint term="er" />}</span>
               </div>
             </div>
             {isReference ? (
