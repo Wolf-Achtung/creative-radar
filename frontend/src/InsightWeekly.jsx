@@ -1213,8 +1213,10 @@ function CrossMarketHeadlineSection({ aggregation, llmOutput }) {
   if (!anythingToShow) return null;
 
   return (
-    <section className="card cross-market-headline">
-      <h3 className="cm-headline-title">Drei Märkte, ein Film — DE / US / UK im Vergleich</h3>
+    <CollapsibleCard
+      title="Drei Märkte, ein Film — DE / US / UK im Vergleich"
+      defaultOpen={false}
+    >
       <div className="cm-axis-grid">
         <CrossMarketAxisBlock
           axisLabel="DE ↔ US"
@@ -1240,7 +1242,7 @@ function CrossMarketHeadlineSection({ aggregation, llmOutput }) {
           <strong>Transfer-Opportunity:</strong> {transferOpportunity}
         </p>
       )}
-    </section>
+    </CollapsibleCard>
   );
 }
 
@@ -1337,12 +1339,10 @@ function BreakoutsSection({ aggregation, pairKey }) {
     return null;
   }
   return (
-    <section className="ranking-section card breakouts-section">
-      <div className="ranking-header">
-        <h3>Breakouts dieser Woche<GlossaryHint term="breakout" /></h3>
-      </div>
+    <CollapsibleCard title="Breakouts dieser Woche" defaultOpen={false}>
       <p className="breakouts-intro">
         Posts, die deutlich über dem Kanal-Schnitt liegen — relativ, nicht absolut.
+        <GlossaryHint term="breakout" />
       </p>
       <div className="ranking-grid">
         <div className="ranking-column">
@@ -1370,7 +1370,7 @@ function BreakoutsSection({ aggregation, pairKey }) {
             : <p className="ranking-empty">Keine Breakouts</p>}
         </div>
       </div>
-    </section>
+    </CollapsibleCard>
   );
 }
 
@@ -1862,6 +1862,7 @@ function FilmDetailSection({ fokusItems }) {
             <option key={o.key} value={o.key}>{o.label}</option>
           ))}
         </select>
+        <GlossaryHint term="er" />
       </div>
 
       {status === 'idle' && (
@@ -1996,15 +1997,12 @@ function MarketTimelineSection({ pair }) {
   if (status === 'done' && weeks.length === 0) return null;
 
   return (
-    <section className="card market-timeline-section">
-      <div className="market-timeline-header">
-        <h3>Markt-Zeitreihe</h3>
-        {status === 'done' && (
-          <span className="market-timeline-weekcount">
-            {weeks.length} {weeks.length === 1 ? 'Woche' : 'Wochen'}
-          </span>
-        )}
-      </div>
+    <CollapsibleCard title="Markt-Zeitreihe" defaultOpen={false}>
+      {status === 'done' && (
+        <p className="market-timeline-weekcount">
+          {weeks.length} {weeks.length === 1 ? 'Woche' : 'Wochen'}
+        </p>
+      )}
       <p className="market-timeline-caveat">
         Aufrufe = aktueller Stand, nicht historisch fixiert. Die Wochenwerte
         spiegeln den heutigen Datenstand, nicht den Stand zum jeweiligen
@@ -2054,7 +2052,7 @@ function MarketTimelineSection({ pair }) {
           })}
         </div>
       )}
-    </section>
+    </CollapsibleCard>
   );
 }
 
