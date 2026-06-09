@@ -1660,6 +1660,25 @@ a:hover { text-decoration: underline; }
   color: #9a9288;
 }
 
+/* V3 Sprint 5 — Markt-Delta gegen DE. Dezente Zeile unter den Roh-Kennzahlen,
+   eigene Klassen, kein Eingriff in die Sprint-4-Regeln darüber. */
+.film-market-summary-delta {
+  display: flex;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid #ece7de;
+  font-size: 11px;
+  color: #8a8478;
+}
+.film-market-summary-delta span {
+  white-space: nowrap;
+}
+.film-market-summary-delta-base {
+  font-style: italic;
+  color: #b3ada2;
+}
+
 .film-market-column h4 {
   margin: 0 0 10px;
   font-size: 12px;
