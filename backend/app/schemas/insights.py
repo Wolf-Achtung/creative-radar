@@ -604,14 +604,14 @@ class FuerMotionDesigner(BaseModel):
 
 
 class FuerCreativeProducer(BaseModel):
-    """Sprint 9b (Entdopplung): ``was_diese_woche`` gestrichen analog
-    ``FuerCutter`` — ``strategische_pattern`` / ``format_empfehlungen``
-    tragen die Producer-Beobachtung disjunkt. ``extra='ignore'`` für
-    Backwards-Compat mit dem alten Feld."""
+    """Sprint 9b (Entdopplung): ``was_diese_woche`` (Commit A) und
+    ``cross_market_chancen`` (Commit B) gestrichen — ``cross_market_insight``
+    ist die einzige Markt-Vergleichs-Sektion, die Producer-Beobachtung
+    tragen ``strategische_pattern`` / ``format_empfehlungen`` disjunkt.
+    ``extra='ignore'`` für Backwards-Compat mit den alten Feldern."""
     model_config = ConfigDict(extra="ignore")
 
     strategische_pattern: Optional[str] = None
-    cross_market_chancen: Optional[str] = None
     format_empfehlungen: Optional[str] = None
 
 

@@ -69,6 +69,35 @@ def test_was_diese_woche_absent_from_llm_report_tool_schema():
     assert {"schnitt_pace", "caption_style", "strategische_pattern"} <= names
 
 
+# ---------- Commit B: cross_market_chancen ist gestrichen ------------------
+
+
+def test_fuer_creative_producer_has_no_cross_market_chancen_field():
+    """Sprint 9b (Entdopplung, Commit B): ``cross_market_chancen`` raus —
+    ``cross_market_insight`` ist die einzige Markt-Vergleichs-Sektion."""
+    assert "cross_market_chancen" not in FuerCreativeProducer.model_fields
+    assert "strategische_pattern" in FuerCreativeProducer.model_fields
+    assert "format_empfehlungen" in FuerCreativeProducer.model_fields
+
+
+def test_cross_market_chancen_absent_from_llm_report_tool_schema():
+    names = _all_property_names(LLMReport.model_json_schema())
+    assert "cross_market_chancen" not in names
+
+
+def test_fuer_creative_producer_ignores_legacy_cross_market_chancen():
+    """Persistierter Alt-Brief mit ``cross_market_chancen`` parst weiter
+    via ``extra='ignore'``; das Feld wird beim Re-Hydrate verworfen."""
+    legacy_payload = {
+        "strategische_pattern": "zwei Lager",
+        "cross_market_chancen": "DE adaptiert US",
+        "format_empfehlungen": "zwei Pakete",
+    }
+    cp = FuerCreativeProducer.model_validate(legacy_payload)
+    assert cp.strategische_pattern == "zwei Lager"
+    assert "cross_market_chancen" not in cp.model_dump()
+
+
 # ---------- Forward path: Rollen-Sektionen ohne das Feld -------------------
 
 

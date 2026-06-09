@@ -847,7 +847,6 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   },
   "fuer_creative_producer": {
     "strategische_pattern": "übergeordnetes Muster, das diese Woche sichtbar wird",
-    "cross_market_chancen": "wo Cuts zwischen den Märkten adaptiert werden sollten — DE↔US, DE↔UK oder US↔UK, in beliebiger Richtung; mehrere Achsen dürfen in einem Satz gebündelt werden",
     "format_empfehlungen": "Formate, Längen, Posting-Rhythmus für die nächste Woche"
   },
   "vergleichbare_posts": [
@@ -1043,7 +1042,6 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   },
   "fuer_creative_producer": {
     "strategische_pattern": "Die Woche zeigt zwei klar getrennte Ansätze: kurze Clips zu bekannten Titeln erzielen verlässlich Reaktionen und lassen sich wiederholen, lange Marken-Spots erzielen die höchste Aktivierung, aber nur, wenn die emotionale Idee überzeugt. Der mittlere Bereich lohnt sich kaum.",
-    "cross_market_chancen": "Deutschland beherrscht den Ansatz mit kurzen, vertrauten Clips, hat diese Woche aber keinen eigenen emotionalen Spot. Genau hier liegt eine Lücke und damit ein Argument für einen Marken-Spot-Pitch bei deutschen Verleihern oder Streaming-Anbietern. Das US-Beispiel zeigt, dass sich der Aufwand rechnet, wenn die Idee überzeugt.",
     "format_empfehlungen": "Pro Verleih-Kunde zwei Standardpakete: kurze Clips zu bekannten Titeln als wöchentliches Format und ein emotionaler Spot pro Quartal mit einer konkreten Person als Bezugspunkt. Mittellange Erinnerungs-Clips nur dort, wo die Kampagne sie erfordert."
   },
   "vergleichbare_posts": [

@@ -1606,6 +1606,17 @@ def test_sprint9b_was_diese_woche_removed_from_prompt():
     assert "strategische_pattern" in prompt
 
 
+def test_sprint9b_cross_market_chancen_removed_from_prompt():
+    """Sprint 9b (Entdopplung, Commit B): ``cross_market_chancen`` ist aus
+    fuer_creative_producer gestrichen (Schema + Few-Shot). ``cross_market_insight``
+    bleibt die einzige Markt-Vergleichs-Sektion — sonst beschreiben zwei
+    Sektionen denselben DE↔US/DE↔UK/US↔UK-Transfer."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "cross_market_chancen" not in prompt
+    # Die einzige verbleibende Markt-Sektion ist weiterhin da.
+    assert "cross_market_insight" in prompt
+
+
 def test_voice_25_iter2_few_shot_no_traegt():
     """Im kompletten Few-Shot darf 'trägt' / 'tragen' nicht als
     eigenständiges Verb auftauchen — die Voice-Anchoring kommt sonst
