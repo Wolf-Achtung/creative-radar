@@ -1004,3 +1004,38 @@ class TitlePostsResponse(BaseModel):
     title_original: Optional[str] = None
     total_posts: int
     markets: list[TitleMarketPosts]
+
+
+# --- V3 Sprint 6: deskriptive Markt-Zeitreihe über Wochen -----------------
+# Read-Modell für ``GET /api/insights/timeline``. Rein deskriptiv: tatsächliche
+# Wochenwerte je Markt, KEINE Prognose/Trendlinie/Glättung (Sprint 7). Die
+# Kennzahlen werden FRISCH aus den Post-Tabellen pro diskreter ISO-Woche
+# gerechnet (Variante A) — NICHT aus den 30-Tage-rollenden Brief-Aggregaten.
+
+class TimelineWeek(BaseModel):
+    """Eine ISO-Woche auf der lückenlosen Zeitachse (min..max Brief-KW)."""
+    iso_year: int
+    iso_week: int
+
+
+class MarketTimelinePoint(BaseModel):
+    """Ein Markt-Wert für eine ISO-Woche. ``er`` = Σ(likes+comments)/Σ(views)
+    nur über Posts mit views>0, sonst ``None`` (kein Post mit views>0 →
+    Anzeige "—"). ``views`` ist die Summe (views or 0) über alle Posts der
+    Woche; Caveat: Aufrufe sind aktueller DB-Stand, nicht historisch fixiert."""
+    iso_year: int
+    iso_week: int
+    views: int
+    er: Optional[float] = None
+    posts: int
+
+
+class MarketTimelineResponse(BaseModel):
+    """Antwort für ``GET /api/insights/timeline``. ``weeks`` ist die
+    lückenlose ISO-Wochen-Achse zwischen der ersten und letzten KW, für die
+    das Pair einen persistierten Brief hat (fehlende KW = sichtbare Lücke,
+    nicht zusammengeschoben). ``markets`` enthält pro DE/US/UK eine Liste,
+    die positionsgleich zu ``weeks`` ausgerichtet ist."""
+    pair_key: str
+    weeks: list[TimelineWeek]
+    markets: dict[str, list[MarketTimelinePoint]]

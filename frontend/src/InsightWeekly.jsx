@@ -1909,6 +1909,104 @@ const VIEW_MODE_LABELS = {
 // Wenn der User ohne den Button via Ctrl+P druckt, greift Print-Mode
 // NICHT — das ist akzeptabel: Ctrl+P ist Best-Effort, der Button ist
 // der offizielle Pfad.
+// V3 Sprint 6 — deskriptive Markt-Zeitreihe. Eigener Read-only-Call
+// (sibling zum insightsWeekly-Call), rein darstellend: tatsächliche
+// Wochenwerte je Markt (DE/US/UK) über die Brief-Wochen des Pairs.
+// Dependency-frei: CSS-Balken, eine Spalte je ISO-Woche, lückenlose Achse
+// (fehlende KW = leere Spalte). KEINE Trendlinie, KEINE "wächst/fällt"-
+// Aussage, KEINE Prognose (Sprint 7). Σ Views als Balkenhöhe (gemeinsam
+// über alle Märkte skaliert, damit DE/US/UK vergleichbar sind), die
+// aggregierte ER als Tooltip + kleine Sekundärzahl.
+const TIMELINE_MARKETS = ['DE', 'US', 'UK'];
+
+function MarketTimelineSection({ pair }) {
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'done' | 'error'
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus('loading');
+    endpoints
+      .insightsTimeline(pair)
+      .then((res) => { if (!cancelled) { setData(res); setStatus('done'); } })
+      .catch(() => { if (!cancelled) { setStatus('error'); } });
+    return () => { cancelled = true; };
+  }, [pair]);
+
+  const weeks = Array.isArray(data?.weeks) ? data.weeks : [];
+  // Gemeinsamer Views-Maßstab über alle Märkte/Wochen (>=1, Division-Schutz).
+  const maxViews = useMemo(() => {
+    let mx = 0;
+    const markets = data?.markets || {};
+    for (const m of TIMELINE_MARKETS) {
+      for (const p of markets[m] || []) mx = Math.max(mx, p.views || 0);
+    }
+    return mx || 1;
+  }, [data]);
+
+  // Rendert nichts, wenn keine Brief-Wochen vorliegen — wie die anderen
+  // graceful-degradierenden Sektionen.
+  if (status === 'error') return null;
+  if (status === 'done' && weeks.length === 0) return null;
+
+  return (
+    <section className="card market-timeline-section">
+      <div className="market-timeline-header">
+        <h3>Markt-Zeitreihe</h3>
+        {status === 'done' && (
+          <span className="market-timeline-weekcount">
+            {weeks.length} {weeks.length === 1 ? 'Woche' : 'Wochen'}
+          </span>
+        )}
+      </div>
+      <p className="market-timeline-caveat">
+        Aufrufe = aktueller Stand, nicht historisch fixiert. Die Wochenwerte
+        spiegeln den heutigen Datenstand, nicht den Stand zum jeweiligen
+        Wochenzeitpunkt.
+      </p>
+
+      {status === 'loading' && <p className="market-timeline-hint">Lade Zeitreihe …</p>}
+
+      {status === 'done' && (
+        <div className="market-timeline-grid">
+          {TIMELINE_MARKETS.map((m) => {
+            const points = (data.markets && data.markets[m]) || [];
+            return (
+              <div key={m} className="market-timeline-row">
+                <h4 className="market-timeline-market">{m}</h4>
+                <div className="market-timeline-bars">
+                  {weeks.map((wk, i) => {
+                    const p = points[i] || { views: 0, er: null, posts: 0 };
+                    const pct = Math.round(((p.views || 0) / maxViews) * 100);
+                    const erText = p.er != null ? formatRankedPercent(p.er) : '—';
+                    const title =
+                      `KW ${wk.iso_week}/${wk.iso_year} · ${m}\n` +
+                      `${formatNumber(p.views || 0)} Aufrufe\n` +
+                      `${erText} Engagement\n` +
+                      `${formatNumber(p.posts || 0)} Posts`;
+                    return (
+                      <div key={`${wk.iso_year}-${wk.iso_week}`} className="market-timeline-col" title={title}>
+                        <div className="market-timeline-bar-track">
+                          <div
+                            className={p.posts > 0 ? 'market-timeline-bar' : 'market-timeline-bar market-timeline-bar-empty'}
+                            style={{ height: `${p.posts > 0 ? Math.max(pct, 2) : 0}%` }}
+                          />
+                        </div>
+                        <span className="market-timeline-er">{erText}</span>
+                        <span className="market-timeline-week">KW{wk.iso_week}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function InsightWeekly({ pair }) {
   const [report, setReport] = useState(null);
   const [printMode, setPrintMode] = useState(false);
@@ -2103,6 +2201,10 @@ export default function InsightWeekly({ pair }) {
             aggregation={report.aggregation}
             llmOutput={report.llm_output}
           />
+
+          {/* V3 Sprint 6 — deskriptive Markt-Zeitreihe über die Brief-Wochen
+              des Pairs. Eigener read-only Call, rendert nichts ohne Wochen. */}
+          <MarketTimelineSection pair={pair} />
 
           <BreakoutsSection
             aggregation={report.aggregation}
