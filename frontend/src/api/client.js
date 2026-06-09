@@ -120,6 +120,13 @@ export const endpoints = {
   // gruppiert nach Markt (DE/US/UK) und Plattform. Leere/unbekannte
   // title_id liefert wohlgeformte leere Gruppen, keinen Fehler.
   titlePosts: (titleId) => api(`/api/insights/title/${titleId}/posts`),
+  // V3 Sprint 6 — deskriptive Markt-Zeitreihe über die Brief-Wochen eines
+  // Pairs. Σ Views + aggregierte ER je ISO-Woche × Markt, lückenlose Achse.
+  insightsTimeline: (pair, { weeks } = {}) => {
+    const params = new URLSearchParams({ pair });
+    if (weeks != null) params.set('weeks', String(weeks));
+    return api(`/api/insights/timeline?${params.toString()}`);
+  },
   // V3 Perf-Fix: candidate_queue=true lädt nur Assets mit OPEN-Candidate
   // (Default des "Treffer prüfen"-Tabs); limit/offset paginieren den
   // "Alle anzeigen"-Fall. Ohne Argumente: Backend-Default (limit 50).
