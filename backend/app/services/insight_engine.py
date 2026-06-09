@@ -786,7 +786,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
     {
       "nummer": 1,
       "pattern": "Was ist diese Woche beobachtbar — mit konkreten Zahlen-Belegen. Beispiel: Der MK2-DE-Cut läuft 56 Sekunden bei 1.052 Reaktionen, der vergleichbare US-Cut nur 22 Sekunden bei 11.100 Reaktionen. Faktor 10, gleicher Titel, gleiche Kampagne.",
-      "lern_take": "Was lernen wir daraus — in einem Satz. Beispiel: Bei Fight-Material zieht der kurze Cut die Reaktion, die lange Variante trägt sie nicht.",
+      "lern_take": "Die Einsicht aus dem Befund — was bedeutet das Beobachtete, in einem Satz. KEINE Handlungsanweisung (die lebt ausschließlich in actions) und keine übergeordnete Format-Konsequenz (die lebt in trends.implication_for_creation). Beispiel: Bei Fight-Material zieht der kurze Cut mehr Reaktion als die lange Variante.",
       "frage": "Welche Frage stellt sich daraus für Trailerhaus — Anwendung, Pitch-Argument, eigenes Projekt. Beispiel: Wie kurz schneiden wir Fight-Material in unseren eigenen Action-Trailern? Lohnt das als Argument im nächsten Warner-Pitch?",
       "bezug": "Exakt ein Titel aus aktuell_im_fokus oder einer dieser Strings: Format-Strategie / Posting-Rhythmus / Caption-Disziplin / Hashtag-Klammer",
       "cited_post_ids": ["Liste der IDs hinter pattern. Bei Markt-Vergleich beide Seiten als post_url ODER der match_key aus cross_market_matches. Siehe EVIDENZ-PFLICHT."]
@@ -796,7 +796,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
     {
       "name": "kurzer Trend-Name auf Deutsch",
       "evidence": "konkrete Zahl, Asset-URL oder Caption-Zitat aus den Daten",
-      "implication_for_creation": "was wir konkret in Schnitt, Hook oder Rhythmus ändern sollten",
+      "implication_for_creation": "die übergeordnete Konsequenz dieses Trends für unsere Arbeit auf Muster-Ebene (Schnitt, Hook, Rhythmus) — NICHT die konkrete Einzel-Handlung, die in actions steht",
       "cited_post_ids": ["Liste der IDs aus dem JSON-Anhang, auf denen evidence beruht. Siehe EVIDENZ-PFLICHT."]
     }
   ],
@@ -881,7 +881,7 @@ Sektion-Titel im Frontend: 'Diese Woche: was funktioniert gut, was nicht'.
 - 6 bis 8 Einträge, in logischer Reihenfolge nummeriert (1, 2, 3, ...)
 - Jeder Eintrag hat drei Felder:
     (a) pattern: Was ist diese Woche beobachtbar? Konkrete Zahlen-Belege (Reaktionen, Sekunden, Hashtag-Anzahl). Keine Anweisung, sondern Befund.
-    (b) lern_take: Was lernen wir daraus? Ein Satz, klare Lehre.
+    (b) lern_take: Die Einsicht — was bedeutet der Befund? Ein Satz, klare Lehre. Keine Handlungsanweisung (gehört ausschließlich in actions) und keine übergeordnete Format-Konsequenz (gehört in trends.implication_for_creation).
     (c) frage: Welche Frage stellt sich Trailerhaus? Anwendung im eigenen Workflow, Pitch-Argument, oder Test-Idee. Optional — wenn keine sinnvolle Frage abfällt, lieber null als Floskel.
 - Tonfall: sachlich berichtend, beobachtend, nicht anweisend und nicht wertend. Keine 'Du-Ansagen', keine Pitch-Sprache, keine Ausrufezeichen.
 - Konkrete Daten nennen: Sekunden, Reaktionszahlen, Aufrufe, Caption-Längen — alles aus dem Material ableitbar.
@@ -991,7 +991,7 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
     {
       "name": "Kurze Anfänge unter 15 Sekunden erzielen mehr Resonanz",
       "evidence": "Disney US zeigt mit kurzen Clips, dass ein einzelner Bildmoment in den ersten Sekunden mehr Reaktionen erzielt als ein Clip von 30 bis 60 Sekunden",
-      "implication_for_creation": "Wir sollten eine Variante von 12 bis 15 Sekunden mit einem Beginn ohne Logo schneiden und gegen die 22-Sekunden-Variante testen."
+      "implication_for_creation": "Auf Muster-Ebene heißt das: bei eigenen Cuts entscheidet die erste Einstellung über die Resonanz, nicht die Gesamtlänge — der Anfang ist der Hebel, nicht der Umfang."
     }
   ],
   "actions": [

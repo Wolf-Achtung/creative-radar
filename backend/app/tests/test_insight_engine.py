@@ -1626,6 +1626,19 @@ def test_sprint9b_zahlen_katalog_clause_present():
     assert "EINZIGE Zahlen-Titel-Katalog" in prompt
 
 
+def test_sprint9b_lern_take_vs_action_separation():
+    """Sprint 9b (Entdopplung, Commit D): lern_take = Einsicht, Handlung
+    nur in actions, Muster-Konsequenz in trends.implication_for_creation.
+    Das Few-Shot zeigt für trends.implication keine duplizierte Handlung
+    mehr."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "die lebt ausschließlich in actions" in prompt
+    assert "NICHT die konkrete Einzel-Handlung, die in actions steht" in prompt
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert "Auf Muster-Ebene heißt das" in few_shot
+    assert "gegen die 22-Sekunden-Variante testen" not in few_shot
+
+
 def test_voice_25_iter2_few_shot_no_traegt():
     """Im kompletten Few-Shot darf 'trägt' / 'tragen' nicht als
     eigenständiges Verb auftauchen — die Voice-Anchoring kommt sonst
