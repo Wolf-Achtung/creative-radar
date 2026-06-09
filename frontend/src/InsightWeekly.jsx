@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useId, useMemo, useRef, us
 import { endpoints } from './api/client';
 import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
+import { glossaryDefinition } from './glossary';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
@@ -117,14 +118,9 @@ function HelpTooltip({ text, label = 'Erklärung anzeigen' }) {
   );
 }
 
-const TOOLTIP_TEXTS = {
-  coverage:
-    'Coverage: Anteil der Posts, die einem konkreten Filmtitel zugeordnet werden konnten. Zeigt, wie zielgerichtet ein Channel kommuniziert.',
-  crossMarketMatch:
-    'Cross-Market Matches: Posts, die in DE und US denselben Filmtitel bewerben — ermöglicht den direkten Performance-Vergleich beider Märkte.',
-  activationRate:
-    'Aktivierungs-Rate: Wie viele der Zuschauer reagiert haben (Like, Kommentar, Save). 5–10 % sind auf TikTok normal, darüber stark.',
-};
+// Sprint 8: die früheren TOOLTIP_TEXTS sind in die zentrale Glossar-Quelle
+// (glossary.js) migriert — Coverage/Aktivierung/Cross-Market lesen jetzt von
+// dort. Eine Quelle für Info-Punkte UND den Gesamt-Glossar-Block.
 
 function CoverageBanner({ report }) {
   const cov = report?.coverage_pct ?? 0;
@@ -162,7 +158,7 @@ function ChannelStatsCard({ stats }) {
       <div className="insight-kpi-row">
         <div>
           <strong>{formatPct(stats.coverage_pct)}</strong>
-          <span>Coverage<HelpTooltip text={TOOLTIP_TEXTS.coverage} label="Was bedeutet Coverage?" /></span>
+          <span>Coverage<HelpTooltip text={glossaryDefinition('coverage')} label="Was bedeutet Coverage?" /></span>
         </div>
         <div><strong>{stats.avg_duration_seconds != null ? `${stats.avg_duration_seconds}s` : '—'}</strong><span>Ø Duration</span></div>
         <div><strong>{formatNumber(Math.round(stats.avg_engagement))}</strong><span>Ø Engagement</span></div>
@@ -1457,7 +1453,7 @@ function TopRankingSection({ aggregation, pairKey }) {
             <option value="saves">Saves</option>
             <option value="breakout">Breakout (relativ)</option>
           </select>
-          <HelpTooltip text={TOOLTIP_TEXTS.activationRate} label="Was bedeutet Aktivierungs-Rate?" />
+          <HelpTooltip text={glossaryDefinition('activationRate')} label="Was bedeutet Aktivierungs-Rate?" />
         </div>
       </div>
 
