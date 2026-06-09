@@ -694,7 +694,7 @@ def test_system_prompt_keeps_concrete_titles_anchor():
     # Konkretheit
     assert "Konkret und namentlich" in ROUNDUP_SYSTEM_PROMPT
     assert "Filme/Serien" in ROUNDUP_SYSTEM_PROMPT
-    # Headline mit Haltung
-    assert "Headline mit Pointe" in ROUNDUP_SYSTEM_PROMPT
+    # Headline mit klarem Hauptgedanken (Ton-Pass: sachlich statt "Pointe")
+    assert "Headline mit einem klaren Hauptgedanken" in ROUNDUP_SYSTEM_PROMPT
     # Kennzahlen-Sektion
     assert "KENNZAHLEN" in ROUNDUP_SYSTEM_PROMPT

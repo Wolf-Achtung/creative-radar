@@ -101,9 +101,9 @@ _TITLE_TOOL_INPUT_SCHEMA: dict[str, Any] = _inline_tool_schema(TitleLLMReport.mo
 TITLE_BRIEF_TASK = """
 
 TITEL-BRIEF — AUFGABE:
-Du beschreibst EINEN Titel über alle Channels, Plattformen und Märkte hinweg, in denen er diese Woche vorkam. Achse ist der Titel, nicht ein Studio-Pair. Erzähl die Geschichte des Titels: wo trägt er (welche Plattform, welcher Markt), wo läuft er ins Leere, was lernen wir für eigene Cuts.
+Du beschreibst EINEN Titel über alle Channels, Plattformen und Märkte hinweg, in denen er diese Woche vorkam. Achse ist der Titel, nicht ein Studio-Pair. Berichte sachlich, wo der Titel Resonanz erzielt (welche Plattform, welcher Markt), wo er kaum Reaktionen auslöst, und was sich daraus für eigene Schnitte ableiten lässt.
 
-WICHTIG: Die Voice-, Glossar- und Anti-Pattern-Regeln oben gelten unverändert. Aber dieser Brief hat KEINE Pair-Felder — die ``cross_market_insight``- und ``aktuell_im_fokus``-Erwähnungen oben gehören dem Pair-Brief. Dein Plattform- und Markt-Vergleich ist titel-intern (derselbe Titel auf TikTok vs Instagram vs YouTube, bzw. in DE vs US vs UK).
+WICHTIG: Der Berichtston und die Verbotslisten oben gelten unverändert. Aber dieser Brief hat KEINE Pair-Felder — die ``cross_market_insight``- und ``aktuell_im_fokus``-Erwähnungen oben gehören dem Pair-Brief. Dein Plattform- und Markt-Vergleich ist titel-intern (derselbe Titel auf TikTok vs Instagram vs YouTube, bzw. in DE vs US vs UK).
 
 OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_title_brief`` zurück, Felder DIREKT auf oberster Ebene (kein Wrapper-Key). Schema:
 
@@ -114,7 +114,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_title_brief`
   "markt_vergleich": "DE vs US vs UK für diesen Titel, mit Zahlen — oder null, wenn der Titel nur in einem Markt vorkam.",
   "verlauf": "Kampagnen-Bogen über die Wochen (Anlauf, Spitze, Abflachen), abgeleitet aus den Wochen-Buckets — oder null bei zu wenig Wochen-Daten.",
   "top_post_kommentar": "Was an den stärksten Posts auffällt (Format, Länge, was den Cut trägt) — oder null.",
-  "cutter_schnitt_pace": "Rhythmus-Beobachtung aus den Top-Posts dieses Titels, in Cutter-Sprache — oder null.",
+  "cutter_schnitt_pace": "Rhythmus-Beobachtung aus den Top-Posts dieses Titels, sachlich beschrieben — oder null.",
   "cutter_hook_strategie": "welche Anfangs-Form bei diesem Titel wirkt — oder null.",
   "cutter_empfohlene_laengen": "z.B. '20-25s primär' — oder null.",
   "cutter_was_diese_woche": "3-4 Sätze Fließtext: was der Titel diese Woche zeigt, was man für eigene Cuts mitnimmt — oder null.",
@@ -148,9 +148,9 @@ def _build_title_user_prompt(agg: TitleAggregation) -> str:
         f"({_fmt_dt(agg.window_start)} bis {_fmt_dt(agg.window_end)})."
     )
     lines.append(
-        "Halte dich an Voice, Glossar und Anti-Pattern aus dem System-Prompt. "
-        "Plattform-/Markt-Vergleich ist titel-intern. Nenne Zahlen konkret, "
-        "erfinde keine Fachwörter.\n"
+        "Halte dich an den Berichtston und die Verbotslisten aus dem System-Prompt. "
+        "Plattform-/Markt-Vergleich ist titel-intern. Schreibe Zahlen aus, "
+        "berichte sachlich und erfinde keine Fachwörter.\n"
     )
 
     # Stammdaten

@@ -806,18 +806,18 @@ def test_user_prompt_token_budget_under_12k():
         )
 
 
-def test_user_prompt_includes_voice_25_reminder():
-    """Sprint 7 — Voice-2.5-Reminder direkt im User-Prompt-Header.
-    Der System-Prompt trägt die Klausel auch, aber der Reminder
-    direkt vor den Daten greift erfahrungsgemäß stärker als eine
-    Sektion 1500 Tokens weiter oben."""
+def test_user_prompt_includes_tone_reminder():
+    """Ton-Pass — der sachlich-berichtende Reminder steht direkt im
+    User-Prompt-Header, vor den Daten. Greift erfahrungsgemäß stärker
+    als die BERICHTSTON-Sektion 1500 Tokens weiter oben. Sichert, dass
+    der Reminder den neuen Ton (sachlich, ausgeschriebene Zahlen) trägt."""
     with _session() as session:
         _seed_warnerbros_pair(session)
         agg = insight_engine.aggregate_pair(session, "warnerbros", window_days=30)
         prompt = insight_engine._build_user_prompt(agg)
-        assert "Schnittraum" in prompt
-        assert "Kaffee" in prompt
-        assert "Voice 2.5" in prompt or "Voice-2.5" in prompt
+        assert "Erinnerung zum Ton" in prompt
+        assert "sachlich" in prompt
+        assert "33.000" in prompt  # Zahlen ausgeschrieben, nicht "33k"
 
 
 def test_user_prompt_caps_ranked_posts_at_five_per_channel():
@@ -1358,12 +1358,10 @@ def test_brief_voice_is_shared_prefix_of_system_prompt():
     # Byte-identical pair prompt: voice is a literal prefix.
     assert prompt.startswith(voice)
     assert len(voice) < len(prompt)
-    # Voice anchors present.
-    assert "VOICE-IDENTITÄT" in voice
-    assert "Schnittraum" in voice
-    assert "KERN-REGEL" in voice
-    assert "Cast-irgendwas" in voice            # #223 pattern rule
-    assert "Engagement-Driver" in voice         # #222 anti-pattern
+    # Ton-Anker der neuen Berichts-Voice (Ton-Pass).
+    assert "BERICHTSTON" in voice
+    assert "ZAHLEN AUSSCHREIBEN" in voice       # Regel 3
+    assert "VORHER / NACHHER" in voice          # Zielstil-Beispiel
     assert "TONALITÄTS-POOL" in voice
     # Pair output-schema block stays OUT of the shared voice.
     assert "SCHEMA-VOKABEL" not in voice
@@ -1410,7 +1408,11 @@ def test_few_shot_tldr_max_three_sentences():
     em-dash and comma OK)."""
     tldr = _extract_few_shot_tldr(insight_engine.SYSTEM_PROMPT)
     assert tldr, "few-shot tldr not found"
-    sentences = [s for s in tldr.split(".") if s.strip()]
+    import re as _re
+    # Ton-Pass: Zahlen werden mit Tausender-Punkt ausgeschrieben (33.000) —
+    # der Punkt im Zahl-Cluster ist kein Satzende, vor dem Zählen entfernen.
+    normalized = _re.sub(r"(\d)\.(\d)", r"\1\2", tldr)
+    sentences = [s for s in normalized.split(".") if s.strip()]
     assert len(sentences) <= 3, \
         f"few-shot tldr has {len(sentences)} sentences (> 3): {tldr!r}"
 
@@ -1584,9 +1586,10 @@ def test_voice_25_iter2_headline_form_section_present():
     Headlines im Wolf-Sprach-Anker-Stil."""
     prompt = insight_engine.SYSTEM_PROMPT
     assert "HEADLINE-FORM" in prompt
-    # Drei Beispiel-Headlines sind die konkrete Lehre.
-    assert "Disney US holt 33k mit *Drawn to You*" in prompt
-    assert "Sony US zieht" in prompt or "Warner DE läuft" in prompt
+    # Drei Beispiel-Headlines sind die konkrete Lehre — Ton-Pass: Zahlen
+    # ausgeschrieben, sachliche Verben.
+    assert "Disney US erreicht 33.000 Reaktionen mit *Drawn to You*" in prompt
+    assert "Sony US erzielt" in prompt or "Warner Deutschland setzt auf" in prompt
 
 
 def test_voice_25_iter2_was_diese_woche_clause_present():
@@ -1662,7 +1665,8 @@ def test_voice_25_iter2_few_shot_uses_holt_or_punktet_in_headline():
     läuft/fährt/kommt) statt 'trägt'."""
     headline = _extract_few_shot_headline(insight_engine.SYSTEM_PROMPT)
     active_verbs = ("holt", "punktet", "zieht", "wirkt", "macht",
-                    "läuft", "fährt", "kommt")
+                    "läuft", "fährt", "kommt", "erreicht", "erzielt",
+                    "veröffentlicht", "setzt")
     assert any(verb in headline for verb in active_verbs), (
         f"Headline nutzt kein aktives Verb aus der iter-2-Erlaubt-Liste: "
         f"{headline!r}"
@@ -1675,8 +1679,9 @@ def test_voice_25_iter2_few_shot_has_was_diese_woche():
     eine Theorie."""
     few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
     assert '"was_diese_woche"' in few_shot
-    # Pattern aus der Schema-Klausel taucht im Beispiel auf.
-    assert "Was hier auffällt" in few_shot
+    # Pattern aus der Schema-Klausel taucht im Beispiel auf (Ton-Pass:
+    # neutrale Überleitung statt der alten "Was hier auffällt"-Formel).
+    assert "Auffällig ist" in few_shot
 
 
 def test_voice_25_iter2_few_shot_no_must_show_no_go():
@@ -1705,14 +1710,14 @@ def _voice_blacklist_section(prompt: str) -> str:
     return rest[:end] if end > 0 else rest
 
 
-def test_voice_25_voice_identity_section_present():
-    """Sprint-7-Voice-Identitäts-Sektion ist im Prompt — der
-    Schnittraum-Kaffee-Anker ist die Tone-Quelle für Voice 2.5."""
+def test_berichtston_section_present():
+    """Ton-Pass — die BERICHTSTON-Sektion mit den sechs Regeln ist die
+    Tone-Quelle des sachlich-berichtenden Stils (löst die alte
+    Voice-2.5-Schnittraum-Identität ab)."""
     prompt = insight_engine.SYSTEM_PROMPT
-    assert "VOICE-IDENTITÄT" in prompt
-    # Schnittraum-Anker konkret referenziert (nicht nur Sektions-Header).
-    assert "Schnittraum" in prompt
-    assert "Kaffee" in prompt
+    assert "BERICHTSTON" in prompt
+    assert "sachlich" in prompt.lower()
+    assert "VORHER / NACHHER" in prompt
 
 
 def test_voice_25_blacklist_friedhof():
