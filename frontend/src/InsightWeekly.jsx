@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useId, useMemo, useRef, us
 import { endpoints } from './api/client';
 import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
-import { GLOSSARY, GLOSSARY_ORDER, glossaryDefinition } from './glossary';
+import { GLOSSARY, GLOSSARY_ORDER, glossaryDefinition, glossaryFull } from './glossary';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
@@ -147,7 +147,7 @@ function GlossaryBlock() {
           return (
             <div key={key} className="glossary-block-entry">
               <dt className="glossary-block-term">{entry.de.term}</dt>
-              <dd className="glossary-block-def">{entry.de.definition}</dd>
+              <dd className="glossary-block-def">{glossaryFull(key)}</dd>
             </div>
           );
         })}
