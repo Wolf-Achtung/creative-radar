@@ -1535,6 +1535,38 @@ function filmDetailSortFn(key) {
   }
 }
 
+// V3 Sprint 4 — Markt-Vergleichsleiste. Pure: aus EINEM TitleMarketPosts
+// ({ market, platforms[] }) die drei Aggregat-Kennzahlen der Leiste ableiten.
+// Kein JSX, keine Seiteneffekte.
+//
+// - posts: Summe aller Posts über alle Plattform-Buckets des Markts.
+// - views: Σ (views or 0) über alle Posts.
+// - engagementRate: Σ(likes+comments) / Σ(views), NUR über Posts mit views>0
+//   (gespiegelt vom Backend ``_post_engagement_rate``; Post-ER NICHT mitteln).
+//   Wenn kein Post mit views>0 existiert → null (Nenner 0) → Anzeige "—".
+function computeMarketSummary(marketData) {
+  const platforms = Array.isArray(marketData?.platforms) ? marketData.platforms : [];
+  let posts = 0;
+  let views = 0;
+  let engagementNumerator = 0;   // Σ(likes+comments) nur über views>0-Posts
+  let engagementDenominator = 0; // Σ(views) nur über views>0-Posts
+  for (const pg of platforms) {
+    const list = Array.isArray(pg?.posts) ? pg.posts : [];
+    for (const post of list) {
+      posts += 1;
+      const v = post.views || 0;
+      views += v;
+      if (v > 0) {
+        engagementNumerator += (post.likes || 0) + (post.comments || 0);
+        engagementDenominator += v;
+      }
+    }
+  }
+  const engagementRate =
+    engagementDenominator > 0 ? engagementNumerator / engagementDenominator : null;
+  return { posts, views, engagementRate };
+}
+
 function FilmPostCard({ post }) {
   const platform = post.platform || 'tiktok';
   const { relative, absolute } = formatRelativeDate(post.published_at);
