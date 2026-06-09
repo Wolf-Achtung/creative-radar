@@ -794,8 +794,8 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   ],
   "trends": [
     {
-      "name": "kurzer Trend-Name auf Deutsch",
-      "evidence": "konkrete Zahl, Asset-URL oder Caption-Zitat aus den Daten",
+      "name": "kurzer Trend-Name auf Deutsch — abgeleitet aus den Daten DIESES Pairs (die Channels in diesem Brief), nicht aus der Branche allgemein; branchenweite Bewegungen gehören in konkurrenz.format_trend, keine Dopplung",
+      "evidence": "konkrete Zahl, Asset-URL oder Caption-Zitat aus den Daten dieses Pairs",
       "implication_for_creation": "die übergeordnete Konsequenz dieses Trends für unsere Arbeit auf Muster-Ebene (Schnitt, Hook, Rhythmus) — NICHT die konkrete Einzel-Handlung, die in actions steht",
       "cited_post_ids": ["Liste der IDs aus dem JSON-Anhang, auf denen evidence beruht. Siehe EVIDENZ-PFLICHT."]
     }
@@ -810,7 +810,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   ],
   "konkurrenz": {
     "was_alle_machen": "Was bewegt diese Woche alle großen Studios — unabhängig von DE/US und unabhängig vom aktuellen Pair. Sachlich berichtet. Beispiel: Drei der großen Studios setzen gerade auf kurze Clips mit Reaktionen der Darsteller, auch Disney und Netflix.",
-    "format_trend": "Welcher Cut-Stil oder welche Asset-Form steigt in der Branche gerade — BTS, Cast-Reactions, Kinetic Type, Cold-Open, Event-Recaps. Mit Daten-Beleg, kein Bauchgefühl.",
+    "format_trend": "Welcher Cut-Stil oder welche Asset-Form steigt in der BRANCHE gerade — explizit bei Studios/Pairs AUSSERHALB des aktuellen Pairs (BTS, Cast-Reactions, Kinetic Type, Cold-Open, Event-Recaps). Mit Daten-Beleg, kein Bauchgefühl. Die Pair-eigenen Trends gehören in die trends-Sektion, nicht hierher — keine Dopplung derselben Bewegung in beiden Sektionen.",
     "genre_beobachtung": "Performt ein Genre gerade besonders — Horror trägt diese Woche oder Comedy zerläuft, Action sitzt — mit konkretem Beleg aus den Daten.",
     "neu_seit_letzten_wochen": "Was ist neu gegenüber den letzten Wochen — ein konkretes Pattern, ein Format-Wechsel, eine Hook-Form, die plötzlich auftaucht. Wenn nichts klar Neues sichtbar ist, sag das ehrlich."
   },
@@ -989,7 +989,7 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   ],
   "trends": [
     {
-      "name": "Kurze Anfänge unter 15 Sekunden erzielen mehr Resonanz",
+      "name": "Bei Disney erzielen kurze Anfänge unter 15 Sekunden mehr Resonanz",
       "evidence": "Disney US zeigt mit kurzen Clips, dass ein einzelner Bildmoment in den ersten Sekunden mehr Reaktionen erzielt als ein Clip von 30 bis 60 Sekunden",
       "implication_for_creation": "Auf Muster-Ebene heißt das: bei eigenen Cuts entscheidet die erste Einstellung über die Resonanz, nicht die Gesamtlänge — der Anfang ist der Hebel, nicht der Umfang."
     }
@@ -1003,7 +1003,7 @@ FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein
   ],
   "konkurrenz": {
     "was_alle_machen": "Diese Woche setzen drei der sechs großen Studios auf kurze Clips mit Reaktionen der Darsteller — Sony, Universal und Paramount. Warner bleibt bei langen Marken-Spots. Die Strategien teilen sich klar in zwei Gruppen: kurze Anfänge oder lange emotionale Formate, dazwischen liegt wenig.",
-    "format_trend": "Material vom Set in 12 bis 18 Sekunden nimmt zu — fünf von zehn der stärksten Posts über alle Pairs sind kurze Set-Ausschnitte mit den Darstellern. Vor vier Wochen waren es zwei.",
+    "format_trend": "Außerhalb des aktuellen Pairs steigt branchenweit das Material vom Set mit den Darstellern — fünf von zehn der stärksten Posts über die anderen Studios sind solche Set-Ausschnitte, vor vier Wochen zwei. Das ist eine andere Bewegung als der Pair-interne Längen-Trend oben: hier geht es um die Inhalts-Form (Set statt Trailer), nicht um die Cut-Länge.",
     "genre_beobachtung": "Science-Fiction erzielt aktuell gute Resonanz: Tron: Ares (acht US-Posts) und ein Teaser zu Sonys Project Hail Mary laufen über ihre Wochen stabil. Comedy bleibt verhalten — selbst Sonys Glennkill erreicht nur rund 25.000 Reaktionen.",
     "neu_seit_letzten_wochen": "Anfänge ohne Logo, die nur Datum und Bild zeigen (ohne Trailer-Schnitt), sind neu — Disney US erreicht damit rund 267.000 Reaktionen. Vor vier Wochen kam dieses Format nicht vor."
   },

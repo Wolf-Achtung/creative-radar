@@ -1639,6 +1639,18 @@ def test_sprint9b_lern_take_vs_action_separation():
     assert "gegen die 22-Sekunden-Variante testen" not in few_shot
 
 
+def test_sprint9b_trends_vs_konkurrenz_scope_separation():
+    """Sprint 9b (Entdopplung, Commit E): trends speist sich aus den
+    Pair-eigenen Daten, konkurrenz.format_trend aus der Branche außerhalb
+    des Pairs — keine Dopplung derselben Bewegung."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "branchenweite Bewegungen gehören in konkurrenz.format_trend" in prompt
+    assert "AUSSERHALB des aktuellen Pairs" in prompt
+    few_shot = _extract_few_shot(insight_engine.SYSTEM_PROMPT)
+    assert "Bei Disney erzielen kurze Anfänge" in few_shot
+    assert "Außerhalb des aktuellen Pairs steigt branchenweit" in few_shot
+
+
 def test_voice_25_iter2_few_shot_no_traegt():
     """Im kompletten Few-Shot darf 'trägt' / 'tragen' nicht als
     eigenständiges Verb auftauchen — die Voice-Anchoring kommt sonst
