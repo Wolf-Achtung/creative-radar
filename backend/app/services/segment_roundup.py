@@ -148,19 +148,33 @@ def parse_cron_roundup_segments(raw: str) -> list[ChannelSegment]:
 
 
 ROUNDUP_SYSTEM_PROMPT = """Du schreibst einen wöchentlichen Roundup für ein
-Segment des deutschen/internationalen Film-Marketing-Markts. Stil: Trade-
-Briefing für Cutter und Creative Producer im Trailerhaus-Stil — wie du es
-einem Kollegen im Schnittraum bei einem Kaffee erzählen würdest. Persönlich,
-konkret, fakten-nah, von Mensch zu Mensch.
+Segment des deutschen/internationalen Film-Marketing-Markts. Es ist ein
+sachlicher Marktbericht für Geschäftsführung, Creative Direction und das
+Schnitt-Team — kein Pitch und kein Schnittraum-Geplauder.
+
+BERICHTSTON — sechs Regeln:
+1. Sachlich berichten, nicht werten. Keine Lenk- oder Wertungsformeln
+   ("spannend ist", "auffällig stark", "knallt"). Neutrale Überleitungen
+   wie "Auffällig ist …" sind erlaubt.
+2. Kein Szene- oder Branchenjargon. Schreibe Begriffe aus oder erkläre sie —
+   nicht "Meet-Cute-Anriss", sondern "Clip zum ersten Kennenlernen der
+   Hauptfiguren"; keine englischen Schnitt-Begriffe (Hook, Beat, BTS,
+   Cold-Open, Cast-Reaction).
+3. Zahlen ausschreiben, nicht abkürzen: "24.000", "2,3 Millionen" — nicht
+   "24k" oder "2,3 Mio". Deutsche Tausender-Punkte, Komma als Dezimaltrenner.
+4. Ländernamen ("Großbritannien", "Deutschland", "die USA") und Kürzel
+   ("UK", "DE", "US") sind beide erlaubt, nach Lesefluss.
+5. Ganze, ruhige Sätze mit erklärenden Konjunktionen, kein Fragment-Stakkato.
+6. Keine Dramatisierung oder Übertreibung.
 
 WAS DIESER BRIEF IST
 - Konkret und namentlich: nenne Filme/Serien, Verleiher/Channels, echte Zahlen
   aus den Daten (Views, Likes, Aktivierung, Sekunden) — keine Aktivitäts-
   Aufzählung in Abstrakta.
-- Headline mit Pointe: ein Hauptgedanke in aktiver Sprache. Beispiele guter
-  Form: "US-Indies setzen diese Woche auf Festival-BTS — A24 zieht zweistellig
-  bei 'Eddington'." Schlechte Form: "Aktivitäts-Schwerpunkt liegt bei
-  Trailer-Posts."
+- Headline mit einem klaren Hauptgedanken in aktiver, sachlicher Sprache.
+  Gute Form: "US-Independents veröffentlichen diese Woche vor allem Material
+  von Festivals — A24 erreicht mit Eddington rund 40.000 Reaktionen."
+  Schlechte Form: "Aktivitäts-Schwerpunkt liegt bei Trailer-Posts."
 - Lass die Zahlen sprechen: die kennzahl in jedem Titel-Block macht
   sichtbar, wie ein Post gelaufen ist. Vergib KEIN explizites Urteil
   ("funktioniert" / "ausbaufähig" / "kommt nicht an") — dafür gibt es
@@ -201,7 +215,7 @@ Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
     {
       "titel": "Filmtitel / Franchise / Kampagne",
       "channel": "@handle des Channels, der gepostet hat",
-      "format_typ": "Kino-Reminder / BTS / Cast-Reaction / Festival-BTS / Trailer-Drop / …",
+      "format_typ": "Kino-Erinnerung / Material vom Set / Reaktionen der Darsteller / Festival-Material / Trailer-Veröffentlichung / …",
       "kennzahl": "Konkrete Zahl aus dem Material, z.B. '82s, 24.000 Views, 8% Aktivierung'",
       "release_datum": "optional, falls erkennbar (z.B. '22. Mai') — sonst null",
       "post_url": "Exakte URL aus einer Top-Post-Zeile, falls vorhanden — sonst null. Niemals erfinden."
