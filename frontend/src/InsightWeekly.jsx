@@ -1535,6 +1535,38 @@ function filmDetailSortFn(key) {
   }
 }
 
+// V3 Sprint 4 — Markt-Vergleichsleiste. Pure: aus EINEM TitleMarketPosts
+// ({ market, platforms[] }) die drei Aggregat-Kennzahlen der Leiste ableiten.
+// Kein JSX, keine Seiteneffekte.
+//
+// - posts: Summe aller Posts über alle Plattform-Buckets des Markts.
+// - views: Σ (views or 0) über alle Posts.
+// - engagementRate: Σ(likes+comments) / Σ(views), NUR über Posts mit views>0
+//   (gespiegelt vom Backend ``_post_engagement_rate``; Post-ER NICHT mitteln).
+//   Wenn kein Post mit views>0 existiert → null (Nenner 0) → Anzeige "—".
+function computeMarketSummary(marketData) {
+  const platforms = Array.isArray(marketData?.platforms) ? marketData.platforms : [];
+  let posts = 0;
+  let views = 0;
+  let engagementNumerator = 0;   // Σ(likes+comments) nur über views>0-Posts
+  let engagementDenominator = 0; // Σ(views) nur über views>0-Posts
+  for (const pg of platforms) {
+    const list = Array.isArray(pg?.posts) ? pg.posts : [];
+    for (const post of list) {
+      posts += 1;
+      const v = post.views || 0;
+      views += v;
+      if (v > 0) {
+        engagementNumerator += (post.likes || 0) + (post.comments || 0);
+        engagementDenominator += v;
+      }
+    }
+  }
+  const engagementRate =
+    engagementDenominator > 0 ? engagementNumerator / engagementDenominator : null;
+  return { posts, views, engagementRate };
+}
+
 function FilmPostCard({ post }) {
   const platform = post.platform || 'tiktok';
   const { relative, absolute } = formatRelativeDate(post.published_at);
@@ -1625,6 +1657,41 @@ function FilmMarketColumn({ market, marketData, sortKey }) {
       ) : (
         <p className="film-market-empty">Keine Posts</p>
       )}
+    </div>
+  );
+}
+
+// V3 Sprint 4 — Markt-Vergleichsleiste. Eine Kachel pro Markt (gleiche
+// Reihenfolge wie das Grid), je drei Kennzahlen: Posts, Σ Views, aggregierte
+// Engagement-Rate. Leere Märkte bleiben sichtbar (Werte "—"). Aggregation via
+// computeMarketSummary; ER über formatRankedPercent (konsistent zur Karte),
+// Views über formatRankedNumber (wie die Karten-Headline). Kein Delta/Index
+// zwischen Märkten (bewusst Scope-out).
+function FilmMarketSummaryBar({ markets, marketByName }) {
+  return (
+    <div className="film-market-summary-bar">
+      {markets.map((m) => {
+        const { posts, views, engagementRate } = computeMarketSummary(marketByName[m]);
+        return (
+          <div key={m} className="film-market-summary-cell">
+            <h5 className="film-market-summary-market">{m}</h5>
+            <div className="film-market-summary-metrics">
+              <div className="film-market-summary-metric">
+                <strong>{formatNumber(posts)}</strong>
+                <span>Posts</span>
+              </div>
+              <div className="film-market-summary-metric">
+                <strong>{posts > 0 ? formatRankedNumber(views) : '—'}</strong>
+                <span>Aufrufe</span>
+              </div>
+              <div className="film-market-summary-metric">
+                <strong>{engagementRate != null ? formatRankedPercent(engagementRate) : '—'}</strong>
+                <span>Engagement</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1727,6 +1794,7 @@ function FilmDetailSection({ fokusItems }) {
             <p className="film-detail-meta">
               <strong>{data.title_original || 'Titel'}</strong> · {formatNumber(data.total_posts)} Posts
             </p>
+            <FilmMarketSummaryBar markets={TITLE_DETAIL_MARKETS} marketByName={marketByName} />
             <div className="film-market-grid">
               {TITLE_DETAIL_MARKETS.map((m) => (
                 <FilmMarketColumn key={m} market={m} marketData={marketByName[m]} sortKey={sortKey} />
