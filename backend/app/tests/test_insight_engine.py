@@ -1617,6 +1617,15 @@ def test_sprint9b_cross_market_chancen_removed_from_prompt():
     assert "cross_market_insight" in prompt
 
 
+def test_sprint9b_zahlen_katalog_clause_present():
+    """Sprint 9b (Entdopplung, Commit C): die Klausel etabliert
+    aktuell_im_fokus als einzigen Zahlen-Titel-Katalog; ganz_konkret /
+    trends / fuer_cutter referenzieren Belege statt sie neu aufzulisten."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "ZAHLEN-KATALOG-REGEL" in prompt
+    assert "EINZIGE Zahlen-Titel-Katalog" in prompt
+
+
 def test_voice_25_iter2_few_shot_no_traegt():
     """Im kompletten Few-Shot darf 'trägt' / 'tragen' nicht als
     eigenständiges Verb auftauchen — die Voice-Anchoring kommt sonst

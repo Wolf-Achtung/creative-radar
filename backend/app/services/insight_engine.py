@@ -869,6 +869,7 @@ AKTUELL_IM_FOKUS-SEKTION — Hinweise zur Befüllung:
 - verdict: einer der drei Voice-2.5-Werte (Sprint 7): "funktioniert" / "kommt nicht an" / "noch ausbaufähig". Nur wenn die Daten klar sind, sonst null. Keine alten Wert-Strings ("trägt"/"zerläuft"/"sitzt"/"ausbaufähig"/"zweischneidig") — das Backend normalisiert sie zwar, aber der Output soll von Anfang an Voice-2.5-Vokabular führen.
 - post_url: optionale URL des Referenz-Posts. Wenn der Eintrag aus den top_posts oder historical_top_posts ableitbar ist und dort eine post_url existiert, übernimm exakt diese URL. Niemals URLs erfinden oder raten — lieber null als eine falsche URL.
 - Diese Sektion ist die Eintrittsstelle in den Brief: ein Cutter scannt sie in 10 Sekunden und weiß, welche Titel in den Schnitt-Aufgaben weiter unten gemeint sind.
+- ZAHLEN-KATALOG-REGEL (Sprint 9b): aktuell_im_fokus ist der EINZIGE Zahlen-Titel-Katalog des Briefs — nur hier stehen Titel mit ihrer kennzahl als Liste nebeneinander. ganz_konkret, trends und fuer_cutter dürfen dieselben Posts NICHT als neue Zahlen-Liste wiederholen: sie referenzieren den Beleg über cited_post_ids und nennen eine Zahl nur dort, wo sie eine konkrete Aussage trägt (ein Vergleich, eine Schlussfolgerung), nicht als erneute Bestandsaufnahme derselben Top-Posts. Wenn ein ganz_konkret- oder trends-Eintrag nur eine Zahl aus aktuell_im_fokus nacherzählt, ohne neuen Schluss, lass ihn weg.
 
 
 GANZ_KONKRET-SEKTION — Hinweise zur Befüllung (v3.0 Lern-Modus):
