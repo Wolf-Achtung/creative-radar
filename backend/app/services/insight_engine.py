@@ -796,7 +796,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
     {
       "name": "kurzer Trend-Name auf Deutsch — abgeleitet aus den Daten DIESES Pairs (die Channels in diesem Brief), nicht aus der Branche allgemein; branchenweite Bewegungen gehören in konkurrenz.format_trend, keine Dopplung",
       "evidence": "konkrete Zahl, Asset-URL oder Caption-Zitat aus den Daten dieses Pairs",
-      "implication_for_creation": "die übergeordnete Konsequenz dieses Trends für unsere Arbeit auf Muster-Ebene (Schnitt, Hook, Rhythmus) — NICHT die konkrete Einzel-Handlung, die in actions steht",
+      "implication_for_creation": "die übergeordnete Konsequenz dieses Trends für unsere Arbeit auf Muster-Ebene (Schnitt, Hook, Rhythmus) — NICHT die konkrete Einzel-Handlung, die in actions steht, und keine konkreten Sekunden-Angaben (die gehören in fuer_cutter.empfohlene_laengen)",
       "cited_post_ids": ["Liste der IDs aus dem JSON-Anhang, auf denen evidence beruht. Siehe EVIDENZ-PFLICHT."]
     }
   ],
@@ -838,7 +838,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   "fuer_cutter": {
     "schnitt_pace": "Beobachtung zum Rhythmus, abgeleitet aus Top-Posts und Längen-Verteilung — in Cutter-Sprache (kurze Cuts funktionieren, lange laufen zu lang, etc.)",
     "hook_strategie": "welche Hook-Form wirkt diese Woche (Cold-Open, Title-First, BTS, Cast-Reaction, ...)",
-    "empfohlene_laengen": "z.B. 15-22s primär, 28s als langer Cut"
+    "empfohlene_laengen": "konkrete Sekunden-Längen für den Schnitt, z.B. 15-22s primär, 28s als langer Cut — die EINZIGE Sektion mit Sekunden-Angaben"
   },
   "fuer_motion_designer": {
     "caption_style": "Caption-Beobachtung aus den Top-Posts (qualitativ; Länge, Tonfall, Hashtag-Dichte — KEINE Zeichen-Counts oder Hashtag-Counts)",
@@ -847,7 +847,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
   },
   "fuer_creative_producer": {
     "strategische_pattern": "übergeordnetes Muster, das diese Woche sichtbar wird",
-    "format_empfehlungen": "Formate, Längen, Posting-Rhythmus für die nächste Woche"
+    "format_empfehlungen": "Format-Mix und Posting-Rhythmus für die nächste Woche (welche Formate in welchem Takt) — KEINE konkreten Sekunden-Längen, die stehen ausschließlich in fuer_cutter.empfohlene_laengen"
   },
   "vergleichbare_posts": [
     {

@@ -1651,6 +1651,16 @@ def test_sprint9b_trends_vs_konkurrenz_scope_separation():
     assert "Außerhalb des aktuellen Pairs steigt branchenweit" in few_shot
 
 
+def test_sprint9b_laengen_granularity_separation():
+    """Sprint 9b (Entdopplung, Commit F): konkrete Sekunden-Längen leben
+    nur in fuer_cutter.empfohlene_laengen; format_empfehlungen (Producer)
+    trägt Format-Mix/Rhythmus, trends.implication bleibt übergeordnet —
+    beide ohne Sekunden-Detail."""
+    prompt = insight_engine.SYSTEM_PROMPT
+    assert "die EINZIGE Sektion mit Sekunden-Angaben" in prompt
+    assert "KEINE konkreten Sekunden-Längen, die stehen ausschließlich in fuer_cutter.empfohlene_laengen" in prompt
+
+
 def test_voice_25_iter2_few_shot_no_traegt():
     """Im kompletten Few-Shot darf 'trägt' / 'tragen' nicht als
     eigenständiges Verb auftauchen — die Voice-Anchoring kommt sonst
