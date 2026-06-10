@@ -19,6 +19,7 @@ on the aggregation or prompt.
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import re
@@ -3919,7 +3920,18 @@ def generate_weekly_report(
         tool_name=_BRIEF_TOOL_NAME,
         tool_description=_BRIEF_TOOL_DESCRIPTION,
         input_schema=_BRIEF_TOOL_INPUT_SCHEMA,
-        validate=LLMReport.model_validate,
+        # Sprint lionsgate-cross-market-conditional (10.06.2026): die
+        # ``de_vs_us``-Pflicht ist datengetrieben (Validator auf
+        # ``LLMReport``). Signal ist Config-Level: ``agg.de_channel`` ist
+        # genau dann ``None``, wenn das Pair keinen DE-Channel definiert
+        # (heute nur lionsgate) — NICHT, wenn ein Voll-Pair eine duenne
+        # DE-Woche hat. Der Kernel ``_run_brief_llm`` bleibt generisch
+        # (``validate`` ist weiter ``Callable[[Any], Any]``), deshalb
+        # ``partial`` statt eines Context-Parameters durch den Kernel.
+        validate=functools.partial(
+            LLMReport.model_validate,
+            context={"has_de_data": agg.de_channel is not None},
+        ),
         model=model,
         max_tokens=max_tokens,
         log_subject=pair_key,
@@ -3977,7 +3989,20 @@ def _hydrate_from_persisted(row: InsightReportRow, *, window_days: int) -> Insig
     ``cost_usd_cents`` integer that the persistence layer stores.
     """
     aggregation = PairAggregation.model_validate(row.aggregation)
-    llm_output = LLMReport.model_validate(row.llm_output) if row.llm_output else None
+    # Sprint lionsgate-cross-market-conditional (10.06.2026): Context auch
+    # hier — der ``de_vs_us``-Validator auf ``LLMReport`` hat als
+    # defensiven Default "fehlender Context = Pflicht an". Ohne diese
+    # Zeile wuerde ein korrekt persistierter lionsgate-Brief
+    # (``de_vs_us=None``) bei JEDEM Cache-Hit kippen. Signal identisch
+    # zur Generierungs-Call-Site: Config-Level ``de_channel is not None``.
+    llm_output = (
+        LLMReport.model_validate(
+            row.llm_output,
+            context={"has_de_data": aggregation.de_channel is not None},
+        )
+        if row.llm_output
+        else None
+    )
     cost_usd_estimate: Optional[float] = (
         round(row.cost_usd_cents / 100.0, 4) if row.cost_usd_cents is not None else None
     )

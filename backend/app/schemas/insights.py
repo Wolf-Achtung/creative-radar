@@ -22,7 +22,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationInfo, field_validator, model_validator
 
 
 class TopPost(BaseModel):
@@ -536,7 +536,15 @@ class TitelImFokus(BaseModel):
 
 
 class CrossMarketInsight(BaseModel):
-    de_vs_us: str
+    # Sprint lionsgate-cross-market-conditional (10.06.2026): Optional,
+    # weil lionsgate (US+UK-only, kein DE-Auftritt — siehe PAIRS) die
+    # Achse strukturell nicht fuellen kann. Die Pflicht ist NICHT weg:
+    # der ``model_validator`` auf ``LLMReport`` stellt sie datengetrieben
+    # wieder her — hat das Pair einen DE-Channel
+    # (``context={'has_de_data': True}``), kippt ein leeres ``de_vs_us``
+    # weiterhin in ``model_validate``. Ein nacktes Optional ohne diesen
+    # Validator waere eine stille Regression fuer die acht Voll-Pairs.
+    de_vs_us: Optional[str] = None
     # Sprint B2 (27.05.2026) — zwei zusaetzliche pairwise-Achsen
     # additiv ergaenzt. Optional damit alte persistierte Briefs vor B2
     # weiter validieren und die LLM die Achse weglassen kann, wenn keine
@@ -658,6 +666,58 @@ class LLMReport(BaseModel):
     fuer_motion_designer: Optional[FuerMotionDesigner] = None
     fuer_creative_producer: Optional[FuerCreativeProducer] = None
     vergleichbare_posts: Optional[list[VergleichbarerPost]] = None
+
+    # Einmal-Marker fuer den de_vs_us-Validator. Pydantic 2.13 laesst
+    # ``mode='after'``-Model-Validators auch dann laufen, wenn eine
+    # BEREITS validierte Instanz in ein Eltern-Modell gereicht wird
+    # (``InsightReport(llm_output=...)``) — selbst mit
+    # ``revalidate_instances='never'``, und dann OHNE den Context der
+    # urspruenglichen ``model_validate``-Stelle (empirisch verifiziert).
+    # Ohne Marker wuerde der defensive Default ("fehlender Context =
+    # Pflicht an") jeden validierten lionsgate-Brief beim Verpacken in
+    # ``InsightReport`` kippen. Private Attrs werden nicht serialisiert:
+    # ein persistierter Brief laeuft beim Re-Hydrate als frischer
+    # Dict-Parse wieder voll durch den Validator.
+    _de_vs_us_enforced: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="after")
+    def _require_de_vs_us_when_de_data(self, info: ValidationInfo):
+        """Sprint lionsgate-cross-market-conditional (10.06.2026):
+        ``cross_market_insight.de_vs_us`` ist im Feld-Schema Optional
+        (lionsgate hat keinen DE-Channel), die Pflicht fuer die acht
+        Voll-Pairs lebt hier — datengetrieben ueber den Validation-
+        Context der beiden Call-Sites in ``insight_engine``:
+        Generierung (``generate_weekly_report``, Signal aus
+        ``agg.de_channel``) und Cache-Hydrate
+        (``_hydrate_from_persisted``, Signal aus
+        ``aggregation.de_channel``).
+
+        Defensiver Default: FEHLENDER Context (``info.context is None``
+        oder Key fehlt) heisst Pflicht AN — ein Aufrufer ohne Context
+        bekommt das alte harte Verhalten, nichts rutscht still durch.
+        DE-lose Pairs laufen ausschliesslich ueber Call-Sites, die
+        explizit ``has_de_data=False`` liefern. Der Validator sitzt
+        bewusst auf ``LLMReport`` (nicht auf ``CrossMarketInsight``),
+        weil ``model_validate(context=...)`` auf diesem Modell
+        aufgerufen wird und ``info.context`` hier garantiert verfuegbar
+        ist, ohne von Context-Propagation in nested models abzuhaengen.
+        ``cross_market_insight`` ist required, der Zugriff darauf ist
+        in ``mode='after'`` immer sicher.
+
+        Der ``_de_vs_us_enforced``-Marker (siehe Feld-Kommentar)
+        schaltet NUR die Re-Validierung derselben, bereits geprueften
+        Instanz stumm — jeder frische Parse (Dict/JSON), mit oder ohne
+        Context, laeuft voll durch die Pruefung.
+        """
+        if self._de_vs_us_enforced:
+            return self
+        ctx = info.context or {}
+        if ctx.get("has_de_data", True) and not (self.cross_market_insight.de_vs_us or "").strip():
+            raise ValueError(
+                "cross_market_insight.de_vs_us ist Pflicht, wenn das Pair DE-Daten hat"
+            )
+        self._de_vs_us_enforced = True
+        return self
 
 
 class InsightReport(BaseModel):
