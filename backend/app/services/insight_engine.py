@@ -762,9 +762,10 @@ Regeln:
 - IDs niemals raten oder normalisieren — kopiere exakt, was im
   JSON-Anhang steht. Lieber weniger zitieren als eine falsche ID.
 - Bei ``cross_market_insight.cited_post_ids`` liste die IDs aller
-  Belege ueber die drei Achsen (de_vs_us / de_vs_uk / us_vs_uk) und
-  die transfer_opportunity zusammen — Granularitaet pro Achse ist im
-  Schema bewusst nicht modelliert.
+  Belege ueber die ausgefuellten Achsen (de_vs_us / de_vs_uk /
+  us_vs_uk) und die transfer_opportunity zusammen — Achsen, die null
+  sind, liefern keine IDs; Granularitaet pro Achse ist im Schema
+  bewusst nicht modelliert.
 
 OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief`` zurück. Fülle dessen Felder DIREKT auf der obersten Ebene aus — KEIN umschließendes Objekt und KEIN verschachtelnder Key (also NICHT {"what": {...}} oder ähnlich). Die obersten Schlüssel sind exakt: headline, tldr, trends, actions, cross_market_insight, risks, data_caveats — dazu die optionalen Sektionen aktuell_im_fokus, ganz_konkret, konkurrenz, tonalitaet, watch_outs, fuer_cutter, fuer_motion_designer, fuer_creative_producer, vergleichbare_posts. Das folgende Schema beschreibt die erwarteten Felder und ihren Inhalt:
 
@@ -816,7 +817,7 @@ OUTPUT — Gib das Ergebnis ausschließlich über das Tool ``submit_weekly_brief
     "neu_seit_letzten_wochen": "Was ist neu gegenüber den letzten Wochen — ein konkretes Pattern, ein Format-Wechsel, eine Hook-Form, die plötzlich auftaucht. Wenn nichts klar Neues sichtbar ist, sag das ehrlich."
   },
   "cross_market_insight": {
-    "de_vs_us": "Was unterscheidet DE und US diese Woche, mit Beleg — Pflicht-Achse, IMMER ausfüllen",
+    "de_vs_us": "Was unterscheidet DE und US diese Woche, mit Beleg — Pflicht-Achse, wenn das Pair einen DE-Channel hat. null lassen, wenn dieses Pair keinen DE-Markt hat (kein DE-Block in den Daten)",
     "de_vs_uk": "Was unterscheidet DE und UK diese Woche, mit Beleg — null lassen, wenn keine UK-Posts oder keine vergleichbare Datenlage da ist",
     "us_vs_uk": "Was unterscheidet US und UK diese Woche, mit Beleg — null lassen, wenn keine UK-Posts oder keine vergleichbare Datenlage da ist",
     "transfer_opportunity": "Was sollte zwischen den Märkten adaptiert werden — DE↔US, DE↔UK oder US↔UK, jeweils mit klarer Richtung",
@@ -893,7 +894,7 @@ Sektion-Titel im Frontend: 'Diese Woche: was funktioniert gut, was nicht'.
     (b) Einer dieser strukturellen Strings: 'Format-Strategie', 'Posting-Rhythmus', 'Caption-Disziplin', 'Hashtag-Klammer'
   Jeder Eintrag MUSS einen bezug haben.
 
-Wenn die Datengrundlage zu dünn ist (Coverage <30%, <5 Posts pro Markt, keine Cross-Market-Matches in der jeweiligen Achse), sag das klar in data_caveats und gib lieber weniger, dafür belegte Empfehlungen. Setze Felder, für die du keinen Beleg hast, auf null oder gib ein leeres Array — niemals erfinden. Konkret für ``cross_market_insight``: fehlen DE↔UK- oder US↔UK-Matches und auch sonst keine vergleichbare Datenlage, setze ``de_vs_uk`` bzw. ``us_vs_uk`` auf null — die Pflicht-Achse ``de_vs_us`` füllst du immer, weil DE/US fast immer Daten haben.
+Wenn die Datengrundlage zu dünn ist (Coverage <30%, <5 Posts pro Markt, keine Cross-Market-Matches in der jeweiligen Achse), sag das klar in data_caveats und gib lieber weniger, dafür belegte Empfehlungen. Setze Felder, für die du keinen Beleg hast, auf null oder gib ein leeres Array — niemals erfinden. Konkret für ``cross_market_insight``: fehlen DE↔UK- oder US↔UK-Matches und auch sonst keine vergleichbare Datenlage, setze ``de_vs_uk`` bzw. ``us_vs_uk`` auf null. Die Achse ``de_vs_us`` füllst du immer, wenn das Pair einen DE-Channel hat — auch bei dünner DE-Woche (dann benennst du genau das, mit Beleg). Hat das Pair keinen DE-Markt (kein DE-Block in den Daten), setze ``de_vs_us`` auf null statt etwas zu konstruieren.
 
 FEW-SHOT — so klingt ein guter Output (synthetisches Beispiel, kürzer als ein echter Report; in deinem Output bitte vollständig in der Länge):
 
