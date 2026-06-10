@@ -21,10 +21,12 @@ from types import SimpleNamespace
 from typing import Optional
 
 import pytest
+from pydantic import ValidationError
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.entities import Asset, Channel, Market, Post, Title
-from app.schemas.insights import InsightReport
+from app.models.entities import InsightReport as InsightReportRow
+from app.schemas.insights import InsightReport, LLMReport
 from app.services import insight_engine
 
 
@@ -2697,6 +2699,102 @@ def test_aggregate_pair_lionsgate_handles_missing_de_channel_gracefully():
         assert not any("DE-Channel" in n for n in agg.notes), (
             f"Unerwartete DE-Channel-Note für lionsgate: {agg.notes}"
         )
+
+
+# ---------- Sprint lionsgate-cross-market-conditional (10.06.2026) ----------
+#
+# ``cross_market_insight.de_vs_us`` ist im Feld-Schema Optional; die Pflicht
+# fuer Voll-Pairs lebt im ``model_validator`` auf ``LLMReport`` und wird
+# ueber ``context={'has_de_data': ...}`` (Config-Level-Signal:
+# ``de_channel is not None``) datengetrieben scharfgeschaltet. Drei Guards:
+# (1) lionsgate validiert ohne die Achse, (2) das harte Netz beisst bei
+# Voll-Pairs weiter — auch ohne Context (defensiver Default), (3) der
+# Cache-Hydrate-Pfad reicht den Context durch (Cache-Bomben-Schutz).
+
+
+def _llm_body_ohne_de_vs_us() -> dict:
+    """Minimal-valides ``LLMReport``-Dict, in dem ``de_vs_us`` bewusst
+    fehlt — der Fall, den ein Pair ohne DE-Markt liefert."""
+    return {
+        "headline": "lionsgate-Woche ohne DE-Achse",
+        "tldr": "US und UK tragen den Brief, DE existiert fuer dieses Pair nicht.",
+        "trends": [],
+        "actions": [],
+        "cross_market_insight": {
+            "us_vs_uk": "US postet laenger, UK haeufiger.",
+            "transfer_opportunity": "US-Hook-Form fuer UK-Cuts adaptieren.",
+        },
+        "risks": [],
+        "data_caveats": [],
+    }
+
+
+def test_llm_report_ohne_de_vs_us_validiert_fuer_pair_ohne_de_channel():
+    """Guard 1: lionsgate-Aggregation (de_channel=None) liefert
+    has_de_data=False — ein Brief ohne ``de_vs_us`` muss validieren."""
+    with _session() as session:
+        agg = insight_engine.aggregate_pair(session, "lionsgate", window_days=30)
+    assert agg.de_channel is None
+    report = LLMReport.model_validate(
+        _llm_body_ohne_de_vs_us(),
+        context={"has_de_data": agg.de_channel is not None},
+    )
+    assert report.cross_market_insight.de_vs_us is None
+
+
+def test_llm_report_ohne_de_vs_us_kippt_fuer_voll_pair():
+    """Guard 2: Voll-Pair (netflix, DE-Spec vorhanden) — das harte Netz
+    beisst weiter. Und der defensive Default greift: ganz OHNE Context
+    (z. B. ein kuenftiger Aufrufer, der die Injektion vergisst) ist die
+    Pflicht ebenfalls an."""
+    with _session() as session:
+        agg = insight_engine.aggregate_pair(session, "netflix", window_days=30)
+    assert agg.de_channel is not None, "netflix ist Voll-Pair mit DE-Spec"
+
+    with pytest.raises(ValidationError, match="de_vs_us"):
+        LLMReport.model_validate(
+            _llm_body_ohne_de_vs_us(),
+            context={"has_de_data": agg.de_channel is not None},
+        )
+
+    # Defensiver Default: fehlender Context == Pflicht an.
+    with pytest.raises(ValidationError, match="de_vs_us"):
+        LLMReport.model_validate(_llm_body_ohne_de_vs_us())
+
+    # Leerstring zaehlt nicht als gefuellt — sonst waere die Pflicht
+    # per '""' umgehbar.
+    body = _llm_body_ohne_de_vs_us()
+    body["cross_market_insight"]["de_vs_us"] = "   "
+    with pytest.raises(ValidationError, match="de_vs_us"):
+        LLMReport.model_validate(body, context={"has_de_data": True})
+
+
+def test_hydrate_persistierter_lionsgate_brief_ohne_de_vs_us_crasht_nicht():
+    """Guard 3 (Cache-Bomben-Schutz): ein persistierter lionsgate-Brief
+    (``de_vs_us=None``) muss ``_hydrate_from_persisted`` ohne Crash
+    durchlaufen. Die Hydrate-Stelle leitet ``has_de_data`` aus der
+    persistierten Aggregation ab — baut jemand diese Context-Uebergabe
+    zurueck, wird dieser Test rot, weil der defensive Default
+    ('fehlender Context = Pflicht an') dann jeden Cache-Hit kippt."""
+    with _session() as session:
+        agg = insight_engine.aggregate_pair(session, "lionsgate", window_days=30)
+    assert agg.de_channel is None
+
+    row = InsightReportRow(
+        pair_key="lionsgate",
+        iso_year=agg.iso_year,
+        iso_week=agg.iso_week,
+        aggregation=agg.model_dump(mode="json"),
+        llm_output=_llm_body_ohne_de_vs_us(),
+        generated_at=datetime.now(timezone.utc),
+        model="test-model",
+        cost_usd_cents=40,
+    )
+
+    report = insight_engine._hydrate_from_persisted(row, window_days=30)
+    assert report.llm_output is not None
+    assert report.llm_output.cross_market_insight.de_vs_us is None
+    assert report.pair_key == "lionsgate"
 
 
 def test_aggregate_pair_paramountplus_uk_only_on_ig_tt_not_yt():
