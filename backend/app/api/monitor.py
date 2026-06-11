@@ -84,13 +84,41 @@ def _handle_from_url_or_value(value: str | None) -> str:
     return clean.lstrip("@")
 
 
-def _match_channel(channels: list[Channel], owner: str | None, fallback_index: int = 0) -> Channel:
+def _normalize_profile_url(value: str | None) -> str:
+    """Profil-URL-Identität (Sprint channel-attribution-inputurl, 2026-06-11):
+    lower + Query-/Fragment-Strip + Trailing-Slash-Strip + www-Strip — exakt
+    die Normalisierung der Phase-0-Diagnose-Queries. ``inputUrl`` im
+    Apify-Item ist das Echo unserer eigenen ``directUrls`` (= ``channel.url``,
+    ``apify_connector.run_public_channel_monitor``), die URL-Identität ist
+    daher per Konstruktion der korrekte Attributions-Schlüssel."""
+    url = (value or "").strip().lower()
+    url = url.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return url.replace("://www.", "://")
+
+
+def _match_channel_by_input_url(channels: list[Channel], input_url: str | None) -> Channel | None:
+    norm = _normalize_profile_url(input_url)
+    if not norm:
+        return None
+    for channel in channels:
+        if _normalize_profile_url(channel.url) == norm:
+            return channel
+    return None
+
+
+def _match_channel_by_owner(channels: list[Channel], owner: str | None) -> Channel | None:
+    """Owner-Identität — nur für Items OHNE ``inputUrl`` (TikTok-Actor).
+    Dort strukturell eindeutig: der Actor liefert ausschließlich eigene
+    Profil-Videos (``profileScrapeSections=["videos"]``), der Owner IST
+    das gescrapte Profil. Kein Fallback bei Nicht-Match — Caller verwirft."""
     owner_clean = _handle_from_url_or_value(owner).lower()
+    if not owner_clean:
+        return None
     for channel in channels:
         handle = _handle_from_url_or_value(channel.handle or channel.url).lower()
-        if handle and owner_clean and handle == owner_clean:
+        if handle and handle == owner_clean:
             return channel
-    return channels[min(fallback_index, len(channels) - 1)]
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -325,20 +353,51 @@ def _group_items_by_channel(
     channels: list[Channel],
     normalize: Callable[[dict], dict],
 ) -> list[tuple[Channel, list[dict]]]:
-    """Bucket normalized items by their inferred channel.
+    """Bucket items by the profile they were actually scraped from.
 
-    Apify returns one batched dataset per platform; each item carries an
-    ``owner_username`` we map back to a Channel via ``_match_channel``.
-    The fallback-by-index path mirrors the previous sync loop so behaviour
-    stays identical when Apify omits owner attribution.
+    Sprint channel-attribution-inputurl (2026-06-11): Vorher lief die
+    Zuordnung über ``ownerUsername`` mit positionsbasiertem Index-Fallback
+    — Items mit Fremd-Owner (Instagram-Collabs, Einstreuung) landeten auf
+    einem effektiv zufälligen Channel (Müll-Sink-Bug, 551/2.414 IG-Posts
+    falsch zugeordnet). Jetzt gilt:
+
+    - Item trägt ``inputUrl`` (Instagram-Actor): URL-Identität gegen
+      ``channel.url`` — ein Post gehört zu dem Profil, auf dem er
+      gescraped wurde, unabhängig vom Original-Owner. Das erhält
+      legitime Collabs/Reposts automatisch.
+    - Item ohne ``inputUrl`` (TikTok-Actor): Owner-Identität — dort
+      strukturell eindeutig (Actor liefert nur eigene Profil-Videos).
+    - Unauflösbar (inputUrl ohne passenden Channel, oder Owner unbekannt):
+      verwerfen + strukturiertes Log. NIE raten — der Index-Fallback ist
+      ersatzlos entfernt.
     """
     by_channel: dict[UUID, list[dict]] = defaultdict(list)
     channel_lookup: dict[UUID, Channel] = {}
-    for index, raw_item in enumerate(raw_items):
+    discarded = 0
+    for raw_item in raw_items:
         item = normalize(raw_item)
-        channel = _match_channel(channels, item.get("owner_username"), index)
+        input_url = raw_item.get("inputUrl")
+        if input_url:
+            channel = _match_channel_by_input_url(channels, input_url)
+        else:
+            channel = _match_channel_by_owner(channels, item.get("owner_username"))
+        if channel is None:
+            discarded += 1
+            logger.warning(
+                "channel_attribution_unresolved",
+                extra={
+                    "input_url": input_url,
+                    "owner_username": item.get("owner_username"),
+                    "post_url": item.get("post_url"),
+                },
+            )
+            continue
         by_channel[channel.id].append(item)
         channel_lookup[channel.id] = channel
+    if discarded:
+        logger.warning(
+            "channel_attribution_discarded total=%d of=%d", discarded, len(raw_items)
+        )
     return [(channel_lookup[cid], items) for cid, items in by_channel.items()]
 
 
