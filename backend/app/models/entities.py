@@ -568,6 +568,33 @@ class InsightReport(SQLModel, table=True):
     output_tokens: Optional[int] = None
 
 
+class ErForecastEinordnung(SQLModel, table=True):
+    """#252 Split-Cache fuer die ER-Prognose — eine Row pro (pair_key,
+    Ziel-ISO-Woche der Prognose).
+
+    Die Regression ist gratis und laeuft bei jedem Aufruf live
+    (``compute_market_timeline``-Kern); nur die LLM-Einordnung kostet
+    einen Opus-Call. Diese Tabelle haelt genau den Einordnungs-TEXT vor,
+    damit oeffentliche Aufrufe nicht pro Seitenansicht zahlen — max.
+    9 Opus-Calls/Woche (ein Cache-Miss pro Pair, plus Cron-Warmup).
+
+    Der Text ist IMMER die gegatete (public-safe) Fassung — er wird vom
+    Admin- und Public-Pfad geteilt und darf keinen Prognosewert nennen,
+    den das Ehrlichkeits-Gate der oeffentlichen Sicht entzieht.
+    First-write-wins pro Woche (geschrieben nur bei Cache-Miss); der
+    ``weeks``-Query-Param der Endpoints beeinflusst den Cache-Key bewusst
+    nicht (die Ziel-Woche bleibt dieselbe).
+    """
+    __tablename__ = "er_forecast_einordnung"
+    __table_args__ = _CR_TABLE_ARGS
+    pair_key: str = Field(primary_key=True, max_length=64)
+    iso_year: int = Field(primary_key=True)
+    iso_week: int = Field(primary_key=True)
+    einordnung: str
+    model: str = Field(max_length=64)
+    generated_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class TitleInsightReport(SQLModel, table=True):
     """Persisted title brief — one row per (title_id, iso_year, iso_week).
 

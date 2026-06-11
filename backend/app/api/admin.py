@@ -726,7 +726,12 @@ def forecast_insights(
     if pair not in PAIRS:
         raise HTTPException(status_code=404, detail=f"Unbekannter Pair-Key: {pair!r}")
 
-    result = generate_er_forecast(session, pair, PAIRS[pair], weeks=weeks)
+    # #252: bewusst UNGEGATET (apply_gate=False) — der Admin sieht alle
+    # Märkte inkl. R²/Prognosewert derer, die das Ehrlichkeits-Gate der
+    # öffentlichen Sicht (POST /api/insights/forecast) ausblendet. Die
+    # Einordnung kommt aus demselben (pair, ziel_woche)-Cache und ist die
+    # public-safe Fassung.
+    result = generate_er_forecast(session, pair, PAIRS[pair], weeks=weeks, apply_gate=False)
     nxt = result.get("next_week")
     return ForecastResponse(
         pair_key=result["pair_key"],

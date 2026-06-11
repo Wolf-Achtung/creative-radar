@@ -16,11 +16,13 @@ from typing import Optional
 
 from sqlmodel import Session
 
+from app.models.entities import ErForecastEinordnung
 from app.services.anthropic_client import (
     AnthropicAPIError,
     is_anthropic_configured,
     messages_create_text,
 )
+from app.services.cost_log import record_anthropic_call
 from app.services.insight_engine import OPUS_MODEL_ALIAS
 from app.services.market_timeline import (
     TIMELINE_MARKET_VALUES,
@@ -201,6 +203,35 @@ def _build_einordnung_prompt(
     return "\n".join(lines)
 
 
+def _load_cached_einordnung(
+    session: Session, pair_key: str, next_week: tuple[int, int]
+) -> Optional[str]:
+    row = session.get(ErForecastEinordnung, (pair_key, next_week[0], next_week[1]))
+    return row.einordnung if row else None
+
+
+def _persist_einordnung(
+    session: Session, pair_key: str, next_week: tuple[int, int], text: str
+) -> None:
+    """First-write-wins pro (pair, Ziel-Woche). Ein paralleler Zweitschreiber
+    (zwei gleichzeitige Cache-Misses) verliert das Insert-Rennen — dann hat
+    er denselben Text-Zweck bereits erfüllt; der IntegrityError wird
+    geschluckt statt den Forecast-Response zu 500en."""
+    if session.get(ErForecastEinordnung, (pair_key, next_week[0], next_week[1])):
+        return
+    session.add(ErForecastEinordnung(
+        pair_key=pair_key,
+        iso_year=next_week[0],
+        iso_week=next_week[1],
+        einordnung=text,
+        model=OPUS_MODEL_ALIAS,
+    ))
+    try:
+        session.commit()
+    except Exception:  # noqa: BLE001 — Insert-Race, Row existiert bereits
+        session.rollback()
+
+
 def generate_er_forecast(
     session: Session,
     pair_key: str,
@@ -240,28 +271,53 @@ def generate_er_forecast(
     per_market = per_market_gated if apply_gate else per_market_raw
     next_week = _next_week(axis)
 
+    # Split-Cache (#252): Regression oben ist gratis und immer live; nur die
+    # Einordnung kostet. Cache-Key = (pair, Ziel-Woche der Prognose) —
+    # Cache-Hit liest, Cache-Miss generiert EINEN Opus-Call und persistiert.
     einordnung: Optional[str] = None
+    einordnung_source: Optional[str] = None  # "cache" | "generated" | None
     any_ok = any(r.get("status") == "ok" for r in per_market_raw.values())
-    if any_ok and is_anthropic_configured():
-        pair_label = pair_def.get("label") or pair_def.get("display_name") or pair_key
-        prompt = _build_einordnung_prompt(pair_label, len(axis), per_market_gated, next_week)
-        try:
-            msg = messages_create_text(
-                model=OPUS_MODEL_ALIAS,
-                system=_EINORDNUNG_SYSTEM,
-                user_message=prompt,
-                max_tokens=400,
-            )
-            parts = [
-                getattr(block, "text", "")
-                for block in (getattr(msg, "content", None) or [])
-            ]
-            text = "".join(parts).strip()
-            einordnung = text or None
-        except AnthropicAPIError as exc:
-            # Best-effort: die Regression steht auch ohne Einordnung. Nicht 500en.
-            logger.warning("er-forecast einordnung failed for pair=%s: %s", pair_key, exc)
-            einordnung = None
+    if any_ok and next_week is not None:
+        einordnung = _load_cached_einordnung(session, pair_key, next_week)
+        if einordnung is not None:
+            einordnung_source = "cache"
+        elif is_anthropic_configured():
+            pair_label = pair_def.get("label") or pair_def.get("display_name") or pair_key
+            prompt = _build_einordnung_prompt(pair_label, len(axis), per_market_gated, next_week)
+            try:
+                msg = messages_create_text(
+                    model=OPUS_MODEL_ALIAS,
+                    system=_EINORDNUNG_SYSTEM,
+                    user_message=prompt,
+                    max_tokens=400,
+                )
+                usage = getattr(msg, "usage", None)
+                if usage is not None:
+                    # Costlog-Lücke geschlossen (#252): der Forecast-Call war
+                    # vorher für den F0.7-Anthropic-Cap unsichtbar.
+                    record_anthropic_call(
+                        usage,
+                        model=OPUS_MODEL_ALIAS,
+                        operation="er_forecast",
+                        meta={
+                            "pair_key": pair_key,
+                            "iso_year": next_week[0],
+                            "iso_week": next_week[1],
+                        },
+                    )
+                parts = [
+                    getattr(block, "text", "")
+                    for block in (getattr(msg, "content", None) or [])
+                ]
+                text = "".join(parts).strip()
+                if text:
+                    einordnung = text
+                    einordnung_source = "generated"
+                    _persist_einordnung(session, pair_key, next_week, text)
+            except AnthropicAPIError as exc:
+                # Best-effort: die Regression steht auch ohne Einordnung. Nicht 500en.
+                logger.warning("er-forecast einordnung failed for pair=%s: %s", pair_key, exc)
+                einordnung = None
 
     return {
         "pair_key": pair_key,
@@ -271,4 +327,5 @@ def generate_er_forecast(
         ),
         "markets": per_market,
         "einordnung": einordnung,
+        "einordnung_source": einordnung_source,
     }

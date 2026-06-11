@@ -253,3 +253,90 @@ def test_einordnung_prompt_does_not_leak_gated_value():
     # Der freigegebene US-Markt behaelt seine Zahl:
     us_line = next(line for line in prompt.splitlines() if line.startswith("- US"))
     assert "Prognose Engagement-Rate" in us_line
+
+
+# ---------------- #252 Commit B: Public-Endpoint, Split-Cache, Costlog -----
+
+from types import SimpleNamespace  # noqa: E402
+
+from app.models.entities import ErForecastEinordnung  # noqa: E402
+
+
+def test_public_forecast_works_without_admin_session(db, monkeypatch):
+    """Admin-Auth AN, keine Session: der Admin-Endpoint antwortet 401,
+    der neue oeffentliche Endpoint liefert den (gegateten) Forecast."""
+    monkeypatch.setattr(settings, "auth_enabled", False, raising=False)
+    monkeypatch.setattr(settings, "admin_auth_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "admin_session_secret", "test-secret", raising=False)
+    monkeypatch.setattr(forecast_module, "is_anthropic_configured", lambda: False)
+    _seed_three_weeks_de(db)
+
+    def _override_session():
+        with Session(db) as session:
+            yield session
+
+    app.dependency_overrides[get_session] = _override_session
+    try:
+        c = TestClient(app)
+        assert c.post(f"/api/admin/insights/forecast?pair={PAIR}").status_code == 401
+        r = c.post(f"/api/insights/forecast?pair={PAIR}")
+        assert r.status_code == 200
+        de = r.json()["markets"]["DE"]
+        # n=3, R²=1.0 → Ehrlichkeits-Gate (n<5) greift: too_volatile,
+        # Prognosewert ist dem Payload ENTZOGEN.
+        assert de["status"] == "too_volatile"
+        assert de["n_points"] == 3 and de["r2"] is not None
+        assert de["forecast_er"] is None and de["direction"] is None
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+
+def test_admin_stays_ungated_while_public_is_gated(client, db):
+    """Gleiche Datenlage, beide Endpoints: Admin sieht ok+Prognose (ungegated),
+    Public sieht too_volatile ohne Wert."""
+    _seed_three_weeks_de(db)
+    admin = client.post(f"/api/admin/insights/forecast?pair={PAIR}").json()["markets"]["DE"]
+    public = client.post(f"/api/insights/forecast?pair={PAIR}").json()["markets"]["DE"]
+    assert admin["status"] == "ok" and admin["forecast_er"] is not None
+    assert public["status"] == "too_volatile" and public["forecast_er"] is None
+
+
+def _fake_llm_msg(text="Sachliche Einordnung."):
+    return SimpleNamespace(
+        content=[SimpleNamespace(text=text)],
+        usage=SimpleNamespace(input_tokens=700, output_tokens=80),
+    )
+
+
+def test_einordnung_cache_hit_skips_second_opus_call(db, monkeypatch):
+    """Cache-Miss → genau EIN LLM-Call + Persist + Costlog-Eintrag
+    (operation='er_forecast'); zweiter Aufruf derselben Ziel-Woche liest
+    nur den Cache."""
+    _seed_three_weeks_de(db)
+    monkeypatch.setattr(forecast_module, "is_anthropic_configured", lambda: True)
+    llm_calls = []
+    monkeypatch.setattr(
+        forecast_module, "messages_create_text",
+        lambda **kw: llm_calls.append(kw) or _fake_llm_msg(),
+    )
+    recorded = []
+    monkeypatch.setattr(
+        forecast_module, "record_anthropic_call",
+        lambda usage, **kw: recorded.append(kw),
+    )
+
+    from app.services.forecast import generate_er_forecast
+
+    with Session(db) as s:
+        first = generate_er_forecast(s, PAIR, PAIRS[PAIR], apply_gate=True)
+        second = generate_er_forecast(s, PAIR, PAIRS[PAIR], apply_gate=True)
+        row = s.get(ErForecastEinordnung, (PAIR, 2026, 22))
+
+    assert len(llm_calls) == 1  # Cache-Hit löst keinen zweiten Opus-Call aus
+    assert first["einordnung_source"] == "generated"
+    assert second["einordnung_source"] == "cache"
+    assert first["einordnung"] == second["einordnung"] == "Sachliche Einordnung."
+    assert row is not None and row.einordnung == "Sachliche Einordnung."
+    # Costlog-Lücke geschlossen: genau ein Eintrag mit der neuen Operation.
+    assert len(recorded) == 1 and recorded[0]["operation"] == "er_forecast"
+    assert recorded[0]["meta"] == {"pair_key": PAIR, "iso_year": 2026, "iso_week": 22}
