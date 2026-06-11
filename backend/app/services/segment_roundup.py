@@ -201,6 +201,16 @@ Pair-Brief und gelten hier in angepasster Form:
 - LÄNGE: die "1500-2000 Wörter / alle Sektionen"-Vorgabe oben gilt hier
   NICHT. Für diesen Brief gilt EHRLICHKEIT VOR FÜLLE (unten) — der Brief
   ist so kurz, wie die Substanz es verlangt.
+- Generell: Alle oben erwähnten Output-Felder, die im JSON-Schema am Ende
+  dieses Prompts nicht vorkommen — namentlich ``fuer_cutter``,
+  ``fuer_motion_designer``, ``fuer_creative_producer``,
+  ``cross_market_insight`` (samt ``de_vs_us``, ``de_vs_uk``, ``us_vs_uk``,
+  ``transfer_opportunity``), ``aktuell_im_fokus``, ``must_show``,
+  ``no_go``, ``tonalitaet`` (oben schon einzeln abgefangen),
+  ``begruendung``, ``vergleichbare_posts``, ``ganz_konkret`` — gehören dem
+  Pair-Brief und existieren in diesem Roundup nicht. Erzeuge sie nicht.
+  Maßgeblich für die Output-Struktur ist ausschließlich das JSON-Schema am
+  Ende dieses Prompts.
 
 WAS DIESER BRIEF IST
 - Konkret und namentlich: nenne Filme/Serien, Verleiher/Channels, echte Zahlen
