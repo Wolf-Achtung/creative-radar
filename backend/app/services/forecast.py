@@ -35,6 +35,40 @@ MIN_POINTS = 3
 # Steigungs-Schwelle, unter der wir "stabil" statt steigend/fallend melden.
 _FLAT_SLOPE_EPS = 1e-6
 
+# Ehrlichkeits-Gate (#252, Wolf-Freigabe 11.06.2026): unterhalb dieser
+# Schwellen zeigt die ÖFFENTLICHE Sicht keine Prognose — eine Trendlinie
+# mit R² < 0.5 ist mehrheitlich Rauschen ("Zahlenraten mit falscher
+# Autorität"), und bei n < 5 ist R² selbst kaum aussagekräftig (drei
+# Punkte ergeben fast immer hohes R²; Syy=0 liefert künstlich 1.0, siehe
+# _linear_regression). Der Admin-Pfad bleibt ungegated (apply_gate=False)
+# und sieht weiterhin alle Werte. Messlauf 11.06.: die R²-Verteilung ist
+# bimodal (0.00–0.21 Rauschen vs. 0.56–0.92 echte Trends) — 0.5 trennt
+# exakt entlang dieser Lücke. Keine Hysterese zum Start (nachrüstbar,
+# falls Gruppen um die Schwelle flackern).
+FORECAST_GATE_MIN_R2 = 0.5
+FORECAST_GATE_MIN_POINTS = 5
+
+
+def _apply_honesty_gate(result: dict) -> dict:
+    """Mappt ein ``_forecast_one_market``-Ergebnis auf die öffentliche
+    Sicht: ``status='ok'`` unterhalb der Gate-Schwellen wird zu
+    ``'too_volatile'`` — ``n_points`` und ``r2`` bleiben im Payload
+    (Transparenz), aber ``forecast_er``/``slope``/``direction`` werden
+    ENTZOGEN, damit das Frontend eine ungedeckte Zahl strukturell gar
+    nicht rendern kann. ``insufficient_data`` passiert unverändert."""
+    if result.get("status") != "ok":
+        return result
+    if (
+        result["r2"] >= FORECAST_GATE_MIN_R2
+        and result["n_points"] >= FORECAST_GATE_MIN_POINTS
+    ):
+        return result
+    return {
+        "status": "too_volatile",
+        "n_points": result["n_points"],
+        "r2": result["r2"],
+    }
+
 
 def _linear_regression(points: list[tuple[float, float]]) -> dict:
     """Least-Squares-Fit y = slope*x + intercept über ``points`` = [(x, y)].
@@ -139,6 +173,17 @@ def _build_einordnung_prompt(
     lines.append("Regressions-Ausgabe je Markt (bereits berechnet — nur einordnen):")
     for m in TIMELINE_MARKET_VALUES:
         r = per_market.get(m, {})
+        if r.get("status") == "too_volatile":
+            # Ehrlichkeits-Gate (#252): Der Prompt bekommt die GEGATETE
+            # Sicht — für diesen Markt existiert kein Prognosewert, den
+            # der Text ausplaudern könnte. Nur R²/n als Begründung.
+            lines.append(
+                f"- {m}: Wochenwerte zu schwankend für eine Prognose "
+                f"(Bestimmtheitsmaß R² {r.get('r2', 0.0):.2f}, "
+                f"{r.get('n_points', 0)} valide Wochen) — keine Prognose. "
+                f"Benenne das als 'keine belastbare Aussage möglich', nenne KEINE Zahl."
+            )
+            continue
         if r.get("status") != "ok":
             lines.append(f"- {m}: zu wenig Daten ({r.get('n_points', 0)} valide Wochen).")
             continue
@@ -162,9 +207,18 @@ def generate_er_forecast(
     pair_def: dict,
     *,
     weeks: Optional[int] = None,
+    apply_gate: bool = False,
 ) -> dict:
     """Vollständige ER-Prognose für ein Pair: pro Markt Regression über die
     ER-Zeitreihe + eine gemeinsame LLM-Einordnung.
+
+    ``apply_gate`` (#252 Ehrlichkeits-Gate): ``True`` = öffentliche Sicht,
+    Märkte unter den Gate-Schwellen (R² < 0.5 oder n < 5) kommen als
+    ``status='too_volatile'`` OHNE Prognosewert zurück. ``False`` (Default,
+    Admin-Pfad) = ungegatete Roh-Sicht mit allen Werten. Die LLM-Einordnung
+    wird IMMER aus der gegateten Sicht gebaut — sie ist public-safe und darf
+    keine Zahl ausplaudern, die die öffentliche UI verschweigt (und sie wird
+    pro (pair, ziel_woche) gecacht und von beiden Pfaden geteilt).
 
     Rückgabe (plain dict; der Endpoint gießt es in die Pydantic-Antwort)::
 
@@ -178,17 +232,19 @@ def generate_er_forecast(
     """
     timeline = compute_market_timeline(session, pair_key, pair_def, weeks=weeks)
     axis = timeline["weeks"]
-    per_market = {
+    per_market_raw = {
         m: _forecast_one_market(timeline["markets"].get(m, []))
         for m in TIMELINE_MARKET_VALUES
     }
+    per_market_gated = {m: _apply_honesty_gate(r) for m, r in per_market_raw.items()}
+    per_market = per_market_gated if apply_gate else per_market_raw
     next_week = _next_week(axis)
 
     einordnung: Optional[str] = None
-    any_ok = any(r.get("status") == "ok" for r in per_market.values())
+    any_ok = any(r.get("status") == "ok" for r in per_market_raw.values())
     if any_ok and is_anthropic_configured():
         pair_label = pair_def.get("label") or pair_def.get("display_name") or pair_key
-        prompt = _build_einordnung_prompt(pair_label, len(axis), per_market, next_week)
+        prompt = _build_einordnung_prompt(pair_label, len(axis), per_market_gated, next_week)
         try:
             msg = messages_create_text(
                 model=OPUS_MODEL_ALIAS,
