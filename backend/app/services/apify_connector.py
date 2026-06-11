@@ -375,6 +375,24 @@ def _parse_datetime(value: Any) -> datetime | None:
         return None
 
 
+def _count_or_none(value: Any) -> int | None:
+    """Apify-Sentinel-Guard für Zählwerte (Sprint negative-likes-sentinel,
+    2026-06-11): Der Instagram-Actor liefert ``likesCount: -1``, wenn der
+    Account die Like-Anzeige verbirgt (Hide-like-counts) — semantisch
+    "unbekannt", kein Messwert. Negativ → ``None``, analog zur Foto-Post-
+    View-Behandlung (``visible_views = None`` in der DB, nicht 0 — eine 0
+    wäre ein behaupteter Messwert und kontaminiert ER-Summen und
+    Aktivierungs-Raten). Nicht-numerisch → ``None``.
+    """
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
 def normalize_public_item(item: dict[str, Any]) -> dict[str, Any]:
     url = item.get("url") or item.get("postUrl") or item.get("post_url") or ""
     short_code = item.get("shortCode") or item.get("shortcode")
@@ -392,7 +410,7 @@ def normalize_public_item(item: dict[str, Any]) -> dict[str, Any]:
         "image_url": _image_from_item(item),
         "published_at": _parse_datetime(timestamp),
         "owner_username": owner,
-        "visible_likes": item.get("likesCount") or item.get("likes"),
+        "visible_likes": _count_or_none(item.get("likesCount") or item.get("likes")),
         "visible_comments": item.get("commentsCount") or item.get("comments"),
         "visible_views": item.get("videoViewCount") or item.get("videoPlayCount") or item.get("views"),
         "visible_shares": item.get("shareCount") or item.get("shares"),
@@ -420,7 +438,7 @@ def normalize_tiktok_item(item: dict[str, Any]) -> dict[str, Any]:
         "image_url": _image_from_item(item),
         "published_at": _parse_datetime(timestamp),
         "owner_username": author,
-        "visible_likes": item.get("diggCount") or item.get("heartCount") or item.get("likes"),
+        "visible_likes": _count_or_none(item.get("diggCount") or item.get("heartCount") or item.get("likes")),
         "visible_comments": item.get("commentCount") or item.get("comments"),
         "visible_views": item.get("playCount") or item.get("views"),
         "visible_shares": item.get("shareCount") or item.get("shares"),
