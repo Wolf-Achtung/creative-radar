@@ -94,6 +94,14 @@ def main() -> None:
         channels = list(session.exec(select(Channel)).all())
         by_norm_url: dict[str, Channel] = {}
         for channel in channels:
+            if not channel.active:
+                # Deaktivierte Channels sind keine Umhäng-Ziele und lösen
+                # keine Mehrdeutigkeit aus — "Doppeleintrag deaktivieren"
+                # ist damit ein gültiger Auflösungsweg (Wolf-Freigabe
+                # 11.06.). channel_by_id unten kennt sie weiterhin, damit
+                # Posts AUF deaktivierten Channels ihren current-Vergleich
+                # behalten (input_norm == current_norm → bleibt liegen).
+                continue
             norm = _normalize_profile_url(channel.url)
             if not norm:
                 continue
