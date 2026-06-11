@@ -61,8 +61,11 @@ if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
 # Anker des Voice-Fixes (#259): Sammel-Carve-out muss drin sein, die alte
-# "mit Haltung"-Headline-Anweisung muss raus sein.
+# "mit Haltung"-Headline-Anweisung muss raus sein, und das "Theatrical"-
+# Verbot (Nachtrag nach Phase-2-Audit) muss in der geerbten
+# ANTI-PATTERN-Liste stehen.
 _ANKER_SAMMEL_CARVEOUT = "Generell: Alle oben erwähnten Output-Felder"
+_ANKER_THEATRICAL_VERBOT = "Theatrical / Theatrical-Material / Theatrical-Release"
 _ANKER_ALT_VERBOTEN = "mit Haltung"
 
 
@@ -165,14 +168,16 @@ def main() -> None:
     # "mit Haltung" raus). Bei Fail kein kostenpflichtiger Call.
     prompt = sr.ROUNDUP_SYSTEM_PROMPT
     sammel_ok = _ANKER_SAMMEL_CARVEOUT in prompt
+    theatrical_ok = _ANKER_THEATRICAL_VERBOT in prompt
     haltung_abwesend = _ANKER_ALT_VERBOTEN not in prompt
     print(
         "[Prompt-Check] Sammel-Carve-out: "
         f"{'OK' if sammel_ok else 'FEHLT'} · "
+        f"Theatrical-Verbot: {'OK' if theatrical_ok else 'FEHLT'} · "
         f"'mit Haltung': {'abwesend' if haltung_abwesend else 'NOCH ENTHALTEN'} "
         f"({len(prompt)} Zeichen)"
     )
-    if not (sammel_ok and haltung_abwesend):
+    if not (sammel_ok and theatrical_ok and haltung_abwesend):
         if args.allow_prompt_mismatch:
             print(
                 "[Prompt-Check] WARNUNG: alter Prompt-Stand — Lauf wird wegen "
@@ -181,9 +186,10 @@ def main() -> None:
         else:
             _die(
                 "ROUNDUP_SYSTEM_PROMPT ist NICHT der #259-Stand "
-                "(Sammel-Carve-out fehlt oder 'mit Haltung' noch enthalten) — "
-                "falscher Branch/Stand ausgecheckt? Abbruch vor dem LLM-Call. "
-                "Fuer einen bewussten 'Vorher'-Lauf: --allow-prompt-mismatch.",
+                "(Sammel-Carve-out/Theatrical-Verbot fehlt oder 'mit Haltung' "
+                "noch enthalten) — falscher Branch/Stand ausgecheckt? Abbruch "
+                "vor dem LLM-Call. Fuer einen bewussten 'Vorher'-Lauf: "
+                "--allow-prompt-mismatch.",
                 code=4,
             )
 

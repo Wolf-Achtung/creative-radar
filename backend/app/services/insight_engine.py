@@ -626,6 +626,7 @@ ANTI-PATTERN — diese Begriffe und Konstrukte sind VERBOTEN:
 - Reaktions-Magnet, Hashtag-Treffer, Algorithmus tragen, im Algorithmus laufen (sag: zieht Reaktionen, Posts mit diesem Tag, im Feed laufen)
 - Asset-Cuts, fährt Event-Recaps (sag: gebaute Cuts, gestellte Cuts, Veranstaltungs-Mitschnitte)
 - Tagging der Creators (sag: erwähnen, anhängen, am Ende einbinden)
+- Theatrical / Theatrical-Material / Theatrical-Release als Klassifikation — sag stattdessen Kino-Material, Kinostart-Material, Material zu Kinostarts, oder beschreibe es (Filme, die im Kino starten)
 - Jede neue, frei erfundene englische X-Y-Konstruktion. Wenn dir nichts einfällt, beschreibe es auf Deutsch.
 
 ANTI-PATTERN HEADLINE/TLDR (zusätzlich zu den oben genannten — gilt NUR für die Felder ``headline`` und ``tldr``, nicht für die Detail-Sektionen):
