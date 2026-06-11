@@ -169,7 +169,9 @@ def compute_market_timeline(
             acc["views"] += v
             acc["posts"] += 1
             if v > 0:
-                acc["eng_num"] += (likes or 0) + (comments or 0)
+                # max(0, …): Sentinel-Guard — Apify likesCount=-1 ("Likes
+                # verborgen") darf die ER-Summe nicht drücken.
+                acc["eng_num"] += max(0, likes or 0) + max(0, comments or 0)
                 acc["eng_den"] += v
 
     # 6) Plain-dict-Ausgabe positionsgleich zur Achse.

@@ -1116,11 +1116,15 @@ def _extract_hashtags(caption: Optional[str], raw_payload: Optional[dict]) -> li
 
 
 def _engagement_sum(post: Post) -> int:
+    # max(0, …): Sentinel-Guard — negative Zählwerte sind "unbekannt"
+    # (Apify likesCount=-1), nie ein Messwert. Ingest normalisiert seit
+    # Sprint negative-likes-sentinel auf None; der Clamp schützt gegen
+    # künftige Sentinel-Varianten und Alt-Daten.
     return (
-        int(post.visible_likes or 0)
-        + int(post.visible_comments or 0)
-        + int(post.visible_shares or 0)
-        + int(post.visible_bookmarks or 0)
+        max(0, int(post.visible_likes or 0))
+        + max(0, int(post.visible_comments or 0))
+        + max(0, int(post.visible_shares or 0))
+        + max(0, int(post.visible_bookmarks or 0))
     )
 
 
@@ -1276,11 +1280,13 @@ def compute_activation_rate(post: Post, platform: str) -> float:
     views = int(post.visible_views or 0)
     if views == 0:
         return 0.0
-    likes = int(post.visible_likes or 0)
-    comments = int(post.visible_comments or 0)
+    # max(0, …): Sentinel-Guard gegen negative Zählwerte (siehe
+    # _engagement_sum) — eine Aktivierungs-Rate ist nie negativ.
+    likes = max(0, int(post.visible_likes or 0))
+    comments = max(0, int(post.visible_comments or 0))
     if platform == "youtube":
         return (likes + comments) / views
-    saves = int(post.visible_bookmarks or 0)
+    saves = max(0, int(post.visible_bookmarks or 0))
     return (likes + comments + saves) / views
 
 

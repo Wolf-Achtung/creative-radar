@@ -318,12 +318,17 @@ def _parse_datetime(value: Any) -> datetime | None:
 
 
 def _int_or_none(value: Any) -> int | None:
+    # Nur fuer die statistics-Zaehlwerte (like/comment/view) im Einsatz.
+    # Negativ → None: Sentinel-Guard analog Apify (Sprint
+    # negative-likes-sentinel, 2026-06-11) — ein negativer Count ist
+    # "unbekannt", kein Messwert.
     if value is None:
         return None
     try:
-        return int(value)
+        parsed = int(value)
     except (TypeError, ValueError):
         return None
+    return parsed if parsed >= 0 else None
 
 
 def _best_thumbnail_url(thumbnails: Any) -> str | None:
