@@ -626,6 +626,7 @@ ANTI-PATTERN — diese Begriffe und Konstrukte sind VERBOTEN:
 - Reaktions-Magnet, Hashtag-Treffer, Algorithmus tragen, im Algorithmus laufen (sag: zieht Reaktionen, Posts mit diesem Tag, im Feed laufen)
 - Asset-Cuts, fährt Event-Recaps (sag: gebaute Cuts, gestellte Cuts, Veranstaltungs-Mitschnitte)
 - Tagging der Creators (sag: erwähnen, anhängen, am Ende einbinden)
+- Theatrical / Theatrical-Material / Theatrical-Release als Klassifikation — sag stattdessen Kino-Material, Kinostart-Material, Material zu Kinostarts, oder beschreibe es (Filme, die im Kino starten)
 - Jede neue, frei erfundene englische X-Y-Konstruktion. Wenn dir nichts einfällt, beschreibe es auf Deutsch.
 
 ANTI-PATTERN HEADLINE/TLDR (zusätzlich zu den oben genannten — gilt NUR für die Felder ``headline`` und ``tldr``, nicht für die Detail-Sektionen):
@@ -710,7 +711,7 @@ FILMTITEL (Sprint 6 — gilt für ``headline`` und ``tldr``):
 - Title-Match-Coverage liegt in der Praxis bei 1.7-7.4 % (TikTok/Instagram/YouTube) — die meisten Top-Posts haben keinen Filmtitel. Wenn der ``[*Titel*]``-Marker fehlt, beschreibe den Post sachlich nach Inhalt und Form: "ein kurzer Clip zu einem älteren Film", "ein Hinweis auf den Kinostart mit Datum", "eine Erinnerung an eine laufende Serie", "ein Ausschnitt mit den Hauptdarstellern". Das ist die übliche Beschreibung, kein Notbehelf.
 - Erfinde keine Titel — nur was im User-Prompt als ``[*Titel*]`` markiert ist. Wenn ein Post als "Mandalorian-Reminder" charakterisiert wird, schreibe das im Fließtext (kein Sternchen), aber **nicht** ``*Mandalorian*``, wenn der Marker fehlt.
 - Maximal zwei ``*Titel*``-Markups in der Summe aus Headline + TLDR — sonst wirkt der Brief überladen.
-- Sprint 10i: Streaming-Series tragen den Marker ``[*Titel* — Serie]`` (mit dem Suffix ``— Serie``). Theatrical-Releases haben den Marker ohne Suffix. Wenn beide Format-Typen in den Top-Posts vorkommen, behandle sie als zwei eigenständige Erzählstränge — z. B. einen Absatz für die Kino-Releases und einen für die Serien-Premiere — und vermeide, beides in einem Satz zusammenzuwerfen. Im Markup bleiben Serien-Titel ``*Titel*`` (ohne den Daten-Suffix, der nur im Marker steht).
+- Sprint 10i: Streaming-Series tragen den Marker ``[*Titel* — Serie]`` (mit dem Suffix ``— Serie``). Kino-Releases haben den Marker ohne Suffix. Wenn beide Format-Typen in den Top-Posts vorkommen, behandle sie als zwei eigenständige Erzählstränge — z. B. einen Absatz für die Kino-Releases und einen für die Serien-Premiere — und vermeide, beides in einem Satz zusammenzuwerfen. Im Markup bleiben Serien-Titel ``*Titel*`` (ohne den Daten-Suffix, der nur im Marker steht).
 
 TONALITÄTS-POOL — wähle 3-5 Adjektive aus diesem Pool, jedes mit Daten-Begründung:
 authentisch, unbequem, berührend, auffordernd, sophisticated, mysterious, cinematisch, hochwertig, emotional, spannend, action-reich, humorvoll, präzise, international, erfahren.

@@ -924,8 +924,8 @@ class SegmentRoundupLLMReport(BaseModel):
     Massstab existiert. Die konkrete ``kennzahl`` pro Titel spricht
     fuer sich.
 
-    - ``headline`` und ``tldr``: Segment-Kopf mit Haltung, Pair-Brief-
-      Stil. 1 Satz / 2-3 Saetze.
+    - ``headline`` und ``tldr``: Segment-Kopf, sachlich und aktiv im
+      Pair-Brief-Ton (BRIEF_VOICE). 1 Satz / 2-3 Saetze.
     - ``titles`` (required, kann leer sein): Herzstueck. Pro Titel ein
       Block mit Channel/Verleiher, Format, Kennzahl, Bewertung — analog
       ``aktuell_im_fokus`` im Pair-Brief. Anzahl folgt der Substanz:
