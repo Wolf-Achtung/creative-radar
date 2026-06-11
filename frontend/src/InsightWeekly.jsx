@@ -2037,13 +2037,13 @@ function MarketTimelineSection({ pair }) {
   );
 }
 
-// V3 Sprint 7 — ER-Prognose pro Markt (ADMIN-ONLY). Option A: Sektion bei der
-// Zeitreihe, aber endpoint-gegated: der Forecast-POST verlangt eine Admin-
-// Session (require_admin_session). Ohne Session → 401 → die Sektion rendert
-// NICHTS (kein Skelett, kein Leck). Lineare Regression über die ER-Reihe +
-// LLM-Einordnung kommen fertig vom Backend. R² ist bewusst SICHTBAR — die
-// Beurteilbarkeit ist der Grund, warum die Prognose vorerst nur Admin sieht.
-// Spätere User-Freischaltung = dieses Gate entfernen (ein Schalter), kein Umzug.
+// #252 — ER-Prognose pro Markt, öffentlich freigeschaltet MIT Ehrlichkeits-
+// Gate (vorher V3 Sprint 7 admin-only). Das Gate sitzt im Backend per
+// Datenentzug: Märkte ohne belastbaren Trend (R² < 0.5 oder n < 5) kommen
+// als status='too_volatile' ohne forecast_er/direction — diese Sektion KANN
+// dort keine Trendlinie behaupten, sie zeigt den ehrlichen Hinweis
+// "zu schwankend für eine Prognose" samt R²/n als Begründung. Fehler beim
+// Laden (Netz, Server) → Sektion rendert nichts (kein Skelett).
 const FORECAST_MARKETS = ['DE', 'US', 'UK'];
 
 function formatR2(r2) {
@@ -2061,12 +2061,11 @@ function ErForecastSection({ pair }) {
     endpoints
       .insightsForecast(pair)
       .then((res) => { if (!cancelled) { setData(res); setStatus('done'); } })
-      // 401 (kein Admin) ODER jeder andere Fehler → Sektion bleibt unsichtbar.
+      // Lade-/Serverfehler → Sektion bleibt unsichtbar (kein Fehler-Toast).
       .catch(() => { if (!cancelled) { setStatus('hidden'); } });
     return () => { cancelled = true; };
   }, [pair]);
 
-  // Nichts rendern, solange unklar oder kein Admin — keine Anzeige für User.
   if (status !== 'done' || !data) return null;
 
   const next = data.next_week;
@@ -2075,7 +2074,7 @@ function ErForecastSection({ pair }) {
   return (
     <section className="card er-forecast-section">
       <div className="er-forecast-header">
-        <h3>ER-Prognose (Admin)<GlossaryHint term="forecast" /></h3>
+        <h3>ER-Prognose<GlossaryHint term="forecast" /></h3>
         {next && (
           <span className="er-forecast-target">für KW {next.iso_week}/{next.iso_year}</span>
         )}
@@ -2085,7 +2084,8 @@ function ErForecastSection({ pair }) {
         eine Einordnung. Dünne Datenbasis ({data.n_axis_weeks}{' '}
         {data.n_axis_weeks === 1 ? 'Woche' : 'Wochen'}) — das Bestimmtheitsmaß
         R²<GlossaryHint term="r2" /> zeigt, wie verlässlich die Linie ist
-        (1,00 = perfekt, niedrig = wenig belastbar). Nur im Admin-Bereich sichtbar.
+        (1,00 = perfekt, niedrig = wenig belastbar). Eine Prognose erscheint
+        nur, wo die Wochenwerte einem klaren Trend folgen.
       </p>
 
       <div className="er-forecast-grid">
@@ -2094,7 +2094,7 @@ function ErForecastSection({ pair }) {
           return (
             <div key={m} className="er-forecast-cell">
               <h4 className="er-forecast-market">{m}</h4>
-              {f.status === 'ok' ? (
+              {f.status === 'ok' && (
                 <>
                   <div className="er-forecast-value">
                     <strong>{formatRankedPercent(f.forecast_er)}</strong>
@@ -2110,7 +2110,15 @@ function ErForecastSection({ pair }) {
                     <span className="er-forecast-n">{f.n_points} Wochen</span>
                   </div>
                 </>
-              ) : (
+              )}
+              {f.status === 'too_volatile' && (
+                <p className="er-forecast-insufficient">
+                  Wochenwerte zu schwankend für eine Prognose
+                  (R² {formatR2(f.r2)}, {f.n_points}{' '}
+                  {f.n_points === 1 ? 'Woche' : 'Wochen'}).
+                </p>
+              )}
+              {f.status !== 'ok' && f.status !== 'too_volatile' && (
                 <p className="er-forecast-insufficient">
                   Zu wenig Daten ({f.n_points} valide {f.n_points === 1 ? 'Woche' : 'Wochen'}) —
                   keine Prognose.
