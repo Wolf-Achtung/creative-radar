@@ -9,8 +9,10 @@ Disjunktheit zur Pair-Pipeline (Brief-Vorgabe 25.05.):
   c7d4e8f3a9b2).
 - Eigene Pydantic-Schemas (``SegmentAggregation``, ``SegmentRoundupReport``,
   ``SegmentRoundupLLMReport`` in ``app.schemas.insights``).
-- Eigener LLM-Prompt — deskriptiv, kein Markt-Vergleich, kein Cross-
-  Segment-Insight.
+- Eigener LLM-Task — deskriptiv, kein Markt-Vergleich, kein Cross-
+  Segment-Insight. Seit Sprint roundup-inherit-brief-voice (2026-06-11)
+  erbt der System-Prompt die Pair-Voice (``ROUNDUP_SYSTEM_PROMPT =
+  BRIEF_VOICE + ROUNDUP_TASK``, Muster Titel-Brief).
 - Filtert ueber ``Channel.segment`` (Pair-Pool-Channels haben
   ``segment = NULL`` → disjunkt).
 
@@ -64,6 +66,7 @@ from app.services.anthropic_client import (
 )
 from app.services.cost_log import record_anthropic_call
 from app.services.insight_engine import (
+    BRIEF_VOICE,
     OPUS_MODEL_ALIAS,
     _engagement_sum,
     _estimate_cost_usd,
@@ -147,31 +150,64 @@ def parse_cron_roundup_segments(raw: str) -> list[ChannelSegment]:
     return parsed
 
 
-ROUNDUP_SYSTEM_PROMPT = """Du schreibst einen wöchentlichen Roundup für ein
-Segment des deutschen/internationalen Film-Marketing-Markts. Es ist ein
-sachlicher Marktbericht für Geschäftsführung, Creative Direction und das
-Schnitt-Team — kein Pitch und kein Schnittraum-Geplauder.
+# Sprint roundup-inherit-brief-voice (2026-06-11): Der Roundup erbt die
+# komplette Pair-Voice (Persona, BERICHTSTON, Anti-Pattern-Listen,
+# Berater-Vokabel-Verbote) nach dem Titel-Brief-Muster
+# (``TITLE_SYSTEM_PROMPT = BRIEF_VOICE + TITLE_BRIEF_TASK``). Vorher war
+# ROUNDUP_SYSTEM_PROMPT ein eigener Prompt ohne die Verbotslisten — Quelle
+# der Marketing-Sprech-Ausreisser ("trommelt fuer", "ballert durch",
+# "Theatrical-Drops"). BRIEF_VOICE selbst bleibt unangetastet.
+#
+# Die pair-spezifischen Voice-Stellen werden im Task als EXPLIZITE
+# Gegen-Anweisungen neutralisiert (P0-1-Carve-outs: Zielstil-/Headline-
+# Beispiele, format_typ-/kennzahl-Feld-Mappings, Plattform-Header-Mechanik,
+# Tonalitaets-Pool, Laenge). Anders als der Titel-Brief laeuft der Roundup
+# ueber freies Text-JSON (``call_with_json_retry``) statt forced Tool-Use —
+# das weichere Schema-Enforcement vertraegt keine stillen Auslassungen,
+# dangling Anweisungen ("1500-2000 Woerter", "waehle 3-5 Adjektive")
+# wuerden Fuell-Text oder Sektions-Halluzination provozieren.
+ROUNDUP_TASK = """
 
-BERICHTSTON — sechs Regeln:
-1. Sachlich berichten, nicht werten. Keine Lenk- oder Wertungsformeln
-   ("spannend ist", "auffällig stark", "knallt"). Neutrale Überleitungen
-   wie "Auffällig ist …" sind erlaubt.
-2. Kein Szene- oder Branchenjargon. Schreibe Begriffe aus oder erkläre sie —
-   nicht "Meet-Cute-Anriss", sondern "Clip zum ersten Kennenlernen der
-   Hauptfiguren"; keine englischen Schnitt-Begriffe (Hook, Beat, BTS,
-   Cold-Open, Cast-Reaction).
-3. Zahlen ausschreiben, nicht abkürzen: "24.000", "2,3 Millionen" — nicht
-   "24k" oder "2,3 Mio". Deutsche Tausender-Punkte, Komma als Dezimaltrenner.
-4. Ländernamen ("Großbritannien", "Deutschland", "die USA") und Kürzel
-   ("UK", "DE", "US") sind beide erlaubt, nach Lesefluss.
-5. Ganze, ruhige Sätze mit erklärenden Konjunktionen, kein Fragment-Stakkato.
-6. Keine Dramatisierung oder Übertreibung.
+SEGMENT-ROUNDUP — AUFGABE:
+Du schreibst einen wöchentlichen Roundup für EIN Segment des deutschen/
+internationalen Film-Marketing-Markts (z. B. US Major, US Independent,
+DE Verleih, DE Independent). Achse ist das Segment, nicht ein Studio-Pair.
+
+WICHTIG: Der Berichtston und die Verbotslisten oben gelten unverändert.
+Aber dieser Brief ist KEIN Pair-Brief — folgende Stellen oben gehören dem
+Pair-Brief und gelten hier in angepasster Form:
+- Das VORHER/NACHHER-Zielstil-Beispiel und die Beispiel-Headlines unter
+  HEADLINE-FORM erzählen Markt-Vergleiche (UK/DE/US). Übernimm daraus NUR
+  den Ton und die Verb-Wahl, NICHT die Vergleichsstruktur — der Roundup
+  beschreibt EIN Segment.
+- "Subjekt klar (Studio + Markt)" in HEADLINE-FORM heißt hier:
+  Channel/Verleiher + Segment. Das maßgebliche Headline-Beispiel für
+  diesen Brief steht unten unter WAS DIESER BRIEF IST.
+- Die format_typ-Ausnahme der Klassifikations-Substantive (oben:
+  "ausschließlich in ``aktuell_im_fokus.format_typ``") gilt hier für
+  ``titles[].format_typ``.
+- Die kennzahl-Ausnahme der Pseudo-Präzisions-Regeln (oben:
+  "``aktuell_im_fokus.kennzahl``") gilt hier für ``titles[].kennzahl``:
+  Doppel-Beziffung ist dort als Einzeiler-Datenpunkt ausdrücklich ERLAUBT
+  und erwünscht. Die Sekunden-Range-Ausnahme für ``fuer_cutter`` läuft ins
+  Leere — dieses Feld existiert hier nicht.
+- PLATTFORM-VERGLEICH oben verlangt ``## Plattform``-Header im User-Prompt;
+  die gibt es hier nicht. Im Roundup steht die Plattform als Suffix pro
+  Channel ("@handle (platform)") — du darfst eine Plattform erwähnen, wenn
+  sie dort vorkommt, und keine erfinden, die dort fehlt. Der Hinweis zur
+  YouTube-Aktivierungs-Methodik gilt unverändert.
+- TONALITÄTS-POOL: dieser Brief hat KEIN ``tonalitaet``-Feld. Wähle KEINE
+  Adjektive aus dem Pool aus und erfinde keine Tonalitäts-Sektion.
+- LÄNGE: die "1500-2000 Wörter / alle Sektionen"-Vorgabe oben gilt hier
+  NICHT. Für diesen Brief gilt EHRLICHKEIT VOR FÜLLE (unten) — der Brief
+  ist so kurz, wie die Substanz es verlangt.
 
 WAS DIESER BRIEF IST
 - Konkret und namentlich: nenne Filme/Serien, Verleiher/Channels, echte Zahlen
   aus den Daten (Views, Likes, Aktivierung, Sekunden) — keine Aktivitäts-
   Aufzählung in Abstrakta.
 - Headline mit einem klaren Hauptgedanken in aktiver, sachlicher Sprache.
+  Das maßgebliche Beispiel für diesen Brief (statt der Pair-Beispiele oben):
   Gute Form: "US-Independents veröffentlichen diese Woche vor allem Material
   von Festivals — A24 erreicht mit Eddington rund 40.000 Reaktionen."
   Schlechte Form: "Aktivitäts-Schwerpunkt liegt bei Trailer-Posts."
@@ -182,8 +218,11 @@ WAS DIESER BRIEF IST
   Kennzahl selbst.
 
 WAS DIESER BRIEF NICHT IST
-- KEIN Markt-Vergleich (DE↔US↔UK) — der Roundup beschreibt EIN Segment.
-  Keine Cross-Segment-Aussagen, kein "wie in us_major".
+- KEIN Markt-Vergleich (DE↔US↔UK) und KEIN Segment-übergreifender Blick —
+  der Roundup beschreibt EIN Segment. Keine Cross-Segment-Aussagen, kein
+  "wie in us_major". Die Markt-Vergleichs-Beispiele oben (Zielstil,
+  Beispiel-Headlines) gehören dem Pair-Brief — übernimm ihre
+  Gegenüberstellungs-Struktur nicht.
 - KEIN Matching zwischen Channels und auch keine Bestenliste — Channels
   stehen pro Titel-Block durch ihre Posts da, das reicht.
 
@@ -209,7 +248,7 @@ OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein
 Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
 
 {
-  "headline": "1 Satz mit Haltung, segment-typisch, in aktiver Sprache",
+  "headline": "1 Satz, sachlich und aktiv: ein Hauptgedanke mit konkretem Verb (holt, zieht, läuft, kommt auf, punktet — siehe HEADLINE-FORM oben), kein Werturteil, keine Dramatisierung",
   "tldr": "2-3 Sätze: Hauptaussage zuerst, Beleg dahinter. Eine Zahl mit Einordnung, kein nacktes Datenpaar.",
   "titles": [
     {
@@ -226,6 +265,8 @@ Vorspann, kein Markdown-Codefence, keine Erklärung — nur das JSON:
 }
 
 Antworte ausschließlich mit dem JSON-Objekt, ohne Markdown-Codefences."""
+
+ROUNDUP_SYSTEM_PROMPT = BRIEF_VOICE + ROUNDUP_TASK
 
 
 def _select_channels_for_segment(session: Session, segment: ChannelSegment) -> list[Channel]:
