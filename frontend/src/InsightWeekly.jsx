@@ -2242,22 +2242,21 @@ export default function InsightWeekly({ pair }) {
         <>
           <StaleWarning generatedAt={report.generated_at} />
 
-          {/* Sprint 28.05.2026 (IA-Umbau, Baustein 1) — Kern-Reihenfolge:
-              Headline+TLDR → Top-Posts → Drei Maerkte → Breakouts. Davor:
-              Hero/Banner/StaleWarning (Meta + Caveats). Die
-              LLM-Detail-Sektionen rendern weiter unten in LLMOutput
-              (kommen in Commit 2 in Klapp-Container). */}
+          {/* Sektions-Reihenfolge (Wolf-Sprint 12.06.2026): Headline →
+              Top-Posts → Breakouts → Drei Maerkte → Film-Detail →
+              Wochen-Detail → Kreativ-Empfehlungen → Plattform-Details →
+              Zeitreihe → ER-Prognose → Methodik. Davor: Hero/Banner/
+              StaleWarning (Meta + Caveats), am Ende der Glossar-Block.
+              Reine Umsortierung — jede Sektion traegt ihre bedingte
+              Render-Logik und ihren section_help-Key selbst. */}
           <LLMHeadlineCard output={report.llm_output} raw={report.raw_llm_text} />
 
-          {/* V3 Sprint 2 — film-zentrierte Detailansicht. Dropdown speist
-              sich aus den aktuell_im_fokus-Titeln mit title_id; Auswahl lädt
-              die Posts-pro-Titel-Übersicht inline. Rendert nichts, wenn kein
-              Fokus-Titel eine title_id trägt. */}
-          {report.llm_output?.aktuell_im_fokus?.length > 0 && (
-            <FilmDetailSection fokusItems={report.llm_output.aktuell_im_fokus} />
-          )}
-
           <TopRankingSection
+            aggregation={report.aggregation}
+            pairKey={pair}
+          />
+
+          <BreakoutsSection
             aggregation={report.aggregation}
             pairKey={pair}
           />
@@ -2267,18 +2266,13 @@ export default function InsightWeekly({ pair }) {
             llmOutput={report.llm_output}
           />
 
-          {/* V3 Sprint 6 — deskriptive Markt-Zeitreihe über die Brief-Wochen
-              des Pairs. Eigener read-only Call, rendert nichts ohne Wochen. */}
-          <MarketTimelineSection pair={pair} />
-
-          {/* V3 Sprint 7 — ER-Prognose (admin-only, endpoint-gegated): rendert
-              nichts ohne Admin-Session (Forecast-POST → 401). */}
-          <ErForecastSection pair={pair} />
-
-          <BreakoutsSection
-            aggregation={report.aggregation}
-            pairKey={pair}
-          />
+          {/* V3 Sprint 2 — film-zentrierte Detailansicht. Dropdown speist
+              sich aus den aktuell_im_fokus-Titeln mit title_id; Auswahl lädt
+              die Posts-pro-Titel-Übersicht inline. Rendert nichts, wenn kein
+              Fokus-Titel eine title_id trägt. */}
+          {report.llm_output?.aktuell_im_fokus?.length > 0 && (
+            <FilmDetailSection fokusItems={report.llm_output.aktuell_im_fokus} />
+          )}
 
           {/* Sprint 9a-Nachbesserung: feste Default-Klappzustände (alle zu).
               Der frühere ViewMode-Schalter ist entfernt. Container-Inhalt
@@ -2318,6 +2312,14 @@ export default function InsightWeekly({ pair }) {
           >
             <MultiPlatformStats aggregation={report.aggregation} />
           </CollapsibleCard>
+
+          {/* V3 Sprint 6 — deskriptive Markt-Zeitreihe über die Brief-Wochen
+              des Pairs. Eigener read-only Call, rendert nichts ohne Wochen. */}
+          <MarketTimelineSection pair={pair} />
+
+          {/* V3 Sprint 7 — ER-Prognose (admin-only, endpoint-gegated): rendert
+              nichts ohne Admin-Session (Forecast-POST → 401). */}
+          <ErForecastSection pair={pair} />
 
           {report.llm_output && (
             <CollapsibleCard
