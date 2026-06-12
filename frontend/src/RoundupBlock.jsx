@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { endpoints } from './api/client';
+import { SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
 
 // Roundup-Block — eigenstaendiger Block direkt unterhalb der Studio-
 // Briefings auf der Landing-Page (Master-Plan-Schritt-3b, 26.05.).
@@ -211,7 +212,8 @@ export default function RoundupBlock() {
         marginBottom: '0.5rem',
         fontWeight: 600,
       }}>Die Woche im Rückblick</p>
-      <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Verleiher &amp; Independents</h2>
+      <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Verleiher &amp; Independents<SectionHelpHint sectionKey="landingRoundups" /></h2>
+      <SectionHelpPanel sectionKey="landingRoundups" onDark />
 
       {roundups === null && (
         <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Roundups …</p>

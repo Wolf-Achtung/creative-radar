@@ -4,6 +4,7 @@ import { endpoints, proxyImageUrl } from './api/client';
 import InsightWeekly from './InsightWeekly';
 import RoundupBlock from './RoundupBlock';
 import AdminPage from './AdminPage';
+import { SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
 import './styles.css';
 
 // Lightweight URL-based view-switch. Sprint 28.05.2026 (Admin-Sektion):
@@ -52,11 +53,16 @@ export function getAssetDisplayTitle(asset, titles) {
   return 'Filmtitel bitte zuordnen';
 }
 
-export function Section({ title, kicker, children, className = '' }) {
+// Sprint Bereichs-Erklärtexte (Commit C): optionaler ``helpKey`` hängt den
+// „was ist das"-Tooltip an den Titel und rendert den ausklappbaren
+// Erklär-Absatz (SectionHelpPanel) direkt darunter — gespeist aus
+// section_help.js. Ohne ``helpKey`` unverändertes Verhalten.
+export function Section({ title, kicker, children, className = '', helpKey = null }) {
   return (
     <section className={`card ${className}`}>
       {kicker && <p className="section-kicker">{kicker}</p>}
-      <h2>{title}</h2>
+      <h2>{title}{helpKey && <SectionHelpHint sectionKey={helpKey} />}</h2>
+      {helpKey && <SectionHelpPanel sectionKey={helpKey} />}
       {children}
     </section>
   );
@@ -421,7 +427,7 @@ export function ReviewPanel({
     ? `${visibleAssets.length} Vorschläge zur Prüfung`
     : `${visibleAssets.length} von ${assets.length} geladen${assetsHasMore ? ' (weitere verfügbar)' : ''}`;
   return (
-    <Section title="Treffer prüfen" kicker={modeKicker}><p className="muted small">Standard: nur Assets mit offenem Titel-Vorschlag. „Alle Treffer" lädt den vollen Bestand seitenweise.</p>
+    <Section title="Treffer prüfen" kicker={modeKicker} helpKey="adminReview"><p className="muted small">Standard: nur Assets mit offenem Titel-Vorschlag. „Alle Treffer" lädt den vollen Bestand seitenweise.</p>
       <div className="review-mode-toggle">
         <button
           type="button"
@@ -513,7 +519,7 @@ export function ReportsPanel({ report, busy, suggestion, form, setForm, onSugges
   const hasSuggestedAssets = Boolean(suggestion?.assets?.length);
   const step = !suggestion ? 2 : !hasSuggestedAssets ? 3 : !report ? 4 : 5;
   return (
-    <Section title="Welchen Report möchtest du erstellen?" kicker="Report-Zentrale">
+    <Section title="Welchen Report möchtest du erstellen?" kicker="Report-Zentrale" helpKey="adminReports">
       <div className="step-bar">{['1 Report-Typ wählen', '2 Vorschlag erstellen', '3 Vorschlag prüfen', '4 Report erzeugen', '5 Download'].map((label, index) => (
         <span key={label} className={`step-pill ${step === index + 1 ? 'active' : ''}`}>{label}</span>
       ))}</div>
@@ -624,7 +630,7 @@ export function SourcesPanel({
         {cronMessage && <p className="muted small cron-status">{cronMessage}</p>}
       </Section>
 
-      <Section title="Quellen prüfen" kicker="Kanäle und Monitoring">
+      <Section title="Quellen prüfen" kicker="Kanäle und Monitoring" helpKey="adminSources">
         <p className="muted small source-intro">Kanal hier hinzufügen oder pflegen — danach in 'Treffer prüfen' zuordnen.</p>
         <div className="source-grid">
           <div className="source-card">
@@ -1271,7 +1277,8 @@ function App() {
 
       <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
         <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Die Woche im Rückblick</p>
-        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.5rem' }}>Die großen Studios</h2>
+        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.5rem' }}>Die großen Studios<SectionHelpHint sectionKey="landingStudios" /></h2>
+        <SectionHelpPanel sectionKey="landingStudios" onDark />
         {/* Sprint 28.05.2026 (Kachel-Klick-Signal): Lead-Zeile traegt
             jetzt den Drei-Maerkte-Hinweis UND das Klick-Signal — zusammen
             mit dem "→ zum Brief"-Affordance auf der Kachel signalisiert
