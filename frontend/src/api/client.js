@@ -127,14 +127,15 @@ export const endpoints = {
     if (weeks != null) params.set('weeks', String(weeks));
     return api(`/api/insights/timeline?${params.toString()}`);
   },
-  // V3 Sprint 7 — ER-Prognose pro Markt (admin-only, POST → LLM-Call). Gated
-  // über require_admin_session: ohne Admin-Session antwortet der Endpoint 401,
-  // die Frontend-Sektion rendert dann nichts. credentials:'include' (api())
-  // schickt das Admin-Session-Cookie mit.
+  // #252 — ER-Prognose pro Markt, öffentlich mit Ehrlichkeits-Gate: Märkte
+  // ohne belastbaren Trend (R² < 0.5 oder n < 5) kommen als
+  // status='too_volatile' OHNE Prognosewert zurück. POST bleibt die Methode:
+  // ein Cache-Miss der Woche löst serverseitig genau einen LLM-Call für die
+  // Einordnung aus, alle weiteren Aufrufe lesen den Cache.
   insightsForecast: (pair, { weeks } = {}) => {
     const params = new URLSearchParams({ pair });
     if (weeks != null) params.set('weeks', String(weeks));
-    return api(`/api/admin/insights/forecast?${params.toString()}`, { method: 'POST' });
+    return api(`/api/insights/forecast?${params.toString()}`, { method: 'POST' });
   },
   // V3 Perf-Fix: candidate_queue=true lädt nur Assets mit OPEN-Candidate
   // (Default des "Treffer prüfen"-Tabs); limit/offset paginieren den

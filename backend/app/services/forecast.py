@@ -16,11 +16,13 @@ from typing import Optional
 
 from sqlmodel import Session
 
+from app.models.entities import ErForecastEinordnung
 from app.services.anthropic_client import (
     AnthropicAPIError,
     is_anthropic_configured,
     messages_create_text,
 )
+from app.services.cost_log import record_anthropic_call
 from app.services.insight_engine import OPUS_MODEL_ALIAS
 from app.services.market_timeline import (
     TIMELINE_MARKET_VALUES,
@@ -34,6 +36,40 @@ logger = logging.getLogger(__name__)
 MIN_POINTS = 3
 # Steigungs-Schwelle, unter der wir "stabil" statt steigend/fallend melden.
 _FLAT_SLOPE_EPS = 1e-6
+
+# Ehrlichkeits-Gate (#252, Wolf-Freigabe 11.06.2026): unterhalb dieser
+# Schwellen zeigt die ÖFFENTLICHE Sicht keine Prognose — eine Trendlinie
+# mit R² < 0.5 ist mehrheitlich Rauschen ("Zahlenraten mit falscher
+# Autorität"), und bei n < 5 ist R² selbst kaum aussagekräftig (drei
+# Punkte ergeben fast immer hohes R²; Syy=0 liefert künstlich 1.0, siehe
+# _linear_regression). Der Admin-Pfad bleibt ungegated (apply_gate=False)
+# und sieht weiterhin alle Werte. Messlauf 11.06.: die R²-Verteilung ist
+# bimodal (0.00–0.21 Rauschen vs. 0.56–0.92 echte Trends) — 0.5 trennt
+# exakt entlang dieser Lücke. Keine Hysterese zum Start (nachrüstbar,
+# falls Gruppen um die Schwelle flackern).
+FORECAST_GATE_MIN_R2 = 0.5
+FORECAST_GATE_MIN_POINTS = 5
+
+
+def _apply_honesty_gate(result: dict) -> dict:
+    """Mappt ein ``_forecast_one_market``-Ergebnis auf die öffentliche
+    Sicht: ``status='ok'`` unterhalb der Gate-Schwellen wird zu
+    ``'too_volatile'`` — ``n_points`` und ``r2`` bleiben im Payload
+    (Transparenz), aber ``forecast_er``/``slope``/``direction`` werden
+    ENTZOGEN, damit das Frontend eine ungedeckte Zahl strukturell gar
+    nicht rendern kann. ``insufficient_data`` passiert unverändert."""
+    if result.get("status") != "ok":
+        return result
+    if (
+        result["r2"] >= FORECAST_GATE_MIN_R2
+        and result["n_points"] >= FORECAST_GATE_MIN_POINTS
+    ):
+        return result
+    return {
+        "status": "too_volatile",
+        "n_points": result["n_points"],
+        "r2": result["r2"],
+    }
 
 
 def _linear_regression(points: list[tuple[float, float]]) -> dict:
@@ -139,6 +175,17 @@ def _build_einordnung_prompt(
     lines.append("Regressions-Ausgabe je Markt (bereits berechnet — nur einordnen):")
     for m in TIMELINE_MARKET_VALUES:
         r = per_market.get(m, {})
+        if r.get("status") == "too_volatile":
+            # Ehrlichkeits-Gate (#252): Der Prompt bekommt die GEGATETE
+            # Sicht — für diesen Markt existiert kein Prognosewert, den
+            # der Text ausplaudern könnte. Nur R²/n als Begründung.
+            lines.append(
+                f"- {m}: Wochenwerte zu schwankend für eine Prognose "
+                f"(Bestimmtheitsmaß R² {r.get('r2', 0.0):.2f}, "
+                f"{r.get('n_points', 0)} valide Wochen) — keine Prognose. "
+                f"Benenne das als 'keine belastbare Aussage möglich', nenne KEINE Zahl."
+            )
+            continue
         if r.get("status") != "ok":
             lines.append(f"- {m}: zu wenig Daten ({r.get('n_points', 0)} valide Wochen).")
             continue
@@ -156,15 +203,53 @@ def _build_einordnung_prompt(
     return "\n".join(lines)
 
 
+def _load_cached_einordnung(
+    session: Session, pair_key: str, next_week: tuple[int, int]
+) -> Optional[str]:
+    row = session.get(ErForecastEinordnung, (pair_key, next_week[0], next_week[1]))
+    return row.einordnung if row else None
+
+
+def _persist_einordnung(
+    session: Session, pair_key: str, next_week: tuple[int, int], text: str
+) -> None:
+    """First-write-wins pro (pair, Ziel-Woche). Ein paralleler Zweitschreiber
+    (zwei gleichzeitige Cache-Misses) verliert das Insert-Rennen — dann hat
+    er denselben Text-Zweck bereits erfüllt; der IntegrityError wird
+    geschluckt statt den Forecast-Response zu 500en."""
+    if session.get(ErForecastEinordnung, (pair_key, next_week[0], next_week[1])):
+        return
+    session.add(ErForecastEinordnung(
+        pair_key=pair_key,
+        iso_year=next_week[0],
+        iso_week=next_week[1],
+        einordnung=text,
+        model=OPUS_MODEL_ALIAS,
+    ))
+    try:
+        session.commit()
+    except Exception:  # noqa: BLE001 — Insert-Race, Row existiert bereits
+        session.rollback()
+
+
 def generate_er_forecast(
     session: Session,
     pair_key: str,
     pair_def: dict,
     *,
     weeks: Optional[int] = None,
+    apply_gate: bool = False,
 ) -> dict:
     """Vollständige ER-Prognose für ein Pair: pro Markt Regression über die
     ER-Zeitreihe + eine gemeinsame LLM-Einordnung.
+
+    ``apply_gate`` (#252 Ehrlichkeits-Gate): ``True`` = öffentliche Sicht,
+    Märkte unter den Gate-Schwellen (R² < 0.5 oder n < 5) kommen als
+    ``status='too_volatile'`` OHNE Prognosewert zurück. ``False`` (Default,
+    Admin-Pfad) = ungegatete Roh-Sicht mit allen Werten. Die LLM-Einordnung
+    wird IMMER aus der gegateten Sicht gebaut — sie ist public-safe und darf
+    keine Zahl ausplaudern, die die öffentliche UI verschweigt (und sie wird
+    pro (pair, ziel_woche) gecacht und von beiden Pfaden geteilt).
 
     Rückgabe (plain dict; der Endpoint gießt es in die Pydantic-Antwort)::
 
@@ -178,34 +263,61 @@ def generate_er_forecast(
     """
     timeline = compute_market_timeline(session, pair_key, pair_def, weeks=weeks)
     axis = timeline["weeks"]
-    per_market = {
+    per_market_raw = {
         m: _forecast_one_market(timeline["markets"].get(m, []))
         for m in TIMELINE_MARKET_VALUES
     }
+    per_market_gated = {m: _apply_honesty_gate(r) for m, r in per_market_raw.items()}
+    per_market = per_market_gated if apply_gate else per_market_raw
     next_week = _next_week(axis)
 
+    # Split-Cache (#252): Regression oben ist gratis und immer live; nur die
+    # Einordnung kostet. Cache-Key = (pair, Ziel-Woche der Prognose) —
+    # Cache-Hit liest, Cache-Miss generiert EINEN Opus-Call und persistiert.
     einordnung: Optional[str] = None
-    any_ok = any(r.get("status") == "ok" for r in per_market.values())
-    if any_ok and is_anthropic_configured():
-        pair_label = pair_def.get("label") or pair_def.get("display_name") or pair_key
-        prompt = _build_einordnung_prompt(pair_label, len(axis), per_market, next_week)
-        try:
-            msg = messages_create_text(
-                model=OPUS_MODEL_ALIAS,
-                system=_EINORDNUNG_SYSTEM,
-                user_message=prompt,
-                max_tokens=400,
-            )
-            parts = [
-                getattr(block, "text", "")
-                for block in (getattr(msg, "content", None) or [])
-            ]
-            text = "".join(parts).strip()
-            einordnung = text or None
-        except AnthropicAPIError as exc:
-            # Best-effort: die Regression steht auch ohne Einordnung. Nicht 500en.
-            logger.warning("er-forecast einordnung failed for pair=%s: %s", pair_key, exc)
-            einordnung = None
+    einordnung_source: Optional[str] = None  # "cache" | "generated" | None
+    any_ok = any(r.get("status") == "ok" for r in per_market_raw.values())
+    if any_ok and next_week is not None:
+        einordnung = _load_cached_einordnung(session, pair_key, next_week)
+        if einordnung is not None:
+            einordnung_source = "cache"
+        elif is_anthropic_configured():
+            pair_label = pair_def.get("label") or pair_def.get("display_name") or pair_key
+            prompt = _build_einordnung_prompt(pair_label, len(axis), per_market_gated, next_week)
+            try:
+                msg = messages_create_text(
+                    model=OPUS_MODEL_ALIAS,
+                    system=_EINORDNUNG_SYSTEM,
+                    user_message=prompt,
+                    max_tokens=400,
+                )
+                usage = getattr(msg, "usage", None)
+                if usage is not None:
+                    # Costlog-Lücke geschlossen (#252): der Forecast-Call war
+                    # vorher für den F0.7-Anthropic-Cap unsichtbar.
+                    record_anthropic_call(
+                        usage,
+                        model=OPUS_MODEL_ALIAS,
+                        operation="er_forecast",
+                        meta={
+                            "pair_key": pair_key,
+                            "iso_year": next_week[0],
+                            "iso_week": next_week[1],
+                        },
+                    )
+                parts = [
+                    getattr(block, "text", "")
+                    for block in (getattr(msg, "content", None) or [])
+                ]
+                text = "".join(parts).strip()
+                if text:
+                    einordnung = text
+                    einordnung_source = "generated"
+                    _persist_einordnung(session, pair_key, next_week, text)
+            except AnthropicAPIError as exc:
+                # Best-effort: die Regression steht auch ohne Einordnung. Nicht 500en.
+                logger.warning("er-forecast einordnung failed for pair=%s: %s", pair_key, exc)
+                einordnung = None
 
     return {
         "pair_key": pair_key,
@@ -215,4 +327,5 @@ def generate_er_forecast(
         ),
         "markets": per_market,
         "einordnung": einordnung,
+        "einordnung_source": einordnung_source,
     }

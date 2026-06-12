@@ -51,6 +51,7 @@ from app.services.budget_check import (
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
 from app.core.feature_flags import is_segment_roundups_enabled
 from app.models.entities import SegmentRoundup as SegmentRoundupRow
+from app.services.forecast import generate_er_forecast
 from app.services.insight_engine import PAIRS, generate_and_persist_report
 from app.services.segment_roundup import (
     generate_and_persist_roundup,
@@ -815,6 +816,76 @@ def _run_segment_roundups_after_briefs(
     return roundups_summary
 
 
+def _run_er_forecast_warmup_after_roundups(session: Session) -> dict:
+    """#252 — Einordnungs-Cache der ER-Prognose pro Pair vorwärmen.
+
+    Läuft additiv NACH den Roundups (gleiche Stelle im Cron wie die
+    anderen Anthropic-Stufen). Pro enabled-Pair ein
+    ``generate_er_forecast(apply_gate=True)``: Cache-Miss erzeugt genau
+    einen kleinen Opus-Call (max. 400 Output-Tokens, costlog-erfasst als
+    ``operation='er_forecast'``) und persistiert die Einordnung in
+    ``er_forecast_einordnung`` — die öffentlichen Aufrufe der Woche lesen
+    dann nur noch. Cache-Hit (z.B. Re-Run derselben KW) kostet nichts.
+
+    Budget-Pre-Flight exakt nach dem Roundup-Muster: F0.7-Cap-Re-Check
+    direkt vor dem Block, damit ein mid-Run-Cap-Trigger nur die
+    Forecast-Einordnungen entfallen lässt — Briefs/Roundups sind hier
+    bereits persistiert. Die Regression selbst bleibt für User auch ohne
+    Einordnung verfügbar (Live-Berechnung, gratis).
+    """
+    warmup_summary: dict = {
+        "pairs_total": 0,
+        "generated": 0,
+        "cache_hits": 0,
+        "no_einordnung": 0,
+        "failed": 0,
+        "errors": [],
+    }
+
+    cap_check = compute_anthropic_monthly_spend(session)
+    if cap_check.hard_cap_exceeded and cap_check.enforced:
+        warmup_summary["skipped"] = True
+        warmup_summary["reason"] = "anthropic_budget_exceeded"
+        logger.warning(
+            "er_forecast_warmup.skipped reason=anthropic_budget_exceeded "
+            "spent=%d/%d cents",
+            cap_check.spent_usd_cents, cap_check.budget_usd_cents,
+        )
+        return warmup_summary
+
+    enabled_pairs = [k for k, v in PAIRS.items() if v.get("enabled", False)]
+    for pair_key in sorted(enabled_pairs):
+        warmup_summary["pairs_total"] += 1
+        try:
+            result = generate_er_forecast(
+                session, pair_key, PAIRS[pair_key], apply_gate=True
+            )
+        except Exception as exc:  # noqa: BLE001 — per-pair isolation
+            logger.exception("er_forecast_warmup.failed pair=%s", pair_key)
+            warmup_summary["failed"] += 1
+            warmup_summary["errors"].append({
+                "pair_key": pair_key,
+                "error_class": type(exc).__name__,
+                "error_message": str(exc)[:200],
+            })
+            continue
+        source = result.get("einordnung_source")
+        if source == "generated":
+            warmup_summary["generated"] += 1
+        elif source == "cache":
+            warmup_summary["cache_hits"] += 1
+        else:
+            # keine Einordnung möglich (kein ok-Markt / LLM aus) — ok.
+            warmup_summary["no_einordnung"] += 1
+
+    logger.info(
+        "er_forecast_warmup.complete generated=%d cache_hits=%d failed=%d",
+        warmup_summary["generated"], warmup_summary["cache_hits"],
+        warmup_summary["failed"],
+    )
+    return warmup_summary
+
+
 async def _run_cron_sync_background(
     run_id: UUID,
     run_index: int,
@@ -965,6 +1036,11 @@ async def _run_cron_sync_background(
             # Cron-Verhalten exakt wie vor Schritt 4.
             summary["roundups"] = await asyncio.to_thread(
                 _run_segment_roundups_after_briefs, session, brief_now=brief_now, force=force
+            )
+            # #252 — ER-Forecast-Einordnungs-Warmup additiv NACH den
+            # Roundups; eigener F0.7-Re-Check im Block (s. Docstring).
+            summary["er_forecasts"] = await asyncio.to_thread(
+                _run_er_forecast_warmup_after_roundups, session
             )
             # Tech-Debt A5 — Apify-Cost dieses Runs ins summary_json.
             # ``record_apify_run`` läuft synchron im ``_run_actor``-Pfad ab

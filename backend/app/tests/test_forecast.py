@@ -184,3 +184,159 @@ def test_forecast_endpoint_admin_gate_401_without_session(db, monkeypatch):
         assert r.status_code == 401
     finally:
         app.dependency_overrides.pop(get_session, None)
+
+
+# ---------------- #252 Ehrlichkeits-Gate (Wolf-Freigabe 11.06.2026) --------
+# R² >= 0.5 UND n >= 5, sonst too_volatile mit Datenentzug — der Prompt der
+# LLM-Einordnung bekommt IMMER die gegatete Sicht und nennt keine Zahl für
+# ausgeblendete Maerkte.
+
+from app.services.forecast import (  # noqa: E402
+    FORECAST_GATE_MIN_POINTS,
+    FORECAST_GATE_MIN_R2,
+    _apply_honesty_gate,
+    _build_einordnung_prompt,
+)
+
+
+def test_gate_passes_clear_trend_n6():
+    out = _apply_honesty_gate(_forecast_one_market(
+        _pts([0.10, 0.12, 0.14, 0.16, 0.18, 0.20])))
+    assert out["status"] == "ok"
+    assert out["r2"] >= FORECAST_GATE_MIN_R2
+    assert "forecast_er" in out and "direction" in out
+
+
+def test_gate_blocks_noise_n6_and_withholds_values():
+    noisy = _forecast_one_market(_pts([0.10, 0.30, 0.05, 0.28, 0.07, 0.30]))
+    assert noisy["status"] == "ok" and noisy["r2"] < FORECAST_GATE_MIN_R2  # raw ok
+    gated = _apply_honesty_gate(noisy)
+    assert gated["status"] == "too_volatile"
+    # Transparenz bleibt, Prognose-Werte sind ENTZOGEN:
+    assert gated["n_points"] == 6 and "r2" in gated
+    for withheld in ("forecast_er", "direction", "slope"):
+        assert withheld not in gated
+
+
+def test_gate_blocks_high_r2_with_too_few_points():
+    # Perfekte Linie, aber nur 4 Punkte: R²=1.0 ist bei kleinem n ein
+    # Artefakt — die n-Kopplung muss greifen.
+    perfect_n4 = _forecast_one_market(_pts([0.10, 0.12, 0.14, 0.16]))
+    assert perfect_n4["status"] == "ok" and perfect_n4["r2"] == 1.0
+    gated = _apply_honesty_gate(perfect_n4)
+    assert gated["status"] == "too_volatile"
+    assert gated["n_points"] == 4 < FORECAST_GATE_MIN_POINTS
+
+
+def test_gate_passes_insufficient_data_through_unchanged():
+    out = _forecast_one_market(_pts([0.10, None, 0.14]))
+    assert _apply_honesty_gate(out) == out
+    assert out["status"] == "insufficient_data"
+
+
+def test_einordnung_prompt_does_not_leak_gated_value():
+    """too_volatile-Markt im Prompt: 'zu schwankend' + KEINE Prognosezahl —
+    der Text darf nicht ausplaudern, was die UI verschweigt."""
+    raw_de = _forecast_one_market(_pts([0.10, 0.30, 0.05, 0.28, 0.07, 0.30]))
+    per_market = {
+        "DE": _apply_honesty_gate(raw_de),
+        "US": _apply_honesty_gate(_forecast_one_market(
+            _pts([0.10, 0.12, 0.14, 0.16, 0.18, 0.20]))),
+        "UK": {"status": "insufficient_data", "n_points": 1},
+    }
+    prompt = _build_einordnung_prompt("Warner", 6, per_market, (2026, 25))
+    de_line = next(line for line in prompt.splitlines() if line.startswith("- DE"))
+    assert "zu schwankend" in de_line and "keine Prognose" in de_line
+    assert "Prognose Engagement-Rate" not in de_line
+    # Der gegatete Rohwert (forecast_er der DE-Regression) taucht nirgends auf:
+    assert f"{raw_de['forecast_er'] * 100:.1f}" not in prompt
+    # Der freigegebene US-Markt behaelt seine Zahl:
+    us_line = next(line for line in prompt.splitlines() if line.startswith("- US"))
+    assert "Prognose Engagement-Rate" in us_line
+
+
+# ---------------- #252 Commit B: Public-Endpoint, Split-Cache, Costlog -----
+
+from types import SimpleNamespace  # noqa: E402
+
+from app.models.entities import ErForecastEinordnung  # noqa: E402
+
+
+def test_public_forecast_works_without_admin_session(db, monkeypatch):
+    """Admin-Auth AN, keine Session: der Admin-Endpoint antwortet 401,
+    der neue oeffentliche Endpoint liefert den (gegateten) Forecast."""
+    monkeypatch.setattr(settings, "auth_enabled", False, raising=False)
+    monkeypatch.setattr(settings, "admin_auth_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "admin_session_secret", "test-secret", raising=False)
+    monkeypatch.setattr(forecast_module, "is_anthropic_configured", lambda: False)
+    _seed_three_weeks_de(db)
+
+    def _override_session():
+        with Session(db) as session:
+            yield session
+
+    app.dependency_overrides[get_session] = _override_session
+    try:
+        c = TestClient(app)
+        assert c.post(f"/api/admin/insights/forecast?pair={PAIR}").status_code == 401
+        r = c.post(f"/api/insights/forecast?pair={PAIR}")
+        assert r.status_code == 200
+        de = r.json()["markets"]["DE"]
+        # n=3, R²=1.0 → Ehrlichkeits-Gate (n<5) greift: too_volatile,
+        # Prognosewert ist dem Payload ENTZOGEN.
+        assert de["status"] == "too_volatile"
+        assert de["n_points"] == 3 and de["r2"] is not None
+        assert de["forecast_er"] is None and de["direction"] is None
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+
+def test_admin_stays_ungated_while_public_is_gated(client, db):
+    """Gleiche Datenlage, beide Endpoints: Admin sieht ok+Prognose (ungegated),
+    Public sieht too_volatile ohne Wert."""
+    _seed_three_weeks_de(db)
+    admin = client.post(f"/api/admin/insights/forecast?pair={PAIR}").json()["markets"]["DE"]
+    public = client.post(f"/api/insights/forecast?pair={PAIR}").json()["markets"]["DE"]
+    assert admin["status"] == "ok" and admin["forecast_er"] is not None
+    assert public["status"] == "too_volatile" and public["forecast_er"] is None
+
+
+def _fake_llm_msg(text="Sachliche Einordnung."):
+    return SimpleNamespace(
+        content=[SimpleNamespace(text=text)],
+        usage=SimpleNamespace(input_tokens=700, output_tokens=80),
+    )
+
+
+def test_einordnung_cache_hit_skips_second_opus_call(db, monkeypatch):
+    """Cache-Miss → genau EIN LLM-Call + Persist + Costlog-Eintrag
+    (operation='er_forecast'); zweiter Aufruf derselben Ziel-Woche liest
+    nur den Cache."""
+    _seed_three_weeks_de(db)
+    monkeypatch.setattr(forecast_module, "is_anthropic_configured", lambda: True)
+    llm_calls = []
+    monkeypatch.setattr(
+        forecast_module, "messages_create_text",
+        lambda **kw: llm_calls.append(kw) or _fake_llm_msg(),
+    )
+    recorded = []
+    monkeypatch.setattr(
+        forecast_module, "record_anthropic_call",
+        lambda usage, **kw: recorded.append(kw),
+    )
+
+    from app.services.forecast import generate_er_forecast
+
+    with Session(db) as s:
+        first = generate_er_forecast(s, PAIR, PAIRS[PAIR], apply_gate=True)
+        second = generate_er_forecast(s, PAIR, PAIRS[PAIR], apply_gate=True)
+        row = s.get(ErForecastEinordnung, (PAIR, 2026, 22))
+
+    assert len(llm_calls) == 1  # Cache-Hit löst keinen zweiten Opus-Call aus
+    assert first["einordnung_source"] == "generated"
+    assert second["einordnung_source"] == "cache"
+    assert first["einordnung"] == second["einordnung"] == "Sachliche Einordnung."
+    assert row is not None and row.einordnung == "Sachliche Einordnung."
+    # Costlog-Lücke geschlossen: genau ein Eintrag mit der neuen Operation.
+    assert len(recorded) == 1 and recorded[0]["operation"] == "er_forecast"
+    assert recorded[0]["meta"] == {"pair_key": PAIR, "iso_year": 2026, "iso_week": 22}

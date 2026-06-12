@@ -1112,8 +1112,13 @@ class MarketForecast(BaseModel):
     """Regressions-Ausgabe für EINEN Markt. ``status='insufficient_data'``
     (mit ``forecast_er=None``), wenn weniger als drei valide ER-Wochen
     vorliegen — dann KEINE erfundene Zahl. Bei ``status='ok'``: Prognosewert
-    der ER für die nächste KW, R² als Güte-/Konfidenzmaß und die Richtung."""
-    status: str  # "ok" | "insufficient_data"
+    der ER für die nächste KW, R² als Güte-/Konfidenzmaß und die Richtung.
+
+    #252 Ehrlichkeits-Gate: ``status='too_volatile'`` (öffentliche Sicht,
+    ``apply_gate=True``), wenn R² < 0.5 oder n < 5 — ``n_points``/``r2``
+    bleiben transparent, ``forecast_er``/``slope``/``direction`` werden
+    bewusst NICHT mitgeschickt (Datenentzug statt Render-Disziplin)."""
+    status: str  # "ok" | "insufficient_data" | "too_volatile"
     n_points: int
     forecast_er: Optional[float] = None
     r2: Optional[float] = None

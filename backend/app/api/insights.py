@@ -21,7 +21,9 @@ from app.models.entities import (
     Title,
 )
 from app.schemas.insights import (
+    ForecastResponse,
     InsightReport,
+    MarketForecast,
     MarketTimelinePoint,
     MarketTimelineResponse,
     PairInfo,
@@ -49,6 +51,7 @@ from app.services.insight_engine import (
     generate_weekly_report,
     last_completed_iso_week_anchor,
 )
+from app.services.forecast import generate_er_forecast
 from app.services.insights import build_overview
 from app.services.market_timeline import compute_market_timeline, pair_handles
 
@@ -660,4 +663,47 @@ def market_timeline(
         pair_key=pair,
         weeks=[TimelineWeek(iso_year=y, iso_week=w) for (y, w) in result["weeks"]],
         markets=markets_out,
+    )
+
+
+@router.post("/forecast", response_model=ForecastResponse)
+def public_forecast(
+    pair: str = Query(..., description="Pair-Key, z.B. 'warnerbros'"),
+    weeks: int | None = Query(
+        None, ge=1,
+        description="Optionale Begrenzung der Zeitreihe auf die letzten N Wochen.",
+    ),
+    session: Session = Depends(get_session),
+) -> ForecastResponse:
+    """#252 — Öffentliche ER-Prognose pro Markt, MIT Ehrlichkeits-Gate.
+
+    Gleicher Service wie der Admin-Endpoint (``generate_er_forecast``), aber
+    ``apply_gate=True``: Märkte mit R² < 0.5 oder weniger als 5 validen
+    ER-Wochen kommen als ``status='too_volatile'`` zurück — ``n_points``/``r2``
+    bleiben transparent, der Prognosewert wird NICHT mitgeschickt ("zu
+    schwankend für eine Prognose" statt Trendlinie ohne Deckung).
+
+    Kosten: Die Regression ist gratis und läuft live (Split-Cache, #252).
+    Die LLM-Einordnung wird pro (pair, Ziel-Woche) gecacht — POST bleibt die
+    Methode (analog Admin), weil ein Cache-Miss genau einen Opus-Call
+    auslöst; jeder weitere Aufruf derselben Woche liest nur.
+
+    Auth: nur die globale Bearer-Middleware (wie ``GET /timeline``) — kein
+    Admin-Gate. Der Admin-Endpoint bleibt ungegated und sieht alle Märkte.
+    """
+    if pair not in PAIRS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unbekannter Pair-Key: {pair!r}. Verfügbar: {_enabled_pair_keys()}",
+        )
+    result = generate_er_forecast(
+        session, pair, PAIRS[pair], weeks=weeks, apply_gate=True
+    )
+    nxt = result.get("next_week")
+    return ForecastResponse(
+        pair_key=result["pair_key"],
+        n_axis_weeks=result["n_axis_weeks"],
+        next_week=TimelineWeek(**nxt) if nxt else None,
+        markets={m: MarketForecast(**r) for m, r in result["markets"].items()},
+        einordnung=result.get("einordnung"),
     )
