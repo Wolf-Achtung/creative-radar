@@ -978,3 +978,80 @@ def generate_cutter_weekly(
         output_tokens=output_tokens_total or None,
         raw_llm_text=raw_for_response,
     )
+
+
+# ===========================================================================
+# Commit C — Persistenz (Trockenlauf: persistieren, kein Frontend-Pfad)
+# ===========================================================================
+
+
+def _persist_cutter_weekly(session: Session, report: CutterWeeklyReport) -> None:
+    """Upsert einer ``cutter_weekly_briefing``-Row keyed auf
+    ``(iso_year, iso_week)``. Last-Write-Wins (delete-then-insert) analog
+    ``_persist_report``/``_persist_roundup``.
+
+    BEWUSSTE Abweichung von der Roundup-Konvention: KEIN Persist-Skip bei
+    ``llm_output=None``. Der Evidence-Blob ist das Kalibrierungs-Produkt
+    der Trockenlauf-Phase (Wolf-Festlegung: nicht optional) — eine Woche,
+    deren LLM-Synthese an der strikten Citation-Validierung scheitert,
+    muss mit ihren freigegebenen/verworfenen Mustern trotzdem in der
+    Tabelle landen. ``raw_llm_text`` traegt dann die letzte verworfene
+    Antwort fuer die Diagnose.
+    """
+    from app.models.entities import CutterWeeklyBriefing
+
+    cost_cents: Optional[int] = (
+        int(round(report.cost_usd_estimate * 100))
+        if report.cost_usd_estimate
+        else None
+    )
+
+    existing = session.get(
+        CutterWeeklyBriefing, (report.iso_year, report.iso_week)
+    )
+    if existing is not None:
+        session.delete(existing)
+        session.flush()
+
+    row = CutterWeeklyBriefing(
+        iso_year=report.iso_year,
+        iso_week=report.iso_week,
+        evidence=report.evidence.model_dump(mode="json"),
+        llm_output=(
+            report.llm_output.model_dump(mode="json")
+            if report.llm_output is not None
+            else None
+        ),
+        raw_llm_text=report.raw_llm_text,
+        generated_at=report.generated_at,
+        model=report.model,
+        cost_usd_cents=cost_cents,
+        input_tokens=report.input_tokens,
+        output_tokens=report.output_tokens,
+    )
+    session.add(row)
+    session.commit()
+    logger.info(
+        "cutter-weekly-persisted",
+        extra={
+            "iso_year": report.iso_year,
+            "iso_week": report.iso_week,
+            "model": report.model,
+            "llm_output_present": report.llm_output is not None,
+            "cost_usd_cents": cost_cents,
+        },
+    )
+
+
+def generate_and_persist_cutter_weekly(
+    session: Session,
+    *,
+    now: Optional[datetime] = None,
+    model: Optional[str] = None,
+) -> CutterWeeklyReport:
+    """End-to-End: Evidenz-Pruefung → LLM-Synthese → persistieren
+    (idempotent Last-Write-Wins). Cron-Block (Commit D) und ein
+    etwaiger manueller Admin-Trigger rufen das hier auf."""
+    report = generate_cutter_weekly(session, now=now, model=model)
+    _persist_cutter_weekly(session, report)
+    return report

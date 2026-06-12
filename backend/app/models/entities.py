@@ -595,6 +595,46 @@ class ErForecastEinordnung(SQLModel, table=True):
     generated_at: datetime = Field(default_factory=utc_now, index=True)
 
 
+class CutterWeeklyBriefing(SQLModel, table=True):
+    """Persisted Cutter-Wochenbriefing — eine Row pro (iso_year, iso_week).
+
+    Master-Plan-Sprint 2026-06-12, Trockenlauf-Phase: generieren +
+    persistieren, KEIN Frontend-Pfad (nur Admin-/DB-Lesezugriff), bis die
+    Evidenzschwelle an echten Wochen kalibriert ist.
+
+    JSON-Blobs:
+    - ``evidence`` ist das Kalibrierungs-Produkt (Wolf-Festlegung: nicht
+      optional): ``CutterWeeklyEvidence``-Form mit p75-Schwellen,
+      Kandidaten-Zahlen pro Plattform, freigegebenen UND verworfenen
+      Mustern mit Grund, ``title_key_share``-Messung und den
+      Forecast-Signalen des Laufs.
+    - ``llm_output`` ist die zusammengebaute ``CutterWeeklyLLMReport``-Form
+      (LLM-Bloecke + deterministische Leerlauf-Bloecke). NULLABLE —
+      bewusste Abweichung von der Roundup-Konvention (persist-skip bei
+      ``llm_output=None``): eine Woche, deren LLM-Synthese nach allen
+      Anlaeufen an der strikten Citation-Validierung scheitert, wird
+      TROTZDEM persistiert, weil der Evidence-Blob das eigentliche
+      Produkt der Trockenlauf-Phase ist. ``raw_llm_text`` haelt in dem
+      Fall die letzte verworfene Antwort fuer die Diagnose.
+
+    ``model='none'`` markiert Leerlauf-Wochen ohne LLM-Call (keine
+    Plattform freigegeben — der Report besteht aus Code-Bloecken).
+    Last-Write-Wins beim Regenerate (analog ``insight_report``).
+    """
+    __tablename__ = "cutter_weekly_briefing"
+    __table_args__ = _CR_TABLE_ARGS
+    iso_year: int = Field(primary_key=True)
+    iso_week: int = Field(primary_key=True)
+    evidence: dict = Field(sa_column=Column(JSON, nullable=False))
+    llm_output: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    raw_llm_text: Optional[str] = None
+    generated_at: datetime = Field(default_factory=utc_now, index=True)
+    model: str = Field(max_length=64)
+    cost_usd_cents: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+
+
 class TitleInsightReport(SQLModel, table=True):
     """Persisted title brief — one row per (title_id, iso_year, iso_week).
 
