@@ -45,7 +45,13 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import get_session
-from app.models.entities import Channel, CostLog, Post, Title
+from app.models.entities import (
+    Channel,
+    CostLog,
+    CutterWeeklyBriefing,
+    Post,
+    Title,
+)
 from app.services.anthropic_client import (
     AnthropicAPIError,
     AnthropicAuthError,
@@ -743,6 +749,72 @@ def forecast_insights(
 
 
 # ---------- Segment-Roundup-Trigger (Master-Plan-Schritt-3 Pilot) -----
+
+
+@router.get("/cutter-weekly/latest")
+def cutter_weekly_latest(
+    iso_year: int | None = Query(
+        default=None,
+        description="ISO-Jahr einer konkreten Woche — nur zusammen mit iso_week.",
+    ),
+    iso_week: int | None = Query(
+        default=None, ge=1, le=53,
+        description="ISO-Woche — nur zusammen mit iso_year.",
+    ),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Trockenlauf-Lesezugriff auf das Cutter-Wochenbriefing (Master-Plan-
+    Sprint 2026-06-12, Commit E).
+
+    Ohne Parameter: die juengste Woche (PK-Ordnung iso_year/iso_week
+    absteigend). Mit ``iso_year`` + ``iso_week``: exakte Row. Die Antwort
+    ist die rohe Row inklusive ``evidence``-Blob — der Blob ist das
+    Kalibrierungs-Produkt (p75-Schwellen, freigegebene UND verworfene
+    Muster mit Grund, ``title_key_share``), den Wolf in der Trockenlauf-
+    Phase pro Woche sichtet. Mehr braucht der Trockenlauf nicht; ein
+    Frontend-Pfad ist bewusst NICHT Teil dieses Sprints (erst nach
+    Kalibrierung).
+    """
+    if (iso_year is None) != (iso_week is None):
+        raise HTTPException(
+            status_code=422,
+            detail="iso_year und iso_week nur zusammen angeben (oder beide weglassen).",
+        )
+
+    if iso_year is not None:
+        row = session.get(CutterWeeklyBriefing, (iso_year, iso_week))
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Kein Cutter-Wochenbriefing fuer KW {iso_week}/{iso_year}.",
+            )
+    else:
+        row = session.exec(
+            select(CutterWeeklyBriefing)
+            .order_by(
+                CutterWeeklyBriefing.iso_year.desc(),
+                CutterWeeklyBriefing.iso_week.desc(),
+            )
+            .limit(1)
+        ).first()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Noch kein Cutter-Wochenbriefing persistiert.",
+            )
+
+    return {
+        "iso_year": row.iso_year,
+        "iso_week": row.iso_week,
+        "generated_at": row.generated_at,
+        "model": row.model,
+        "cost_usd_cents": row.cost_usd_cents,
+        "input_tokens": row.input_tokens,
+        "output_tokens": row.output_tokens,
+        "llm_output": row.llm_output,
+        "evidence": row.evidence,
+        "raw_llm_text": row.raw_llm_text,
+    }
 
 
 @router.post("/roundups/generate")
