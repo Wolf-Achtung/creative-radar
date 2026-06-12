@@ -217,7 +217,7 @@ export const SECTION_HELP = {
       title: 'Treffer prüfen',
       short: 'Zuordnungen von Posts zu Titeln kontrollieren und korrigieren.',
       long:
-        'Zeigt, welche Posts welchem Titel zugeordnet wurden, und lässt Fehlzuordnungen korrigieren. Nutzbar, um die Qualität der automatischen Titel-Erkennung zu prüfen und einzugreifen, wo der Abgleich danebenlag. Bitte beachten: Korrekturen hier wirken sich auf die Auswertung aus — eine saubere Zuordnung ist die Grundlage für verlässliche Zahlen in den Briefs.',
+        'Die KI ordnet Posts automatisch den Filmtiteln zu — sichere Treffer laufen ohne dein Zutun durch. Jeder Post fließt ohnehin voll in die Auswertung ein, ob mit Titel oder ohne. Standard ist „Nur Titel-Vorschläge": Hier landen ausschließlich die Fälle, bei denen die KI unsicher war und deine Entscheidung braucht — steht dort 0, ist nichts zu tun. „Alle Treffer" ist der freiwillige Vollzugriff auf den gesamten Bestand, falls du gezielt etwas nachschauen oder eine Zuordnung von Hand setzen willst. Bitte beachten: „Zugeordnet" heißt, ein Titel hängt dran; „Noch zu prüfen" heißt nur, dass noch kein Titel zugeordnet ist — kein Fehler, und meist kein Handlungsbedarf.',
     },
     en: {
       title: 'Review hits',

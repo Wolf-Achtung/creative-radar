@@ -242,13 +242,34 @@ export function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAs
     { done: false, doneLabel: 'Entscheidung getroffen', openLabel: '3 Entscheidung treffen' },
   ];
   const hint = inferTitleHint(asset, titles);
-  const displayStatus = {
-    new: 'Noch zu prüfen',
-    needs_review: 'Noch zu prüfen',
-    approved: 'Freigegeben',
-    highlight: 'Als Highlight markiert',
-    rejected: 'Nicht relevant',
-  }[asset.review_status] || asset.review_status;
+  // Label-Fix (Wolf-Freigabe 12.06.2026): „Noch zu prüfen" hat nicht
+  // zwischen „Titel ist zugeordnet, nur nie reviewt" und „wirklich offen"
+  // getrennt — automatisch zugeordnete Assets suggerierten Handarbeit.
+  // Bedingung STRIKT über asset.title_id (echte Whitelist-Zuordnung) —
+  // NICHT das hasTitle oben, das placement_title_text (bloß erkannten
+  // Bildtext ohne Zuordnung) mitzählt. Bewusst „Zugeordnet" statt
+  // „Automatisch zugeordnet": title_id sagt nur, DASS zugeordnet ist,
+  // nicht von wem (Auto-Matcher und manuelles Dropdown schreiben
+  // denselben Datenzustand). ``needs_review`` bleibt unabhängig von
+  // title_id „Noch zu prüfen" — das hat ein Mensch explizit per
+  // „Später prüfen" markiert. Titellose new-Assets behalten die
+  // neutrale Pill (kein warn-Orange): sie fließen voll in die
+  // Auswertung ein, meist ohne Handlungsbedarf — Alarm-Optik wäre das
+  // falsche Signal. Reines Anzeige-Label, kein API-/Status-Eingriff.
+  const statusDisplay = (() => {
+    if (asset.review_status === 'new') {
+      return asset.title_id
+        ? { label: 'Zugeordnet', pillClass: 'pill good' }
+        : { label: 'Noch zu prüfen', pillClass: 'pill' };
+    }
+    const label = {
+      needs_review: 'Noch zu prüfen',
+      approved: 'Freigegeben',
+      highlight: 'Als Highlight markiert',
+      rejected: 'Nicht relevant',
+    }[asset.review_status] || asset.review_status;
+    return { label, pillClass: 'pill' };
+  })();
   const canUseSuggestion = hint.label && !['Filmtitel noch offen', 'Filmtitel offen'].includes(hint.label);
   const normalizedHint = (hint.label || '').trim().toLowerCase();
   const recommendedTitles = titles.filter((title) => {
@@ -286,7 +307,7 @@ export function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAs
         <div className="asset-topline">
           <span className="asset-title">{getAssetDisplayTitle(asset, titles)}</span>
           <span className="pill">{platform}</span>
-          <span className="pill">{displayStatus}</span>
+          <span className={statusDisplay.pillClass}>{statusDisplay.label}</span>
           {asset.has_title_placement && <span className="pill">Titel-/Claim-Platzierung</span>}
           {asset.has_kinetic && <span className="pill">Bewegter Text</span>}
         </div>
