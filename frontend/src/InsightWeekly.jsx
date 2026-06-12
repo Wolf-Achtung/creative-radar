@@ -3,7 +3,7 @@ import { endpoints } from './api/client';
 import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
 import { GLOSSARY, GLOSSARY_ORDER, glossaryDefinition, glossaryFull } from './glossary';
-import { GlossaryHint, HelpTooltip } from './components/HelpSystem';
+import { GlossaryHint, HelpTooltip, SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
@@ -193,9 +193,10 @@ function LLMHeadlineCard({ output, raw }) {
   }
   return (
     <div className="card insight-headline">
-      <p className="section-kicker">Headline</p>
+      <p className="section-kicker">Headline<SectionHelpHint sectionKey="pairHeadline" /></p>
       <h2 className="insight-h2">{output.headline}</h2>
       <p className="insight-tldr">{output.tldr}</p>
+      <SectionHelpPanel sectionKey="pairHeadline" />
     </div>
   );
 }
@@ -720,6 +721,7 @@ function CollapsibleCard({
   subtitle,
   defaultOpen = false,
   variant = 'card',
+  helpKey = null,
   children,
 }) {
   const printMode = useContext(PrintModeContext);
@@ -744,20 +746,38 @@ function CollapsibleCard({
   const className = variant === 'inner'
     ? `collapsible-inner ${effectiveOpen ? 'is-open' : ''}`
     : `card collapsible-card ${effectiveOpen ? 'is-open' : ''}`;
+  // Sprint Bereichs-Erklärtexte (Commit C): der Header ist ein <button> —
+  // der SectionHelp-Tooltip-Trigger (selbst ein Button) darf nicht hinein
+  // (nested buttons = invalides HTML). Mit ``helpKey`` wandert der Button
+  // deshalb in eine Flex-Zeile, der Hint sitzt daneben am Titel; der
+  // ausklappbare Erklär-Absatz rendert darunter und ist auch bei
+  // zugeklappter Karte sichtbar (der Nutzer soll erfahren können, was in
+  // einer geschlossenen Karte steckt, ohne sie zu öffnen).
+  const headerButton = (
+    <button
+      type="button"
+      className="collapsible-header"
+      aria-expanded={effectiveOpen}
+      aria-controls={contentId}
+      id={headerId}
+      onClick={() => setIsOpen((v) => !v)}
+    >
+      <span className="collapsible-chevron" aria-hidden="true">▸</span>
+      <span className="collapsible-title">{title}</span>
+      {subtitle && <span className="collapsible-subtitle">{subtitle}</span>}
+    </button>
+  );
   return (
     <section className={className}>
-      <button
-        type="button"
-        className="collapsible-header"
-        aria-expanded={effectiveOpen}
-        aria-controls={contentId}
-        id={headerId}
-        onClick={() => setIsOpen((v) => !v)}
-      >
-        <span className="collapsible-chevron" aria-hidden="true">▸</span>
-        <span className="collapsible-title">{title}</span>
-        {subtitle && <span className="collapsible-subtitle">{subtitle}</span>}
-      </button>
+      {helpKey ? (
+        <>
+          <div className="collapsible-header-row">
+            {headerButton}
+            <SectionHelpHint sectionKey={helpKey} />
+          </div>
+          <SectionHelpPanel sectionKey={helpKey} />
+        </>
+      ) : headerButton}
       {effectiveOpen && (
         <div
           className="collapsible-content"
@@ -1147,6 +1167,7 @@ function CrossMarketHeadlineSection({ aggregation, llmOutput }) {
     <CollapsibleCard
       title="Drei Märkte, ein Film — DE / US / UK im Vergleich"
       defaultOpen={false}
+      helpKey="pairCrossMarket"
     >
       <div className="cm-axis-grid">
         <CrossMarketAxisBlock
@@ -1270,7 +1291,7 @@ function BreakoutsSection({ aggregation, pairKey }) {
     return null;
   }
   return (
-    <CollapsibleCard title="Breakouts dieser Woche" defaultOpen={false}>
+    <CollapsibleCard title="Breakouts dieser Woche" defaultOpen={false} helpKey="pairBreakouts">
       <p className="breakouts-intro">
         Posts, die deutlich über dem Kanal-Schnitt liegen — relativ, nicht absolut.
         <GlossaryHint term="breakout" />
@@ -1387,7 +1408,7 @@ function TopRankingSection({ aggregation, pairKey }) {
   return (
     <section className="ranking-section card">
       <div className="ranking-header">
-        <h3>Top-Posts</h3>
+        <h3>Top-Posts<SectionHelpHint sectionKey="pairTopPosts" /></h3>
         <div className="ranking-controls">
           <select
             value={platformFilter}
@@ -1425,6 +1446,8 @@ function TopRankingSection({ aggregation, pairKey }) {
           <HelpTooltip text={glossaryDefinition('activationRate')} label="Was bedeutet Aktivierungs-Rate?" />
         </div>
       </div>
+
+      <SectionHelpPanel sectionKey="pairTopPosts" />
 
       <div className="ranking-grid">
         <div className="ranking-column">
@@ -1771,7 +1794,7 @@ function FilmDetailSection({ fokusItems }) {
   return (
     <section className="card film-detail-section">
       <div className="film-detail-header">
-        <h3>Film-Detailansicht</h3>
+        <h3>Film-Detailansicht<SectionHelpHint sectionKey="pairFilmDetail" /></h3>
         <select
           className="film-detail-select"
           value={selectedId}
@@ -1795,6 +1818,8 @@ function FilmDetailSection({ fokusItems }) {
         </select>
         <GlossaryHint term="er" />
       </div>
+
+      <SectionHelpPanel sectionKey="pairFilmDetail" />
 
       {status === 'idle' && (
         <p className="film-detail-hint">
@@ -1909,7 +1934,7 @@ function MarketTimelineSection({ pair }) {
   if (status === 'done' && weeks.length === 0) return null;
 
   return (
-    <CollapsibleCard title="Markt-Zeitreihe" defaultOpen={false}>
+    <CollapsibleCard title="Markt-Zeitreihe" defaultOpen={false} helpKey="pairTimeline">
       {status === 'done' && (
         <p className="market-timeline-weekcount">
           {weeks.length} {weeks.length === 1 ? 'Woche' : 'Wochen'}
@@ -2005,11 +2030,12 @@ function ErForecastSection({ pair }) {
   return (
     <section className="card er-forecast-section">
       <div className="er-forecast-header">
-        <h3>ER-Prognose<GlossaryHint term="forecast" /></h3>
+        <h3>ER-Prognose<GlossaryHint term="forecast" /><SectionHelpHint sectionKey="pairForecast" /></h3>
         {next && (
           <span className="er-forecast-target">für KW {next.iso_week}/{next.iso_year}</span>
         )}
       </div>
+      <SectionHelpPanel sectionKey="pairForecast" />
       <p className="er-forecast-note">
         Lineare Regression über die Engagement-Rate der bisherigen Wochen, dazu
         eine Einordnung. Dünne Datenbasis ({data.n_axis_weeks}{' '}
@@ -2265,6 +2291,7 @@ export default function InsightWeekly({ pair }) {
                 title="Diese Woche im Detail"
                 subtitle="Worum geht's · Pattern · Trends + Actions · Watch-Outs · Tonalität · Konkurrenz"
                 defaultOpen={false}
+                helpKey="pairWeekDetail"
               >
                 <LLMDetailSections output={report.llm_output} />
               </CollapsibleCard>
@@ -2273,6 +2300,7 @@ export default function InsightWeekly({ pair }) {
                 title="Kreativ-Empfehlungen"
                 subtitle="Cutter · Motion-Designer · Creative Producer · Vergleichbare Posts"
                 defaultOpen={false}
+                helpKey="pairRoles"
               >
                 <LLMRoleSections
                   output={report.llm_output}
@@ -2286,6 +2314,7 @@ export default function InsightWeekly({ pair }) {
             title="Plattform-Details"
             subtitle="TikTok · Instagram · YouTube — Channel-Stats pro Markt"
             defaultOpen={false}
+            helpKey="pairPlatformDetails"
           >
             <MultiPlatformStats aggregation={report.aggregation} />
           </CollapsibleCard>
@@ -2295,6 +2324,7 @@ export default function InsightWeekly({ pair }) {
               title="Methodik / Daten-Caveats"
               subtitle="Risks · Data Caveats"
               defaultOpen={false}
+              helpKey="pairMethodology"
             >
               <LLMMetaSection output={report.llm_output} />
             </CollapsibleCard>

@@ -1,5 +1,11 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { GLOSSARY, glossaryDefinition } from '../glossary';
+import {
+  isPlaceholderText,
+  sectionHelpLong,
+  sectionHelpShort,
+  sectionHelpTitle,
+} from '../section_help';
 
 // Erklär-System — zentrales Modul (Sprint Bereichs-Erklärtexte, Commit A).
 //
@@ -86,5 +92,50 @@ export function GlossaryHint({ term }) {
       text={glossaryDefinition(term)}
       label={`Was bedeutet ${entry.de.term}?`}
     />
+  );
+}
+
+// ---- SectionHelp (Sprint Bereichs-Erklärtexte, Commit C) ----------------
+//
+// Zwei Bausteine pro Bereich, gespeist aus section_help.js (eine Quelle,
+// gleiche Konvention wie glossary.js):
+//
+// - SectionHelpHint  → der kurze „was ist das"-Tooltip AM Sektionstitel
+//   (inline neben dem h2/h3 platzieren; bei CollapsibleCards neben dem
+//   Header-Button — der Trigger darf nicht IN den Button, nested buttons
+//   sind invalides HTML).
+// - SectionHelpPanel → der ausklappbare Erklär-Absatz („was zeigt es /
+//   wofür nutzbar / worauf achten") direkt unter dem Titel. Natives
+//   <details>, default zu — gleiches dependency-freie Muster wie der
+//   GlossaryBlock.
+//
+// Beide rendern nichts bei unbekanntem Key (graceful degrade). Solange
+// section_help.js Platzhalter trägt ([TODO …]), rendert das Panel den
+// Text gedämpft (is-placeholder) — klar als Zwischenstand erkennbar,
+// kein Layout-Bruch. ``onDark`` schaltet die Farbvariante für die
+// dunklen Landing-Blöcke (Studios/Roundups).
+
+export function SectionHelpHint({ sectionKey }) {
+  const short = sectionHelpShort(sectionKey);
+  if (!short) return null;
+  const title = sectionHelpTitle(sectionKey);
+  return (
+    <HelpTooltip
+      text={short}
+      label={title ? `Was ist „${title}“?` : 'Was ist diese Sektion?'}
+    />
+  );
+}
+
+export function SectionHelpPanel({ sectionKey, onDark = false }) {
+  const long = sectionHelpLong(sectionKey);
+  if (!long) return null;
+  return (
+    <details className={`section-help${onDark ? ' section-help--on-dark' : ''}`}>
+      <summary className="section-help-summary">Was zeigt diese Sektion?</summary>
+      <p className={`section-help-text${isPlaceholderText(long) ? ' is-placeholder' : ''}`}>
+        {long}
+      </p>
+    </details>
   );
 }
