@@ -57,7 +57,7 @@ export const SECTION_HELP = {
       title: 'Top-Posts',
       short: 'Die stärksten Posts der Woche, sortier- und plattformfilterbar.',
       long:
-        'Die nach Engagement führenden Posts dieses Studios, mit Filter nach Plattform und sortierbaren Spalten. Nutzbar, um schnell zu sehen, was diese Woche tatsächlich gezogen hat, und über den Plattform-Filter zu vergleichen, was auf TikTok, Instagram und YouTube vorne liegt. Bitte beachten: Hohe Reichweite und hohe Engagement-Rate sind nicht dasselbe — ein Post mit vielen Views, aber wenig Interaktion steht anders da als einer mit kleiner, aber sehr aktiver Reichweite.',
+        'Die nach Interaktion führenden Posts dieses Studios, mit Filter nach Plattform und sortierbaren Spalten. Nutzbar, um schnell zu sehen, was diese Woche tatsächlich gezogen hat, und über den Plattform-Filter zu vergleichen, was auf TikTok, Instagram und YouTube vorne liegt. Bitte beachten: Hohe Reichweite und hohe Interaktionsrate sind nicht dasselbe — ein Post mit vielen Views, aber wenig Interaktion steht anders da als einer mit kleiner, aber sehr aktiver Reichweite.',
     },
     en: {
       title: 'Top posts',
@@ -81,9 +81,9 @@ export const SECTION_HELP = {
   pairTimeline: {
     de: {
       title: 'Markt-Zeitreihe',
-      short: 'Engagement und Views pro Kalenderwoche und Markt im Verlauf.',
+      short: 'Interaktion und Views pro Kalenderwoche und Markt im Verlauf.',
       long:
-        'Zeigt die Entwicklung von Engagement-Rate und Views über die letzten Wochen, getrennt nach Markt. Nutzbar, um zu sehen, ob die aktuelle Woche ein Ausreißer ist oder einem längeren Trend folgt — der Kontext, den eine Einzelwoche allein nicht liefert. Bitte beachten: Die Zeitreihe fasst alle Plattformen eines Markts zusammen; ein plattformspezifischer Effekt kann darin untergehen.',
+        'Zeigt die Entwicklung von Interaktionsrate und Views über die letzten Wochen, getrennt nach Markt. Nutzbar, um zu sehen, ob die aktuelle Woche ein Ausreißer ist oder einem längeren Trend folgt — der Kontext, den eine Einzelwoche allein nicht liefert. Bitte beachten: Die Zeitreihe fasst alle Plattformen eines Markts zusammen; ein plattformspezifischer Effekt kann darin untergehen.',
     },
     en: {
       title: 'Market timeline',
@@ -94,9 +94,9 @@ export const SECTION_HELP = {
   pairForecast: {
     de: {
       title: 'ER-Prognose',
-      short: 'Eine Tendenz, wohin sich das Engagement entwickelt — nur wo die Daten sie hergeben.',
+      short: 'Eine Tendenz, wohin sich die Interaktion entwickelt — nur wo die Daten sie hergeben.',
       long:
-        'Schätzt auf Basis der letzten Wochen, in welche Richtung sich die Engagement-Rate pro Markt entwickelt. Zeigt eine Prognose dort, wo ein belastbarer Trend erkennbar ist; wo die Werte zu stark schwanken, steht bewusst „zu schwankend für eine Prognose" statt einer Scheinzahl. Bitte beachten: Die Prognose ist eine Tendenz, keine gesicherte Zahl — das angezeigte Bestimmtheitsmaß (R²) beschreibt, wie verlässlich die Linie ist, und bei dünner Datenbasis (wenige Wochen) ist auch ein gezeigter Wert mit Vorsicht zu lesen.',
+        'Schätzt auf Basis der letzten Wochen, in welche Richtung sich die Interaktionsrate pro Markt entwickelt. Zeigt eine Prognose dort, wo ein belastbarer Trend erkennbar ist; wo die Werte zu stark schwanken, steht bewusst „zu schwankend für eine Prognose" statt einer Scheinzahl. Bitte beachten: Die Prognose ist eine Tendenz, keine gesicherte Zahl — das angezeigte Bestimmtheitsmaß (R²) beschreibt, wie verlässlich die Linie ist, und bei dünner Datenbasis (wenige Wochen) ist auch ein gezeigter Wert mit Vorsicht zu lesen.',
     },
     en: {
       title: 'ER forecast',
@@ -109,7 +109,7 @@ export const SECTION_HELP = {
       title: 'Breakouts dieser Woche',
       short: 'Posts, die deutlich über dem üblichen Schnitt ihres Kanals lagen.',
       long:
-        'Listet einzelne Posts, deren Engagement spürbar über dem liegt, was der jeweilige Kanal sonst erreicht — Ausreißer nach oben. Nutzbar, um zu erkennen, was diese Woche überdurchschnittlich funktioniert hat und einen genaueren Blick lohnt. Bitte beachten: Ein Breakout ist ein Einzelfall, kein Muster — ob dahinter etwas Wiederholbares steckt (Schnitt, Hook, Format) oder nur ein viraler Zufall, zeigt erst der Vergleich mehrerer.',
+        'Listet einzelne Posts, deren Interaktion spürbar über dem liegt, was der jeweilige Kanal sonst erreicht — Ausreißer nach oben. Nutzbar, um zu erkennen, was diese Woche überdurchschnittlich funktioniert hat und einen genaueren Blick lohnt. Bitte beachten: Ein Breakout ist ein Einzelfall, kein Muster — ob dahinter etwas Wiederholbares steckt (Schnitt, Hook, Format) oder nur ein viraler Zufall, zeigt erst der Vergleich mehrerer.',
     },
     en: {
       title: 'Breakouts this week',

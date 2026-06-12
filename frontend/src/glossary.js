@@ -20,11 +20,11 @@
 export const GLOSSARY = {
   er: {
     de: {
-      term: 'Engagement-Rate (ER)',
+      term: 'Interaktionsrate (ER)',
       short:
         'Reaktionen je Aufruf: (Likes + Kommentare) ÷ Aufrufe. Ohne Saves — anders als die Aktivierungs-Rate.',
       long:
-        'Reaktionen je Aufruf: Likes plus Kommentare, geteilt durch die Aufrufe — nur für Posts mit Aufrufen über null. Genutzt in der Markt-Vergleichsleiste, der Zeitreihe und der Prognose. Nicht zu verwechseln mit der Aktivierungs-Rate, die zusätzlich Saves mitzählt.',
+        'Reaktionen je Aufruf: Likes plus Kommentare, geteilt durch die Aufrufe — nur für Posts mit Aufrufen über null. „ER" ist das Kürzel für die Interaktionsrate (vormals Engagement-Rate). Genutzt in der Markt-Vergleichsleiste, der Zeitreihe und der Prognose. Nicht zu verwechseln mit der Aktivierungs-Rate, die zusätzlich Saves mitzählt.',
     },
     en: {
       term: 'Engagement Rate (ER)',
@@ -38,9 +38,9 @@ export const GLOSSARY = {
     de: {
       term: 'Aktivierungs-Rate',
       short:
-        'Reaktionen je Aufruf, mit Saves: (Likes + Kommentare + Saves) ÷ Aufrufe. Zählt Saves mit — anders als die Engagement-Rate.',
+        'Reaktionen je Aufruf, mit Saves: (Likes + Kommentare + Saves) ÷ Aufrufe. Zählt Saves mit — anders als die Interaktionsrate.',
       long:
-        'Anteil der Zuschauer, die reagiert haben: Likes plus Kommentare plus Saves, geteilt durch die Aufrufe (TikTok und Instagram); bei YouTube ohne Saves. Genutzt in den Top-Posts. Nicht zu verwechseln mit der Engagement-Rate, die Saves nicht mitzählt. Auf TikTok sind fünf bis zehn Prozent üblich, darüber stark.',
+        'Anteil der Zuschauer, die reagiert haben: Likes plus Kommentare plus Saves, geteilt durch die Aufrufe (TikTok und Instagram); bei YouTube ohne Saves. Genutzt in den Top-Posts. Nicht zu verwechseln mit der Interaktionsrate, die Saves nicht mitzählt. Auf TikTok sind fünf bis zehn Prozent üblich, darüber stark.',
     },
     en: {
       term: 'Activation Rate',
@@ -95,7 +95,7 @@ export const GLOSSARY = {
       term: 'Saves',
       short: 'Wie oft ein Post gespeichert wurde (TikTok/Instagram). Zählt in die Aktivierungs-Rate.',
       long:
-        'Wie oft ein Post gespeichert wurde (TikTok und Instagram). YouTube liefert keine Saves. Fließt in die Aktivierungs-Rate ein, nicht in die Engagement-Rate.',
+        'Wie oft ein Post gespeichert wurde (TikTok und Instagram). YouTube liefert keine Saves. Fließt in die Aktivierungs-Rate ein, nicht in die Interaktionsrate.',
     },
     en: {
       term: 'Saves',
@@ -147,9 +147,9 @@ export const GLOSSARY = {
   forecast: {
     de: {
       term: 'Prognose',
-      short: 'Fortschreibung der Engagement-Rate auf die nächste Woche per linearer Regression.',
+      short: 'Fortschreibung der Interaktionsrate auf die nächste Woche per linearer Regression.',
       long:
-        'Ein aus den bisherigen Wochen per linearer Regression fortgeschriebener Schätzwert der Engagement-Rate für die kommende Woche. Bei dünner Datenbasis unsicher — das Bestimmtheitsmaß zeigt die Verlässlichkeit.',
+        'Ein aus den bisherigen Wochen per linearer Regression fortgeschriebener Schätzwert der Interaktionsrate für die kommende Woche. Bei dünner Datenbasis unsicher — das Bestimmtheitsmaß zeigt die Verlässlichkeit.',
     },
     en: {
       term: 'Forecast',
