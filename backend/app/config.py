@@ -205,6 +205,23 @@ class Settings(BaseSettings):
         "us_major,us_independent,de_verleih,de_independent"
     )
 
+    # Cutter-Wochenbriefing (Master-Plan-Sprint 2026-06-12) — Schwellen der
+    # deterministischen Evidenz-Pruefung (services/cutter_weekly.py). Ein
+    # Muster gilt nur als gedeckt, wenn in der ISO-Woche pro Plattform
+    # >= min_posts Posts mit ER >= rollender plattform-p75 ueber
+    # >= min_distinct Distinct-Keys (Titel, sonst Pair/Channel) liegen.
+    # Die p75 wird rollend ueber die letzten N Wochen aus der post-Tabelle
+    # berechnet (NICHT aus den Top-N-Blobs — die sind vorgefiltert und
+    # wuerden die Schwelle systematisch nach oben verzerren); unter
+    # p75_min_sample Posts im Rollfenster ist die Schwelle undefiniert →
+    # ehrlicher Leerlauf fuer die Plattform. Alle vier Werte sind bewusst
+    # ENV-verstellbar: die Kalibrierung an echten Wochen (Trockenlauf)
+    # justiert hier ohne Code-Deploy.
+    cutter_weekly_min_posts: int = 5
+    cutter_weekly_min_distinct_keys: int = 3
+    cutter_weekly_p75_window_weeks: int = 8
+    cutter_weekly_p75_min_sample: int = 30
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

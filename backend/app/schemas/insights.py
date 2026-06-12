@@ -1136,3 +1136,110 @@ class ForecastResponse(BaseModel):
     next_week: Optional[TimelineWeek] = None
     markets: dict[str, MarketForecast]
     einordnung: Optional[str] = None
+
+
+# --- Cutter-Wochenbriefing (plattformweise Mustersicht) --------------------
+# Master-Plan-Sprint 2026-06-12. Deterministische Evidenz-Schicht: die
+# Code-Pruefung (services/cutter_weekly.py) entscheidet, was als Muster
+# gilt — das LLM formuliert spaeter nur Freigegebenes. Der Evidence-Blob
+# ist das Kalibrierungs-Produkt der Trockenlauf-Phase und wird vollstaendig
+# persistiert (freigegebene UND verworfene Muster mit Grund).
+
+
+class CutterEvidencePost(BaseModel):
+    """Ein Beleg-Post fuer die Muster-Pruefung. Kompakte Sicht auf einen
+    ``RankedPost`` aus den persistierten Aggregations-Blobs, angereichert
+    um die abgeleitete ER und den Distinct-Key der ≥3-Filme-Pruefung.
+
+    ``er`` folgt der Timeline-Definition (``(likes+comments)/views``,
+    Sentinel-Guard ``max(0, ...)`` gegen Apify ``likesCount=-1``).
+    ``distinct_key`` ist ``title_original`` wenn gesetzt, sonst der
+    Pair-/Segment-Channel-Fallback (Wolf-Entscheidung 2, 12.06.2026).
+    """
+    post_url: str
+    platform: str
+    er: float
+    views: int
+    likes: int
+    comments: int
+    engagement_sum: int
+    duration_seconds: Optional[int] = None
+    caption_excerpt: str = ""
+    published_at: Optional[datetime] = None
+    distinct_key: str
+    source: str  # "pair:<pair_key>" | "segment:<segment>"
+    title_original: Optional[str] = None
+
+
+class CutterPlatformEvidence(BaseModel):
+    """Pruefergebnis fuer EINE Plattform. ``status``:
+
+    - ``pattern_released`` — ≥ min_posts Woche-Posts mit ER ≥ p75 ueber
+      ≥ min_distinct Distinct-Keys; ``supporting_posts`` sind die Belege
+      (und spaeter das Citation-Allow-Set des LLM-Blocks).
+    - ``no_pattern`` — Schwelle definiert, aber Posts-/Distinct-Pruefung
+      nicht bestanden; ``reason`` nennt die Zahlen (Kalibrier-Material).
+    - ``no_threshold`` — p75 nicht definiert (Rollfenster unter
+      ``p75_min_sample`` Posts); ehrlicher Leerlauf statt geratener
+      Schwelle.
+    """
+    platform: str
+    status: str  # "pattern_released" | "no_pattern" | "no_threshold"
+    reason: Optional[str] = None
+    p75_er: Optional[float] = None
+    p75_sample_size: int = 0
+    week_posts_total: int = 0
+    candidates_above_p75: int = 0
+    distinct_keys: list[str] = Field(default_factory=list)
+    supporting_posts: list[CutterEvidencePost] = Field(default_factory=list)
+
+
+class CutterWeeklyParams(BaseModel):
+    """Verstellbare Schwellen der Evidenz-Pruefung — pro Lauf in den
+    Evidence-Blob gestempelt, damit die Kalibrierung pro Woche sieht,
+    mit welchen Parametern entschieden wurde."""
+    min_posts: int
+    min_distinct_keys: int
+    p75_window_weeks: int
+    p75_min_sample: int
+
+
+class CutterWeeklySources(BaseModel):
+    """Audit-Trail: welche persistierten Blobs der ISO-Woche eingelesen
+    wurden. ``unreadable_rows`` listet Rows, deren Blob nicht gegen das
+    aktuelle Pydantic-Schema validierte (geskippt, nicht fatal)."""
+    pair_briefs: list[str] = Field(default_factory=list)
+    segment_roundups: list[str] = Field(default_factory=list)
+    unreadable_rows: list[str] = Field(default_factory=list)
+
+
+class CutterForecastSignal(BaseModel):
+    """Ein beobachtendes Markt-Signal aus dem ER-Forecast (Variante 1):
+    nur ``status='ok'``-Maerkte der Majors, nur Richtung — keine
+    Prognosezahl, keine kausale Schnitt-Diagnose. Plattform-Dimension
+    bewusst NICHT vorhanden (der Forecast aggregiert ueber Plattformen —
+    ein plattform-spezifisches Signal waere ein Kategorienfehler)."""
+    pair_key: str
+    market: str
+    direction: str  # "steigend" | "fallend" | "stabil"
+    n_points: int
+
+
+class CutterWeeklyEvidence(BaseModel):
+    """Vollstaendiges Ergebnis der deterministischen Evidenz-Pruefung
+    fuer eine ISO-Woche — der Kalibrierungs-Blob des Trockenlaufs.
+
+    ``title_key_share`` misst den Anteil der Woche-Posts, deren
+    Distinct-Key aus ``title_original`` kam (vs. Pair-/Channel-Fallback) —
+    die in Phase 0 offene Coverage-Frage wird hier pro Woche beantwortet.
+    """
+    iso_year: int
+    iso_week: int
+    week_start: datetime
+    week_end: datetime
+    params: CutterWeeklyParams
+    sources: CutterWeeklySources
+    platforms: list[CutterPlatformEvidence]
+    week_posts_total: int = 0
+    title_key_share: Optional[float] = None
+    forecast_signals: list[CutterForecastSignal] = Field(default_factory=list)
