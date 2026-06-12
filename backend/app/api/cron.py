@@ -49,7 +49,10 @@ from app.services.budget_check import (
     compute_apify_monthly_spend,
 )
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
-from app.core.feature_flags import is_segment_roundups_enabled
+from app.core.feature_flags import (
+    is_cutter_weekly_enabled,
+    is_segment_roundups_enabled,
+)
 from app.models.entities import SegmentRoundup as SegmentRoundupRow
 from app.services.forecast import generate_er_forecast
 from app.services.insight_engine import PAIRS, generate_and_persist_report
@@ -886,6 +889,123 @@ def _run_er_forecast_warmup_after_roundups(session: Session) -> dict:
     return warmup_summary
 
 
+def _run_cutter_weekly_after_forecasts(
+    session: Session,
+    *,
+    brief_now: datetime | None = None,
+    force: bool = False,
+) -> dict:
+    """Cutter-Wochenbriefing-Block (Master-Plan-Sprint 2026-06-12) —
+    additiv NACH dem ER-Forecast-Warmup. Die Position ist Absicht:
+
+    1. Alle Input-Blobs der Woche (Pair-Briefs, Roundups) sind zu diesem
+       Zeitpunkt persistiert — das Briefing liest ausschliesslich daraus.
+    2. Der Forecast-Einordnungs-Cache ist warm — der Signal-Read via
+       ``generate_er_forecast(apply_gate=True)`` trifft nur Cache und
+       kostet nichts extra (die Regression selbst ist ohnehin LLM-frei).
+
+    Mechanik exakt nach dem Warmup-/Roundup-Muster:
+    - Feature-Flag-Gate ``FEATURE_CUTTER_WEEKLY_ENABLED`` (Trockenlauf,
+      Default off) — Flag off = Cron-Verhalten exakt wie vorher.
+    - Eigener F0.7-Cap-Re-Check direkt vor dem Block: ein mid-Run-Cap-
+      Trigger laesst nur das Cutter-Briefing entfallen, Briefs/Roundups/
+      Einordnungen sind hier bereits durch.
+    - Cache-Hit-Check auf PK ``(iso_year, iso_week)``: existing-Row →
+      kein LLM-Call (Re-Run derselben KW kostet nichts). ``force=True``
+      ueberspringt den Check; die Persistenz ist Last-Write-Wins.
+    - Maximal EIN LLM-Call pro Woche (plus begrenzte Retry-Anlaeufe bei
+      Schema-/Citation-Fail, siehe ``generate_cutter_weekly``); jeder
+      bezahlte Call landet einzeln im costlog
+      (``operation='cutter_weekly'``).
+    """
+    # Lazy import: haelt den Modul-Load von cron.py frei von der
+    # cutter_weekly→insight_engine-Kette (analog Roundup-Pfad-Imports oben
+    # waere top-level auch ok — der Block ist aber flag-gated Trockenlauf).
+    from app.models.entities import CutterWeeklyBriefing
+    from app.services.cutter_weekly import generate_and_persist_cutter_weekly
+
+    enabled = is_cutter_weekly_enabled()
+    summary: dict = {
+        "enabled": enabled,
+        "skipped": False,
+        "generated": 0,
+        "skipped_cache_hit": 0,
+        "failed": 0,
+    }
+    if not enabled:
+        summary["skipped"] = True
+        summary["reason"] = "feature_flag_off"
+        logger.info("cutter_weekly.skipped reason=feature_flag_off")
+        return summary
+
+    cap_check = compute_anthropic_monthly_spend(session)
+    if cap_check.hard_cap_exceeded and cap_check.enforced:
+        summary["skipped"] = True
+        summary["reason"] = "anthropic_budget_exceeded"
+        summary["anthropic_budget"] = cap_check.to_dict()
+        logger.warning(
+            "cutter_weekly.skipped reason=anthropic_budget_exceeded "
+            "spent=%d/%d cents (%.1f%%)",
+            cap_check.spent_usd_cents, cap_check.budget_usd_cents,
+            cap_check.pct_used * 100,
+        )
+        return summary
+
+    if brief_now is None:
+        brief_now = datetime.now(timezone.utc) - timedelta(days=1)
+    iso_cal = brief_now.isocalendar()
+    target_iso_year, target_iso_week = iso_cal.year, iso_cal.week
+    summary["iso_year"] = target_iso_year
+    summary["iso_week"] = target_iso_week
+
+    if not force:
+        existing = session.get(
+            CutterWeeklyBriefing, (target_iso_year, target_iso_week)
+        )
+        if existing is not None:
+            summary["skipped_cache_hit"] = 1
+            logger.info(
+                "cutter_weekly.cache_hit iso_year=%d iso_week=%d",
+                target_iso_year, target_iso_week,
+            )
+            return summary
+
+    try:
+        report = generate_and_persist_cutter_weekly(session, now=brief_now)
+    except Exception as exc:  # noqa: BLE001 — Block-Isolation: ein Fehler
+        # hier darf den Cron-Run-Status nicht kippen (Briefs/Roundups sind
+        # bereits persistiert, der naechste Lauf holt das Briefing nach).
+        logger.exception("cutter_weekly.failed")
+        summary["failed"] = 1
+        summary["error"] = {
+            "error_class": type(exc).__name__,
+            "error_message": str(exc)[:200],
+        }
+        return summary
+
+    summary["generated"] = 1
+    summary["model"] = report.model
+    summary["llm_output_present"] = report.llm_output is not None
+    summary["released_platforms"] = [
+        p.platform
+        for p in report.evidence.platforms
+        if p.status == "pattern_released"
+    ]
+    if report.cost_usd_estimate:
+        summary["cost_usd_cents"] = int(round(report.cost_usd_estimate * 100))
+    logger.info(
+        "cutter_weekly.complete",
+        extra={
+            "iso_year": target_iso_year,
+            "iso_week": target_iso_week,
+            "model": report.model,
+            "released_platforms": summary["released_platforms"],
+            "llm_output_present": summary["llm_output_present"],
+        },
+    )
+    return summary
+
+
 async def _run_cron_sync_background(
     run_id: UUID,
     run_index: int,
@@ -1041,6 +1161,13 @@ async def _run_cron_sync_background(
             # Roundups; eigener F0.7-Re-Check im Block (s. Docstring).
             summary["er_forecasts"] = await asyncio.to_thread(
                 _run_er_forecast_warmup_after_roundups, session
+            )
+            # Master-Plan-Sprint Cutter-Wochenbriefing — additiv NACH dem
+            # Forecast-Warmup (Input-Blobs persistiert, Signal-Read trifft
+            # nur Cache). Flag-gated Trockenlauf, eigener F0.7-Re-Check.
+            summary["cutter_weekly"] = await asyncio.to_thread(
+                _run_cutter_weekly_after_forecasts, session,
+                brief_now=brief_now, force=force,
             )
             # Tech-Debt A5 — Apify-Cost dieses Runs ins summary_json.
             # ``record_apify_run`` läuft synchron im ``_run_actor``-Pfad ab

@@ -6,10 +6,12 @@ erfolgt durch Leeren oder Entfernen der Env-Var — kein Re-Deploy, keine
 DB-Migration, keine Code-Aenderung. Edit im Railway-Dashboard, Service
 liest die neue Env auf dem naechsten Worker-Restart (~10s).
 
-Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Ein aktiver Flag:
+Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
 
 - ``FEATURE_SEGMENT_ROUNDUPS_ENABLED`` (bool): An/Aus-Schalter fuer den
   Non-Pair-Segment-Roundup-Pfad (Pilot-Endpoint + Cron-Block).
+- ``FEATURE_CUTTER_WEEKLY_ENABLED`` (bool): An/Aus-Schalter fuer den
+  Cutter-Wochenbriefing-Cron-Block (Trockenlauf).
 
 Historie: PR #155 hat das Pattern eingefuehrt, mit zwei zusaetzlichen
 Helpern ``is_uk_enabled_for_pair`` und ``is_independents_enabled``. Beide
@@ -42,3 +44,19 @@ def is_segment_roundups_enabled() -> bool:
     ``FEATURE_SEGMENT_ROUNDUPS_ENABLED`` setzen.
     """
     return os.getenv("FEATURE_SEGMENT_ROUNDUPS_ENABLED", "false").lower() == "true"
+
+
+def is_cutter_weekly_enabled() -> bool:
+    """Returns True wenn der Cutter-Wochenbriefing-Block im Montags-Cron
+    aktiv ist (Master-Plan-Sprint 2026-06-12, Trockenlauf-Phase).
+
+    Env-Var: ``FEATURE_CUTTER_WEEKLY_ENABLED``
+    Format: ``"true"`` oder ``"false"`` (case-insensitive). Andere Werte
+    werden defensiv als ``False`` interpretiert.
+    Default: ``"false"``.
+
+    Der Flag schaltet NUR den Cron-Block — es gibt bewusst keinen
+    public Endpoint (Trockenlauf: persistieren + Admin-Lesezugriff, kein
+    Frontend-Pfad bis zur Kalibrierung der Evidenzschwelle).
+    """
+    return os.getenv("FEATURE_CUTTER_WEEKLY_ENABLED", "false").lower() == "true"
