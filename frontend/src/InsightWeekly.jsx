@@ -2027,21 +2027,27 @@ function ErForecastSection({ pair }) {
   const next = data.next_week;
   const markets = data.markets || {};
 
+  // Klapp-Angleichung (Wolf-Fix 12.06.2026): gleiche CollapsibleCard-
+  // Struktur wie die Nachbarn (Plattform-Details, Zeitreihe, Methodik) —
+  // standardmäßig zu, Inhalt erst auf Klick. ``helpKey`` liefert den
+  // section_help-Hint + Panel am Header wie bei den anderen Karten; der
+  // frühere eigene h3-Header entfällt. Der GlossaryHint „forecast" sitzt
+  // jetzt am Wort „Prognose" im Hinweistext (gleiches Muster wie der
+  // R²-Hint daneben), die Ziel-KW wandert in die Subtitle-Zeile.
   return (
-    <section className="card er-forecast-section">
-      <div className="er-forecast-header">
-        <h3>ER-Prognose<GlossaryHint term="forecast" /><SectionHelpHint sectionKey="pairForecast" /></h3>
-        {next && (
-          <span className="er-forecast-target">für KW {next.iso_week}/{next.iso_year}</span>
-        )}
-      </div>
-      <SectionHelpPanel sectionKey="pairForecast" />
+    <CollapsibleCard
+      title="ER-Prognose"
+      subtitle={next ? `für KW ${next.iso_week}/${next.iso_year}` : undefined}
+      defaultOpen={false}
+      helpKey="pairForecast"
+    >
       <p className="er-forecast-note">
         Lineare Regression über die Interaktionsrate der bisherigen Wochen, dazu
         eine Einordnung. Dünne Datenbasis ({data.n_axis_weeks}{' '}
         {data.n_axis_weeks === 1 ? 'Woche' : 'Wochen'}) — das Bestimmtheitsmaß
         R²<GlossaryHint term="r2" /> zeigt, wie verlässlich die Linie ist
-        (1,00 = perfekt, niedrig = wenig belastbar). Eine Prognose erscheint
+        (1,00 = perfekt, niedrig = wenig belastbar). Eine Prognose
+        <GlossaryHint term="forecast" /> erscheint
         nur, wo die Wochenwerte einem klaren Trend folgen.
       </p>
 
@@ -2089,7 +2095,7 @@ function ErForecastSection({ pair }) {
       {data.einordnung && (
         <p className="er-forecast-einordnung">{data.einordnung}</p>
       )}
-    </section>
+    </CollapsibleCard>
   );
 }
 
