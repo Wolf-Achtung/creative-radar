@@ -57,7 +57,7 @@ export const SECTION_HELP = {
       title: 'Top-Posts',
       short: 'Die stärksten Posts der Woche, sortier- und plattformfilterbar.',
       long:
-        'Die nach Engagement führenden Posts dieses Studios, mit Filter nach Plattform und sortierbaren Spalten. Engagement meint hier, wie aktiv das Publikum reagiert — Likes, Kommentare und Saves zusammen, nicht nur, wie viele zugesehen haben. Nutzbar, um schnell zu sehen, was diese Woche tatsächlich gezogen hat, und über den Plattform-Filter zu vergleichen, was auf TikTok, Instagram und YouTube vorne liegt. Bitte beachten: Hohe Reichweite und hohe Engagement-Rate sind nicht dasselbe — ein Post mit vielen Views, aber wenig Interaktion steht anders da als einer mit kleiner, aber sehr aktiver Reichweite.',
+        'Die nach Engagement führenden Posts dieses Studios, mit Filter nach Plattform und sortierbaren Spalten. Nutzbar, um schnell zu sehen, was diese Woche tatsächlich gezogen hat, und über den Plattform-Filter zu vergleichen, was auf TikTok, Instagram und YouTube vorne liegt. Bitte beachten: Hohe Reichweite und hohe Engagement-Rate sind nicht dasselbe — ein Post mit vielen Views, aber wenig Interaktion steht anders da als einer mit kleiner, aber sehr aktiver Reichweite.',
     },
     en: {
       title: 'Top posts',
