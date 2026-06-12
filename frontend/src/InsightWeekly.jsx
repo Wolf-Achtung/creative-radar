@@ -130,7 +130,7 @@ function ChannelStatsCard({ stats }) {
           <span>Coverage<HelpTooltip text={glossaryDefinition('coverage')} label="Was bedeutet Coverage?" /></span>
         </div>
         <div><strong>{stats.avg_duration_seconds != null ? `${stats.avg_duration_seconds}s` : '—'}</strong><span>Ø Duration</span></div>
-        <div><strong>{formatNumber(Math.round(stats.avg_engagement))}</strong><span>Ø Engagement</span></div>
+        <div><strong>{formatNumber(Math.round(stats.avg_engagement))}</strong><span>Ø Interaktion</span></div>
         <div><strong>{Math.round(stats.avg_caption_length || 0)}</strong><span>Ø Caption-Länge</span></div>
       </div>
       <div className="insight-buckets">
@@ -153,7 +153,7 @@ function ChannelStatsCard({ stats }) {
             {stats.top_posts.map((p) => (
               <li key={p.post_url}>
                 <a href={p.post_url} target="_blank" rel="noreferrer">{p.title || (p.caption_excerpt ? (p.caption_excerpt.length > 60 ? p.caption_excerpt.slice(0, 60).trim() + '…' : p.caption_excerpt) : 'Ohne Titel')}</a>
-                {' · '}{formatNumber(p.engagement_sum)} Engagement
+                {' · '}{formatNumber(p.engagement_sum)} Interaktion
                 {p.duration_seconds != null && ` · ${p.duration_seconds}s`}
                 {p.caption_excerpt && <div className="insight-caption-excerpt">{p.caption_excerpt}</div>}
               </li>
@@ -1509,7 +1509,7 @@ const TITLE_DETAIL_MARKETS = ['DE', 'US', 'UK'];
 // klein ist (kein Re-Fetch nötig). Default Engagement-Rate; das Backend liefert
 // die erste Ausgabe bereits engagement-sortiert.
 const FILM_SORT_OPTIONS = [
-  { key: 'engagement', label: 'Engagement-Rate' },
+  { key: 'engagement', label: 'Interaktionsrate' },
   { key: 'views', label: 'Aufrufe' },
   { key: 'likes', label: 'Reactions' },
 ];
@@ -1626,9 +1626,9 @@ function FilmPostCard({ post }) {
         <div className="film-post-stats">
           <span
             className="film-post-stat film-post-stat-rate"
-            title="Engagement-Rate = (Reactions + Kommentare) / Aufrufe"
+            title="Interaktionsrate = (Reactions + Kommentare) / Aufrufe"
           >
-            {post.engagement_rate != null ? formatRankedPercent(post.engagement_rate) : '—'} Engagement
+            {post.engagement_rate != null ? formatRankedPercent(post.engagement_rate) : '—'} Interaktion
           </span>
           {post.likes != null && (
             <span className="film-post-stat">{formatRankedNumber(post.likes)} Reactions</span>
@@ -1717,7 +1717,7 @@ function FilmMarketSummaryBar({ markets, marketByName }) {
               </div>
               <div className="film-market-summary-metric">
                 <strong>{engagementRate != null ? formatRankedPercent(engagementRate) : '—'}</strong>
-                <span>Engagement{idx === 0 && <GlossaryHint term="er" />}</span>
+                <span>Interaktion{idx === 0 && <GlossaryHint term="er" />}</span>
               </div>
             </div>
             {isReference ? (
@@ -1729,7 +1729,7 @@ function FilmMarketSummaryBar({ markets, marketByName }) {
                 <span title="Aufrufe relativ zur DE-Referenz">
                   {formatViewsFactor(delta.viewsFactor)}
                 </span>
-                <span title="Engagement-Rate-Abstand zu DE in Prozentpunkten">
+                <span title="Interaktionsraten-Abstand zu DE in Prozentpunkten">
                   {formatErDeltaPp(delta.erDeltaPp)} ER
                 </span>
               </p>
@@ -1964,7 +1964,7 @@ function MarketTimelineSection({ pair }) {
                     const erText = p.er != null ? formatRankedPercent(p.er) : '—';
                     const title =
                       `KW ${wk.iso_week}/${wk.iso_year} · ${m}\n` +
-                      `${erText} Engagement\n` +
+                      `${erText} Interaktion\n` +
                       `${formatNumber(p.views || 0)} Aufrufe\n` +
                       `${formatNumber(p.posts || 0)} Posts`;
                     return (
@@ -2037,7 +2037,7 @@ function ErForecastSection({ pair }) {
       </div>
       <SectionHelpPanel sectionKey="pairForecast" />
       <p className="er-forecast-note">
-        Lineare Regression über die Engagement-Rate der bisherigen Wochen, dazu
+        Lineare Regression über die Interaktionsrate der bisherigen Wochen, dazu
         eine Einordnung. Dünne Datenbasis ({data.n_axis_weeks}{' '}
         {data.n_axis_weeks === 1 ? 'Woche' : 'Wochen'}) — das Bestimmtheitsmaß
         R²<GlossaryHint term="r2" /> zeigt, wie verlässlich die Linie ist
