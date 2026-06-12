@@ -1243,3 +1243,65 @@ class CutterWeeklyEvidence(BaseModel):
     week_posts_total: int = 0
     title_key_share: Optional[float] = None
     forecast_signals: list[CutterForecastSignal] = Field(default_factory=list)
+
+
+class CutterPlatformBlock(BaseModel):
+    """Ein Plattform-Block des Cutter-Wochenbriefings. ``generated_by``
+    unterscheidet ehrlich: ``"llm"`` = vom Modell formuliert (nur fuer
+    Plattformen mit freigegebenem Muster), ``"code"`` = deterministischer
+    Leerlauf-Block ("kein klares Muster diese Woche"), den der Code OHNE
+    LLM-Beteiligung erzeugt — das LLM kann strukturell keine Muster fuer
+    Leerlauf-Plattformen dazuerfinden."""
+    model_config = ConfigDict(extra="ignore")
+
+    platform: str
+    beobachtung: str
+    # Vorsichtiger Schnitt-Impuls — beobachtend, keine kausale Diagnose.
+    # Optional: nur wo die Belege ihn decken, sonst null.
+    schnitt_impuls: Optional[str] = None
+    cited_post_ids: list[str] = Field(default_factory=list)
+    generated_by: str = "llm"
+
+
+class CutterWeeklyLLMReport(BaseModel):
+    """Synthese-Output des Cutter-Wochenbriefings. Vom LLM kommen nur
+    Bloecke fuer freigegebene Plattformen; die Leerlauf-Bloecke ergaenzt
+    der Code beim Zusammenbau (``_assemble_report``). Citation strict:
+    jede ``cited_post_ids``-Liste muss vollstaendig im Allow-Set der
+    stuetzenden Posts ihrer Plattform liegen, sonst wird die Antwort
+    verworfen (Wolf-Entscheidung 3, 12.06.2026)."""
+    model_config = ConfigDict(extra="ignore")
+
+    bloecke: list[CutterPlatformBlock]
+    # Optionaler vierter Block — nur bei echtem Quer-Muster (Belege aus
+    # mindestens zwei Plattformen, validiert im Code).
+    quer_muster: Optional[str] = None
+    quer_cited_post_ids: list[str] = Field(default_factory=list)
+    # Markt-level Forecast-Notiz (Variante 1, beobachtend) — nur erlaubt,
+    # wenn ok-Signale vorliegen; plattform-spezifische Trend-Aussagen
+    # waeren ein Kategorienfehler (siehe CutterForecastSignal).
+    markt_signal_notiz: Optional[str] = None
+    data_caveats: list[str] = Field(default_factory=list)
+
+
+class CutterWeeklyReport(BaseModel):
+    """Vollstaendiger Wochen-Report — Evidence-Blob + LLM-Synthese.
+    ``llm_output = None`` heisst: LLM-Synthese nach allen Versuchen
+    verworfen (Schema- oder Citation-Fail) — der Evidence-Blob bleibt
+    trotzdem das Kalibrierungs-Produkt und wird persistiert.
+    ``model = "none"`` heisst: kein LLM-Call noetig (keine Plattform
+    freigegeben), der Report besteht aus deterministischen
+    Leerlauf-Bloecken."""
+    iso_year: int
+    iso_week: int
+    generated_at: datetime
+    model: str
+    evidence: CutterWeeklyEvidence
+    llm_output: Optional[CutterWeeklyLLMReport] = None
+    cost_usd_estimate: Optional[float] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    raw_llm_text: Optional[str] = Field(
+        default=None,
+        description="Raw assistant text — populated only when the LLM answer was discarded (parse/schema/citation fail).",
+    )
