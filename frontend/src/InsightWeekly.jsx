@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useId, useMemo, useState } from 'react';
 import { endpoints } from './api/client';
 import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
 import { GLOSSARY, GLOSSARY_ORDER, glossaryDefinition, glossaryFull } from './glossary';
+import { GlossaryHint, HelpTooltip } from './components/HelpSystem';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
@@ -58,80 +59,10 @@ function formatDateISO(value) {
 
 // ---- Sprint 3: HelpTooltip --------------------------------------------
 //
-// Inline question-mark trigger that exposes a short explanation on hover
-// (Desktop) and on tap (Mobile). Escape and click-outside close the
-// open tooltip. The trigger is a real <button> for keyboard accessibility;
-// the popup carries `role="tooltip"` and the trigger references it via
-// `aria-describedby` while open.
-//
-// We don't use `title=` because that limits styling, can't carry rich
-// content, and behaves inconsistently on touch devices.
-
-function HelpTooltip({ text, label = 'Erklärung anzeigen' }) {
-  const [open, setOpen] = useState(false);
-  const tooltipId = useId();
-  const wrapperRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    function handlePointerDown(e) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
-        setOpen(false);
-      }
-    }
-    function handleKey(e) {
-      if (e.key === 'Escape') setOpen(false);
-    }
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('touchstart', handlePointerDown);
-    document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('touchstart', handlePointerDown);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, [open]);
-
-  return (
-    <span className="help-tooltip-wrapper" ref={wrapperRef}>
-      <button
-        type="button"
-        className="help-tooltip-trigger"
-        aria-label={label}
-        aria-describedby={open ? tooltipId : undefined}
-        aria-expanded={open}
-        onClick={(e) => { e.preventDefault(); setOpen((o) => !o); }}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        tabIndex={0}
-      >
-        ?
-      </button>
-      {open && (
-        <span className="help-tooltip-content" id={tooltipId} role="tooltip">
-          {text}
-        </span>
-      )}
-    </span>
-  );
-}
-
-// V3 Sprint 8 (A) — Info-Punkt am Begriff. Dünner Wrapper über das UNVERÄNDERTE
-// HelpTooltip: nimmt einen Glossar-Key und rendert die Kurzerklärung aus der
-// zentralen Quelle (glossary.js). So speisen sich Info-Punkte und der Gesamt-
-// Glossar-Block aus derselben Quelle. Rendert nichts bei unbekanntem Key.
-function GlossaryHint({ term }) {
-  const entry = GLOSSARY[term];
-  if (!entry) return null;
-  return (
-    <HelpTooltip
-      text={glossaryDefinition(term)}
-      label={`Was bedeutet ${entry.de.term}?`}
-    />
-  );
-}
+// Sprint Bereichs-Erklärtexte (Commit A): HelpTooltip und GlossaryHint
+// sind unverändert nach components/HelpSystem.jsx umgezogen, damit auch
+// Landing/Roundup/Admin sie importieren können. Alle Nutzungen in dieser
+// Datei laufen über den Import oben weiter.
 
 // V3 Sprint 8 (B) — Gesamt-Glossar als ausklappbarer Block, standardmäßig zu.
 // Listet alle Begriffe (DE) aus derselben Quelle wie die Info-Punkte. Nutzt das
