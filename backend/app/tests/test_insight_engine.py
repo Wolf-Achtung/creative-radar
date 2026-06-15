@@ -2797,6 +2797,133 @@ def test_hydrate_persistierter_lionsgate_brief_ohne_de_vs_us_crasht_nicht():
     assert report.pair_key == "lionsgate"
 
 
+# ---------------------------------------------------------------------------
+# Sprint cross-market-conditional (15.06.2026) — ``transfer_opportunity`` von
+# hart-required auf datengetrieben. Belegt: disney/primevideo/lionsgate
+# scheiterten an ``LLMReport.model_validate`` (no_llm_output), weil das Schema
+# ``transfer_opportunity`` + den ``cross_market_insight``-Block hart verlangte,
+# der Prompt ihr Weglassen bei duenner Cross-Market-Lage aber implizit erlaubt.
+# Die Pflicht lebt jetzt im ``model_validator`` ueber den Context
+# ``has_cross_market`` = ``>= 2 Maerkte mit Posts UND > 0 Cross-Market-Matches``.
+# de_vs_us / #258-Vertrag bleibt unveraendert (eigener Check, has_de_data).
+
+
+def _ch(posts: int, *, found: bool = True):
+    """Minimal ``ChannelStats`` — nur die zwei Felder, die
+    ``_market_has_data`` liest (model_construct ueberspringt den Rest)."""
+    return insight_engine.ChannelStats.model_construct(
+        channel_found=found, posts_count=posts,
+    )
+
+
+def _agg_with(*, de=None, us=None, uk=None, matches: int = 0):
+    """Minimal ``PairAggregation`` fuer ``_has_cross_market_lage`` —
+    Channels + Match-Listen, alles andere via model_construct weggelassen."""
+    from app.schemas.insights import PairAggregation
+    return PairAggregation.model_construct(
+        de_channel=de, us_channel=us, uk_channel=uk,
+        cross_market_matches=[object()] * matches,
+        de_uk_matches=[], us_uk_matches=[],
+    )
+
+
+def test_has_cross_market_lage_lionsgate_real_constellation():
+    """Belegter lionsgate-KW24-Fall: US 15 / UK 27 Posts, ABER 0 Matches —
+    zwei Maerkte mit unabhaengigen Posts sind keine vergleichbare Lage."""
+    agg = _agg_with(us=_ch(15), uk=_ch(27), matches=0)
+    assert insight_engine._has_cross_market_lage(agg) is False
+
+
+def test_has_cross_market_lage_true_with_two_markets_and_matches():
+    agg = _agg_with(us=_ch(15), uk=_ch(27), matches=3)
+    assert insight_engine._has_cross_market_lage(agg) is True
+
+
+def test_has_cross_market_lage_false_single_market_with_matches():
+    """Nur ein Markt mit Posts → keine Lage, auch bei (verwaisten) Matches."""
+    agg = _agg_with(us=_ch(15), matches=5)
+    assert insight_engine._has_cross_market_lage(agg) is False
+
+
+def test_has_cross_market_lage_false_zero_post_channels():
+    """Zwei Channels present, aber 0 Posts → keine Vergleichsbasis."""
+    agg = _agg_with(us=_ch(0), uk=_ch(0), matches=3)
+    assert insight_engine._has_cross_market_lage(agg) is False
+
+
+def test_lionsgate_real_brief_without_transfer_opportunity_validates():
+    """DER entscheidende Test: die belegte lionsgate-KW24-Lage (2 Maerkte mit
+    Posts, 0 Matches) liefert ``has_cross_market=False`` → ein Brief OHNE
+    ``transfer_opportunity`` (und ohne ``de_vs_us``, da kein DE-Channel)
+    validiert. Genau der Fall, der heute als no_llm_output gerissen ist."""
+    agg = _agg_with(us=_ch(15), uk=_ch(27), matches=0)
+    ctx = {
+        "has_de_data": agg.de_channel is not None,
+        "has_cross_market": insight_engine._has_cross_market_lage(agg),
+    }
+    assert ctx == {"has_de_data": False, "has_cross_market": False}
+    body = {
+        "headline": "lionsgate-Woche ohne vergleichbare Lage",
+        "tldr": "US und UK posten unabhaengig, keine Cross-Market-Matches.",
+        "trends": [],
+        "actions": [],
+        "cross_market_insight": {"us_vs_uk": "US postet laenger, UK haeufiger."},
+        "risks": [],
+        "data_caveats": [],
+    }
+    report = LLMReport.model_validate(body, context=ctx)
+    assert report.cross_market_insight.transfer_opportunity is None
+    assert report.cross_market_insight.de_vs_us is None
+
+
+def test_real_cross_market_pair_without_transfer_opportunity_still_raises():
+    """Quality-Gate-Gegenprobe: bei echter Lage (2 Maerkte mit Posts UND
+    Matches) bleibt ``transfer_opportunity`` Pflicht — ein echtes Cross-
+    Market-Pair darf das Synthese-Feld nicht verlieren."""
+    agg = _agg_with(us=_ch(15), uk=_ch(27), matches=3)
+    ctx = {
+        "has_de_data": False,
+        "has_cross_market": insight_engine._has_cross_market_lage(agg),
+    }
+    assert ctx["has_cross_market"] is True
+    body = {
+        "headline": "h", "tldr": "t", "trends": [], "actions": [],
+        "cross_market_insight": {"us_vs_uk": "x"},  # transfer_opportunity fehlt
+        "risks": [], "data_caveats": [],
+    }
+    with pytest.raises(ValidationError, match="transfer_opportunity"):
+        LLMReport.model_validate(body, context=ctx)
+
+
+def test_llm_report_without_transfer_opportunity_when_lage_raises():
+    """(a) Block vorhanden, ``transfer_opportunity`` fehlt, Lage besteht →
+    reisst (heute: field-required; nach Fix: Validator)."""
+    body = {
+        "headline": "h", "tldr": "t", "trends": [], "actions": [],
+        "cross_market_insight": {"de_vs_us": "x"},
+        "risks": [], "data_caveats": [],
+    }
+    with pytest.raises(ValidationError, match="transfer_opportunity"):
+        LLMReport.model_validate(
+            body, context={"has_de_data": True, "has_cross_market": True},
+        )
+
+
+def test_llm_report_without_cross_market_block_validates_when_no_lage():
+    """(b) Ganzer ``cross_market_insight``-Block fehlt + keine Lage/kein DE →
+    default_factory baut einen leeren Block, kein ValidationError."""
+    body = {
+        "headline": "h", "tldr": "t", "trends": [], "actions": [],
+        "risks": [], "data_caveats": [],
+    }
+    report = LLMReport.model_validate(
+        body, context={"has_de_data": False, "has_cross_market": False},
+    )
+    assert report.cross_market_insight.transfer_opportunity is None
+    assert report.cross_market_insight.de_vs_us is None
+    assert report.cross_market_insight.cited_post_ids == []
+
+
 def test_aggregate_pair_paramountplus_uk_only_on_ig_tt_not_yt():
     """paramountplus voll-Pair-Garantie: TT + IG haben alle drei Märkte,
     YT hat keinen UK-Channel. aggregate_pair liefert eine

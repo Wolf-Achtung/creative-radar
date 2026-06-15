@@ -3871,6 +3871,32 @@ def _enrich_fokus_title_ids(session: Session, llm_output) -> None:
         item.title_id = _resolve_title_id_for_post_url(session, getattr(item, "post_url", None))
 
 
+def _market_has_data(channel: Optional[ChannelStats]) -> bool:
+    """Ein Markt zaehlt nur als Datenquelle, wenn der Channel aufgeloest wurde
+    UND in der Woche tatsaechlich Posts hatte — ein None- oder Null-Posts-
+    Channel ist keine Vergleichsbasis."""
+    return channel is not None and channel.channel_found and channel.posts_count > 0
+
+
+def _has_cross_market_lage(agg: PairAggregation) -> bool:
+    """Signal fuer den ``has_cross_market``-Validation-Context (Sprint
+    15.06.2026): ``transfer_opportunity`` ist nur Pflicht, wenn eine ECHTE
+    Cross-Market-Lage besteht — >= 2 Maerkte mit Posts UND mindestens ein
+    Cross-Market-Match. Zwei Maerkte mit unabhaengigen Posts (z.B. lionsgate
+    KW24: 15 US / 27 UK Posts, aber 0 Matches) sind keine vergleichbare Lage,
+    da gibt es legitim nichts zu transferieren."""
+    markets_with_posts = sum(
+        _market_has_data(c)
+        for c in (agg.de_channel, agg.us_channel, agg.uk_channel)
+    )
+    has_matches = (
+        len(agg.cross_market_matches)
+        + len(agg.de_uk_matches)
+        + len(agg.us_uk_matches)
+    ) > 0
+    return markets_with_posts >= 2 and has_matches
+
+
 def generate_weekly_report(
     session: Session,
     pair_key: str,
@@ -3938,7 +3964,10 @@ def generate_weekly_report(
         # ``partial`` statt eines Context-Parameters durch den Kernel.
         validate=functools.partial(
             LLMReport.model_validate,
-            context={"has_de_data": agg.de_channel is not None},
+            context={
+                "has_de_data": agg.de_channel is not None,
+                "has_cross_market": _has_cross_market_lage(agg),
+            },
         ),
         model=model,
         max_tokens=max_tokens,
@@ -4006,7 +4035,10 @@ def _hydrate_from_persisted(row: InsightReportRow, *, window_days: int) -> Insig
     llm_output = (
         LLMReport.model_validate(
             row.llm_output,
-            context={"has_de_data": aggregation.de_channel is not None},
+            context={
+                "has_de_data": aggregation.de_channel is not None,
+                "has_cross_market": _has_cross_market_lage(aggregation),
+            },
         )
         if row.llm_output
         else None
