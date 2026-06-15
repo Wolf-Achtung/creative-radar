@@ -1201,11 +1201,16 @@ async def _run_cron_sync_background(
             # <$5 Anthropic-Cost ist ein klares Signal: irgendetwas hat den
             # Pfad lautlos blockiert (Mock-Leak, ENV-Toggle-Race, Code-Pfad-
             # Regression). Logger.critical landet rot in Railway-Logs.
+            # Cache-Ausnahme: Ein force=false-Re-Run auf eine abgeschlossene
+            # Woche cached alle Pairs (generated=0, cost=0) — das ist KEIN
+            # silent failure. ``skipped_cache_hit > 0`` heißt "Pfad lief, Cache
+            # griff legitim", daher unterdrückt es den Alarm.
             briefs = summary.get("briefs", {})
             anthropic_cost_usd = summary.get("anthropic", {}).get("estimated_cost_usd", 0.0)
             if (
                 briefs.get("enabled")
                 and briefs.get("generated", 0) == 0
+                and briefs.get("skipped_cache_hit", 0) == 0
                 and anthropic_cost_usd < 5.0
             ):
                 logger.critical(

@@ -442,3 +442,35 @@ def test_cron_brief_gen_cost_floor_alert_silent_when_costs_present(db, monkeypat
         if "cron_brief_gen.silent_failure" in r.getMessage()
     ]
     assert silent_failure_records == []
+
+
+def test_cron_brief_gen_cost_floor_alert_silent_on_full_cache_hit(db, monkeypatch, caplog):
+    """Cache-Ausnahme zum Alert-Test: ein force=false-Re-Run auf eine
+    abgeschlossene KW cached jeden Pair (generated=0, $0 Anthropic-Cost) —
+    das ist KEIN silent failure, der Pfad lief und der Cache griff legitim.
+    ``skipped_cache_hit > 0`` unterdrückt den Critical-Alarm."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=0.0, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    # Abgeschlossene KW = utcnow - 1 day (gleicher Anker wie die Stage).
+    seeded = _seed_brief_rows(db, anchor=datetime.now(timezone.utc) - timedelta(days=1))
+    run_id = _seed_run(db)
+
+    with caplog.at_level(logging.CRITICAL, logger="app.api.cron"):
+        asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+
+    # Pre-Check griff für jeden Pair → 0 generiert, alle als Cache-Hit gezählt.
+    assert brief_mock.call_count == 0
+    with Session(db) as session:
+        run = session.get(CronRun, run_id)
+        briefs = run.summary_json["briefs"]
+        assert briefs["generated"] == 0
+        assert briefs["skipped_cache_hit"] == seeded
+
+    silent_failure_records = [
+        r for r in caplog.records
+        if "cron_brief_gen.silent_failure" in r.getMessage()
+    ]
+    assert silent_failure_records == []
