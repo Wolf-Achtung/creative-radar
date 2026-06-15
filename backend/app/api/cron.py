@@ -1196,30 +1196,47 @@ async def _run_cron_sync_background(
             if anthropic_budget.soft_warn_exceeded:
                 summary["anthropic_budget_warning"] = True
             # Cadence-Sprint 2026-05-17 — Frühwarnsignal #2 aus dem Premortem
-            # (PR #147, Failure-Mode #2 "Bug regrediert nach Refactor"). Ein
-            # Cron-Run mit aktivierter Brief-Gen, aber 0 generierten Briefs UND
-            # <$5 Anthropic-Cost ist ein klares Signal: irgendetwas hat den
-            # Pfad lautlos blockiert (Mock-Leak, ENV-Toggle-Race, Code-Pfad-
-            # Regression). Logger.critical landet rot in Railway-Logs.
-            # Cache-Ausnahme: Ein force=false-Re-Run auf eine abgeschlossene
-            # Woche cached alle Pairs (generated=0, cost=0) — das ist KEIN
-            # silent failure. ``skipped_cache_hit > 0`` heißt "Pfad lief, Cache
-            # griff legitim", daher unterdrückt es den Alarm.
+            # (PR #147, Failure-Mode #2 "Bug regrediert nach Refactor").
+            # Logger.critical landet rot in Railway-Logs.
+            #
+            # Variante B (PR #270): Der Trigger stützt sich NICHT mehr auf eine
+            # Anthropic-Kostenschwelle. Kosten sind kein Erfolgssignal — sie
+            # sind niedrig bei legitimem Cache-Hit (force=false-Re-Run auf eine
+            # abgeschlossene Woche cached alle Pairs, $0) UND hoch bei teuren
+            # Totalausfällen (jeder Pair ruft das LLM, schlägt aber nach dem
+            # Call fehl). Die alte ``cost < $5``-Bedingung erzeugte deshalb
+            # beides: Fehlalarme beim Cache und eine Blindstelle bei teuren
+            # Komplettausfällen. Stattdessen prüfen wir zwei echte Ausfall-
+            # muster gegen die Counter selbst:
+            #   1. silent     — der Pfad hat nichts getan (nichts generiert,
+            #      nichts gecacht, nichts versucht/gescheitert): Mock-Leak,
+            #      ENV-Toggle-Race, Code-Pfad-Regression.
+            #   2. all_failed — der Pfad lief, aber JEDER Versuch scheiterte
+            #      (0 generiert, >0 failed): das laute Pendant, unabhängig
+            #      von den Kosten.
+            # Ein reiner Cache-Run (generated=0, failed=0, skipped_cache_hit>0)
+            # ist KEIN Ausfall und löst keinen Alarm aus. ``anthropic_cost_usd``
+            # bleibt im Payload als Diagnose-Info, ist aber kein Trigger mehr.
             briefs = summary.get("briefs", {})
             anthropic_cost_usd = summary.get("anthropic", {}).get("estimated_cost_usd", 0.0)
-            if (
-                briefs.get("enabled")
-                and briefs.get("generated", 0) == 0
-                and briefs.get("skipped_cache_hit", 0) == 0
-                and anthropic_cost_usd < 5.0
-            ):
+            generated = briefs.get("generated", 0)
+            failed = briefs.get("failed", 0)
+            cache_hit = briefs.get("skipped_cache_hit", 0)
+            enabled = briefs.get("enabled")
+
+            silent = enabled and (generated + failed + cache_hit) == 0
+            all_failed = enabled and generated == 0 and failed > 0
+
+            if silent or all_failed:
                 logger.critical(
                     "cron_brief_gen.silent_failure",
                     extra={
                         "run_id": str(run.id),
-                        "briefs_enabled": briefs.get("enabled"),
-                        "briefs_generated": briefs.get("generated", 0),
-                        "briefs_failed": briefs.get("failed", 0),
+                        "briefs_enabled": enabled,
+                        "briefs_generated": generated,
+                        "briefs_failed": failed,
+                        "briefs_skipped_cache_hit": cache_hit,
+                        "failure_mode": "all_failed" if all_failed else "silent",
                         "anthropic_cost_usd": anthropic_cost_usd,
                     },
                 )

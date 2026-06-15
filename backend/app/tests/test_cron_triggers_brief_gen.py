@@ -9,9 +9,14 @@ Integration in ``_run_cron_sync_background``:
 3. Per-Pair-Try/Except: ein failender Pair killt nicht die anderen.
 4. ``now - 1 day``-Anker (H4-Mitigation gegen ISO-Wochen-Off-by-One am
    Montag-Cron, der sonst die noch leere neue KW erwischt hätte).
-5. Cost-Floor-Alert: bei 0 generierten Briefs + <$5 Anthropic-Cost feuert
-   ``logger.critical('cron_brief_gen.silent_failure')`` — das Frühwarn-
-   signal #2 aus dem Premortem (PR #147 Failure-Mode #2).
+5. Ausfall-Alert (PR #270, Variante B): ``logger.critical(
+   'cron_brief_gen.silent_failure')`` feuert bei zwei echten Ausfallmustern —
+   ``silent`` (Pfad tat nichts: generated+failed+cache_hit == 0) und
+   ``all_failed`` (Pfad lief, aber jeder Versuch scheiterte: generated == 0,
+   failed > 0). Die frühere Anthropic-Kostenschwelle (<$5) ist KEIN Trigger
+   mehr — Kosten sind kein Erfolgssignal (niedrig bei legitimem Cache, hoch
+   bei teuren Totalausfällen). Frühwarnsignal #2 aus dem Premortem (PR #147
+   Failure-Mode #2).
 """
 from __future__ import annotations
 
@@ -261,7 +266,9 @@ def test_cron_brief_gen_uses_yesterday_for_iso_week(db, monkeypatch):
         )
 
 
-def test_cron_brief_gen_cost_floor_alert_triggers(db, monkeypatch, caplog):
+def test_cron_brief_gen_all_failed_alert_triggers(db, monkeypatch, caplog):
+    """Variante-B-Muster ``all_failed``: jeder Pair scheitert → 0 generated,
+    n failed. Unabhängig von den Kosten (hier $0) feuert der Critical."""
     monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
     # Alle Pairs schmeissen Exception → 0 generated, n failed, $0 Anthropic.
     # Das ist exakt das Frühwarn-Szenario aus Premortem-Failure-Mode #2.
@@ -284,6 +291,7 @@ def test_cron_brief_gen_cost_floor_alert_triggers(db, monkeypatch, caplog):
     assert rec.briefs_enabled is True
     assert rec.briefs_generated == 0
     assert rec.briefs_failed == _enabled_pair_count()
+    assert rec.failure_mode == "all_failed"
     assert rec.anthropic_cost_usd == 0.0
 
     with Session(db) as session:
@@ -423,10 +431,12 @@ def test_cron_default_honors_cache_precheck(db, monkeypatch):
         assert briefs["generated"] == 0
 
 
-def test_cron_brief_gen_cost_floor_alert_silent_when_costs_present(db, monkeypatch, caplog):
-    """Gegenprobe zum Alert-Test: wenn ``anthropic_cost_usd >= 5.0``, ist
-    der Pfad nicht silent (Cost beweist, dass LLM-Calls gelaufen sind),
-    also feuert kein Critical — auch wenn ``generated == 0``."""
+def test_cron_brief_gen_all_failed_alert_fires_even_with_high_cost(db, monkeypatch, caplog):
+    """Die Blindstelle, die Variante B schliesst: jeder Pair ruft das LLM,
+    scheitert aber nach dem Call → 0 generated, n failed UND hohe Kosten
+    ($12.34). Unter der alten ``cost < $5``-Logik wäre das STUMM geblieben
+    (teure Kosten ⇒ kein Alarm). Jetzt feuert ``all_failed`` unabhängig von
+    den Kosten; ``anthropic_cost_usd`` bleibt nur als Diagnose-Info im Payload."""
     monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
     brief_mock = MagicMock(side_effect=RuntimeError("loud regression"))
     _patch_cron_neighbors(
@@ -441,14 +451,20 @@ def test_cron_brief_gen_cost_floor_alert_silent_when_costs_present(db, monkeypat
         r for r in caplog.records
         if "cron_brief_gen.silent_failure" in r.getMessage()
     ]
-    assert silent_failure_records == []
+    assert len(silent_failure_records) == 1
+    rec = silent_failure_records[0]
+    assert rec.briefs_generated == 0
+    assert rec.briefs_failed == _enabled_pair_count()
+    assert rec.failure_mode == "all_failed"
+    # Kosten sind kein Trigger mehr, aber als Diagnose-Info erhalten.
+    assert rec.anthropic_cost_usd == 12.34
 
 
-def test_cron_brief_gen_cost_floor_alert_silent_on_full_cache_hit(db, monkeypatch, caplog):
-    """Cache-Ausnahme zum Alert-Test: ein force=false-Re-Run auf eine
-    abgeschlossene KW cached jeden Pair (generated=0, $0 Anthropic-Cost) —
-    das ist KEIN silent failure, der Pfad lief und der Cache griff legitim.
-    ``skipped_cache_hit > 0`` unterdrückt den Critical-Alarm."""
+def test_cron_brief_gen_no_alert_on_full_cache_hit(db, monkeypatch, caplog):
+    """Fall 1 (Cache): ein force=false-Re-Run auf eine abgeschlossene KW
+    cached jeden Pair (generated=0, failed=0, skipped_cache_hit=n, $0 Cost) —
+    das ist KEIN Ausfall. Weder ``silent`` (cache_hit>0) noch ``all_failed``
+    (failed==0) greift, also feuert kein Critical."""
     monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
     brief_mock = MagicMock(
         return_value=SimpleNamespace(cost_usd_estimate=0.0, llm_output=object())
@@ -468,6 +484,64 @@ def test_cron_brief_gen_cost_floor_alert_silent_on_full_cache_hit(db, monkeypatc
         briefs = run.summary_json["briefs"]
         assert briefs["generated"] == 0
         assert briefs["skipped_cache_hit"] == seeded
+
+    silent_failure_records = [
+        r for r in caplog.records
+        if "cron_brief_gen.silent_failure" in r.getMessage()
+    ]
+    assert silent_failure_records == []
+
+
+def test_cron_brief_gen_silent_alert_when_nothing_attempted(db, monkeypatch, caplog):
+    """Fall 3 (stiller Block): Brief-Gen aktiviert, aber der Pfad tat nichts —
+    generated+failed+cache_hit == 0. Simuliert per leerem ``PAIRS`` (Code-Pfad-
+    Regression / Mock-Leak, der die Pair-Schleife auf null Iterationen
+    reduziert). ``silent`` greift → Critical mit failure_mode='silent'."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=0.0, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    # Pair-Set verdampft → enabled_pairs == [] → 0 generiert/failed/cached,
+    # aber enabled-Toggle steht auf true: genau das stille Ausfallmuster.
+    monkeypatch.setattr(cron_module, "PAIRS", {})
+    run_id = _seed_run(db)
+
+    with caplog.at_level(logging.CRITICAL, logger="app.api.cron"):
+        asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+
+    assert brief_mock.call_count == 0
+    silent_failure_records = [
+        r for r in caplog.records
+        if "cron_brief_gen.silent_failure" in r.getMessage()
+    ]
+    assert len(silent_failure_records) == 1
+    rec = silent_failure_records[0]
+    assert rec.briefs_enabled is True
+    assert rec.briefs_generated == 0
+    assert rec.briefs_failed == 0
+    assert rec.briefs_skipped_cache_hit == 0
+    assert rec.failure_mode == "silent"
+
+
+def test_cron_brief_gen_no_alert_on_normal_run(db, monkeypatch, caplog):
+    """Fall 4 (Normalbetrieb): generated > 0 → kein Ausfall, kein Critical.
+    Weder ``silent`` (generated>0) noch ``all_failed`` (generated>0) greift."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=1.50, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    run_id = _seed_run(db)
+
+    with caplog.at_level(logging.CRITICAL, logger="app.api.cron"):
+        asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+
+    assert brief_mock.call_count == _enabled_pair_count()
+    with Session(db) as session:
+        run = session.get(CronRun, run_id)
+        briefs = run.summary_json["briefs"]
+        assert briefs["generated"] == _enabled_pair_count()
 
     silent_failure_records = [
         r for r in caplog.records
