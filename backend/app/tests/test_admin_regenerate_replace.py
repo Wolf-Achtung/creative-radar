@@ -409,6 +409,58 @@ def test_regenerate_all_with_replace_triggers_all_enabled_pairs(client, db, monk
             )
 
 
+def test_regenerate_surfaces_raw_llm_text_on_generation_failure(client, db, monkeypatch):
+    """B2-Diagnose-Surface: ein no_llm_output-Report (Parse-/Schema-/Citation-
+    Fail) kommt mit ``llm_output=None`` zurueck und wurde bisher als
+    ``status="ok"`` mit verworfenem Rohtext maskiert. Der Endpoint liefert
+    jetzt ``status="generation_failed"`` + ``raw_llm_text`` inline (spiegelt
+    ``/insights/title/regenerate``). Nicht-destruktiv: ``_persist_report``
+    skippt den Write bei ``llm_output=None``, es landet keine Row."""
+    pair = "disney"
+    iso_year, iso_week = _current_iso_year_week()
+    # Roh-Output, dem das Pflichtfeld ``transfer_opportunity`` fehlt — genau
+    # die Form, die LLMReport.model_validate als Schema-Fail verwirft.
+    raw = '{"headline":"x","cross_market_insight":{"de_vs_us":"a"}}'
+    failed_report = InsightReport.model_construct(
+        pair_key=pair,
+        pair_label=f"{pair} test",
+        iso_week=iso_week,
+        iso_year=iso_year,
+        window_days=30,
+        coverage_pct=0.0,
+        generated_at=datetime(2026, 6, 15, 8, 0, 0, tzinfo=timezone.utc),
+        model="claude-opus-4-7",
+        dry_run=False,
+        llm_output=None,
+        aggregation=None,
+        cost_usd_estimate=0.0,
+        raw_llm_text=raw,
+    )
+
+    def _mock_generate_weekly_report(session, pair_key, **kwargs):
+        return failed_report
+
+    monkeypatch.setattr(
+        engine_module, "generate_weekly_report",
+        _mock_generate_weekly_report,
+    )
+
+    response = client.post(
+        "/api/admin/insights/regenerate",
+        params={"pair": pair, "replace": "false"},
+    )
+    assert response.status_code == 200, response.text
+
+    result = response.json()["results"][0]
+    assert result["pair"] == pair
+    assert result["status"] == "generation_failed"
+    assert result["raw_llm_text"] == raw
+
+    # Nicht-destruktiv: kein Write bei llm_output=None.
+    with Session(db) as session:
+        assert session.get(InsightReportRow, (pair, iso_year, iso_week)) is None
+
+
 def test_cron_brief_gen_still_respects_cache_hit_after_pr150(db, monkeypatch):
     """Regressions-Schutz für PR #149: der Cron-Pfad ruft
     ``generate_and_persist_report`` weiterhin OHNE ``replace``-kwarg auf

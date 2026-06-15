@@ -597,10 +597,18 @@ def regenerate_insights(
         total_cost_cents += cost_cents
         results.append({
             "pair": p,
-            "status": "ok",
+            # Diagnose-Surface (additiv): ein no_llm_output-Report (Parse-/
+            # Schema-/Citation-Fail) kommt mit ``llm_output=None`` zurueck und
+            # wurde bisher als ``status="ok"`` mit verworfenem Rohtext
+            # maskiert. ``raw_llm_text`` inline surfacen, damit
+            # ``/insights/regenerate?pair=X`` den verworfenen Opus-Output
+            # zeigt — spiegelt ``/insights/title/regenerate`` (admin.py:706),
+            # kein Logik-Change am Schema/Generierungs-Pfad.
+            "status": "ok" if report.llm_output is not None else "generation_failed",
             "iso_year": report.iso_year,
             "iso_week": report.iso_week,
             "cost_cents": cost_cents,
+            "raw_llm_text": report.raw_llm_text if report.llm_output is None else None,
         })
 
     return {"results": results, "total_cost_cents": total_cost_cents}
