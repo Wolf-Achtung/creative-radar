@@ -553,7 +553,13 @@ class CrossMarketInsight(BaseModel):
     # mehrere Transferrichtungen formulieren).
     de_vs_uk: Optional[str] = None
     us_vs_uk: Optional[str] = None
-    transfer_opportunity: str
+    # Sprint cross-market-conditional (15.06.2026): von hart-required auf
+    # Optional. ``transfer_opportunity`` ist ein Synthese-/Empfehlungsfeld —
+    # bei einem Pair ohne echte Cross-Market-Lage (keine vergleichbaren
+    # Matches) gibt es legitim nichts zu transferieren. Die Pflicht lebt jetzt
+    # datengetrieben im ``model_validator`` auf ``LLMReport`` (Context
+    # ``has_cross_market``), analog zur ``de_vs_us``-Loesung aus #258.
+    transfer_opportunity: Optional[str] = None
     # Sprint 28.05.2026 — Evidenz-Block. Sammlung der IDs (post_url /
     # asset_id / match_key) aus der ``PairAggregation``, auf denen die
     # drei Narrative-Achsen + ``transfer_opportunity`` insgesamt
@@ -650,7 +656,13 @@ class LLMReport(BaseModel):
     tldr: str
     trends: list[Trend]
     actions: list[Action]
-    cross_market_insight: CrossMarketInsight
+    # Sprint cross-market-conditional (15.06.2026): default_factory statt
+    # hart-required. Laesst die LLM den ganzen Block weg (kein Cross-Market-
+    # Bezug), entsteht ein leerer ``CrossMarketInsight`` statt eines
+    # ValidationError — Downstream-Zugriffe (``_validate_citations``, der
+    # Validator unten) bleiben None-safe. Die Pflicht der Einzelfelder lebt
+    # datengetrieben im ``model_validator`` (has_de_data / has_cross_market).
+    cross_market_insight: CrossMarketInsight = Field(default_factory=CrossMarketInsight)
     risks: list[str]
     data_caveats: list[str]
     # --- New (Trailerhaus-Prompt-v1, all optional for backwards-compat) ---
@@ -678,45 +690,50 @@ class LLMReport(BaseModel):
     # ``InsightReport`` kippen. Private Attrs werden nicht serialisiert:
     # ein persistierter Brief laeuft beim Re-Hydrate als frischer
     # Dict-Parse wieder voll durch den Validator.
-    _de_vs_us_enforced: bool = PrivateAttr(default=False)
+    _cross_market_enforced: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
-    def _require_de_vs_us_when_de_data(self, info: ValidationInfo):
-        """Sprint lionsgate-cross-market-conditional (10.06.2026):
-        ``cross_market_insight.de_vs_us`` ist im Feld-Schema Optional
-        (lionsgate hat keinen DE-Channel), die Pflicht fuer die acht
-        Voll-Pairs lebt hier — datengetrieben ueber den Validation-
-        Context der beiden Call-Sites in ``insight_engine``:
-        Generierung (``generate_weekly_report``, Signal aus
-        ``agg.de_channel``) und Cache-Hydrate
-        (``_hydrate_from_persisted``, Signal aus
-        ``aggregation.de_channel``).
+    def _require_cross_market_when_data(self, info: ValidationInfo):
+        """Datengetriebene Pflicht der Cross-Market-Felder — zwei getrennte
+        Checks, beide ueber den Validation-Context der Call-Sites in
+        ``insight_engine`` (Generierung + Cache-Hydrate):
 
-        Defensiver Default: FEHLENDER Context (``info.context is None``
-        oder Key fehlt) heisst Pflicht AN — ein Aufrufer ohne Context
-        bekommt das alte harte Verhalten, nichts rutscht still durch.
-        DE-lose Pairs laufen ausschliesslich ueber Call-Sites, die
-        explizit ``has_de_data=False`` liefern. Der Validator sitzt
-        bewusst auf ``LLMReport`` (nicht auf ``CrossMarketInsight``),
-        weil ``model_validate(context=...)`` auf diesem Modell
-        aufgerufen wird und ``info.context`` hier garantiert verfuegbar
-        ist, ohne von Context-Propagation in nested models abzuhaengen.
-        ``cross_market_insight`` ist required, der Zugriff darauf ist
-        in ``mode='after'`` immer sicher.
+        1. ``de_vs_us`` (#258-Vertrag, UNVERAENDERT): Pflicht, wenn das Pair
+           DE-Daten hat (``has_de_data``, Signal ``agg.de_channel is not
+           None``). lionsgate (kein DE-Channel) ist hier exempt.
+        2. ``transfer_opportunity`` (Sprint 15.06.2026): Pflicht nur bei
+           echter Cross-Market-Lage (``has_cross_market``). Das Signal ist
+           ``>= 2 Maerkte mit Posts UND > 0 Cross-Market-Matches`` — zwei
+           Maerkte mit unabhaengigen Posts sind keine vergleichbare Lage
+           (lionsgate KW24: 15/27 Posts, 0 Matches → keine Lage → leer ok).
 
-        Der ``_de_vs_us_enforced``-Marker (siehe Feld-Kommentar)
-        schaltet NUR die Re-Validierung derselben, bereits geprueften
-        Instanz stumm — jeder frische Parse (Dict/JSON), mit oder ohne
-        Context, laeuft voll durch die Pruefung.
+        Defensiver Default: FEHLENDER Context (``info.context is None`` oder
+        Key fehlt) heisst Pflicht AN — ein Aufrufer ohne Context bekommt das
+        alte harte Verhalten, nichts rutscht still durch. DE-/Lage-lose Pairs
+        laufen ausschliesslich ueber Call-Sites, die ``has_de_data`` bzw.
+        ``has_cross_market`` explizit ``False`` liefern.
+
+        Der ``_cross_market_enforced``-Marker schaltet NUR die Re-Validierung
+        derselben, bereits geprueften Instanz stumm (z.B. beim Verpacken in
+        ``InsightReport`` ohne Context) — jeder frische Parse (Dict/JSON),
+        mit oder ohne Context, laeuft voll durch die Pruefung. ``cross_market_
+        insight`` ist via ``default_factory`` immer ein Objekt, der Zugriff
+        ist in ``mode='after'`` damit immer sicher.
         """
-        if self._de_vs_us_enforced:
+        if self._cross_market_enforced:
             return self
         ctx = info.context or {}
-        if ctx.get("has_de_data", True) and not (self.cross_market_insight.de_vs_us or "").strip():
+        cmi = self.cross_market_insight
+        if ctx.get("has_de_data", True) and not (cmi.de_vs_us or "").strip():
             raise ValueError(
                 "cross_market_insight.de_vs_us ist Pflicht, wenn das Pair DE-Daten hat"
             )
-        self._de_vs_us_enforced = True
+        if ctx.get("has_cross_market", True) and not (cmi.transfer_opportunity or "").strip():
+            raise ValueError(
+                "cross_market_insight.transfer_opportunity ist Pflicht, "
+                "wenn eine Cross-Market-Lage besteht"
+            )
+        self._cross_market_enforced = True
         return self
 
 
