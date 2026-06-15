@@ -159,13 +159,14 @@ def test_cron_triggers_brief_gen_for_all_enabled_pairs(db, monkeypatch):
         assert briefs["errors"] == []
 
 
-def test_cron_brief_gen_skipped_when_disabled(db, monkeypatch):
+def test_cron_brief_gen_skipped_when_disabled(db, monkeypatch, caplog):
     monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "false")
     brief_mock = MagicMock()
     _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
     run_id = _seed_run(db)
 
-    asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+    with caplog.at_level(logging.CRITICAL, logger="app.api.cron"):
+        asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
 
     assert brief_mock.call_count == 0
     with Session(db) as session:
@@ -176,6 +177,16 @@ def test_cron_brief_gen_skipped_when_disabled(db, monkeypatch):
         assert briefs["skipped_cache_hit"] == 0
         assert briefs["failed"] == 0
         assert briefs["cost_usd_cents"] == 0
+
+    # ``enabled=False`` mit allen Countern auf 0 darf KEINEN silent_failure
+    # auslösen — beide Variante-B-Muster (silent/all_failed) verlangen
+    # ``enabled`` truthy. Schützt davor, dass ein Drop des enabled-Guards
+    # einen deaktivierten Run fälschlich als ``silent`` meldet.
+    silent_failure_records = [
+        r for r in caplog.records
+        if "cron_brief_gen.silent_failure" in r.getMessage()
+    ]
+    assert silent_failure_records == []
 
 
 def test_cron_brief_gen_handles_per_pair_failure(db, monkeypatch):
