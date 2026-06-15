@@ -336,6 +336,132 @@ def _seed_brief_rows(db, *, anchor: datetime) -> int:
     return n
 
 
+def _setup_controlled_pairs(monkeypatch, n: int) -> list[str]:
+    """Monkeypatch the cron-module ``PAIRS`` to exactly ``n`` enabled fake
+    pairs and neutralise the forecast-warmup stage (which also iterates
+    ``PAIRS``) so that ONLY the brief-gen counters drive the assertion.
+    Returns the ordered pair keys. Used by the Variante-C quote tests to pin
+    precise generated/failed/cache_hit splits independent of the real roster."""
+    fake = {f"pair{i}": {"enabled": True} for i in range(n)}
+    monkeypatch.setattr(cron_module, "PAIRS", fake)
+    monkeypatch.setattr(
+        cron_module, "generate_er_forecast",
+        lambda *a, **k: {"einordnung_source": "no_einordnung"},
+    )
+    return list(fake.keys())
+
+
+def _seed_cache_rows_for(db, pair_keys, *, anchor: datetime) -> None:
+    """Seed one persisted InsightReport per given ``pair_key`` for the ISO week
+    of ``anchor`` so the cron cache-hit pre-check counts them as
+    ``skipped_cache_hit`` (and never reaches the brief-gen mock)."""
+    from app.models.entities import InsightReport
+    iso = anchor.isocalendar()
+    with Session(db) as session:
+        for k in pair_keys:
+            session.add(InsightReport(
+                pair_key=k,
+                iso_year=iso.year,
+                iso_week=iso.week,
+                aggregation={},
+                llm_output={},
+                model="seed",
+            ))
+        session.commit()
+
+
+def _run_briefs(db) -> dict:
+    """Run a default (force=false, completed-week) cron and return the briefs
+    summary. Helper for the Variante-C quote matrix."""
+    run_id = _seed_run(db)
+    asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+    with Session(db) as session:
+        return session.get(CronRun, run_id).summary_json["briefs"]
+
+
+def test_cron_brief_gen_quote_below_threshold_no_alert(db, monkeypatch, caplog):
+    """Variante C, Fall 0/1/8: 1 frisches Failure neben 8 legitimen Cache-Hits.
+    Quote 1/9 = 0.11 < 0.5 → KEIN Record (der behobene Fehlalarm)."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    keys = _setup_controlled_pairs(monkeypatch, 9)
+    brief_mock = MagicMock(side_effect=RuntimeError("one fresh failure"))
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    anchor = datetime.now(timezone.utc) - timedelta(days=1)
+    _seed_cache_rows_for(db, keys[:8], anchor=anchor)  # 8 cached, 1 fresh
+
+    with caplog.at_level(logging.CRITICAL, logger="app.api.cron"):
+        briefs = _run_briefs(db)
+
+    assert brief_mock.call_count == 1
+    assert (briefs["generated"], briefs["failed"], briefs["skipped_cache_hit"]) == (0, 1, 8)
+    records = [r for r in caplog.records if "cron_brief_gen.silent_failure" in r.getMessage()]
+    assert records == []
+
+
+def test_cron_brief_gen_quote_at_threshold_alerts_despite_cache(db, monkeypatch, caplog):
+    """Variante C, Fall 0/8/1: 8 Failures, nur 1 Cache-Hit. Quote 8/9 = 0.89
+    >= 0.5 → Record. Die geschlossene Maskierungs-Blindstelle: ein einzelner
+    Cache-Hit unterdrückt den Massenausfall NICHT mehr."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    keys = _setup_controlled_pairs(monkeypatch, 9)
+    brief_mock = MagicMock(side_effect=RuntimeError("mass failure"))
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    anchor = datetime.now(timezone.utc) - timedelta(days=1)
+    _seed_cache_rows_for(db, keys[:1], anchor=anchor)  # 1 cached, 8 fresh
+
+    with caplog.at_level(logging.CRITICAL, logger="app.api.cron"):
+        briefs = _run_briefs(db)
+
+    assert brief_mock.call_count == 8
+    assert (briefs["generated"], briefs["failed"], briefs["skipped_cache_hit"]) == (0, 8, 1)
+    records = [r for r in caplog.records if "cron_brief_gen.silent_failure" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].failure_mode == "all_failed"
+
+
+def test_cron_brief_gen_quote_total_failure_n9_alerts(db, monkeypatch, caplog):
+    """Variante C, Fall 0/9/0 (konkret n=9): jeder Pair frisch versucht und
+    gescheitert, kein Cache. Quote 9/9 = 1.0 → Record."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    _setup_controlled_pairs(monkeypatch, 9)
+    brief_mock = MagicMock(side_effect=RuntimeError("total failure"))
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+
+    with caplog.at_level(logging.CRITICAL, logger="app.api.cron"):
+        briefs = _run_briefs(db)
+
+    assert brief_mock.call_count == 9
+    assert (briefs["generated"], briefs["failed"], briefs["skipped_cache_hit"]) == (0, 9, 0)
+    records = [r for r in caplog.records if "cron_brief_gen.silent_failure" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].failure_mode == "all_failed"
+
+
+def test_cron_brief_gen_partial_failure_with_generated_no_alert(db, monkeypatch, caplog):
+    """Variante C, Fall 5/3/0: 5 frisch erzeugt, 3 gescheitert, kein Cache.
+    ``generated > 0`` → all_failed greift nicht (verlangt generated==0), kein
+    Record — auch wenn die Failure-Quote über 0.5 läge wäre generated==0 die
+    harte Voraussetzung. Normalbetrieb mit Teilfehlern alarmiert nicht."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    keys = _setup_controlled_pairs(monkeypatch, 8)
+    failing = set(keys[:3])
+
+    def side_effect(session, pair_key, **kwargs):
+        if pair_key in failing:
+            raise RuntimeError("partial fail")
+        return SimpleNamespace(cost_usd_estimate=0.0, llm_output=object())
+
+    brief_mock = MagicMock(side_effect=side_effect)
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+
+    with caplog.at_level(logging.CRITICAL, logger="app.api.cron"):
+        briefs = _run_briefs(db)
+
+    assert (briefs["generated"], briefs["failed"], briefs["skipped_cache_hit"]) == (5, 3, 0)
+    records = [r for r in caplog.records if "cron_brief_gen.silent_failure" in r.getMessage()]
+    assert records == []
+
+
 def test_cron_default_passes_no_force_and_completed_week(db, monkeypatch):
     """Regression-Guard: ohne target_week/force (= wöchentlicher GitHub-Action-
     Pfad) ruft die Brief-Stage ``generate_and_persist_report`` mit

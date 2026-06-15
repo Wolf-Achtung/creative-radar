@@ -1211,9 +1211,22 @@ async def _run_cron_sync_background(
             #   1. silent     — der Pfad hat nichts getan (nichts generiert,
             #      nichts gecacht, nichts versucht/gescheitert): Mock-Leak,
             #      ENV-Toggle-Race, Code-Pfad-Regression.
-            #   2. all_failed — der Pfad lief, aber JEDER Versuch scheiterte
-            #      (0 generiert, >0 failed): das laute Pendant, unabhängig
-            #      von den Kosten.
+            #   2. all_failed — kein Brief frisch erzeugt UND mindestens die
+            #      Hälfte aller enabled-Pairs gescheitert (Quote, Variante C,
+            #      PR #270). Schema-Garantie: jeder enabled-Pair landet in genau
+            #      einem Bucket, also ``generated + failed + cache_hit ==
+            #      Anzahl enabled-Pairs`` — die Quote ``failed / total`` ist
+            #      damit ohne ``PAIRS``-Import wohldefiniert. Die 0.5-Schwelle
+            #      ist nicht willkürlich: bei ``generated == 0`` heißt sie
+            #      "die Mehrheit der versuchten Pairs ist gescheitert und null
+            #      frische Briefs liegen vor" — ein echter (Teil-)Totalausfall.
+            #      Cache-Hits zählen dabei in ``total`` mit, maskieren aber
+            #      nichts: ein einzelner Cache-Hit neben vielen Failures drückt
+            #      die Quote nicht unter 0.5 (0/8/1 → 0.89 → Alarm), und ein
+            #      einzelnes Failure neben vielen Cache-Hits löst keinen
+            #      Fehlalarm aus (0/1/8 → 0.11 → still). ``total > 0`` ist
+            #      zwingender Division-Guard: ein enabled-Lauf ohne Pairs hat
+            #      total=0 und fällt sauber in ``silent`` (kein ZeroDivision).
             # Ein reiner Cache-Run (generated=0, failed=0, skipped_cache_hit>0)
             # ist KEIN Ausfall und löst keinen Alarm aus. ``anthropic_cost_usd``
             # bleibt im Payload als Diagnose-Info, ist aber kein Trigger mehr.
@@ -1224,8 +1237,14 @@ async def _run_cron_sync_background(
             cache_hit = briefs.get("skipped_cache_hit", 0)
             enabled = briefs.get("enabled")
 
-            silent = enabled and (generated + failed + cache_hit) == 0
-            all_failed = enabled and generated == 0 and failed > 0
+            total = generated + failed + cache_hit
+            silent = enabled and total == 0
+            all_failed = (
+                enabled
+                and generated == 0
+                and total > 0
+                and (failed / total) >= 0.5
+            )
 
             if silent or all_failed:
                 logger.critical(
