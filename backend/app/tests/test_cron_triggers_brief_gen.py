@@ -189,6 +189,59 @@ def test_cron_brief_gen_skipped_when_disabled(db, monkeypatch, caplog):
     assert silent_failure_records == []
 
 
+def test_cron_brief_gen_pairs_filter_only_generates_requested(db, monkeypatch):
+    """Sprint 16.06.2026 — pair-gescopter Lauf: ``brief_pairs=['disney']`` →
+    NUR disney wird in der Brief-Stage angefasst; alle anderen Pairs bleiben
+    unberührt."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=1.0, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    run_id = _seed_run(db)
+
+    asyncio.run(cron_module._run_cron_sync_background(
+        run_id, run_index=0, brief_pairs=["disney"],
+    ))
+
+    called = [c.args[1] for c in brief_mock.call_args_list]
+    assert called == ["disney"]
+    with Session(db) as session:
+        briefs = session.get(CronRun, run_id).summary_json["briefs"]
+        assert briefs["generated"] == 1
+
+
+def test_cron_brief_gen_pairs_filter_multiple(db, monkeypatch):
+    """Mehrere Pairs: genau diese, sonst keine."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=1.0, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    run_id = _seed_run(db)
+
+    asyncio.run(cron_module._run_cron_sync_background(
+        run_id, run_index=0, brief_pairs=["disney", "lionsgate"],
+    ))
+
+    assert sorted(c.args[1] for c in brief_mock.call_args_list) == ["disney", "lionsgate"]
+
+
+def test_cron_brief_gen_no_pairs_filter_generates_all(db, monkeypatch):
+    """Regression/Backward-Compat: ohne ``brief_pairs`` werden alle enabled
+    Pairs generiert (heutiges Verhalten)."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(cost_usd_estimate=1.0, llm_output=object())
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    run_id = _seed_run(db)
+
+    asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+
+    assert brief_mock.call_count == _enabled_pair_count()
+
+
 def test_cron_brief_gen_handles_per_pair_failure(db, monkeypatch):
     monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
     failing_pair = "disney"

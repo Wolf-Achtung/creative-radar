@@ -513,6 +513,7 @@ def _run_brief_generation_after_sync(
     *,
     brief_now: datetime | None = None,
     force: bool = False,
+    pairs: list[str] | None = None,
 ) -> dict:
     """Cadence-Sprint 2026-05-17 — Brief-Generation als Cron-Stage.
 
@@ -566,11 +567,20 @@ def _run_brief_generation_after_sync(
     iso_cal = brief_now.isocalendar()
     target_iso_year, target_iso_week = iso_cal.year, iso_cal.week
     enabled_pairs = [k for k, v in PAIRS.items() if v.get("enabled", False)]
+    # Pair-gescopter Selektiv-Lauf (Sprint 16.06.2026): ``pairs`` schneidet die
+    # Brief-Stage auf genau die angeforderten Keys; alle anderen Stages
+    # (Scrape/Rematch/Vision/Roundups/Cutter/Forecast) bleiben unberuehrt. Die
+    # Gueltigkeit (bekannt + enabled) ist bereits im Endpoint geprueft (400),
+    # daher hier reines Intersect — None = kein Filter (heutiges Verhalten).
+    if pairs is not None:
+        requested = set(pairs)
+        enabled_pairs = [k for k in enabled_pairs if k in requested]
 
     logger.info(
         "brief_gen.start",
         extra={
             "pairs": len(enabled_pairs),
+            "pairs_filter": sorted(pairs) if pairs is not None else None,
             "target_iso_year": target_iso_year,
             "target_iso_week": target_iso_week,
             "force": force,
@@ -1011,6 +1021,7 @@ async def _run_cron_sync_background(
     run_index: int,
     target_week: str = "completed",
     force: bool = False,
+    brief_pairs: list[str] | None = None,
 ) -> None:
     """Background task body. Owns its own Session — the request session is
     closed by the time this runs.
@@ -1145,7 +1156,8 @@ async def _run_cron_sync_background(
             # ``aggregate_pair`` (insight_engine.py:1880), nur explizit
             # ein Tag zurück.
             summary["briefs"] = await asyncio.to_thread(
-                _run_brief_generation_after_sync, session, brief_now=brief_now, force=force
+                _run_brief_generation_after_sync,
+                session, brief_now=brief_now, force=force, pairs=brief_pairs,
             )
             # Master-Plan-Schritt-4 — Segment-Roundup-Block additiv NACH
             # den Pair-Briefs (Konzept §6, Wolf-Festlegung 25.05.). Der
@@ -1294,12 +1306,54 @@ async def cron_sync_all(
             "``false`` hält den wöchentlichen Cron byte-identisch."
         ),
     ),
+    pairs: str | None = Query(
+        None,
+        description=(
+            "Kommagetrennte Pair-Keys — NUR diese Pairs werden in der "
+            "Brief-Gen-Stage (neu) generiert; alle anderen Stages "
+            "(Scrape/Rematch/Vision/Roundups/Cutter/Forecast) laufen "
+            "unverändert voll. Ohne Wert: alle enabled Pairs (heutiges "
+            "Verhalten). Spart NUR Brief-Kosten — Roundups, Cutter und Scrape "
+            "kosten unverändert. Unbekannte oder disabled Pairs → 400."
+        ),
+    ),
     session: Session = Depends(get_session),
 ):
     # Query-Params (nicht Body): der GitHub-Action-``curl`` sendet einen leeren
     # POST ohne Body — ein required/optionaler Pydantic-Body würde dort
     # 422en. Ohne Query-Params greifen die Defaults completed/false →
     # wöchentlicher Lauf unverändert.
+
+    # Pair-Filter (Sprint 16.06.2026): synchron im Handler validieren, damit ein
+    # 400 den Aufrufer erreicht statt im Background-Task verloren zu gehen. Die
+    # eigentliche Arbeit bleibt im BackgroundTask → Antwort weiterhin 202.
+    brief_pairs: list[str] | None = None
+    if pairs is not None:
+        requested = [p.strip() for p in pairs.split(",") if p.strip()]
+        if not requested:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "pairs-Param gesetzt aber leer."},
+            )
+        unknown = [p for p in requested if p not in PAIRS]
+        if unknown:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": (
+                        f"Unbekannte Pairs: {unknown}. "
+                        f"Verfügbar: {sorted(PAIRS.keys())}"
+                    )
+                },
+            )
+        disabled = [p for p in requested if not PAIRS[p].get("enabled", False)]
+        if disabled:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": f"Pair(s) disabled: {disabled}."},
+            )
+        brief_pairs = requested
+
     _reap_stale_runs(session)
 
     running = session.exec(select(CronRun).where(CronRun.status == "running")).first()
@@ -1320,12 +1374,12 @@ async def cron_sync_all(
     session.refresh(run)
 
     background_tasks.add_task(
-        _run_cron_sync_background, run.id, run_index, target_week, force
+        _run_cron_sync_background, run.id, run_index, target_week, force, brief_pairs
     )
 
     logger.info(
-        "cron-sync queued: run_id=%s run_index=%d target_week=%s force=%s",
-        run.id, run_index, target_week, force,
+        "cron-sync queued: run_id=%s run_index=%d target_week=%s force=%s pairs=%s",
+        run.id, run_index, target_week, force, brief_pairs,
     )
 
     return JSONResponse(
@@ -1337,6 +1391,7 @@ async def cron_sync_all(
             "run_index": run_index,
             "target_week": target_week,
             "force": force,
+            "pairs": brief_pairs,
             "message": "cron sync started in background",
         },
     )
