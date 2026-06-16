@@ -237,6 +237,82 @@ def test_cron_sync_blocks_parallel_trigger_with_409(client_with_auth, db):
     assert body["run_id"] == existing_id
 
 
+# ---------- pair-scoped selective brief regen (Sprint 16.06.2026) ----------
+
+
+def test_cron_sync_unknown_pair_returns_400(client_with_auth, db):
+    """Tippfehler im pairs-Param → 400, KEIN Lauf gequeued (Validierung läuft
+    synchron im Handler, vor _reap_stale_runs/BackgroundTask)."""
+    response = client_with_auth.post(
+        "/api/admin/cron/sync-all?pairs=disney,tippfehler",
+        headers={"Authorization": "Bearer TESTTOKEN"},
+    )
+    assert response.status_code == 400, response.text
+    assert "Unbekannte Pairs" in response.json()["detail"]
+    with Session(db) as session:
+        assert list(session.exec(select(CronRun)).all()) == []
+
+
+def test_cron_sync_disabled_pair_returns_400(client_with_auth, db, monkeypatch):
+    """Gültiger, aber disabled Pair → 400 mit eigener Meldung (nicht stiller
+    No-Op). Eigene Meldung, abgegrenzt von 'Unbekannte Pairs'."""
+    import copy
+    from app.services.insight_engine import PAIRS
+
+    fake = copy.deepcopy(PAIRS)
+    fake["lionsgate"]["enabled"] = False
+    monkeypatch.setattr("app.api.cron.PAIRS", fake)
+
+    response = client_with_auth.post(
+        "/api/admin/cron/sync-all?pairs=lionsgate",
+        headers={"Authorization": "Bearer TESTTOKEN"},
+    )
+    assert response.status_code == 400, response.text
+    assert "disabled" in response.json()["detail"]
+    with Session(db) as session:
+        assert list(session.exec(select(CronRun)).all()) == []
+
+
+def test_cron_sync_empty_pairs_returns_400(client_with_auth, db):
+    """pairs gesetzt aber leer (z.B. ',,') → 400."""
+    response = client_with_auth.post(
+        "/api/admin/cron/sync-all?pairs=,,",
+        headers={"Authorization": "Bearer TESTTOKEN"},
+    )
+    assert response.status_code == 400, response.text
+    assert "leer" in response.json()["detail"]
+
+
+def test_cron_sync_pairs_filter_flows_into_202(client_with_auth, db):
+    """Gültige pairs-Liste → 202 (async unverändert), in der Antwort gespiegelt."""
+    _seed_ig_channel(db, handle="netflixde")
+    with patch("app.api.cron.run_public_channel_monitor",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("app.api.cron.run_tiktok_profile_monitor",
+               new_callable=AsyncMock, return_value=[]):
+        response = client_with_auth.post(
+            "/api/admin/cron/sync-all?pairs=disney,lionsgate",
+            headers={"Authorization": "Bearer TESTTOKEN"},
+        )
+    assert response.status_code == 202, response.text
+    assert response.json()["pairs"] == ["disney", "lionsgate"]
+
+
+def test_cron_sync_no_pairs_param_is_none(client_with_auth, db):
+    """Backward-Compat: ohne pairs-Param ist ``pairs`` None → alle Pairs."""
+    _seed_ig_channel(db, handle="netflixde")
+    with patch("app.api.cron.run_public_channel_monitor",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("app.api.cron.run_tiktok_profile_monitor",
+               new_callable=AsyncMock, return_value=[]):
+        response = client_with_auth.post(
+            "/api/admin/cron/sync-all",
+            headers={"Authorization": "Bearer TESTTOKEN"},
+        )
+    assert response.status_code == 202, response.text
+    assert response.json()["pairs"] is None
+
+
 def test_cron_sync_reaps_stale_run_and_starts_new(client_with_auth, db):
     stale_started = datetime.now(timezone.utc) - timedelta(hours=2)
     with Session(db) as session:
