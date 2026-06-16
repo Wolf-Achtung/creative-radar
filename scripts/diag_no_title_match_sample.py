@@ -1,55 +1,44 @@
 #!/usr/bin/env python3
-"""Diagnose Stufe-2 / Weg-1 — Sample der ``no_title_match`` sub2-Posts.
+"""Diagnose Stufe-2 / Weg-1 — WARUM matcht der Matcher die sub2-Posts nicht?
 
-NUR DIAGNOSE. Read-only. Schreibt nichts, fasst keine Engine an.
+NUR DIAGNOSE. Read-only. ``find_best_title_match`` liest nur (Title-Bundle),
+schreibt nichts; dieses Script committet nichts und fasst keine Engine an.
 
-Hintergrund: Die UNKNOWN-Zerlegung (scripts/diag_days_to_release_unknown.py)
-zeigt zu 96-97 % ``sub2 = assets_no_title_id`` — der Post hat Assets, aber
-keines davon hat eine ``title_id`` gesetzt. Vision laeuft, der Matcher
-verwirft nichts, aber er findet keinen Titel.
+Kontext: Die sub2-Kohorte (``assets_no_title_id``) dominiert no_title_match zu
+96-97 %. Eine erste naive Substring-Katalog-Probe lieferte irrefuehrend "100 % D
+(kein Treffer)" — WEIL die naive Probe selbst KEINE Hashtag-Normalisierung macht
+(``#ToyStory5`` ist kein Wortgrenzen-Treffer von "toy story 5"). Genau diese
+Normalisierung ist aber Teil des echten Matchers.
 
-Dieses Script zieht eine Stichprobe der sub2-Posts und zeigt fuer jeden
-Post **genau die Felder, die der Matcher liest** (siehe
-``title_rematch._build_match_fields``):
+Dieses Script laeuft daher den ECHTEN Matcher (``find_best_title_match`` mit
+denselben Feldern wie ``title_rematch._build_match_fields``) pro Asset und zeigt,
+was er zurueckgibt — plus eine HASHTAG-BEWUSSTE Katalog-Probe (mit
+``_split_hashtag`` + Compact-Form, wie der Matcher selbst), um Recall-Miss
+(Titel im Katalog, Matcher findet ihn nicht) von Katalog-Luecke (Titel nicht in
+der Title-Tabelle) zu trennen.
 
-    caption (Post)               — post.caption
-    ocr_text (Asset)             — asset.ocr_text
-    detected_keywords (Asset)    — asset.detected_keywords (JSON-Liste)
-    ai_summary_de (Asset)        — asset.ai_summary_de
-    ai_summary_en (Asset)        — asset.ai_summary_en
-    placement_title_text (Asset) — asset.placement_title_text  (suggested_title)
-    visual_notes (Asset)         — asset.visual_notes
-
-Zusatzfelder, die der Matcher NICHT liest, aber fuer die Diagnose relevant
-sind:
-
-    vision_description (Asset)   — neue Sprint-5.3.1-Pipeline. Wenn voll
-                                   und die obigen Felder leer sind: der
-                                   Matcher haette einen Input, sieht ihn
-                                   aber nicht (Code-Lese-Luecke).
-    visual_analysis_status       — pending / analyzed / text_fallback / ...
-    analyzed_at                  — wann die neue Pipeline lief
-
-Plus eine **naive Katalog-Probe**: gibt es im Title-Katalog einen
-Eintrag, dessen ``title_original`` oder ``title_local`` als word-bounded
-Substring in einem der Matcher-Eingabefelder vorkommt? Wenn ja, liegt der
-Titel in der DB und ein einfacher Substring-Matcher haette ihn gefunden —
-das deutet auf Recall-Schwaeche der Matching-Logik (Fall 3) statt
-Katalog-Luecke (Fall 2).
-
-Output je Post: post_url / published_at / Matcher-Eingaben / vision_description /
-naive Katalog-Hits / kurze Heuristik-Klassifikation am Ende.
+Klassifikation pro Post (auf Basis des ECHTEN Matcher-Ergebnisses):
+  A empty_input            — keine Matcher-Felder UND kein vision_description
+  B vision_only            — Matcher-Felder leer, aber vision_description gefuellt
+                             (der Matcher liest dieses Sprint-5.3.1-Feld NICHT)
+  E found_but_unsafe       — Matcher liefert einen Titel, aber is_safe_auto_match
+                             ist False (confidence < 0.95, unsichere source, oder
+                             only_from_placement) → Recall/Schwellen-Defekt
+  C recall_miss            — Matcher liefert KEINEN Titel, aber die hashtag-bewusste
+                             Katalog-Probe findet einen aktiven Titel im Text
+                             → Matching-Logik verfehlt ihn (Recall)
+  D catalog_gap_or_nofilm  — Matcher leer UND Katalog-Probe leer → Titel nicht im
+                             Katalog ODER legitim ohne Filmbezug (BTS/Brand) —
+                             Wolf-Auge entscheidet welches von beiden
 
 Aufruf:
     source ~/.creative-radar/db.env && \\
         DATABASE_URL="$CR_DB_URL" python -m scripts.diag_no_title_match_sample
-    # optional: explizit pair + limit
-    DATABASE_URL="$CR_DB_URL" python -m scripts.diag_no_title_match_sample --pair disney --limit 12
+    DATABASE_URL="$CR_DB_URL" python -m scripts.diag_no_title_match_sample --pair disney --limit 15
 """
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -70,17 +59,15 @@ def _die(msg: str, code: int = 2) -> "NoReturn":  # type: ignore[name-defined]
 def _has_db_config() -> bool:
     if any(os.environ.get(v) for v in ("DATABASE_URL", "DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL")):
         return True
-    pg = ("PGHOST", "PGUSER", "PGPASSWORD", "PGDATABASE")
-    return all(os.environ.get(v) for v in pg)
+    return all(os.environ.get(v) for v in ("PGHOST", "PGUSER", "PGPASSWORD", "PGDATABASE"))
 
 
-def _truncate(s, n: int = 220) -> str:
+def _truncate(s, n: int = 200) -> str:
     if s is None:
         return "<NULL>"
-    text = str(s).strip()
+    text = re.sub(r"\s+", " ", str(s).strip())
     if not text:
         return "<leer>"
-    text = re.sub(r"\s+", " ", text)
     return text if len(text) <= n else text[:n].rstrip() + " …"
 
 
@@ -101,12 +88,11 @@ def _parse_anchor(raw: str) -> datetime:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="diag_no_title_match_sample.py",
-        description="Sample der sub2 'assets_no_title_id'-Posts mit den Feldern, die "
-                    "der Matcher liest. Read-only.",
+        description="Laeuft den echten Matcher auf sub2-Posts + hashtag-bewusste "
+                    "Katalog-Probe. Read-only.",
     )
     parser.add_argument("--pair", default="disney", help="Pair-Key (Default: disney).")
-    parser.add_argument("--limit", type=int, default=12,
-                        help="Wie viele Posts zeigen (Default: 12).")
+    parser.add_argument("--limit", type=int, default=15, help="Wie viele Posts (Default: 15).")
     parser.add_argument("--anchor", default=None,
                         help="ISO-Datum/Zeit; Default: last_completed_iso_week_anchor().")
     args = parser.parse_args()
@@ -118,9 +104,18 @@ def main() -> None:
     from sqlmodel import Session, select
 
     from app.database import engine
-    from app.models.entities import Asset, Channel, Post, Title
+    from app.models.entities import Asset, Channel, Post, ReviewStatus, Title
     from app.services.insight_engine import (
         PAIRS, _platforms_dict_for, last_completed_iso_week_anchor,
+    )
+    from app.services.title_rematch import _build_match_fields
+    from app.services.whitelist_matcher import (
+        _normalize_text,
+        _split_hashtag,
+        build_normalized_index,
+        find_best_title_match,
+        is_safe_auto_match,
+        load_title_bundle,
     )
 
     if args.pair not in PAIRS:
@@ -148,8 +143,6 @@ def main() -> None:
             _die(f"FEHLER: 0 Channels fuer {len(handles)} PAIRS-Handles "
                  f"(.lower()-Match gegen Channel.handle).", code=1)
 
-        # --- sub2-Posts identifizieren (spiegelt die Engine-Bedingung) ---
-        # 1) alle Posts im 30d-Fenster fuer das Pair
         posts = list(session.exec(
             select(Post).where(Post.channel_id.in_(channel_ids)).where(
                 sa.or_(
@@ -164,80 +157,33 @@ def main() -> None:
             print(f"# Keine Posts im Fenster fuer {args.pair} "
                   f"({window_start.date()}..{window_end.date()}).")
             return
-
         post_ids = [p.id for p in posts]
 
-        # 2) sub2 = Post hat >=1 Asset, ABER keines mit title_id (egal welcher review_status).
-        #    (Wenn ein title_id-Asset existiert, faellt der Post entweder unter classified
-        #    [wenn non-rejected] oder unter sub3 [wenn alle rejected] — beide raus aus sub2.)
-        asset_rows = session.exec(
-            select(Asset.post_id, Asset.title_id)
-            .where(Asset.post_id.in_(post_ids))
+        # sub2 = >=1 Asset, aber KEINES mit title_id (egal welcher review_status).
+        comp_rows = session.exec(
+            select(Asset.post_id, Asset.title_id).where(Asset.post_id.in_(post_ids))
         ).all()
         has_any_asset: set = set()
         has_title_id_asset: set = set()
-        for pid, tid in asset_rows:
+        for pid, tid in comp_rows:
             has_any_asset.add(pid)
             if tid is not None:
                 has_title_id_asset.add(pid)
         sub2_posts = [p for p in posts
                       if p.id in has_any_asset and p.id not in has_title_id_asset]
-
-        # Wichtig: das schliesst auch Posts mit ein, deren title_id-Asset evtl. rejected
-        # war (sub3) — nein, die haben title_id != NULL, sind also raus. Sauber sub2.
-
-        # Posts, die der ``title_by_post``-Filter der Engine DENNOCH gefangen haette
-        # (classified) sind nicht in sub2_posts.
-
         if not sub2_posts:
             print(f"# Keine sub2-Posts (assets_no_title_id) fuer {args.pair} im Fenster.")
             return
-
         sample = sub2_posts[: args.limit]
 
-        # --- Title-Katalog vorladen fuer die naive Substring-Probe ---
-        # Pool aller aktiven Titles, deren ``title_original`` mindestens 4 Zeichen
-        # hat (kuerzere geben zu viele False-Positives). Aliases werden flach
-        # aufgeloest. Die Probe ist absichtlich naiv (word-boundary lowercased),
-        # damit sie die Frage beantwortet: "Wuerde ein duemmster-Substring-Matcher
-        # einen Titel finden?". Wenn ja und der echte Matcher hat NICHT gefunden,
-        # ist die Logik schuld, nicht der Katalog.
-        titles = list(session.exec(
-            select(Title.title_original, Title.title_local, Title.aliases, Title.franchise)
-            .where(Title.active == True)  # noqa: E712
-        ).all())
-        catalog_entries: list[tuple[str, re.Pattern]] = []
-        for original, local, aliases, franchise in titles:
-            names: list[str] = []
-            for v in (original, local, franchise):
-                if v and isinstance(v, str) and len(v.strip()) >= 4:
-                    names.append(v.strip())
-            if isinstance(aliases, list):
-                for a in aliases:
-                    if isinstance(a, str) and len(a.strip()) >= 4:
-                        names.append(a.strip())
-            elif isinstance(aliases, str):
-                # JSON koennte als String ankommen
-                try:
-                    parsed = json.loads(aliases)
-                    if isinstance(parsed, list):
-                        for a in parsed:
-                            if isinstance(a, str) and len(a.strip()) >= 4:
-                                names.append(a.strip())
-                except (ValueError, TypeError):
-                    pass
-            for name in names:
-                # word-boundary lowercased
-                try:
-                    pattern = re.compile(r"\b" + re.escape(name.lower()) + r"\b")
-                except re.error:
-                    continue
-                catalog_entries.append((name, pattern))
+        # Matcher-Bundle EINMAL laden (wie der Cron-Rematch).
+        bundle = load_title_bundle(session)
+        norm_index = build_normalized_index(bundle)
+        # Compact-Index (space-stripped) fuer die hashtag-bewusste Katalog-Probe.
+        compact_to_norm = {n.replace(" ", ""): n for n in norm_index}
 
-        # --- Assets pro sample-Post laden (non-rejected, weil die wuerde der
-        # Matcher beim Re-Match wieder anfassen) ---
+        # Non-rejected Assets je sample-Post (das, was der Rematch wieder anfasst).
         sample_post_ids = [p.id for p in sample]
-        from app.models.entities import ReviewStatus
         sample_assets = list(session.exec(
             select(Asset).where(Asset.post_id.in_(sample_post_ids))
             .where(Asset.review_status != ReviewStatus.REJECTED)
@@ -247,106 +193,138 @@ def main() -> None:
         for a in sample_assets:
             assets_by_post.setdefault(a.post_id, []).append(a)
 
-        # --- Ausgabe ---
-        print(f"# sub2-Sample — pair={args.pair} anchor={window_end.date()} "
+        def catalog_reachable(text_blob: str) -> list[str]:
+            """Hashtag-bewusste Katalog-Probe: spiegelt _split_hashtag + Compact-
+            Form. Liefert die aktiven Titel, die der Matcher ueber Hashtag-Split
+            ODER Wortgrenzen-Substring SEHEN koennte. Wenn nicht-leer und der echte
+            Matcher liefert dennoch nichts → Recall-Miss."""
+            hits: list[str] = []
+            seen: set = set()
+            norm_blob = _normalize_text(text_blob)
+            # 1) Hashtag-Split-Form jedes Tags gegen den Norm-Index.
+            split_forms = {_split_hashtag(raw) for raw in re.findall(r"#[\wÀ-ÿ]+", text_blob)}
+            split_forms.discard("")
+            for sf in split_forms:
+                if sf in norm_index and sf not in seen:
+                    hits.append(sf); seen.add(sf)
+                compact = sf.replace(" ", "")
+                if len(compact) > 4:
+                    for ck, nk in compact_to_norm.items():
+                        if len(ck) > 4 and ck in compact and len(ck) / len(compact) >= 0.5 and nk not in seen:
+                            hits.append(nk); seen.add(nk)
+            # 2) Wortgrenzen-Substring im normalisierten Gesamttext.
+            for nk in norm_index:
+                if len(nk) >= 4 and nk not in seen:
+                    if re.search(r"\b" + re.escape(nk) + r"\b", norm_blob):
+                        hits.append(nk); seen.add(nk)
+            return hits[:6]
+
+        print(f"# sub2 Matcher-Diagnose — pair={args.pair} anchor={window_end.date()} "
               f"window={window_start.date()}..{window_end.date()}")
         print(f"# sub2_total={len(sub2_posts)}  showing={len(sample)}  "
-              f"catalog_active_titles={len(titles)}  catalog_name_patterns={len(catalog_entries)}")
+              f"active_titles={len(bundle)}  norm_index_keys={len(norm_index)}")
         print()
 
-        stat_no_input_text = 0
-        stat_text_no_catalog_hit = 0
-        stat_text_with_catalog_hit = 0
-        stat_vision_desc_only = 0
+        stats = {"A_empty": 0, "B_vision_only": 0, "E_found_unsafe": 0,
+                 "C_recall_miss": 0, "D_catalog_gap_or_nofilm": 0, "X_would_match": 0}
 
         for i, p in enumerate(sample, start=1):
-            mkt = channel_market_map.get(p.channel_id, "?")
             assets = assets_by_post.get(p.id, [])
-            # Engine-Sicht: irgendein Matcher-Feld im Asset gesetzt?
-            matcher_text_parts: list[str] = []
-            vision_desc_parts: list[str] = []
+            mkt = channel_market_map.get(p.channel_id, "?")
+
+            # Echten Matcher pro Asset laufen lassen, bestes Ergebnis behalten.
+            best = None  # (is_safe, confidence, MatchResult, asset)
+            any_matcher_input = False
+            any_vision_desc = False
+            for a in assets:
+                fields = _build_match_fields(a, p)
+                if any(
+                    (isinstance(v, str) and v.strip()) or (isinstance(v, list) and v)
+                    for v in fields.values()
+                ):
+                    any_matcher_input = True
+                if a.vision_description and a.vision_description.strip():
+                    any_vision_desc = True
+                m = find_best_title_match(
+                    session, p.caption or "", fields=fields,
+                    published_at=p.published_at,
+                    cached_bundle=bundle, cached_normalized_index=norm_index,
+                )
+                safe = is_safe_auto_match(m)
+                key = (1 if safe else 0, m.confidence)
+                if best is None or key > (1 if best[0] else 0, best[1].confidence):
+                    best = (safe, m, a)
+            safe, m, _a = best if best else (False, None, None)
+
+            blob_parts = [p.caption or ""]
             for a in assets:
                 for f in (a.ocr_text, a.ai_summary_de, a.ai_summary_en,
-                          a.placement_title_text, a.visual_notes):
-                    if f and isinstance(f, str) and f.strip():
-                        matcher_text_parts.append(f.strip())
-                if isinstance(a.detected_keywords, list) and a.detected_keywords:
-                    matcher_text_parts.extend(str(k) for k in a.detected_keywords if k)
-                if a.vision_description and a.vision_description.strip():
-                    vision_desc_parts.append(a.vision_description.strip())
-            if p.caption and p.caption.strip():
-                matcher_text_parts.append(p.caption.strip())
+                          a.placement_title_text, a.visual_notes, a.vision_description):
+                    if f:
+                        blob_parts.append(str(f))
+                if isinstance(a.detected_keywords, list):
+                    blob_parts.extend(str(k) for k in a.detected_keywords if k)
+            reachable = catalog_reachable(" ".join(blob_parts))
 
-            matcher_blob = " | ".join(matcher_text_parts).lower()
-            vision_blob = " | ".join(vision_desc_parts).lower()
-            search_blob = (matcher_blob + " " + vision_blob).strip()
-
-            catalog_hits: list[str] = []
-            seen = set()
-            for name, pat in catalog_entries:
-                if name.lower() in seen:
-                    continue
-                if pat.search(search_blob):
-                    catalog_hits.append(name)
-                    seen.add(name.lower())
-                    if len(catalog_hits) >= 5:
-                        break
-
-            # Heuristik-Klassifikation
-            if not matcher_text_parts and not vision_desc_parts:
-                klass = "A leerer_input (kein Text in Matcher-Feldern UND kein vision_description)"
-                stat_no_input_text += 1
-            elif not matcher_text_parts and vision_desc_parts:
-                klass = "B nur_vision_description (Matcher liest dieses Feld NICHT)"
-                stat_vision_desc_only += 1
-            elif catalog_hits:
-                klass = f"C text+katalog-treffer (naiver Substring fand: {catalog_hits[:3]}) → Logik-Recall"
-                stat_text_with_catalog_hit += 1
+            # Klassifikation auf Basis des echten Matcher-Ergebnisses.
+            if m is not None and m.title is not None and safe:
+                klass = "X would_match (Matcher liefert sicheren Treffer — Rematch wuerde setzen!)"
+                stats["X_would_match"] += 1
+            elif m is not None and m.title is not None and not safe:
+                klass = (f"E found_but_unsafe (source={m.source} conf={m.confidence:.2f} "
+                         f"→ unter Auto-Schwelle / unsicher)")
+                stats["E_found_unsafe"] += 1
+            elif not any_matcher_input and any_vision_desc:
+                klass = "B vision_only (Matcher-Felder leer, vision_description gefuellt → Lese-Luecke)"
+                stats["B_vision_only"] += 1
+            elif not any_matcher_input and not any_vision_desc:
+                klass = "A empty_input (kein Text fuer den Matcher)"
+                stats["A_empty"] += 1
+            elif reachable:
+                klass = f"C recall_miss (Katalog erreichbar: {reachable[:3]} — Matcher fand nichts)"
+                stats["C_recall_miss"] += 1
             else:
-                klass = "D text_ohne_katalog-treffer (Katalog-Luecke ODER kein Filmbezug)"
-                stat_text_no_catalog_hit += 1
+                klass = "D catalog_gap_or_nofilm (kein Katalog-Treffer → Luecke ODER kein Filmbezug)"
+                stats["D_catalog_gap_or_nofilm"] += 1
 
             statuses = sorted({a.visual_analysis_status for a in assets})
-            analyzed = sorted({a.analyzed_at.date().isoformat() for a in assets
-                               if a.analyzed_at is not None})
+            analyzed = sorted({a.analyzed_at.date().isoformat() for a in assets if a.analyzed_at})
             print(f"--- [{i:>2}/{len(sample)}] {args.pair} {mkt} "
                   f"published_at={p.published_at.isoformat() if p.published_at else '<NULL>'} ---")
             print(f"  post_url       : {p.post_url}")
-            print(f"  assets         : n={len(assets)} status={statuses} "
+            print(f"  assets         : n={len(assets)} visual_status={statuses} "
                   f"analyzed_at={analyzed or '<keiner>'}")
             print(f"  caption        : {_truncate(p.caption)}")
             for j, a in enumerate(assets, start=1):
-                print(f"  asset[{j}]")
-                print(f"    asset_type            : {getattr(a.asset_type, 'value', a.asset_type)}")
-                print(f"    placement_title_text  : {_truncate(a.placement_title_text)}")
-                print(f"    ocr_text              : {_truncate(a.ocr_text)}")
-                if isinstance(a.detected_keywords, list) and a.detected_keywords:
-                    print(f"    detected_keywords     : {a.detected_keywords[:8]}"
-                          f"{' …' if len(a.detected_keywords) > 8 else ''}")
-                else:
-                    print(f"    detected_keywords     : <leer>")
-                print(f"    ai_summary_de         : {_truncate(a.ai_summary_de)}")
-                print(f"    ai_summary_en         : {_truncate(a.ai_summary_en)}")
-                print(f"    visual_notes          : {_truncate(a.visual_notes)}")
-                print(f"    vision_description    : {_truncate(a.vision_description)}  "
-                      f"[nicht im Matcher]")
-            print(f"  katalog-probe  : {('hits=' + str(catalog_hits)) if catalog_hits else 'keine Treffer'}")
-            print(f"  klass-heuristik: {klass}")
+                kw = a.detected_keywords if isinstance(a.detected_keywords, list) else []
+                print(f"  asset[{j}] type={getattr(a.asset_type,'value',a.asset_type)}")
+                print(f"    placement_title_text: {_truncate(a.placement_title_text)}")
+                print(f"    ocr_text            : {_truncate(a.ocr_text)}")
+                print(f"    detected_keywords   : {kw[:8] if kw else '<leer>'}")
+                print(f"    ai_summary_de       : {_truncate(a.ai_summary_de)}")
+                print(f"    ai_summary_en       : {_truncate(a.ai_summary_en)}")
+                print(f"    vision_description  : {_truncate(a.vision_description)}  [NICHT im Matcher]")
+            if m is not None:
+                print(f"  MATCHER (echt) : source={m.source} confidence={m.confidence:.2f} "
+                      f"safe={safe} title={m.title.title_original if m.title else None!r} "
+                      f"suggested={m.suggested_title!r}")
+            print(f"  katalog-probe  : {reachable if reachable else 'keine erreichbaren Titel'}")
+            print(f"  KLASSE         : {klass}")
             print()
 
         total = len(sample)
         def pct(n): return f"{n} ({100.0 * n / total:.0f}%)" if total else f"{n}"
-        print("# Stichproben-Heuristik (NICHT die finale Klassifikation — Wolf-Auge entscheidet):")
-        print(f"#   A leerer_input                : {pct(stat_no_input_text)}")
-        print(f"#   B nur_vision_description      : {pct(stat_vision_desc_only)}")
-        print(f"#   C text + katalog-treffer      : {pct(stat_text_with_catalog_hit)}")
-        print(f"#   D text ohne katalog-treffer   : {pct(stat_text_no_catalog_hit)}")
+        print("# Klassen-Verteilung der Stichprobe (echter Matcher):")
+        print(f"#   A empty_input              : {pct(stats['A_empty'])}")
+        print(f"#   B vision_only              : {pct(stats['B_vision_only'])}   (Matcher-Lese-Luecke)")
+        print(f"#   E found_but_unsafe         : {pct(stats['E_found_unsafe'])}   (Recall/Schwelle)")
+        print(f"#   C recall_miss              : {pct(stats['C_recall_miss'])}   (Logik-Recall)")
+        print(f"#   D catalog_gap_or_nofilm    : {pct(stats['D_catalog_gap_or_nofilm'])}   (Katalog-Luecke ODER legitim titellos)")
+        print(f"#   X would_match (Anomalie)   : {pct(stats['X_would_match'])}")
         print("#")
-        print("# Lese-Schluessel:")
-        print("#   A → Vision liefert keinen Text → Vision-Output-Qualitaet / OCR-Pipeline")
-        print("#   B → Vision liefert Text, aber im Feld, das der Matcher nicht liest → Lese-Luecke im Matcher")
-        print("#   C → Matcher haette Treffer, hat aber nicht gefunden → Matching-Logik (Recall)")
-        print("#   D → Kein Treffer in der Katalog-Probe → Katalog-Luecke ODER legitim ohne Filmbezug (BTS/Brand)")
+        print("# Behebbar via Matcher/Pipeline: A(Vision-Output) B(Lese-Luecke) C+E(Recall).")
+        print("# D ist gemischt: Katalog-Luecke (behebbar via TMDB-Nachzug) vs. legitim titellos")
+        print("# (BTS/Brand, NICHT behebbar) — Wolf-Auge an den Captions/OCR der D-Posts.")
 
 
 if __name__ == "__main__":
