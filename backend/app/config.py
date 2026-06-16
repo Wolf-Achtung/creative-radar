@@ -97,6 +97,16 @@ class Settings(BaseSettings):
     auth_enabled: bool = False
     api_token: str | None = None
 
+    # Sprint Security 16.06.2026 — dedizierter, eng gescopter Cron-Token.
+    # Wird AUSSCHLIESSLICH auf ``/api/admin/cron/sync-all`` akzeptiert
+    # (Least-Privilege: kann nur den Wochen-Sync ausloesen). Zweck:
+    # entkoppelt den GitHub-Action-Wochenlauf vom rotationsempfindlichen
+    # Haupt-``API_TOKEN`` — eine Rotation des Haupt-Tokens reisst den Cron
+    # nicht mehr mit (Ausfall 15.06.). Optional: ist der Wert nicht gesetzt,
+    # faellt der Cron auf den Haupt-Token zurueck (Backward-Compat). Rotation
+    # siehe docs/ROTATION.md.
+    cron_api_token: str | None = None
+
     # Sprint 28.05.2026 (Admin-Login) — zweite Auth-Schicht ueber dem
     # Bearer-Token. Bearer beantwortet "richtiges Frontend?", die
     # Admin-Session beantwortet "richtiger User?". Beide werden auf

@@ -38,6 +38,7 @@ Token contract:
 """
 from __future__ import annotations
 
+import hmac
 from typing import Awaitable, Callable
 
 from fastapi import Request
@@ -92,6 +93,24 @@ def _path_is_public(path: str) -> bool:
     return False
 
 
+# Sprint Security 16.06.2026 — der dedizierte Cron-Token (``CRON_API_TOKEN``)
+# wird AUSSCHLIESSLICH auf diesem einen Pfad akzeptiert (Least-Privilege: er
+# kann nur den Wochen-Sync ausloesen, nichts sonst). Exakter Match, kein
+# Prefix — die uebrigen ``/api/admin/cron/*``-Routes (z.B. ``/runs``) bleiben
+# allein dem Haupt-Token vorbehalten.
+CRON_SYNC_PATH = "/api/admin/cron/sync-all"
+
+
+def _tokens_match(presented: str, expected: str) -> bool:
+    """Constant-time Bearer-Vergleich gegen Timing-Side-Channels.
+
+    ``hmac.compare_digest`` verlangt gleich-typige Operanden und wirft sonst
+    ``TypeError`` — beide Seiten werden nach ``bytes`` encodet, damit ein
+    non-ASCII- oder abweichend-typiger Wert vergleicht statt zu raisen.
+    """
+    return hmac.compare_digest(presented.encode("utf-8"), expected.encode("utf-8"))
+
+
 async def auth_middleware(
     request: Request, call_next: Callable[[Request], Awaitable]
 ):
@@ -121,7 +140,21 @@ async def auth_middleware(
         )
 
     presented = auth_header.removeprefix("Bearer ").strip()
-    if presented != expected:
+    accepted = _tokens_match(presented, expected)
+
+    # Dedizierter Cron-Token: nur auf ``/api/admin/cron/sync-all`` zusaetzlich
+    # akzeptiert, damit eine Rotation des allgemeinen ``API_TOKEN`` den
+    # GitHub-Action-Wochenlauf nicht mehr mitreisst (Ausfall 15.06.). Optional
+    # — ist ``CRON_API_TOKEN`` nicht gesetzt, bleibt das Verhalten unveraendert
+    # (der Cron laeuft dann weiter ueber den Haupt-Token).
+    if (
+        not accepted
+        and settings.cron_api_token
+        and request.url.path == CRON_SYNC_PATH
+    ):
+        accepted = _tokens_match(presented, settings.cron_api_token)
+
+    if not accepted:
         return JSONResponse({"detail": "Invalid token"}, status_code=403)
 
     return await call_next(request)
