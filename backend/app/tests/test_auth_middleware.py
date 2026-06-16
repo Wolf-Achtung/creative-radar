@@ -286,3 +286,79 @@ def test_public_path_exact_paths_match_real_routes() -> None:
             f"PUBLIC_PATH_EXACT lists {path!r} but no route is registered "
             f"at that exact path. Either the whitelist or the route drifted."
         )
+
+
+# ---------- dedicated cron token (Sprint Security 16.06.2026) ----------
+#
+# ``CRON_API_TOKEN`` is accepted ONLY on ``/api/admin/cron/sync-all`` so a
+# rotation of the general ``API_TOKEN`` cannot break the weekly GitHub-Action
+# run (15.06. outage). The probe endpoint is GET-only, so these tests remap
+# ``CRON_SYNC_PATH`` onto the probe to exercise the middleware's path-scoping
+# branch without invoking the real (DB-touching) cron handler. Path-scoping is
+# method-agnostic in the middleware, so the GET probe is a faithful stand-in.
+
+
+def _enable_auth(monkeypatch, *, main="main-token", cron="cron-token"):
+    monkeypatch.setattr(settings, "auth_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "api_token", main, raising=False)
+    monkeypatch.setattr(settings, "cron_api_token", cron, raising=False)
+
+
+def test_cron_token_accepted_on_sync_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cron-Token auf dem (hierhin gemappten) Sync-Pfad → akzeptiert."""
+    _enable_auth(monkeypatch)
+    monkeypatch.setattr("app.auth.CRON_SYNC_PATH", "/api/_auth_probe", raising=False)
+
+    response = client.get(
+        "/api/_auth_probe", headers={"Authorization": "Bearer cron-token"},
+    )
+    assert response.status_code == 200
+
+
+def test_cron_token_rejected_off_sync_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Least-Privilege: derselbe Cron-Token auf einem NICHT-Cron-Pfad
+    (CRON_SYNC_PATH unverändert = echter Sync-Pfad) → 403."""
+    _enable_auth(monkeypatch)
+
+    response = client.get(
+        "/api/_auth_probe", headers={"Authorization": "Bearer cron-token"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Invalid token"
+
+
+def test_main_token_still_accepted_on_sync_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Haupt-Token gilt überall, auch auf dem Sync-Pfad."""
+    _enable_auth(monkeypatch)
+    monkeypatch.setattr("app.auth.CRON_SYNC_PATH", "/api/_auth_probe", raising=False)
+
+    response = client.get(
+        "/api/_auth_probe", headers={"Authorization": "Bearer main-token"},
+    )
+    assert response.status_code == 200
+
+
+def test_cron_path_without_cron_token_falls_back_to_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Backward-Compat: ist ``CRON_API_TOKEN`` nicht gesetzt, akzeptiert der
+    Sync-Pfad nur den Haupt-Token (der Cron lief vor diesem Sprint so)."""
+    _enable_auth(monkeypatch, cron=None)
+    monkeypatch.setattr("app.auth.CRON_SYNC_PATH", "/api/_auth_probe", raising=False)
+
+    ok = client.get("/api/_auth_probe", headers={"Authorization": "Bearer main-token"})
+    assert ok.status_code == 200
+
+    nope = client.get("/api/_auth_probe", headers={"Authorization": "Bearer cron-token"})
+    assert nope.status_code == 403
+
+
+def test_unknown_token_on_sync_path_still_403(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Weder Haupt- noch Cron-Token → 403, auch auf dem Sync-Pfad."""
+    _enable_auth(monkeypatch)
+    monkeypatch.setattr("app.auth.CRON_SYNC_PATH", "/api/_auth_probe", raising=False)
+
+    response = client.get(
+        "/api/_auth_probe", headers={"Authorization": "Bearer neither-token"},
+    )
+    assert response.status_code == 403
