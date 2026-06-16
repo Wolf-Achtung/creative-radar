@@ -198,10 +198,12 @@ def diagnose_pair(session, pair_key: str, anchor: datetime) -> bool:
     # --- Klassifikation + UNKNOWN-Split ---
     cats: Counter = Counter()
     buckets: Counter = Counter()
+    no_title_match_ids: list = []
     for post in posts:
         title = title_by_post.get(post.id)
         if title is None:
             cats["a_no_title_match"] += 1
+            no_title_match_ids.append(post.id)
             continue
         market = _post_market_for_release_lookup(post, channel_market_map)
         release = _pick_release_date(title, market)
@@ -216,12 +218,46 @@ def diagnose_pair(session, pair_key: str, anchor: datetime) -> bool:
         delta_days = (release - post_date).days
         buckets[_classify_days_to_release(delta_days).value] += 1
 
+    # --- (a)-Unterursachen: WARUM hat der Post kein non-rejected Asset mit title_id? ---
+    # Spiegelt die Engine-Bedingung (title_by_post = erstes non-``rejected`` Asset mit
+    # title_id+Title). Zerlegt die no_title_match-Posts disjunkt in:
+    #   1_no_asset             — Post hat GAR KEIN Asset (Vision-Pipeline nie gelaufen)
+    #   2_assets_no_title_id   — Asset(s) vorhanden, aber KEINES hat title_id (Matcher
+    #                            fand keinen Titel) — Vision lief, Matching zu schwach
+    #   3_title_id_but_filtered — ≥1 Asset MIT title_id vorhanden, aber kein non-rejected
+    #                            (alle title_id-Assets rejected). Hier landet auch der
+    #                            seltene Orphan-FK-Fall (title_id zeigt auf fehlende
+    #                            Title-Row) — unter FK-Constraint praktisch 0.
+    sub: Counter = Counter()
+    if no_title_match_ids:
+        comp_rows = session.exec(
+            select(Asset.post_id, Asset.title_id)
+            .where(Asset.post_id.in_(no_title_match_ids))
+        ).all()
+        has_any_asset: set = set()
+        has_title_id_asset: set = set()
+        for pid, tid in comp_rows:
+            has_any_asset.add(pid)
+            if tid is not None:
+                has_title_id_asset.add(pid)
+        for pid in no_title_match_ids:
+            if pid not in has_any_asset:
+                sub["1_no_asset"] += 1
+            elif pid not in has_title_id_asset:
+                sub["2_assets_no_title_id"] += 1
+            else:
+                sub["3_title_id_but_filtered"] += 1
+
     total = len(posts)
     unknown = cats["a_no_title_match"] + cats["b_match_no_release_date"] + cats["c_no_ref_time"]
     pct = (100.0 * unknown / total) if total else 0.0
+    n_a = cats["a_no_title_match"]
 
     def share(n: int) -> str:
         return f"{n} ({100.0 * n / unknown:.0f}% von unknown)" if unknown else f"{n}"
+
+    def subshare(n: int) -> str:
+        return f"{n} ({100.0 * n / n_a:.0f}% von no_title_match)" if n_a else f"{n}"
 
     print(
         f"[{pair_key}] anchor={window_end.date()} window={window_start.date()}..{window_end.date()} "
@@ -230,6 +266,9 @@ def diagnose_pair(session, pair_key: str, anchor: datetime) -> bool:
     print(f"    total_posts          = {total}")
     print(f"    unknown              = {unknown} ({pct:.0f}% von total)")
     print(f"      (a) no_title_match        = {share(cats['a_no_title_match'])}")
+    print(f"          ├─ 1 no_asset (kein Asset, Vision nie gelaufen)     = {subshare(sub['1_no_asset'])}")
+    print(f"          ├─ 2 assets_no_title_id (Vision ok, Matcher leer)   = {subshare(sub['2_assets_no_title_id'])}")
+    print(f"          └─ 3 title_id_but_filtered (gematcht, aber rejected) = {subshare(sub['3_title_id_but_filtered'])}")
     print(f"      (b) match_no_release_date = {share(cats['b_match_no_release_date'])}")
     print(f"      (c) no_ref_time           = {share(cats['c_no_ref_time'])}")
     print(f"    classified (echte Buckets) = {total - unknown}")
