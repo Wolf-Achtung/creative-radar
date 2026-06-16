@@ -95,6 +95,10 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=15, help="Wie viele Posts (Default: 15).")
     parser.add_argument("--anchor", default=None,
                         help="ISO-Datum/Zeit; Default: last_completed_iso_week_anchor().")
+    parser.add_argument("--title-probe", default=None,
+                        help="Komma-Liste von Titel-Namen (z.B. 'luca,hoppers,loki'). Prueft "
+                             "DIREKT, ob sie im aktiven Katalog liegen (beantwortet die "
+                             "Katalog-Gap-vs-Recall-Frage). Laeuft vor dem Sample.")
     args = parser.parse_args()
 
     if not _has_db_config():
@@ -182,6 +186,36 @@ def main() -> None:
         # Compact-Index (space-stripped) fuer die hashtag-bewusste Katalog-Probe.
         compact_to_norm = {n.replace(" ", ""): n for n in norm_index}
 
+        # --- Punkt 2: direkte Katalog-Mitgliedschafts-Probe ---
+        # Beantwortet "Steht <Titel> im aktiven Katalog?" unabhaengig von der
+        # Matcher-Logik. Wenn ein vom Auge erkannter Titel hier FEHLT → Katalog-
+        # Luecke (behebbar via TMDb-Nachzug). Wenn er DA ist, der Matcher ihn aber
+        # nicht setzt → Matcher-Recall-Defekt (z.B. Kurz-Titel-Guard, Ziffern-Hashtag).
+        if args.title_probe:
+            terms = [t.strip() for t in args.title_probe.split(",") if t.strip()]
+            print("# Katalog-Mitgliedschafts-Probe (aktive Titles):")
+            for term in terms:
+                nt = _normalize_text(term)
+                matches: list[str] = []
+                for title, cmap in bundle:
+                    for srckey, vals in cmap.items():
+                        for v in vals:
+                            nv = _normalize_text(v)
+                            if not nv:
+                                continue
+                            exact = nv == nt
+                            contains = (
+                                len(nt) >= 3 and re.search(r"\b" + re.escape(nt) + r"\b", nv)
+                            ) or (
+                                len(nv) >= 3 and re.search(r"\b" + re.escape(nv) + r"\b", nt)
+                            )
+                            if exact or contains:
+                                matches.append(f"{title.title_original!r}[{srckey}:{v!r}]")
+                uniq = sorted(set(matches))
+                verdict = f"IM KATALOG → {uniq[:5]}" if uniq else "NICHT im aktiven Katalog (Luecke)"
+                print(f"#   {term!r:>16}: {verdict}")
+            print()
+
         # Non-rejected Assets je sample-Post (das, was der Rematch wieder anfasst).
         sample_post_ids = [p.id for p in sample]
         sample_assets = list(session.exec(
@@ -226,7 +260,7 @@ def main() -> None:
         print()
 
         stats = {"A_empty": 0, "B_vision_only": 0, "E_found_unsafe": 0,
-                 "C_recall_miss": 0, "D_catalog_gap_or_nofilm": 0, "X_would_match": 0}
+                 "C_recall_miss": 0, "D_brand": 0, "D_none": 0, "X_would_match": 0}
 
         for i, p in enumerate(sample, start=1):
             assets = assets_by_post.get(p.id, [])
@@ -283,9 +317,18 @@ def main() -> None:
             elif reachable:
                 klass = f"C recall_miss (Katalog erreichbar: {reachable[:3]} — Matcher fand nichts)"
                 stats["C_recall_miss"] += 1
+            elif m is not None and m.source == "brand_whitelist":
+                # Brand ist LETZTER Fallback (whitelist_matcher.py:399-415): er feuert NUR,
+                # wenn kein strong/fuzzy Titel-Treffer da war. Brand ueberschattet also
+                # KEINEN Titel — er ist Symptom: "Film-/Streaming-Promo erkannt, aber kein
+                # Katalog-Titel gefunden". Starkes Indiz fuer Katalog-Luecke (behebbar via
+                # TMDb-Nachzug), NICHT fuer titellos.
+                klass = (f"D_brand catalog_gap (brand_whitelist={m.suggested_title!r} feuerte als "
+                         f"Fallback → Film-Promo, aber kein Katalog-Titel)")
+                stats["D_brand"] += 1
             else:
-                klass = "D catalog_gap_or_nofilm (kein Katalog-Treffer → Luecke ODER kein Filmbezug)"
-                stats["D_catalog_gap_or_nofilm"] += 1
+                klass = "D_none catalog_gap_or_nofilm (kein Titel-/Brand-Treffer → Luecke ODER titellos)"
+                stats["D_none"] += 1
 
             statuses = sorted({a.visual_analysis_status for a in assets})
             analyzed = sorted({a.analyzed_at.date().isoformat() for a in assets if a.analyzed_at})
@@ -315,16 +358,19 @@ def main() -> None:
         total = len(sample)
         def pct(n): return f"{n} ({100.0 * n / total:.0f}%)" if total else f"{n}"
         print("# Klassen-Verteilung der Stichprobe (echter Matcher):")
-        print(f"#   A empty_input              : {pct(stats['A_empty'])}")
+        print(f"#   A empty_input              : {pct(stats['A_empty'])}   (Vision-Output leer)")
         print(f"#   B vision_only              : {pct(stats['B_vision_only'])}   (Matcher-Lese-Luecke)")
         print(f"#   E found_but_unsafe         : {pct(stats['E_found_unsafe'])}   (Recall/Schwelle)")
-        print(f"#   C recall_miss              : {pct(stats['C_recall_miss'])}   (Logik-Recall)")
-        print(f"#   D catalog_gap_or_nofilm    : {pct(stats['D_catalog_gap_or_nofilm'])}   (Katalog-Luecke ODER legitim titellos)")
-        print(f"#   X would_match (Anomalie)   : {pct(stats['X_would_match'])}")
+        print(f"#   C recall_miss              : {pct(stats['C_recall_miss'])}   (Logik-Recall: Titel im Katalog, Matcher verfehlt)")
+        print(f"#   D_brand catalog_gap        : {pct(stats['D_brand'])}   (brand_whitelist-Fallback: Film-Promo, kein Katalog-Titel → Luecke)")
+        print(f"#   D_none gap_or_titellos     : {pct(stats['D_none'])}   (kein Titel/Brand: Katalog-Luecke ODER echt titellos)")
+        print(f"#   X would_match (Anomalie)   : {pct(stats['X_would_match'])}   (Matcher koennte setzen → Rematch-Anwendungs-Luecke)")
         print("#")
-        print("# Behebbar via Matcher/Pipeline: A(Vision-Output) B(Lese-Luecke) C+E(Recall).")
-        print("# D ist gemischt: Katalog-Luecke (behebbar via TMDB-Nachzug) vs. legitim titellos")
-        print("# (BTS/Brand, NICHT behebbar) — Wolf-Auge an den Captions/OCR der D-Posts.")
+        print("# Behebbar (Matcher/Katalog): A B C E + D_brand (+ Katalog-Luecken-Teil von D_none).")
+        print("# Echt unvermeidbar: nur der titellose Teil von D_none (BTS/Brand-Posts ohne Film).")
+        print("# brand_whitelist ueberschattet KEINEN Titel — es ist letzter Fallback")
+        print("# (whitelist_matcher.py:399-415); D_brand markiert also Katalog-Luecke, nicht Brand-Bug.")
+        print("# Tipp: --title-probe 'luca,hoppers,loki' prueft direkt die Katalog-Mitgliedschaft.")
 
 
 if __name__ == "__main__":
