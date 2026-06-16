@@ -15,6 +15,7 @@ surface as concrete diffs rather than fuzzy "looks different".
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -2922,6 +2923,127 @@ def test_llm_report_without_cross_market_block_validates_when_no_lage():
     assert report.cross_market_insight.transfer_opportunity is None
     assert report.cross_market_insight.de_vs_us is None
     assert report.cross_market_insight.cited_post_ids == []
+
+
+# ---------------------------------------------------------------------------
+# Sprint 16.06.2026 — stringified-JSON-Repair. Belegte Wurzel von
+# disney/lionsgate no_llm_output: Opus liefert Array-/Objekt-Felder sporadisch
+# als stringifiziertes JSON ("[{…}]" / "{…}") statt nativ → Pydantic lehnt
+# str fuer ein list-/Modell-Feld ab → ValidationError → llm_output=None.
+# Nicht-deterministisch (primevideo lief mit nativen Arrays durch). Der
+# @model_validator(mode="before") ``_coerce_stringified_json`` parst solche
+# Strings vor der Validierung zurueck; Nicht-JSON-Strings werden durchgereicht,
+# damit der echte Typ-Fehler erhalten bleibt.
+
+_TREND = {"name": "n", "evidence": "e", "implication_for_creation": "i"}
+_ACTION = {"what": "w", "why": "y", "for_whom": "cutter"}
+_NO_LAGE = {"has_de_data": False, "has_cross_market": False}
+
+
+def _brief_body(**overrides) -> dict:
+    body = {
+        "headline": "h", "tldr": "t",
+        "trends": [_TREND], "actions": [_ACTION],
+        "cross_market_insight": {"transfer_opportunity": "x"},
+        "risks": [], "data_caveats": [],
+    }
+    body.update(overrides)
+    return body
+
+
+def test_stringified_json_arrays_are_coerced():
+    """Belegtes disney-KW24-Muster: ``trends``/``actions`` kommen als
+    stringifiziertes JSON-Array statt nativ → werden vor der Validierung
+    zurueck-geparst und validieren als list[Trend]/list[Action]."""
+    body = _brief_body(
+        trends=json.dumps([_TREND]),
+        actions=json.dumps([_ACTION]),
+    )
+    report = LLMReport.model_validate(body, context=_NO_LAGE)
+    assert isinstance(report.trends, list) and report.trends[0].name == "n"
+    assert isinstance(report.actions, list) and report.actions[0].what == "w"
+
+
+def test_stringified_json_object_field_is_coerced():
+    """Defensiv fuer dict-typed Felder: ``cross_market_insight`` als
+    stringifiziertes JSON-Objekt wird ebenfalls zurueck-geparst."""
+    body = _brief_body(cross_market_insight=json.dumps({"transfer_opportunity": "x"}))
+    report = LLMReport.model_validate(body, context=_NO_LAGE)
+    assert report.cross_market_insight.transfer_opportunity == "x"
+
+
+def test_native_array_input_still_validates():
+    """Regression: native Arrays (primevideo-Pfad) funktionieren unveraendert,
+    kein Doppel-Parsen, keine Veraenderung der Werte."""
+    body = _brief_body(trends=[_TREND], actions=[_ACTION], risks=["r"], data_caveats=["d"])
+    report = LLMReport.model_validate(body, context=_NO_LAGE)
+    assert report.trends[0].name == "n"
+    assert report.actions[0].what == "w"
+    assert report.risks == ["r"] and report.data_caveats == ["d"]
+
+
+def test_non_json_string_for_array_field_reports_clean_type_error():
+    """Robustheit: ein ``str``, der KEIN valides JSON ist, wird durchgereicht
+    → Pydantic meldet den echten ``list_type``-Fehler statt zu crashen."""
+    body = _brief_body(trends="trailer cuts laufen")  # kein '['/'{' → unangetastet
+    with pytest.raises(ValidationError) as exc:
+        LLMReport.model_validate(body, context=_NO_LAGE)
+    errs = exc.value.errors()
+    assert any(e["loc"] == ("trends",) and e["type"] == "list_type" for e in errs)
+
+
+def test_bracket_but_broken_json_for_array_field_reports_clean_type_error():
+    """Robustheit: ``str`` beginnt mit '[' aber ist kaputtes JSON →
+    json.loads-Fehler abgefangen, Original durchgereicht, sauberer Typ-Fehler."""
+    body = _brief_body(trends="[broken")
+    with pytest.raises(ValidationError) as exc:
+        LLMReport.model_validate(body, context=_NO_LAGE)
+    assert any(e["loc"] == ("trends",) and e["type"] == "list_type"
+               for e in exc.value.errors())
+
+
+def test_string_field_with_leading_bracket_not_coerced():
+    """``headline``/``tldr`` (reine str-Felder) stehen NICHT in der Allow-Liste
+    — ein '['-Praefix darf sie nicht in eine Liste verwandeln."""
+    body = _brief_body(headline="[BREAKING] Disney zieht an")
+    report = LLMReport.model_validate(body, context=_NO_LAGE)
+    assert report.headline == "[BREAKING] Disney zieht an"
+
+
+def test_before_coercion_runs_before_de_vs_us_after_validator():
+    """Reihenfolge-Beleg (before vor after): ``cross_market_insight`` kommt als
+    stringifiziertes JSON-Objekt MIT ``de_vs_us`` an, DE-Pair
+    (has_de_data=True). Der before-Validator entpackt String→dict, DANN prueft
+    der #272-after-Validator ``de_vs_us`` auf dem dict → validiert sauber."""
+    body = _brief_body(
+        cross_market_insight=json.dumps(
+            {"de_vs_us": "DE vs US Befund", "transfer_opportunity": "t"}
+        )
+    )
+    report = LLMReport.model_validate(
+        body, context={"has_de_data": True, "has_cross_market": True},
+    )
+    # CrossMarketInsight (nicht str) → before hat entpackt; de_vs_us erhalten.
+    assert report.cross_market_insight.de_vs_us == "DE vs US Befund"
+
+
+def test_before_coercion_then_after_validator_enforces_de_vs_us():
+    """Gegenfall: ``cross_market_insight`` als JSON-String OHNE ``de_vs_us`` bei
+    has_de_data=True → before entpackt, der after-Validator reisst korrekt an
+    ``de_vs_us``. Dass die Meldung ``de_vs_us`` nennt (nicht einen
+    ``cross_market_insight``-model_type-Fehler auf dem String) BEWEIST, dass
+    before vor after lief und beide zusammenspielen statt sich zu stoeren."""
+    body = _brief_body(cross_market_insight=json.dumps({"transfer_opportunity": "t"}))
+    with pytest.raises(ValidationError, match="de_vs_us") as exc:
+        LLMReport.model_validate(
+            body, context={"has_de_data": True, "has_cross_market": False},
+        )
+    # Kein model_type-/dict_type-Fehler auf cross_market_insight → String wurde
+    # vor der Feld-Validierung entpackt.
+    assert not any(
+        e["loc"][:1] == ("cross_market_insight",) and e["type"].endswith("_type")
+        for e in exc.value.errors()
+    )
 
 
 def test_aggregate_pair_paramountplus_uk_only_on_ig_tt_not_yt():

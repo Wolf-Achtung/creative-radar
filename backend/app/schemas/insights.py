@@ -18,6 +18,7 @@ schemas without changes; the only thing that grows is the lookup map in
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -691,6 +692,54 @@ class LLMReport(BaseModel):
     # ein persistierter Brief laeuft beim Re-Hydrate als frischer
     # Dict-Parse wieder voll durch den Validator.
     _cross_market_enforced: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_stringified_json(cls, data):
+        """Sprint 16.06.2026 — Opus liefert Array-/Objekt-Felder sporadisch als
+        stringifiziertes JSON (``"[{…}]"`` / ``"{…}"``) statt nativ; Pydantic
+        lehnt den ``str`` fuer ein ``list``/Modell-Feld ab → ValidationError →
+        ``llm_output=None`` (no_llm_output). Nicht-deterministisch: derselbe
+        Prompt liefert mal native Arrays (validiert), mal Strings (kippt) —
+        belegt an disney/lionsgate KW24 (``trends``/``actions`` als String).
+
+        Vor der Feld-Validierung jeden Container-typed Wert pruefen: ist er ein
+        ``str``, der nach Strip mit ``[`` oder ``{`` beginnt, einmal
+        ``json.loads`` anwenden und das Ergebnis weiterreichen. Defensiv fuer
+        ALLE list/dict-typed Felder, nicht nur trends/actions.
+
+        Robustheit: ``json.loads``-Fehler werden abgefangen und der
+        ORIGINAL-String durchgereicht — so meldet Pydantic den echten
+        Typ-Fehler statt zu crashen (ein ``str``, der kein valides JSON ist,
+        ist ein echter Modell-Fehler, kein Repair-Fall). Reine ``str``-Felder
+        (``headline``/``tldr``) stehen NICHT in der Allow-Liste und bleiben
+        unangetastet. Copy-on-write: das Eingabe-Dict wird nie mutiert
+        (wichtig fuer Cache-Hydrate, wo ``row.llm_output`` wiederverwendet
+        wird)."""
+        if not isinstance(data, dict):
+            return data
+        json_fields = (
+            "trends", "actions", "cross_market_insight", "risks", "data_caveats",
+            "aktuell_im_fokus", "ganz_konkret", "konkurrenz", "tonalitaet",
+            "watch_outs", "fuer_cutter", "fuer_motion_designer",
+            "fuer_creative_producer", "vergleichbare_posts",
+        )
+        repaired = None
+        for field in json_fields:
+            value = data.get(field)
+            if not isinstance(value, str):
+                continue
+            stripped = value.strip()
+            if not stripped or stripped[0] not in "[{":
+                continue
+            try:
+                parsed = json.loads(stripped)
+            except (ValueError, TypeError):
+                continue  # kein valides JSON → Original lassen, Pydantic meldet den echten Fehler
+            if repaired is None:
+                repaired = dict(data)
+            repaired[field] = parsed
+        return repaired if repaired is not None else data
 
     @model_validator(mode="after")
     def _require_cross_market_when_data(self, info: ValidationInfo):
