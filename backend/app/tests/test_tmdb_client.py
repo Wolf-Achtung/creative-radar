@@ -142,17 +142,39 @@ async def test_discover_series_hits_tv_endpoint_with_first_air_date_window():
 
 
 @pytest.mark.asyncio
-async def test_discover_series_paginates_up_to_cap():
-    """Page cap mirrors discover_movies (max 3 pages)."""
-    pages = [{"results": [{"id": i}], "total_pages": 9} for i in range(5)]
+async def test_discover_series_paginates_beyond_old_three_page_cap():
+    """Sprint Studio-Title-Sync: the former 3-page hard cap is gone. The
+    paginator now follows ``total_pages`` (here 5), so all 5 pages are pulled."""
+    pages = [{"results": [{"id": i}], "total_pages": 5} for i in range(5)]
     client, recorder = _make_client(pages)
 
     results = await client.discover_series(
         region="DE", language="de-DE", date_from=date(2026, 1, 1), date_to=date(2026, 12, 31)
     )
 
-    assert len(recorder.calls) == 3  # hard-capped, not 9
-    assert len(results) == 3
+    assert len(recorder.calls) == 5  # not capped at 3 anymore
+    assert len(results) == 5
+    # page param advanced 1..5
+    assert [c[1]["page"] for c in recorder.calls] == [1, 2, 3, 4, 5]
+
+
+@pytest.mark.asyncio
+async def test_discover_stops_on_empty_results_page():
+    """Pagination stops as soon as a page returns no results, even if
+    total_pages claims more."""
+    pages = [
+        {"results": [{"id": 1}], "total_pages": 99},
+        {"results": [{"id": 2}], "total_pages": 99},
+        {"results": [], "total_pages": 99},
+    ]
+    client, recorder = _make_client(pages)
+
+    results = await client.discover_movies(
+        region="US", language="en-US", date_from=date(2026, 1, 1), date_to=date(2026, 6, 1)
+    )
+
+    assert len(recorder.calls) == 3  # third page empty -> stop
+    assert len(results) == 2
 
 
 def test_normalize_tmdb_series_maps_tv_fields():

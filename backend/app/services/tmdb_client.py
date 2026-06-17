@@ -9,6 +9,10 @@ from app.config import settings
 
 BASE_URL = "https://api.themoviedb.org/3"
 
+# TMDb caps the ``page`` query param at 500 on the /discover endpoints.
+# We honour that as the upper bound for full pagination.
+TMDB_MAX_DISCOVER_PAGES = 500
+
 
 class TMDbAuthError(RuntimeError):
     pass
@@ -58,67 +62,64 @@ class TMDbClient:
                 raise
             return response.json()
 
-    async def discover_movies(self, region: str, language: str, date_from: date, date_to: date) -> list[dict[str, Any]]:
-        page = 1
+    async def _discover_paginated(self, path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Fully paginate a /discover endpoint up to ``total_pages``.
+
+        Replaces the former hard 3-page cap (Sprint Studio-Title-Sync): the cap
+        only ever captured the popularity-window spike. The company axis needs
+        the complete studio slate. ``TMDB_MAX_DISCOVER_PAGES`` (TMDb's own hard
+        limit on the ``page`` param) keeps a pathological response bounded; the
+        empty-results break stops earlier in practice.
+        """
         results: list[dict[str, Any]] = []
-        while page <= 3:  # hard cap for weekly sync safety
-            data = await self._get(
-                "/discover/movie",
-                {
-                    "region": region,
-                    "language": language,
-                    "sort_by": "popularity.desc",
-                    "include_adult": "false",
-                    "include_video": "false",
-                    "release_date.gte": date_from.isoformat(),
-                    "release_date.lte": date_to.isoformat(),
-                    # Sprint 9 (H1): include Digital (4) and TV (6) alongside theatrical
-                    # types so streaming originals and TV-movies enter the title pool.
-                    # Premiere (1) and Physical (5) stay out — low marketing relevance.
-                    "with_release_type": "2|3|4|6",
-                    "page": page,
-                },
-            )
+        page = 1
+        while page <= TMDB_MAX_DISCOVER_PAGES:
+            data = await self._get(path, {**params, "page": page})
             page_results = data.get("results") or []
             if not page_results:
                 break
             results.extend(page_results)
-            if page >= int(data.get("total_pages") or 1):
+            total_pages = int(data.get("total_pages") or 1)
+            if page >= min(total_pages, TMDB_MAX_DISCOVER_PAGES):
                 break
             page += 1
         return results
+
+    async def discover_movies(self, region: str, language: str, date_from: date, date_to: date) -> list[dict[str, Any]]:
+        return await self._discover_paginated(
+            "/discover/movie",
+            {
+                "region": region,
+                "language": language,
+                "sort_by": "popularity.desc",
+                "include_adult": "false",
+                "include_video": "false",
+                "release_date.gte": date_from.isoformat(),
+                "release_date.lte": date_to.isoformat(),
+                # Sprint 9 (H1): include Digital (4) and TV (6) alongside theatrical
+                # types so streaming originals and TV-movies enter the title pool.
+                # Premiere (1) and Physical (5) stay out — low marketing relevance.
+                "with_release_type": "2|3|4|6",
+            },
+        )
 
     async def discover_series(self, region: str, language: str, date_from: date, date_to: date) -> list[dict[str, Any]]:
         """TV sibling of ``discover_movies`` (series blind-spot fix).
 
-        Hits ``/discover/tv`` with the same region/language/popularity/page-cap
-        shape, but filters on ``first_air_date`` (TV has no ``release_date``).
-        ``discover_movies`` is untouched — this method is purely additive so the
-        movie pool stays exactly as before.
+        Hits ``/discover/tv`` with the same region/language/popularity shape,
+        but filters on ``first_air_date`` (TV has no ``release_date``).
         """
-        page = 1
-        results: list[dict[str, Any]] = []
-        while page <= 3:  # hard cap, mirrors discover_movies
-            data = await self._get(
-                "/discover/tv",
-                {
-                    "region": region,
-                    "language": language,
-                    "sort_by": "popularity.desc",
-                    "include_adult": "false",
-                    "first_air_date.gte": date_from.isoformat(),
-                    "first_air_date.lte": date_to.isoformat(),
-                    "page": page,
-                },
-            )
-            page_results = data.get("results") or []
-            if not page_results:
-                break
-            results.extend(page_results)
-            if page >= int(data.get("total_pages") or 1):
-                break
-            page += 1
-        return results
+        return await self._discover_paginated(
+            "/discover/tv",
+            {
+                "region": region,
+                "language": language,
+                "sort_by": "popularity.desc",
+                "include_adult": "false",
+                "first_air_date.gte": date_from.isoformat(),
+                "first_air_date.lte": date_to.isoformat(),
+            },
+        )
 
     def normalize_tmdb_series(self, series: dict[str, Any]) -> dict[str, Any]:
         """TV sibling of ``normalize_tmdb_movie``. Maps the TV field names
