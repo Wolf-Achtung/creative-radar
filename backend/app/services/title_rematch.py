@@ -9,6 +9,7 @@ from app.models.entities import Asset, Post, TitleCandidate, CandidateStatus
 from app.services.match_key import slugify_match_key
 from app.services.title_candidates import create_candidate_from_asset, resolve_open_candidates_for_asset
 from app.services.whitelist_matcher import (
+    build_compact_index,
     build_normalized_index,
     build_token_index,
     find_best_title_match,
@@ -66,6 +67,17 @@ def rematch_unassigned_assets(session: Session, *, commit_batch_size: int = 50) 
     # prefilters substring/fuzzy candidates to token-overlap instead of scanning
     # all ~19k keys with SequenceMatcher (the 14.7k-catalog rematch hang).
     token_index = build_token_index(normalized_index)
+    # Post-#280-merge: also cache the compact hashtag index once per batch. The
+    # candidate path re-runs the matcher per asset; without these caches it
+    # reloaded the full 14.7k-title bundle + rebuilt every index per asset
+    # (~1 asset/s, cron-untauglich).
+    compact_index = build_compact_index(normalized_index)
+    _caches = dict(
+        cached_bundle=bundle,
+        cached_normalized_index=normalized_index,
+        cached_token_index=token_index,
+        cached_compact_index=compact_index,
+    )
 
     post_ids = [a.post_id for a in assets if a.post_id]
     posts_by_id: dict[UUID, Post] = {}
@@ -85,39 +97,41 @@ def rematch_unassigned_assets(session: Session, *, commit_batch_size: int = 50) 
             caption,
             fields=match_fields,
             published_at=post.published_at if post else None,
-            cached_bundle=bundle,
-            cached_normalized_index=normalized_index,
-            cached_token_index=token_index,
+            **_caches,
         )
 
         if is_safe_auto_match(match) and match.title:
             asset.title_id = match.title.id
             asset.de_us_match_key = slugify_match_key(match.title.franchise or match.title.title_original)
             session.add(asset)
-            pending_commit += 1
-            if pending_commit >= commit_batch_size:
-                session.commit()
-                pending_commit = 0
-            resolve_open_candidates_for_asset(session, asset.id)
+            # Batch the writes (perf fix): resolve the now-stale OPEN candidates in
+            # the same transaction instead of committing per asset.
+            resolve_open_candidates_for_asset(session, asset.id, commit=False)
             summary.auto_matched += 1
-            continue
+            pending_commit += 1
+        else:
+            existing_open = session.exec(
+                select(TitleCandidate).where(
+                    TitleCandidate.asset_id == asset.id,
+                    TitleCandidate.status == CandidateStatus.OPEN,
+                )
+            ).first()
+            if not existing_open:
+                # Sprint 28.05.2026 (Variante D): die Funktion kann ``None``
+                # zurueckgeben, wenn der Matcher nur einen Token-Guess produziert
+                # hat. Caches durchreichen (kein Bundle-Reload pro Asset) und
+                # NICHT pro Candidate committen (Batch).
+                candidate = create_candidate_from_asset(
+                    session, asset.id, commit=False, **_caches
+                )
+                if candidate is not None:
+                    summary.candidates_created += 1
+                    pending_commit += 1
+            summary.still_unmatched += 1
 
-        existing_open = session.exec(
-            select(TitleCandidate).where(
-                TitleCandidate.asset_id == asset.id,
-                TitleCandidate.status == CandidateStatus.OPEN,
-            )
-        ).first()
-        if not existing_open:
-            # Sprint 28.05.2026 (Variante D): die Funktion kann jetzt
-            # ``None`` zurueckgeben, wenn der Matcher nur ein
-            # Token-Guess produziert hat. Den Counter nur dann
-            # hochzaehlen, wenn tatsaechlich eine Row geschrieben
-            # wurde.
-            candidate = create_candidate_from_asset(session, asset.id)
-            if candidate is not None:
-                summary.candidates_created += 1
-        summary.still_unmatched += 1
+        if pending_commit >= commit_batch_size:
+            session.commit()
+            pending_commit = 0
 
     if pending_commit > 0:
         session.commit()
