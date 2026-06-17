@@ -256,3 +256,49 @@ def test_rematch_reads_vision_description_field():
 
         assert summary.auto_matched == 1
         assert refreshed.title_id == title.id
+
+
+def test_rematch_large_batch_is_fast_and_correct():
+    """Perf regression guard (post-#280): a large catalog + many unmatched assets
+    must finish quickly. The candidate path re-runs the matcher per asset; without
+    the batch-cached bundle/indices it reloaded all titles per asset (~1 asset/s,
+    cron-untauglich). Here most assets hit the candidate path (generic text) and a
+    couple auto-match a real title."""
+    import time
+    with _session() as session:
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(channel)
+        # Large catalog
+        for i in range(1500):
+            session.add(Title(title_original=f"Catalogtitle{i}xyz", active=True))
+        session.add(Title(title_original="Mortal Kombat II", active=True))
+        session.commit()
+        session.refresh(channel)
+
+        # 2 clearly-matching assets + 120 non-matching (candidate/unmatched) assets
+        match_ids = []
+        for i in range(2):
+            p = Post(channel_id=channel.id, post_url=f"https://example.com/m-{i}",
+                     caption="New look at Mortal Kombat II today")
+            session.add(p); session.commit(); session.refresh(p)
+            a = Asset(post_id=p.id, title_id=None, ai_summary_de="Mortal Kombat II clip")
+            session.add(a); session.commit(); session.refresh(a)
+            match_ids.append(a.id)
+        for i in range(120):
+            p = Post(channel_id=channel.id, post_url=f"https://example.com/u-{i}",
+                     caption="just some random everyday caption without any title")
+            session.add(p); session.commit(); session.refresh(p)
+            a = Asset(post_id=p.id, title_id=None, ai_summary_de="generic description here")
+            session.add(a); session.commit(); session.refresh(a)
+
+        started = time.monotonic()
+        summary = rematch_unassigned_assets(session, commit_batch_size=50)
+        elapsed = time.monotonic() - started
+
+        assert summary.checked == 122
+        assert summary.auto_matched == 2
+        for mid in match_ids:
+            assert session.get(Asset, mid).title_id is not None
+        # Batch-cached: comfortably fast. The pre-fix per-asset bundle reload over
+        # 1500 titles x 122 assets would be far slower.
+        assert elapsed < 15.0, f"rematch too slow ({elapsed:.2f}s) — per-asset reload regressed?"

@@ -169,19 +169,35 @@ def build_token_index(
     return token_index
 
 
+def build_compact_index(
+    normalized_to_titles: dict[str, list[tuple[Title, str]]],
+) -> dict[str, str]:
+    """Compact-form (space-stripped) -> normalized key, built once per batch.
+
+    Performance fix (post-#277): ``_extract_hashtag_matches`` used to rebuild
+    this O(catalog) map on EVERY call — i.e. per text-field per asset — which at
+    14.7k titles dominated the rematch loop together with the uncached candidate
+    re-matching. Callers in a batch (title_rematch) build it once and pass it
+    through ``find_best_title_match(cached_compact_index=...)``."""
+    return {normalized.replace(" ", ""): normalized for normalized in normalized_to_titles}
+
+
 def _load_titles(session: Session) -> list[tuple[Title, dict[str, list[str]]]]:
     return load_title_bundle(session)
 
 
-def _extract_hashtag_matches(text: str, normalized_to_titles: dict[str, list[tuple[Title, str]]]) -> list[tuple[Title, str, str]]:
+def _extract_hashtag_matches(
+    text: str,
+    normalized_to_titles: dict[str, list[tuple[Title, str]]],
+    compact_to_normalized: dict[str, str] | None = None,
+) -> list[tuple[Title, str, str]]:
     hits: list[tuple[Title, str, str]] = []
-    # Sprint 10e: build a compact-form index once per call so lowercase
-    # hashtags like ``#mortalkombatmovie`` can be resolved against the
-    # known title pool. Maps "mortalkombatii" -> "mortal kombat ii".
-    compact_to_normalized: dict[str, str] = {
-        normalized.replace(" ", ""): normalized
-        for normalized in normalized_to_titles
-    }
+    # Sprint 10e: compact-form index so lowercase hashtags like
+    # ``#mortalkombatmovie`` resolve against the known title pool
+    # ("mortalkombatii" -> "mortal kombat ii"). Built once per call unless a
+    # batch-cached index is supplied (perf fix post-#277).
+    if compact_to_normalized is None:
+        compact_to_normalized = build_compact_index(normalized_to_titles)
     for raw in re.findall(r"#[A-Za-z][A-Za-z0-9_\-]{2,}", text or ""):
         split = _split_hashtag(raw)
         if not split:
@@ -326,6 +342,7 @@ def find_best_title_match(
     cached_bundle: list[tuple[Title, dict[str, list[str]]]] | None = None,
     cached_normalized_index: dict[str, list[tuple[Title, str]]] | None = None,
     cached_token_index: dict[str, set[str]] | None = None,
+    cached_compact_index: dict[str, str] | None = None,
 ) -> MatchResult:
     text_fields = _collect_text_fields(fields, text)
     if not text_fields:
@@ -344,6 +361,13 @@ def find_best_title_match(
         if cached_token_index is not None
         else build_token_index(normalized_to_titles)
     )
+    # Compact hashtag index: build once per call (then reused across all fields)
+    # unless a batch-cached one is supplied (perf fix post-#277).
+    compact_index = (
+        cached_compact_index
+        if cached_compact_index is not None
+        else build_compact_index(normalized_to_titles)
+    )
 
     # 4-Tupel: (title, source, matched_text, field_key). field_key traegt die
     # Herkunfts-Information bis in den by_title-Aufbau, damit dort pro Titel
@@ -361,7 +385,7 @@ def find_best_title_match(
         if not normalized_haystack:
             continue
 
-        hashtag_hits = _extract_hashtag_matches(raw, normalized_to_titles)
+        hashtag_hits = _extract_hashtag_matches(raw, normalized_to_titles, compact_index)
         for title, source_key, matched_text in hashtag_hits:
             strong_hits.append((title, "hashtag", matched_text, field_key))
 

@@ -24,6 +24,11 @@ def create_candidate_from_asset(
     force: bool = False,
     *,
     skip_if_guess_only: bool = True,
+    cached_bundle=None,
+    cached_normalized_index=None,
+    cached_token_index=None,
+    cached_compact_index=None,
+    commit: bool = True,
 ) -> Optional[TitleCandidate]:
     """Erstellt fuer ein Asset einen TitleCandidate, wenn der Whitelist-
     Matcher noch keinen sicheren Titel gefunden hat.
@@ -58,10 +63,20 @@ def create_candidate_from_asset(
     if existing and not force:
         return existing
 
+    # Perf fix (post-#277): forward the batch-cached indices so this re-match
+    # does NOT reload the full 14.7k-title bundle + rebuild all indices per asset
+    # (the dominant rematch-loop cost). Uncached callers (user API) pass None and
+    # the matcher builds them on the fly as before.
+    _caches = dict(
+        cached_bundle=cached_bundle,
+        cached_normalized_index=cached_normalized_index,
+        cached_token_index=cached_token_index,
+        cached_compact_index=cached_compact_index,
+    )
     text = " ".join([asset.ocr_text or "", asset.ai_summary_de or "", asset.ai_summary_en or ""])
-    match = find_best_title_match(session, text)
+    match = find_best_title_match(session, text, **_caches)
     if not match.suggested_title:
-        match = find_best_title_match(session, asset.kinetic_text or asset.placement_title_text or "")
+        match = find_best_title_match(session, asset.kinetic_text or asset.placement_title_text or "", **_caches)
 
     # Variante D + Rausch-Filter: in den automatischen Zuflusspfaden
     # (monitor, posts, title_rematch) werden Match-Quellen ohne Auto-Match-
@@ -92,18 +107,19 @@ def create_candidate_from_asset(
         status=CandidateStatus.OPEN,
     )
     session.add(candidate)
-    session.commit()
-    session.refresh(candidate)
+    if commit:
+        session.commit()
+        session.refresh(candidate)
     return candidate
 
 
-def resolve_open_candidates_for_asset(session: Session, asset_id) -> int:
+def resolve_open_candidates_for_asset(session: Session, asset_id, *, commit: bool = True) -> int:
     candidates = session.exec(
         select(TitleCandidate).where(TitleCandidate.asset_id == asset_id, TitleCandidate.status == CandidateStatus.OPEN)
     ).all()
     for candidate in candidates:
         candidate.status = CandidateStatus.RESOLVED
         session.add(candidate)
-    if candidates:
+    if candidates and commit:
         session.commit()
     return len(candidates)
