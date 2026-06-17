@@ -126,12 +126,49 @@ def test_no_tiebreak_without_published_at(session: Session):
 
 
 def test_single_title_still_assigned(session: Session):
-    """Regression: eindeutiger Einzeltitel bleibt sicher zugewiesen."""
+    """Regression: eindeutiger Einzeltitel bleibt sicher zugewiesen — via den
+    legitimen Hashtag-Pfad. (Präzisions-Fix Post-#277: ein BLOSSER Ein-Wort-
+    Substring in nur einem Feld ist kein Safe-Auto-Match mehr; mit #Wednesday
+    greift der längenunabhängige Hashtag-Pfad.)"""
     session.add(Title(title_original="Wednesday", active=True))
     session.commit()
 
-    match = find_best_title_match(session, "Official Trailer: Wednesday")
+    match = find_best_title_match(session, "Official Trailer: #Wednesday")
 
     assert match.title is not None
     assert match.title.title_original == "Wednesday"
+    assert match.source == "hashtag"
+    assert is_safe_auto_match(match)
+
+
+def test_single_token_substring_one_field_is_not_safe(session: Session):
+    """Präzisions-Fix Post-#277: ein generischer Ein-Wort-Titel, der nur als
+    Substring in EINEM Feld vorkommt (kein Hashtag, keine 2. Bestätigung), wird
+    NICHT mehr safe auto-gematcht — er bleibt ein Review-Candidate. Das entzieht
+    den ~1528 generischen Single-Token-Titeln (Beloved/Experience/Driven) den
+    falschen Safe-Status."""
+    session.add(Title(title_original="Beloved", active=True))
+    session.commit()
+
+    match = find_best_title_match(session, "Our beloved ball rolled away")
+
+    assert match.title is not None  # Recall bleibt: taucht als Candidate auf
+    assert match.title.title_original == "Beloved"
+    assert not is_safe_auto_match(match)  # aber NICHT auto-safe
+
+
+def test_single_token_substring_two_fields_is_safe(session: Session):
+    """Gegenprobe: derselbe Ein-Wort-Titel über ZWEI Felder (caption + ocr)
+    ist 2-Feld-korroboriert → wieder safe (legitimer Treffer wie Euphoria in
+    Caption + ai_summary)."""
+    session.add(Title(title_original="Euphoria", active=True))
+    session.commit()
+
+    match = find_best_title_match(
+        session, "Official Trailer: Euphoria",
+        fields={"caption": "Official Trailer: Euphoria", "ocr_text": "Euphoria"},
+    )
+
+    assert match.title is not None
+    assert match.title.title_original == "Euphoria"
     assert is_safe_auto_match(match)

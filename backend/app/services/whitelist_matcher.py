@@ -261,6 +261,17 @@ def _finalize_strong_hit(
     Titel ebenfalls treffen, bleibt es ein regulaerer (korroborierter) Treffer
     und damit Auto-Match-faehig (Schutz der korrekten placement-Faelle)."""
     title, confidence, source, matched_text = entry
+    # Präzisions-Fix (Post-#277): ein Ein-Token-Substring (``substring_weak``) ist
+    # für sich allein KEIN Safe-Auto-Match. Er wird NUR sicher, wenn ein ZWEITES
+    # Feld denselben Titel stützt (Korroboration). ``"text"`` ist das synthetische
+    # Caption-Duplikat von ``_collect_text_fields`` und zählt NICHT als eigenes Feld
+    # — sonst gälte ein reiner Caption-Treffer fälschlich als 2-Feld-korroboriert.
+    if source == "substring_weak":
+        distinct = set(field_origins)
+        if "caption" in distinct:
+            distinct.discard("text")
+        if len(distinct) >= 2:
+            source, confidence = "unique_text", 0.97  # 2-Feld-korroboriert → safe
     return MatchResult(
         title=title,
         confidence=confidence,
@@ -334,8 +345,21 @@ def find_best_title_match(
             )
 
             if candidate_is_substring_safe and _contains_phrase(normalized_haystack, normalized):
+                # Präzisions-Fix (Post-#277): ein SUBSTRING-Treffer ist KEIN exakter
+                # Volltreffer. Der bisherige Code labelte einen Wort-im-Caption-
+                # Treffer aus ``local``/``alias`` als ``exact_local``/``exact_alias``
+                # (Score 1.0, safe) — dadurch matchten ~1528 generische Ein-Wort-
+                # Titel (Beloved/Experience/Driven) als sichere Auto-Treffer auf
+                # zufällige Caption-Wörter. Neu:
+                #  - Multi-Token-Phrase als Substring bleibt verlässlich → ``unique_text``
+                #    (0.97, safe), unabhängig von der Quelle (kein local/alias→1.0 mehr).
+                #  - Ein-Token-Substring ist KEIN Safe-Auto-Match für sich allein →
+                #    ``substring_weak`` (nicht in _SAFE_SOURCES). Der Titel taucht weiter
+                #    als Treffer auf (Recall bleibt: er wird zum TitleCandidate), wird
+                #    aber nie auto-gesetzt. Korroboration durch einen echten exact-/
+                #    hashtag-Treffer auf denselben Titel gewinnt im by_title-Scoring.
+                mapped_source = "unique_text" if " " in normalized else "substring_weak"
                 for title, source_key in title_refs:
-                    mapped_source = "unique_text" if source_key == "exact" else ("exact_local" if source_key == "local" else "exact_alias")
                     strong_hits.append((title, mapped_source, normalized, field_key))
 
             if candidate_is_substring_safe:
@@ -355,7 +379,12 @@ def find_best_title_match(
         for title, source, matched_text, field_key in strong_hits:
             tid = str(title.id)
             field_origins_by_title.setdefault(tid, set()).add(field_key)
-            score = 1.0 if source in {"exact", "exact_local", "exact_alias", "hashtag"} else 0.97
+            if source in {"exact", "exact_local", "exact_alias", "hashtag"}:
+                score = 1.0
+            elif source == "substring_weak":
+                score = 0.90  # single-token substring -> non-safe, needs corroboration
+            else:  # unique_text (multi-token substring)
+                score = 0.97
             candidate = (title, score, source, matched_text)
             current = by_title.get(tid)
             if current is None or (len(matched_text), score) > (len(current[3]), current[1]):
