@@ -145,6 +145,30 @@ def build_normalized_index(
     return normalized_to_titles
 
 
+def build_token_index(
+    normalized_to_titles: dict[str, list[tuple[Title, str]]],
+) -> dict[str, set[str]]:
+    """token -> set of normalized keys that contain it. Built once per batch.
+
+    Performance fix (post-#277, ~29k→14.7k titles): the substring/fuzzy loop used
+    to scan EVERY normalized key per text-field per asset and call
+    ``SequenceMatcher`` on each (O(assets × keys) — the rematch hang). This index
+    lets ``find_best_title_match`` consider only candidates that share a token
+    with the haystack. ``_contains_phrase`` needs the candidate as a contiguous
+    phrase, so it must share ALL its tokens → token-overlap is a LOSSLESS
+    prefilter for substring. For fuzzy it is a deliberate recall scope (a
+    zero-shared-token fuzzy hit is a false positive the substring-magnet guard
+    rejects anyway). ≤2-char and generic tokens are excluded (they would bucket
+    almost everything)."""
+    token_index: dict[str, set[str]] = {}
+    for normalized in normalized_to_titles:
+        for tok in normalized.split():
+            if len(tok) <= 2 or tok in _GENERIC_WORDS:
+                continue
+            token_index.setdefault(tok, set()).add(normalized)
+    return token_index
+
+
 def _load_titles(session: Session) -> list[tuple[Title, dict[str, list[str]]]]:
     return load_title_bundle(session)
 
@@ -301,6 +325,7 @@ def find_best_title_match(
     published_at: datetime | None = None,
     cached_bundle: list[tuple[Title, dict[str, list[str]]]] | None = None,
     cached_normalized_index: dict[str, list[tuple[Title, str]]] | None = None,
+    cached_token_index: dict[str, set[str]] | None = None,
 ) -> MatchResult:
     text_fields = _collect_text_fields(fields, text)
     if not text_fields:
@@ -314,6 +339,11 @@ def find_best_title_match(
         if cached_normalized_index is not None
         else build_normalized_index(titles_with_candidates)
     )
+    token_index = (
+        cached_token_index
+        if cached_token_index is not None
+        else build_token_index(normalized_to_titles)
+    )
 
     # 4-Tupel: (title, source, matched_text, field_key). field_key traegt die
     # Herkunfts-Information bis in den by_title-Aufbau, damit dort pro Titel
@@ -321,6 +351,11 @@ def find_best_title_match(
     strong_hits: list[tuple[Title, str, str, str]] = []
     weak_best: tuple[Title | None, float, str, str | None] = (None, 0.0, "none", None)
 
+    # Phase 1 — Strong-Hits: exact (O(1)-Lookup), Hashtag, Substring NUR auf
+    # token-overlappenden Kandidaten (Token-Inverted-Index-Vorfilter, Perf-Fix).
+    # Pro Feld merken wir (haystack, candidate_keys) fuer einen evtl. Fuzzy-
+    # Fallback, damit wir ihn nicht neu ableiten muessen.
+    per_field_candidates: list[tuple[str, set[str]]] = []
     for field_key, raw in text_fields:
         normalized_haystack = _normalize_text(raw)
         if not normalized_haystack:
@@ -328,50 +363,56 @@ def find_best_title_match(
 
         hashtag_hits = _extract_hashtag_matches(raw, normalized_to_titles)
         for title, source_key, matched_text in hashtag_hits:
-            strong_hits.append((title, "hashtag" if source_key != "alias" else "hashtag", matched_text, field_key))
+            strong_hits.append((title, "hashtag", matched_text, field_key))
 
-        for normalized, title_refs in normalized_to_titles.items():
-            if normalized == normalized_haystack:
-                for title, source_key in title_refs:
-                    mapped_source = "exact" if source_key == "exact" else ("exact_local" if source_key == "local" else "exact_alias")
-                    strong_hits.append((title, mapped_source, normalized, field_key))
+        # Exakter Volltreffer: O(1)-Dict-Lookup (war ein O(N)-Scan ueber alle Keys).
+        exact_refs = normalized_to_titles.get(normalized_haystack)
+        if exact_refs:
+            for title, source_key in exact_refs:
+                mapped_source = "exact" if source_key == "exact" else ("exact_local" if source_key == "local" else "exact_alias")
+                strong_hits.append((title, mapped_source, normalized_haystack, field_key))
+
+        # Substring-/Fuzzy-Kandidaten: nur Keys, die >=1 Token mit dem Haystack
+        # teilen. ``_contains_phrase`` braucht den Kandidaten als zusammenhaengende
+        # Phrase → er muss ALLE seine Tokens teilen, Token-Overlap ist also ein
+        # verlustfreier Vorfilter fuer Substring. Kurze Kandidaten (Compact-Laenge
+        # <= _MIN_SUBSTRING_CANDIDATE_LEN, "mia"/"Yes"/"Kara") bleiben aus den
+        # unscharfen Pfaden ausgeschlossen (Substring-Magnet-Schutz).
+        haystack_tokens = {
+            t for t in normalized_haystack.split()
+            if len(t) > 2 and t not in _GENERIC_WORDS
+        }
+        candidate_keys: set[str] = set()
+        for tok in haystack_tokens:
+            candidate_keys.update(token_index.get(tok, ()))
+        candidate_keys.discard(normalized_haystack)  # exact schon behandelt
+
+        for normalized in candidate_keys:
+            if len(normalized.replace(" ", "")) <= _MIN_SUBSTRING_CANDIDATE_LEN:
                 continue
-            # Substring-Magnet-Schutz: kurze Kandidaten ("mia", "Yes", "Kara")
-            # nicht über die UNSCHARFEN Pfade matchen lassen — weder als
-            # Wortgrenzen-Token (Klasse 1, Substring) NOCH als Fuzzy-Annäherung
-            # (Klasse 2). Initialen-/Kurz-Titel wie "M.I.A." (normalisiert
-            # "m i a", compact "mia"=3) erzeugten sonst über den Fuzzy-Zweig
-            # Fehltreffer: "M:I:6" → "m i 6" gegen "m i a" liefert ratio ~0.8.
-            # Die Compact-Länge wird EINMAL bestimmt und gilt für beide Zweige.
-            # Exakte Gleichheit (Zweig oben), Hashtag und exakter Text bleiben
-            # längenunabhängig — ≤4-Titel verlieren nur die Annäherung, nie den
-            # Volltreffer.
-            candidate_is_substring_safe = (
-                len(normalized.replace(" ", "")) > _MIN_SUBSTRING_CANDIDATE_LEN
-            )
-
-            if candidate_is_substring_safe and _contains_phrase(normalized_haystack, normalized):
-                # Präzisions-Fix (Post-#277): ein SUBSTRING-Treffer ist KEIN exakter
-                # Volltreffer. Der bisherige Code labelte einen Wort-im-Caption-
-                # Treffer aus ``local``/``alias`` als ``exact_local``/``exact_alias``
-                # (Score 1.0, safe) — dadurch matchten ~1528 generische Ein-Wort-
-                # Titel (Beloved/Experience/Driven) als sichere Auto-Treffer auf
-                # zufällige Caption-Wörter. Neu:
-                #  - Multi-Token-Phrase als Substring bleibt verlässlich → ``unique_text``
-                #    (0.97, safe), unabhängig von der Quelle (kein local/alias→1.0 mehr).
-                #  - Ein-Token-Substring ist KEIN Safe-Auto-Match für sich allein →
-                #    ``substring_weak`` (nicht in _SAFE_SOURCES). Der Titel taucht weiter
-                #    als Treffer auf (Recall bleibt: er wird zum TitleCandidate), wird
-                #    aber nie auto-gesetzt. Korroboration durch einen echten exact-/
-                #    hashtag-Treffer auf denselben Titel gewinnt im by_title-Scoring.
+            if _contains_phrase(normalized_haystack, normalized):
+                # Praezisions-Fix (Post-#277): Substring ist KEIN exakter Volltreffer.
+                # Multi-Token-Phrase bleibt verlaesslich → ``unique_text`` (0.97, safe);
+                # Ein-Token-Substring → ``substring_weak`` (nicht in _SAFE_SOURCES):
+                # Titel taucht als Treffer auf (Recall → TitleCandidate), wird aber nur
+                # safe, wenn ein zweites Feld ihn stuetzt (_finalize_strong_hit) oder ein
+                # echter exact-/hashtag-Treffer im by_title-Scoring gewinnt.
                 mapped_source = "unique_text" if " " in normalized else "substring_weak"
-                for title, source_key in title_refs:
+                for title, source_key in normalized_to_titles[normalized]:
                     strong_hits.append((title, mapped_source, normalized, field_key))
 
-            if candidate_is_substring_safe:
+        per_field_candidates.append((normalized_haystack, candidate_keys))
+
+    # Phase 2 — Fuzzy-Fallback NUR, wenn nichts Starkes matchte (Strong-Hit-
+    # Short-Circuit): laeuft ueber dieselbe kleine token-overlap-Kandidatenmenge.
+    if not strong_hits:
+        for normalized_haystack, candidate_keys in per_field_candidates:
+            for normalized in candidate_keys:
+                if len(normalized.replace(" ", "")) <= _MIN_SUBSTRING_CANDIDATE_LEN:
+                    continue
                 ratio = SequenceMatcher(None, normalized_haystack, normalized).ratio()
                 if ratio > 0.72 and ratio > weak_best[1]:
-                    weak_best = (title_refs[0][0], ratio, "fuzzy", normalized)
+                    weak_best = (normalized_to_titles[normalized][0][0], ratio, "fuzzy", normalized)
 
     if strong_hits:
         # Per Titel den spezifischsten Strong-Hit behalten: längster

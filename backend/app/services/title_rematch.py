@@ -10,6 +10,7 @@ from app.services.match_key import slugify_match_key
 from app.services.title_candidates import create_candidate_from_asset, resolve_open_candidates_for_asset
 from app.services.whitelist_matcher import (
     build_normalized_index,
+    build_token_index,
     find_best_title_match,
     is_safe_auto_match,
     load_title_bundle,
@@ -61,6 +62,10 @@ def rematch_unassigned_assets(session: Session, *, commit_batch_size: int = 50) 
     # ~3k titles × 1k unmatched assets) and timed out the Railway gateway.
     bundle = load_title_bundle(session)
     normalized_index = build_normalized_index(bundle)
+    # Post-#277: token-inverted index once per batch, so the per-asset matcher
+    # prefilters substring/fuzzy candidates to token-overlap instead of scanning
+    # all ~19k keys with SequenceMatcher (the 14.7k-catalog rematch hang).
+    token_index = build_token_index(normalized_index)
 
     post_ids = [a.post_id for a in assets if a.post_id]
     posts_by_id: dict[UUID, Post] = {}
@@ -82,6 +87,7 @@ def rematch_unassigned_assets(session: Session, *, commit_batch_size: int = 50) 
             published_at=post.published_at if post else None,
             cached_bundle=bundle,
             cached_normalized_index=normalized_index,
+            cached_token_index=token_index,
         )
 
         if is_safe_auto_match(match) and match.title:
