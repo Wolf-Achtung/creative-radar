@@ -177,6 +177,15 @@ async def test_discover_stops_on_empty_results_page():
     assert len(results) == 2
 
 
+def test_tmdb_region_maps_uk_to_gb():
+    """App market 'UK' must translate to TMDb region 'GB'; others pass through."""
+    assert TMDbClient.tmdb_region("UK") == "GB"
+    assert TMDbClient.tmdb_region("uk") == "GB"
+    assert TMDbClient.tmdb_region("DE") == "DE"
+    assert TMDbClient.tmdb_region("US") == "US"
+    assert TMDbClient.tmdb_region(None) is None
+
+
 def test_normalize_tmdb_series_maps_tv_fields():
     """name -> title_local, original_name -> title_original, first_air_date -> release_date."""
     client = TMDbClient(api_key="dummy")

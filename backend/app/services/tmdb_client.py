@@ -19,6 +19,20 @@ class TMDbAuthError(RuntimeError):
 
 
 class TMDbClient:
+    # Market-code -> TMDb region (ISO 3166-1 alpha-2). The app uses "UK"
+    # internally, but TMDb's ``region``/``watch_region`` params expect "GB" —
+    # passing "UK" silently yields null. Latent today (sync markets are DE/US),
+    # wired now so any future UK pass resolves correctly.
+    _REGION_OVERRIDES = {"UK": "GB"}
+
+    @staticmethod
+    def tmdb_region(market: str | None) -> str | None:
+        """Translate an app market code to the TMDb region code (UK->GB)."""
+        if not market:
+            return None
+        m = market.upper()
+        return TMDbClient._REGION_OVERRIDES.get(m, m)
+
     def __init__(self, api_key: str | None = None, read_access_token: str | None = None):
         self.api_key = self._clean_secret(api_key or settings.tmdb_api_key)
         self.read_access_token = self._clean_secret(read_access_token or settings.tmdb_read_access_token)

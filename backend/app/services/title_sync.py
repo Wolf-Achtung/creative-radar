@@ -180,8 +180,9 @@ async def sync_titles_from_tmdb(
             for market in markets:
                 language = region_language.get(market, "en-US")
 
+                region = TMDbClient.tmdb_region(market)
                 movies = await client.discover_movies_by_company(
-                    companies, language=language, region=market
+                    companies, language=language, region=region
                 )
                 for raw in movies:
                     normalized = client.normalize_tmdb_movie(raw)
@@ -198,7 +199,7 @@ async def sync_titles_from_tmdb(
                     upserted_count += 1
 
                 series = await client.discover_series_by_company(
-                    companies, language=language, region=market
+                    companies, language=language, region=region
                 )
                 for raw in series:
                     normalized = client.normalize_tmdb_series(raw)
