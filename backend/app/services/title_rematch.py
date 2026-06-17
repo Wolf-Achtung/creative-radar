@@ -41,6 +41,11 @@ def _build_match_fields(asset: Asset, post: Post | None) -> dict[str, str | list
         "ai_summary_en": asset.ai_summary_en,
         "suggested_title": asset.placement_title_text,
         "visual_notes": asset.visual_notes,
+        # Recall-Fix (Post-#277): die Sprint-5.3.1-Vision-Pipeline schreibt ihren
+        # Output nach ``vision_description`` — der Matcher las dieses Feld bisher
+        # NICHT (Lese-Lücke). Titel, die nur dort stehen, waren unsichtbar →
+        # source=none trotz erreichbarem Katalog. Jetzt als Match-Feld geführt.
+        "vision_description": asset.vision_description,
     }
 
 

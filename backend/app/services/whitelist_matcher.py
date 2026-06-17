@@ -74,7 +74,13 @@ def _normalize_text(value: str | None) -> str:
 
 def _split_hashtag(tag: str) -> str:
     base = tag.lstrip("#")
-    base = re.sub(r"([a-z])([A-Z])", r"\1 \2", base)
+    base = re.sub(r"([a-z])([A-Z])", r"\1 \2", base)       # camelCase boundary
+    # Recall-Fix (Post-#277): auch Buchstabe↔Ziffer trennen, sonst bleibt der
+    # Titel-Suffix verklebt — #ToyStory5 → "toy story5" ≠ Katalog "toy story 5",
+    # #IronMan2 → "iron man2" ≠ "iron man 2". Beide Richtungen, damit auch
+    # "2Fast" → "2 fast" zerlegt wird.
+    base = re.sub(r"([A-Za-z])([0-9])", r"\1 \2", base)    # letter→digit
+    base = re.sub(r"([0-9])([A-Za-z])", r"\1 \2", base)    # digit→letter
     base = re.sub(r"[_-]+", " ", base)
     return _normalize_text(base)
 
