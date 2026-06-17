@@ -8,6 +8,28 @@ from app.models.entities import Market, Title, TitleKeyword, TitleSyncRun
 from app.services.tmdb_client import TMDbClient
 
 
+# --- Studio company-axis sets (Sprint Studio-Title-Sync, 2026-06-16) ----------
+# Kuratierte, Wolf-verifizierte TMDb-Company-ID-Sets je Produktionsstudio-Pair.
+# Jede ID wurde via scripts/diag_resolve_company_ids gegen einen bekannten Titel
+# bestaetigt (hit=True). Pipe-OR-Semantik auf dem TMDb-``with_companies``-Filter.
+# Co-Producer sind bewusst NICHT enthalten (sie zoegen Fremdstoff in den Katalog).
+#
+# Scope: ausschliesslich die 6 PRODUKTIONSSTUDIOS. Die 3 Streamer (netflix,
+# primevideo, paramountplus) fehlen absichtlich — sie bekommen kuratierte
+# Originals-Sets in ihrem eigenen Sprint (Briefing §7). NICHT hier ergaenzen.
+#
+# Eine Quelle: dieses Dict ist der einzige Ort, an dem die Pair->Company-IDs
+# definiert sind. Kuratierbar ohne weiteren Code-Change.
+PAIR_COMPANY_SETS: dict[str, list[int]] = {
+    "disney": [2, 3, 420, 1, 127928, 3475, 6125],
+    "sonypictures": [34, 5, 559],
+    "warnerbros": [174, 12],
+    "universalpictures": [33, 6704, 521],
+    "paramountpictures": [4],
+    "lionsgate": [1632],
+}
+
+
 def _norm(value: str | None) -> str:
     return " ".join((value or "").lower().split())
 
