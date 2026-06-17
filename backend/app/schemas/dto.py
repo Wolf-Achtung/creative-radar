@@ -140,8 +140,10 @@ class TitleCandidateCreateFromAsset(BaseModel):
 
 class TitleSyncRequest(BaseModel):
     markets: list[str] = ["DE", "US"]
-    lookback_weeks: int = 8
-    lookahead_weeks: int = 24
+    # Company-axis sync (Sprint Studio-Title-Sync): optional pair filter. None =
+    # all production-studio pairs. The former lookback/lookahead window params
+    # are gone — the company set is the selector, not a release-date window.
+    pairs: Optional[list[str]] = None
 
 
 class ReportSuggestRequest(BaseModel):
