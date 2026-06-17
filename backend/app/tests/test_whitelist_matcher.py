@@ -65,3 +65,54 @@ def test_find_best_title_match_with_cached_bundle_matches_uncached():
         assert cached.title.id == uncached.title.id
         assert cached.source == uncached.source
         assert cached.confidence == uncached.confidence
+
+
+# ----------------------------------------- token-prefilter (perf) regression ---
+
+
+def test_build_token_index_buckets_by_token():
+    from app.services.whitelist_matcher import build_normalized_index, build_token_index
+    from app.models.entities import Title
+    bundle = [
+        (Title(title_original="Mortal Kombat II"), {"exact": ["Mortal Kombat II"], "local": [], "alias": [], "weak": []}),
+        (Title(title_original="Moana"), {"exact": ["Moana"], "local": [], "alias": [], "weak": []}),
+    ]
+    idx = build_normalized_index(bundle)
+    tok = build_token_index(idx)
+    assert "mortal" in tok and "mortal kombat ii" in tok["mortal"]
+    assert "moana" in tok and tok["moana"] == {"moana"}
+    # short / numeric tokens are excluded
+    assert "ii" not in tok
+
+
+def test_token_prefilter_preserves_multiword_substring():
+    """A multi-word title is still found via substring when its words appear in
+    the caption — the token prefilter must not drop it."""
+    from app.services.whitelist_matcher import find_best_title_match, is_safe_auto_match
+    with _session() as session:  # type: ignore[name-defined]
+        session.add(Title(title_original="Mortal Kombat II", active=True))
+        session.commit()
+        m = find_best_title_match(session, "Mortal Kombat II - Baraka vs Johnny Cage")
+        assert m.title is not None and m.title.title_original == "Mortal Kombat II"
+        assert is_safe_auto_match(m)
+
+
+def test_large_catalog_match_is_correct_and_does_not_hang():
+    """~5000 generic single-word titles + one real multi-word title. The match
+    must return the real title (token prefilter scopes the work) and complete
+    quickly — guards against the O(assets x catalog) SequenceMatcher regression."""
+    import time
+    from app.services.whitelist_matcher import find_best_title_match, is_safe_auto_match
+    with _session() as session:  # type: ignore[name-defined]
+        for i in range(5000):
+            session.add(Title(title_original=f"Genericword{i}aaa", active=True))
+        session.add(Title(title_original="Mortal Kombat II", active=True))
+        session.commit()
+        started = time.monotonic()
+        m = find_best_title_match(session, "New look at Mortal Kombat II today")
+        elapsed = time.monotonic() - started
+        assert m.title is not None and m.title.title_original == "Mortal Kombat II"
+        assert is_safe_auto_match(m)
+        # Generous bound: token-prefiltered match is milliseconds; the old
+        # full-scan-per-field would be far slower at 5k titles.
+        assert elapsed < 2.0, f"match too slow ({elapsed:.2f}s) — token prefilter regressed?"

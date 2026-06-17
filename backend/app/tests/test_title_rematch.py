@@ -226,3 +226,33 @@ def test_rematch_batches_commits_for_many_auto_matches(monkeypatch):
         # commits when no open candidate exists, so it doesn't inflate the
         # count for this scenario.
         assert commit_calls["n"] >= 3
+
+
+def test_rematch_reads_vision_description_field():
+    """Recall-Fix Post-#277: ein Titel, der NUR in asset.vision_description steht
+    (Sprint-5.3.1-Vision-Output), war fuer den Matcher unsichtbar. Jetzt wird das
+    Feld gelesen — ein Multi-Token-Titel dort matcht safe."""
+    with _session() as session:
+        title = Title(title_original="Inside Out 2", active=True)
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(title)
+        session.add(channel)
+        session.commit()
+        session.refresh(channel)
+
+        post = Post(channel_id=channel.id, post_url="https://example.com/vd-1", caption=None)
+        session.add(post)
+        session.commit()
+        session.refresh(post)
+
+        asset = Asset(post_id=post.id, title_id=None,
+                      vision_description="A clip from Inside Out 2 with the emotions")
+        session.add(asset)
+        session.commit()
+        session.refresh(asset)
+
+        summary = rematch_unassigned_assets(session)
+        refreshed = session.get(Asset, asset.id)
+
+        assert summary.auto_matched == 1
+        assert refreshed.title_id == title.id

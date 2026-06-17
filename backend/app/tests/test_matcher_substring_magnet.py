@@ -170,3 +170,31 @@ def test_long_compact_hashtag_fallback_preserved(session: Session):
     assert match.title is not None
     assert match.title.title_original == "Mortal Kombat II"
     assert match.source == "hashtag"
+
+
+# ---------------------------------------------- digit-boundary hashtag recall ---
+
+
+def test_hashtag_digit_boundary_split_toy_story_5(session: Session):
+    """Recall-Fix Post-#277: #ToyStory5 muss als 'toy story 5' den Katalogtitel
+    'Toy Story 5' treffen (Ziffern-Grenze wird jetzt gesplittet)."""
+    session.add(Title(title_original="Toy Story 5", active=True))
+    session.commit()
+
+    match = find_best_title_match(session, "so hyped #ToyStory5")
+
+    assert match.title is not None
+    assert match.title.title_original == "Toy Story 5"
+    assert match.source == "hashtag"
+
+
+def test_hashtag_digit_boundary_split_iron_man_2(session: Session):
+    """#IronMan2 → 'iron man 2' → Treffer 'Iron Man 2'."""
+    session.add(Title(title_original="Iron Man 2", active=True))
+    session.commit()
+
+    match = find_best_title_match(session, "throwback #IronMan2")
+
+    assert match.title is not None
+    assert match.title.title_original == "Iron Man 2"
+    assert match.source == "hashtag"
