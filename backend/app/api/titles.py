@@ -95,8 +95,7 @@ async def sync_tmdb(payload: TitleSyncRequest, session: Session = Depends(get_se
     return await sync_titles_from_tmdb(
         session,
         markets=payload.markets,
-        lookback_weeks=payload.lookback_weeks,
-        lookahead_weeks=payload.lookahead_weeks,
+        pairs=payload.pairs,
     )
 
 
