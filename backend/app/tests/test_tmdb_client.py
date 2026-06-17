@@ -11,9 +11,11 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+import httpx
 import pytest
 
-from app.services.tmdb_client import TMDbClient
+from app.services import tmdb_client as tc
+from app.services.tmdb_client import TMDbAuthError, TMDbClient
 
 
 class _RecordingClient:
@@ -204,3 +206,108 @@ def test_normalize_tmdb_series_maps_tv_fields():
     assert normalized["release_date"] == "2026-05-16"
     assert normalized["release_year"] == 2026
     assert "Murderbot" in normalized["aliases"]
+
+
+# ---------------------------------------------- transient-retry resilience ---
+# These exercise the REAL TMDbClient._get (not the _RecordingClient stub) by
+# faking httpx.AsyncClient.get with a scripted sequence of responses/exceptions.
+
+
+def _resp(status: int, payload: dict | None = None, headers: dict | None = None) -> httpx.Response:
+    req = httpx.Request("GET", "https://api.themoviedb.org/3/x")
+    return httpx.Response(status, json=(payload if payload is not None else {}),
+                          request=req, headers=headers)
+
+
+def _patch_get(monkeypatch, actions: list) -> dict:
+    """Fake httpx.AsyncClient.get popping ``actions`` in order. An item that is
+    an Exception is raised; otherwise it is returned as the response."""
+    state = {"actions": list(actions), "calls": 0}
+
+    async def fake_get(self, url, params=None, headers=None):
+        state["calls"] += 1
+        action = state["actions"].pop(0)
+        if isinstance(action, Exception):
+            raise action
+        return action
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    return state
+
+
+@pytest.fixture
+def fast_retry(monkeypatch):
+    """Zero out the backoffs so retry tests run instantly (asyncio.sleep(0))."""
+    monkeypatch.setattr(tc, "TMDB_RETRY_BACKOFFS", (0.0, 0.0, 0.0))
+
+
+@pytest.mark.asyncio
+async def test_get_retries_transient_500_then_succeeds(monkeypatch, fast_retry):
+    state = _patch_get(monkeypatch, [_resp(500), _resp(200, {"ok": True})])
+    client = TMDbClient(api_key="dummy")
+    assert await client._get("/discover/movie", {"page": 12}) == {"ok": True}
+    assert state["calls"] == 2  # one retry, then success
+
+
+@pytest.mark.asyncio
+async def test_get_gives_up_after_exhausting_retries_on_persistent_500(monkeypatch, fast_retry):
+    state = _patch_get(monkeypatch, [_resp(500)] * 4)
+    client = TMDbClient(api_key="dummy")
+    with pytest.raises(httpx.HTTPStatusError):
+        await client._get("/discover/movie")
+    assert state["calls"] == 4  # 1 initial + 3 retries, then re-raise
+
+
+@pytest.mark.asyncio
+async def test_get_does_not_retry_4xx(monkeypatch, fast_retry):
+    state = _patch_get(monkeypatch, [_resp(404), _resp(200, {"ok": True})])
+    client = TMDbClient(api_key="dummy")
+    with pytest.raises(httpx.HTTPStatusError):
+        await client._get("/movie/999")
+    assert state["calls"] == 1  # 4xx is a real error -> no retry
+
+
+@pytest.mark.asyncio
+async def test_get_retries_network_timeout_then_succeeds(monkeypatch, fast_retry):
+    state = _patch_get(monkeypatch, [httpx.ReadTimeout("transient"), _resp(200, {"ok": True})])
+    client = TMDbClient(api_key="dummy")
+    assert await client._get("/discover/tv") == {"ok": True}
+    assert state["calls"] == 2
+
+
+@pytest.mark.asyncio
+async def test_get_401_raises_auth_error_without_retry(monkeypatch, fast_retry):
+    state = _patch_get(monkeypatch, [_resp(401), _resp(200, {"ok": True})])
+    client = TMDbClient(api_key="dummy")
+    with pytest.raises(TMDbAuthError):
+        await client._get("/discover/movie")
+    assert state["calls"] == 1  # auth is permanent -> no retry
+
+
+def test_retry_after_seconds_honours_429_header():
+    req = httpx.Request("GET", "https://api.themoviedb.org/3/x")
+    resp = httpx.Response(429, headers={"Retry-After": "7"}, request=req)
+    exc = httpx.HTTPStatusError("429", request=req, response=resp)
+    assert TMDbClient._retry_after_seconds(exc, fallback=2.0) == 7.0
+    # No header -> fall back to the backoff value.
+    resp2 = httpx.Response(429, request=req)
+    exc2 = httpx.HTTPStatusError("429", request=req, response=resp2)
+    assert TMDbClient._retry_after_seconds(exc2, fallback=2.0) == 2.0
+
+
+@pytest.mark.asyncio
+async def test_discover_paginates_through_transient_500(monkeypatch, fast_retry):
+    """A transient 500 mid-pagination must NOT abort the run — _get retries it
+    and the paginator continues to the empty page. This is the #277 live-sync
+    failure mode (500 on /discover/movie page 12)."""
+    actions = [
+        _resp(200, {"results": [{"id": 1}], "total_pages": 3}),   # page 1
+        _resp(500),                                                # page 2 (transient)
+        _resp(200, {"results": [{"id": 2}], "total_pages": 3}),   # page 2 retry
+        _resp(200, {"results": [], "total_pages": 3}),            # page 3 empty -> stop
+    ]
+    state = _patch_get(monkeypatch, actions)
+    client = TMDbClient(api_key="dummy")
+    results = await client.discover_movies_by_company("2|3", language="en-US", region="US")
+    assert [r["id"] for r in results] == [1, 2]
+    assert state["calls"] == 4

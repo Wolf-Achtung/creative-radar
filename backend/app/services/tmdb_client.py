@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import date
 from typing import Any
 
@@ -7,11 +9,22 @@ import httpx
 
 from app.config import settings
 
+logger = logging.getLogger(__name__)
+
 BASE_URL = "https://api.themoviedb.org/3"
 
 # TMDb caps the ``page`` query param at 500 on the /discover endpoints.
 # We honour that as the upper bound for full pagination.
 TMDB_MAX_DISCOVER_PAGES = 500
+
+# Retry policy for transient TMDb failures (Sprint TMDb-retry-resilience).
+# TMDb sporadically returns 5xx on deep /discover pages and occasionally 429
+# rate-limits; with several hundred calls per company-axis sync a single blip
+# would otherwise abort the whole run. We retry ONLY transient classes
+# (5xx, 429, network timeouts) — never 4xx (real errors, incl. 401 auth).
+# One backoff value per retry; exhausting them re-raises so a genuine permanent
+# failure still stops the run.
+TMDB_RETRY_BACKOFFS = (1.0, 2.0, 4.0)
 
 
 class TMDbAuthError(RuntimeError):
@@ -62,19 +75,60 @@ class TMDbClient:
         if not self.read_access_token and not self.api_key:
             raise TMDbAuthError("TMDb-Zugangsdaten fehlen. Bitte TMDB_READ_ACCESS_TOKEN oder TMDB_API_KEY setzen.")
 
+    @staticmethod
+    def _retry_after_seconds(exc: httpx.HTTPStatusError, fallback: float) -> float:
+        """Honour a 429 ``Retry-After`` header (integer seconds) when present;
+        otherwise use the exponential-backoff fallback. HTTP-date forms are
+        rare on TMDb and fall back to the backoff value."""
+        raw = exc.response.headers.get("retry-after")
+        if raw and raw.strip().isdigit():
+            return float(raw.strip())
+        return fallback
+
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         self._ensure_auth()
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(f"{BASE_URL}{path}", params=self._params(params), headers=self._headers())
+        url = f"{BASE_URL}{path}"
+        final_params = self._params(params)
+        headers = self._headers()
+
+        # attempt 0 = initial try; attempts 1..N = retries with TMDB_RETRY_BACKOFFS.
+        for attempt in range(len(TMDB_RETRY_BACKOFFS) + 1):
             try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.get(url, params=final_params, headers=headers)
                 response.raise_for_status()
+                return response.json()
             except httpx.HTTPStatusError as exc:
-                if response.status_code == 401:
+                status = exc.response.status_code
+                if status == 401:
+                    # Auth is permanent — never retry, surface the clear message.
                     raise TMDbAuthError(
                         "TMDb-Zugangsdaten ungültig. Bitte TMDB_READ_ACCESS_TOKEN und TMDB_API_KEY in Railway prüfen."
                     ) from exc
-                raise
-            return response.json()
+                transient = status == 429 or 500 <= status < 600
+                if not transient or attempt >= len(TMDB_RETRY_BACKOFFS):
+                    # Non-retryable 4xx, or retries exhausted → propagate so a
+                    # genuine permanent failure still stops the run.
+                    raise
+                delay = self._retry_after_seconds(exc, TMDB_RETRY_BACKOFFS[attempt])
+                logger.warning(
+                    "tmdb transient %s on %s (attempt %d/%d), retrying in %.1fs",
+                    status, path, attempt + 1, len(TMDB_RETRY_BACKOFFS) + 1, delay,
+                )
+                await asyncio.sleep(delay)
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                # Network-level transient (connect/read timeout, conn reset).
+                if attempt >= len(TMDB_RETRY_BACKOFFS):
+                    raise
+                delay = TMDB_RETRY_BACKOFFS[attempt]
+                logger.warning(
+                    "tmdb network error on %s (%s, attempt %d/%d), retrying in %.1fs",
+                    path, type(exc).__name__, attempt + 1, len(TMDB_RETRY_BACKOFFS) + 1, delay,
+                )
+                await asyncio.sleep(delay)
+        # Unreachable: the loop either returns or raises. Defensive guard for
+        # static analysers / future edits to the loop bounds.
+        raise RuntimeError("tmdb _get retry loop exhausted without return")
 
     async def _discover_paginated(self, path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Fully paginate a /discover endpoint up to ``total_pages``.
