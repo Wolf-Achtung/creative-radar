@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 from sqlmodel import Session, select
 
@@ -128,59 +128,91 @@ def _upsert_normalized_title(
 async def sync_titles_from_tmdb(
     session: Session,
     markets: list[str] | None = None,
-    lookback_weeks: int = 8,
-    lookahead_weeks: int = 24,
+    pairs: list[str] | None = None,
 ) -> dict:
+    """Company-axis title sync (Sprint Studio-Title-Sync, 2026-06-16).
+
+    Replaces the former popularity-window discover (``[-8w, +24w]`` +
+    ``with_release_type`` + 3-page cap) with ``with_companies``-discover per
+    production-studio pair. The company set is the selector, so the FULL studio
+    slate — incl. back-catalogue and returning series seasons — enters the
+    catalogue regardless of release date. Diagnose: the window+cap was the root
+    of the 96 % no_title_match (catalog gap).
+
+    Scope: the 6 production-studio pairs in ``PAIR_COMPANY_SETS``. The 3
+    streamers are NOT synced here (own sprint, §7) — their existing rows persist.
+
+    Localization preserved: each pair is discovered once per market/language
+    (DE→de-DE, US→en-US). The per-(media, tmdb_id, MARKET) dedup key lets BOTH
+    passes upsert, so ``release_date_de`` + ``release_date_us`` populate and the
+    DE-Verleihtitel lands in aliases (matcher reads aliases). The former
+    cross-market dedup skipped the second market's pass entirely.
+    """
     client = TMDbClient()
     markets = markets or ["DE", "US"]
     region_language = {"DE": "de-DE", "US": "en-US"}
 
+    pair_sets = (
+        PAIR_COMPANY_SETS if pairs is None
+        else {k: v for k, v in PAIR_COMPANY_SETS.items() if k in pairs}
+    )
+
     today = datetime.now(timezone.utc).date()
-    date_from = today - timedelta(weeks=lookback_weeks)
-    date_to = today + timedelta(weeks=lookahead_weeks)
 
     fetched_count = upserted_count = deduped_count = 0
-    # Namespaced by media type: TMDb movie- und tv-IDs überlappen, also darf
-    # ein Film mit id=550 eine Serie mit id=550 im selben Lauf nicht dedupen.
-    seen_keys: set[tuple[str, int]] = set()
+    # Dedup key (media, tmdb_id, market): media because TMDb movie/tv ID
+    # namespaces overlap; market so each language/region pass still upserts
+    # (both release dates + both localized titles land).
+    seen_keys: set[tuple[str, int, str]] = set()
 
-    run = TitleSyncRun(source="tmdb", markets=markets, date_from=date_from, date_to=date_to, status="running")
+    # Company axis has no release-date window; date_from/date_to are recorded as
+    # the run date so the NOT-NULL audit columns stay populated (a schema change
+    # to make them nullable is out of scope for this sprint).
+    run = TitleSyncRun(
+        source="tmdb", markets=markets, date_from=today, date_to=today, status="running"
+    )
     session.add(run)
     session.commit()
 
     try:
-        for market in markets:
-            language = region_language.get(market, "en-US")
+        for pair_key, company_ids in pair_sets.items():
+            companies = "|".join(str(c) for c in company_ids)
+            for market in markets:
+                language = region_language.get(market, "en-US")
 
-            # --- Movies (unverändert: /discover/movie, normalize_tmdb_movie) ---
-            movies = await client.discover_movies(region=market, language=language, date_from=date_from, date_to=date_to)
-            for raw in movies:
-                normalized = client.normalize_tmdb_movie(raw)
-                tmdb_id = normalized.get("tmdb_id")
-                if not tmdb_id:
-                    continue
-                fetched_count += 1
-                if ("movie", tmdb_id) in seen_keys:
-                    deduped_count += 1
-                    continue
-                seen_keys.add(("movie", tmdb_id))
-                _upsert_normalized_title(session, normalized, market, is_series=False)
-                upserted_count += 1
+                movies = await client.discover_movies_by_company(
+                    companies, language=language, region=market
+                )
+                for raw in movies:
+                    normalized = client.normalize_tmdb_movie(raw)
+                    tmdb_id = normalized.get("tmdb_id")
+                    if not tmdb_id:
+                        continue
+                    fetched_count += 1
+                    key = ("movie", tmdb_id, market)
+                    if key in seen_keys:
+                        deduped_count += 1
+                        continue
+                    seen_keys.add(key)
+                    _upsert_normalized_title(session, normalized, market, is_series=False)
+                    upserted_count += 1
 
-            # --- Series (additiv: /discover/tv, normalize_tmdb_series) ---
-            series = await client.discover_series(region=market, language=language, date_from=date_from, date_to=date_to)
-            for raw in series:
-                normalized = client.normalize_tmdb_series(raw)
-                tmdb_id = normalized.get("tmdb_id")
-                if not tmdb_id:
-                    continue
-                fetched_count += 1
-                if ("tv", tmdb_id) in seen_keys:
-                    deduped_count += 1
-                    continue
-                seen_keys.add(("tv", tmdb_id))
-                _upsert_normalized_title(session, normalized, market, is_series=True)
-                upserted_count += 1
+                series = await client.discover_series_by_company(
+                    companies, language=language, region=market
+                )
+                for raw in series:
+                    normalized = client.normalize_tmdb_series(raw)
+                    tmdb_id = normalized.get("tmdb_id")
+                    if not tmdb_id:
+                        continue
+                    fetched_count += 1
+                    key = ("tv", tmdb_id, market)
+                    if key in seen_keys:
+                        deduped_count += 1
+                        continue
+                    seen_keys.add(key)
+                    _upsert_normalized_title(session, normalized, market, is_series=True)
+                    upserted_count += 1
 
         run.fetched_count = fetched_count
         run.upserted_count = upserted_count
@@ -191,8 +223,8 @@ async def sync_titles_from_tmdb(
 
         return {
             "markets": markets,
-            "date_from": date_from.isoformat(),
-            "date_to": date_to.isoformat(),
+            "pairs": list(pair_sets.keys()),
+            "axis": "company",
             "fetched_count": fetched_count,
             "upserted_count": upserted_count,
             "deduped_count": deduped_count,

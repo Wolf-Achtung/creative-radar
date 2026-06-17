@@ -121,6 +121,45 @@ class TMDbClient:
             },
         )
 
+    async def discover_movies_by_company(
+        self, company_ids: str, language: str, region: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Company-axis movie discover (Sprint Studio-Title-Sync).
+
+        ``company_ids`` is a TMDb pipe-OR set (``"2|3|420"``). Unlike the
+        window discover, this drops ``release_date.*`` and ``with_release_type``
+        — the company set IS the selector, so the full studio slate (incl.
+        back-catalogue) is returned regardless of release date. ``language``
+        drives the localized title (DE-Verleihtitel preservation); ``region``,
+        when set, selects the region-specific release date in the payload.
+        """
+        params: dict[str, Any] = {
+            "language": language,
+            "sort_by": "popularity.desc",
+            "include_adult": "false",
+            "include_video": "false",
+            "with_companies": company_ids,
+        }
+        if region:
+            params["region"] = region
+        return await self._discover_paginated("/discover/movie", params)
+
+    async def discover_series_by_company(
+        self, company_ids: str, language: str, region: str | None = None
+    ) -> list[dict[str, Any]]:
+        """TV sibling of ``discover_movies_by_company``. ``with_companies`` on
+        ``/discover/tv`` ignores ``first_air_date``, so returning seasons of
+        catalogue series are captured too (the series blind-spot fix)."""
+        params: dict[str, Any] = {
+            "language": language,
+            "sort_by": "popularity.desc",
+            "include_adult": "false",
+            "with_companies": company_ids,
+        }
+        if region:
+            params["region"] = region
+        return await self._discover_paginated("/discover/tv", params)
+
     def normalize_tmdb_series(self, series: dict[str, Any]) -> dict[str, Any]:
         """TV sibling of ``normalize_tmdb_movie``. Maps the TV field names
         (``name`` / ``original_name`` / ``first_air_date``) onto the same
