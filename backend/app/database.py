@@ -49,7 +49,37 @@ def resolve_database_url() -> str:
 
 DATABASE_URL = resolve_database_url()
 _is_sqlite = DATABASE_URL.startswith("sqlite")
-connect_args = {"check_same_thread": False} if _is_sqlite else {}
+
+
+def _build_connect_args(is_sqlite: bool) -> dict:
+    """Per-driver ``connect_args`` for ``create_engine``.
+
+    Postgres path bounds the libpq connection so a dead/half-open socket — e.g.
+    the public proxy (tramway.proxy.rlwy.net) on local runs — fails fast and the
+    pool reconnects, instead of blocking the ``pool_pre_ping`` reconnect with no
+    client-side deadline (the observed minutes-long ``_do_ping`` -> ``pool.connect()``
+    hang). ``connect_timeout`` bounds the establishment phase; the TCP keepalives
+    detect an already-dead established socket so ``SELECT 1`` / queries fail fast
+    too. All are libpq parameters honoured by psycopg2 and psycopg3.
+
+    Unschädlich für den internen Cron-Pfad (``postgres.railway.internal``): ein
+    gesunder interner Connect ist im einstelligen Millisekunden-Bereich und nähert
+    sich der 10s-Deadline nie; die Keepalives greifen nur auf einem bereits toten
+    Socket. Es ist reine Defense-in-depth-Härtung — der Cron geht ohnehin nicht
+    über den flakigen Proxy.
+    """
+    if is_sqlite:
+        return {"check_same_thread": False}
+    return {
+        "connect_timeout": 10,
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 3,
+    }
+
+
+connect_args = _build_connect_args(_is_sqlite)
 
 # Block 2.5 — Connection-Pool tuning.
 #
