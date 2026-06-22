@@ -809,6 +809,19 @@ class InsightReport(BaseModel):
         default=None,
         description="Raw assistant text — populated only when JSON parsing fails, to surface the failure in the response without losing the LLM's reply.",
     )
+    failure_diagnostic: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Diagnose-Instrumentierung (2026-06-22, additiv): nur bei "
+            "terminalem Generierungs-Fehler (llm_output is None) gesetzt. "
+            "``{kind, detail}`` klassifiziert den Fehler "
+            "(json_parse_error / schema_validation_error / "
+            "citation_validation_error / truncation_error) und traegt den "
+            "konkreten Grund, damit der Cron-Sammelfehler ``no_llm_output`` "
+            "aufgeschluesselt wird. Wird nicht persistiert; Consumer duerfen "
+            "es ignorieren."
+        ),
+    )
 
 
 class TitleLLMReport(BaseModel):

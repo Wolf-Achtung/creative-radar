@@ -508,6 +508,19 @@ def _run_rematch_after_sync(session: Session) -> dict:
     return summary.to_dict()
 
 
+def _truncate_head_tail(text: str, *, head: int = 2000, tail: int = 2000) -> str:
+    """Diagnose-Instrumentierung (2026-06-22): kuerzt einen Roh-LLM-Output
+    fuer den Cron-Diagnose-Block auf die ersten ``head`` + letzten ``tail``
+    Zeichen, mit Marker dazwischen. So landet genug Kontext (Anfang + Ende
+    des JSON, wo Truncation/Parse-Fehler typischerweise sichtbar werden) im
+    Summary, ohne das Log mit einem 20k-Token-Blob zu fluten. Reiner Modell-
+    JSON-Text — keine Secrets/Prompts/PII."""
+    if len(text) <= head + tail:
+        return text
+    dropped = len(text) - head - tail
+    return f"{text[:head]}…[TRUNCATED {dropped} chars]…{text[-tail:]}"
+
+
 def _run_brief_generation_after_sync(
     session: Session,
     *,
@@ -620,11 +633,42 @@ def _run_brief_generation_after_sync(
             # visible; the root-cause schema mismatch is a separate fix.
             if report is None or report.llm_output is None:
                 briefs_summary["failed"] += 1
-                briefs_summary["errors"].append({
+                # Diagnose-Instrumentierung (2026-06-22, additiv): den
+                # konkreten Treiber aufschluesseln statt pauschal
+                # ``no_llm_output``. ``failure_diagnostic`` traegt
+                # ``{kind, detail}`` aus dem Kernel; ``raw_llm_text`` den
+                # (gekuerzten) Roh-Output. Faellt auf das alte Sammel-Label
+                # zurueck, falls die Diagnose fehlt (z.B. report is None).
+                diag = (
+                    getattr(report, "failure_diagnostic", None)
+                    if report is not None
+                    else None
+                ) or {}
+                error_class = diag.get("kind") or "no_llm_output"
+                error_message = diag.get("detail") or (
+                    "llm_output is None (JSON-parse/schema/citation/truncation "
+                    "failure, brief not persisted)"
+                )
+                error_entry = {
                     "pair": pair_key,
-                    "error_class": "no_llm_output",
-                    "error_message": "llm_output is None (JSON-parse/schema/citation failure, brief not persisted)",
-                })
+                    "error_class": error_class,
+                    "error_message": str(error_message)[:500],
+                }
+                raw_llm_text = (
+                    getattr(report, "raw_llm_text", None)
+                    if report is not None
+                    else None
+                )
+                diagnostic: dict = {}
+                if diag.get("kind"):
+                    diagnostic["kind"] = diag["kind"]
+                if diag.get("detail"):
+                    diagnostic["detail"] = diag["detail"]
+                if raw_llm_text:
+                    diagnostic["raw_llm_output"] = _truncate_head_tail(raw_llm_text)
+                if diagnostic:
+                    error_entry["diagnostic"] = diagnostic
+                briefs_summary["errors"].append(error_entry)
             else:
                 briefs_summary["generated"] += 1
             if report is not None and report.cost_usd_estimate:
