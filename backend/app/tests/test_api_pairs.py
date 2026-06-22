@@ -263,65 +263,86 @@ def _seed_post(session: Session, channel: Channel, *,
 
 
 def test_pairs_endpoint_includes_kennzahl_fields_with_defaults(client: TestClient):
-    """Bei leerer DB: Felder kommen mit ``posts_count_this_week=0``
+    """Bei leerer DB: Felder kommen mit ``posts_count_completed_week=0``
     und ``last_generated_at=None`` zurueck. Default-Verhalten ist
     Pflicht damit der Frontend-Code nicht null-checken muss."""
     response = client.get("/api/pairs")
     assert response.status_code == 200
     for pair in response.json()["pairs"]:
-        assert "posts_count_this_week" in pair
-        assert pair["posts_count_this_week"] == 0
+        assert "posts_count_completed_week" in pair
+        assert pair["posts_count_completed_week"] == 0
         assert "last_generated_at" in pair
         assert pair["last_generated_at"] is None
 
 
-def test_pairs_endpoint_counts_posts_in_current_iso_week(client: TestClient, db):
-    """Posts mit ``published_at`` in der aktuellen ISO-Woche zaehlen,
-    aeltere Posts NICHT."""
+def _completed_week_start():
+    """Montag 00:00 UTC der abgeschlossenen ISO-Woche — dieselbe
+    Ableitung wie der Endpoint (last_completed_iso_week_anchor →
+    _iso_week_start_utc)."""
     from app.api.insights import _iso_week_start_utc
-    ws = _iso_week_start_utc()
+    from app.services.insight_engine import last_completed_iso_week_anchor
+    return _iso_week_start_utc(last_completed_iso_week_anchor())
+
+
+def test_pairs_endpoint_counts_posts_in_completed_iso_week(client: TestClient, db):
+    """Sprint Studio-Kachel-Vorwoche (2026-06-22): Posts mit
+    ``published_at`` in der ABGESCHLOSSENEN ISO-Woche (KW-1) zaehlen;
+    Posts der LAUFENDEN Woche und aeltere Posts NICHT. ``iso_week`` /
+    ``iso_year`` tragen die KW-Kennung der abgeschlossenen Woche."""
+    cws = _completed_week_start()
     with Session(db) as session:
         # Channel-Handle aus warnerbros-PAIRS (US-Seite)
         ch = _seed_channel(session, handle="warnerbros", market="US")
-        # Drei Posts in dieser Woche
+        # Drei Posts in der abgeschlossenen Woche
         for i in range(3):
             _seed_post(session, ch,
-                       published_at=ws + timedelta(hours=12 + i),
+                       published_at=cws + timedelta(hours=12 + i),
                        detected_at=None, url_suffix=f"w{i}")
-        # Ein Post letzte Woche (vor week_start)
+        # Ein Post in der LAUFENDEN Woche (>= week_end) → soll NICHT zaehlen
         _seed_post(session, ch,
-                   published_at=ws - timedelta(days=2),
+                   published_at=cws + timedelta(days=7, hours=12),
+                   detected_at=None, url_suffix="current")
+        # Ein Post zwei Wochen alt (vor week_start) → soll NICHT zaehlen
+        _seed_post(session, ch,
+                   published_at=cws - timedelta(days=2),
                    detected_at=None, url_suffix="old")
 
     response = client.get("/api/pairs")
     assert response.status_code == 200
     pair = next(p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros")
-    assert pair["posts_count_this_week"] == 3
+    assert pair["posts_count_completed_week"] == 3
+    assert pair["iso_week"] == cws.isocalendar()[1]
+    assert pair["iso_year"] == cws.isocalendar()[0]
 
 
 def test_pairs_endpoint_falls_back_to_detected_at_when_published_at_null(
     client: TestClient, db,
 ):
     """published_at NULL → detected_at uebernimmt die Zeitfilterung
-    (gleicher Fallback wie #190 und _channel_stats)."""
-    from app.api.insights import _iso_week_start_utc
-    ws = _iso_week_start_utc()
+    (gleicher Fallback wie #190 und _channel_stats), ebenfalls beidseitig
+    auf die abgeschlossene Woche gebounded."""
+    cws = _completed_week_start()
     with Session(db) as session:
         ch = _seed_channel(session, handle="warnerbros", market="US")
-        # Post ohne published_at, aber detected_at in dieser Woche
+        # Post ohne published_at, aber detected_at in der abgeschlossenen Woche
         _seed_post(session, ch,
                    published_at=None,
-                   detected_at=ws + timedelta(hours=6),
+                   detected_at=cws + timedelta(hours=6),
                    url_suffix="nopub")
-        # Post ohne published_at, detected_at in der Vorwoche → soll NICHT zaehlen
+        # Post ohne published_at, detected_at in der LAUFENDEN Woche → NICHT zaehlen
         _seed_post(session, ch,
                    published_at=None,
-                   detected_at=ws - timedelta(days=3),
+                   detected_at=cws + timedelta(days=7, hours=6),
+                   url_suffix="current-nopub")
+        # Post ohne published_at, detected_at zwei Wochen alt → NICHT zaehlen
+        _seed_post(session, ch,
+                   published_at=None,
+                   detected_at=cws - timedelta(days=3),
                    url_suffix="old-nopub")
 
     response = client.get("/api/pairs")
     pair = next(p for p in response.json()["pairs"] if p["pair_key"] == "warnerbros")
-    assert pair["posts_count_this_week"] == 1
+    assert pair["posts_count_completed_week"] == 1
 
 
 def test_pairs_endpoint_returns_last_generated_at(client: TestClient, db):
@@ -350,7 +371,7 @@ def test_pairs_endpoint_returns_last_generated_at(client: TestClient, db):
 
 
 def test_pairs_endpoint_pair_without_channels_returns_zero(client: TestClient, db):
-    """Pair ohne onboarded Channels → ``posts_count_this_week=0``,
+    """Pair ohne onboarded Channels → ``posts_count_completed_week=0``,
     ``last_generated_at=None``. Empty-State ist ehrlich, nicht
     kaputt."""
     # Keine Channels geseedet → kein Channel in der DB. Der Endpoint
@@ -358,7 +379,7 @@ def test_pairs_endpoint_pair_without_channels_returns_zero(client: TestClient, d
     response = client.get("/api/pairs")
     assert response.status_code == 200
     for pair in response.json()["pairs"]:
-        assert pair["posts_count_this_week"] == 0
+        assert pair["posts_count_completed_week"] == 0
         assert pair["last_generated_at"] is None
 
 

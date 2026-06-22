@@ -887,15 +887,23 @@ class PairInfo(BaseModel):
     independent of insertion order in the PAIRS dict), and
     ``frequency_label`` is the briefing cadence shown next to the markets.
 
-    Sprint 28.05.2026 (Studio-Kennzahl): zwei zusaetzliche Felder
-    fuer die Live-Anzeige auf der Startseiten-Kachel. Beide haben
+    Sprint 28.05.2026 (Studio-Kennzahl): zusaetzliche Felder
+    fuer die Live-Anzeige auf der Startseiten-Kachel. Alle haben
     Defaults, damit bestehende Tests und Frontend-Versionen ohne
     Felder-Awareness weiter parsen.
-    - ``posts_count_this_week``: Live-Aggregat (kein LLM, kein Cron-
-      Bezug). Posts mit ``published_at >= week_start_iso`` ODER
-      ``published_at IS NULL AND detected_at >= week_start_iso``
+    - ``posts_count_completed_week``: Live-Aggregat (kein LLM, kein
+      Cron-Bezug) ueber die ABGESCHLOSSENE ISO-Woche (KW-1), beidseitig
+      gebounded ``[week_start, week_end)``. Posts mit ``published_at`` im
+      Fenster ODER ``published_at IS NULL AND detected_at`` im Fenster
       (gleicher Fallback wie der Breakout-Score in #190 + die
-      Aggregations-Fenster in ``_channel_stats``).
+      Aggregations-Fenster in ``_channel_stats``). Sprint Studio-Kachel-
+      Vorwoche (2026-06-22): vorher ``posts_count_this_week`` gegen die
+      laufende KW — stand zwischen den Montags-Cron-Laeufen dauerhaft
+      auf 0/1 und wirkte wie ein Defekt.
+    - ``iso_week`` / ``iso_year``: die KW-Kennung der abgeschlossenen
+      Woche, aus ``last_completed_iso_week_anchor()`` abgeleitet (dieselbe
+      Quelle wie Brief + Segment). Treibt das Kachel-Label "… in KW
+      ``iso_week``/``iso_year``".
     - ``last_generated_at``: Timestamp des juengsten persistierten
       ``InsightReport`` fuer das Pair (max ueber alle KWs). ``None``
       wenn fuer das Pair noch nie ein Brief generiert wurde —
@@ -907,7 +915,9 @@ class PairInfo(BaseModel):
     markets: list[str]
     frequency_label: str
     enabled: bool
-    posts_count_this_week: int = 0
+    posts_count_completed_week: int = 0
+    iso_week: Optional[int] = None
+    iso_year: Optional[int] = None
     last_generated_at: Optional[datetime] = None
     # Sprint 28.05.2026 (Option B / Headline pro Kachel) — die
     # LLM-headline des juengsten persistierten Briefs (90-Zeichen-

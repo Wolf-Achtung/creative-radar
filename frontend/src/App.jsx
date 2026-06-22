@@ -1332,7 +1332,16 @@ function App() {
           <div className="pair-briefs-grid pair-tile-grid">
             {pairs.map((pair) => {
               const deviation = pairDeviationLabel(pair, sectionDefaults);
-              const count = pair.posts_count_this_week ?? 0;
+              const count = pair.posts_count_completed_week ?? 0;
+              // Studio-Kachel-Vorwoche (2026-06-22): Kennzahl + Label zeigen
+              // die abgeschlossene KW (KW-1, vom Backend aus
+              // last_completed_iso_week_anchor abgeleitet) — konsistent mit
+              // den Segment-Ueberschriften darunter. Fallback "diese Woche"
+              // nur, falls die KW-Felder fehlen (aeltere API-Antwort).
+              const weekLabel =
+                pair.iso_week != null && pair.iso_year != null
+                  ? `KW ${pair.iso_week}/${pair.iso_year}`
+                  : 'diese Woche';
               const generated = formatPairUpdated(pair.last_generated_at);
               const stale = isBriefStale(pair.last_generated_at);
               const headline = (pair.headline || '').trim();
@@ -1360,7 +1369,7 @@ function App() {
                     <span className="pair-tile-empty-hint">Brief wird vorbereitet.</span>
                   )}
                   <span className="pair-tile-metric">
-                    {`${count} ${count === 1 ? 'Post' : 'Posts'} diese Woche`}
+                    {`${count} ${count === 1 ? 'Post' : 'Posts'} in ${weekLabel}`}
                   </span>
                   <span className="pair-tile-meta">
                     {generated
