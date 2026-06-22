@@ -3532,6 +3532,33 @@ def _validate_citations(
     return all_belegt
 
 
+def _describe_citation_failures(
+    report: LLMReport, agg: PairAggregation
+) -> Optional[str]:
+    """Diagnose-Helfer (2026-06-22, additiv): liefert eine kompakte
+    Beschreibung der gebrochenen Citation-Regeln fuer den
+    ``citation_validation_error``-Pfad — welche Sektion welche IDs nicht
+    belegen kann. Nur fuer die Diagnose-Telemetrie gedacht; aendert das
+    Validierungs-Verhalten von ``_validate_citations`` NICHT (eigene,
+    nebenwirkungsfreie Re-Berechnung gegen dasselbe Allow-Set). Wird im
+    Strikt-Modus nur auf dem Failure-Pfad aufgerufen (selten), daher ist
+    die Doppelberechnung unkritisch. ``None`` wenn nichts gebrochen ist."""
+    allow_set = _build_citation_allow_set(agg)
+    broken: list[str] = []
+    for section_path, cited_ids in _collect_cited_ids(report):
+        if not cited_ids:
+            continue
+        missing = [cid for cid in cited_ids if cid not in allow_set]
+        if missing:
+            broken.append(
+                f"{section_path}: {len(missing)}/{len(cited_ids)} unbelegt "
+                f"(z.B. {missing[:3]})"
+            )
+    if not broken:
+        return None
+    return "; ".join(broken)[:500]
+
+
 def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
     in_rate = settings.anthropic_opus_input_per_1k_usd or 0.0
     out_rate = settings.anthropic_opus_output_per_1k_usd or 0.0
@@ -3544,13 +3571,26 @@ def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
 class _BriefLLMResult(NamedTuple):
     """Result of the shared tool-use LLM call+retry loop (C2). ``llm_output``
     is the schema-validated object (or None on parse/schema/truncation/strict-
-    citation failure → caller persist-skips); tokens/cost reflect ALL attempts."""
+    citation failure → caller persist-skips); tokens/cost reflect ALL attempts.
+
+    Diagnose-Instrumentierung (2026-06-22, additiv): ``failure_kind`` /
+    ``failure_detail`` klassifizieren den terminalen Fehler, der zu
+    ``llm_output is None`` fuehrte, statt ihn im Cron-Sammelfehler
+    ``no_llm_output`` zu verlieren. ``failure_kind`` ist genau eines von
+    ``json_parse_error`` / ``schema_validation_error`` /
+    ``citation_validation_error`` / ``truncation_error`` (oder ``None`` im
+    Erfolgsfall). ``failure_detail`` traegt den konkreten Grund (Pydantic-
+    Fehlertext, JSONDecodeError + Position, output_token_count + max_tokens
+    bei Truncation, bzw. die gebrochenen Citation-Sektionen). Rein additiv —
+    aendert kein Verhalten, Default ``None``."""
     llm_output: Optional[Any]
     raw_text: Optional[str]
     input_tokens: int
     output_tokens: int
     cost: Optional[float]
     anthropic_calls: int
+    failure_kind: Optional[str] = None
+    failure_detail: Optional[str] = None
 
 
 def _run_brief_llm(
@@ -3568,6 +3608,7 @@ def _run_brief_llm(
     record_meta: dict,
     operation: str,
     citation_validate: Optional[Callable[[Any], bool]] = None,
+    citation_detail: Optional[Callable[[Any], Optional[str]]] = None,
     strict_citations: bool = False,
     unwrap_expected_field: str = "headline",
 ) -> _BriefLLMResult:
@@ -3651,6 +3692,11 @@ def _run_brief_llm(
     citation_strict_failed = False
     truncated_failed = False
     raw_text = ""
+    # Diagnose-Instrumentierung (2026-06-22, additiv): konkreten Grund am
+    # Failure-Punkt einfangen, wo die Werte lokal vorliegen — die spaetere
+    # Klassifikation nach der Schleife liest sie aus.
+    schema_error_detail: Optional[str] = None
+    citation_failure_detail: Optional[str] = None
 
     for attempt_n in range(MAX_RECALLS + 1):
         if attempt_n > 0:
@@ -3726,10 +3772,11 @@ def _run_brief_llm(
             llm_output = validate(candidate)
         except ValueError as exc:
             cleaned_for_log = _strip_codefence(raw_text)
+            schema_error_detail = str(exc)[:500]
             logger.error(
                 "insight-engine-schema-validation-failed",
                 extra={
-                    "error_message": str(exc)[:500],
+                    "error_message": schema_error_detail,
                     "raw_response_length": len(cleaned_for_log),
                     "raw_response_first_500": cleaned_for_log[:500],
                 },
@@ -3742,11 +3789,27 @@ def _run_brief_llm(
         citation_ok = citation_validate(llm_output) if citation_validate else True
         if strict_citations and not citation_ok:
             citation_strict_failed = True
+            # Diagnose (additiv): welche Citation-Regel brach? Nur auf dem
+            # Failure-Pfad, defensiv — die Telemetrie darf den Retry nie
+            # killen.
+            if citation_detail is not None:
+                try:
+                    citation_failure_detail = citation_detail(llm_output)
+                except Exception as detail_exc:  # pragma: no cover — defensive
+                    logger.warning(
+                        "insight-engine-citation-detail-failed: %s", detail_exc
+                    )
             raw_for_response = raw_text
             llm_output = None
             continue
 
         break
+
+    # Diagnose-Instrumentierung (2026-06-22, additiv): den terminalen
+    # Fehlergrund klassifizieren, damit der Cron ihn statt des pauschalen
+    # ``no_llm_output`` ausweisen kann. Bleibt ``None`` im Erfolgsfall.
+    failure_kind: Optional[str] = None
+    failure_detail: Optional[str] = None
 
     if llm_output is not None:
         if parse_path == "lenient" or len(call_attempts) > 1:
@@ -3760,8 +3823,11 @@ def _run_brief_llm(
                 },
             )
     elif schema_validation_failed:
-        pass
+        failure_kind = "schema_validation_error"
+        failure_detail = schema_error_detail
     elif citation_strict_failed:
+        failure_kind = "citation_validation_error"
+        failure_detail = citation_failure_detail
         logger.error(
             "insight-engine-citation-strict-exhausted",
             extra={
@@ -3771,6 +3837,20 @@ def _run_brief_llm(
             },
         )
     elif truncated_failed:
+        # output_token_count des abgeschnittenen (letzten) Versuchs gegen
+        # das max_tokens-Limit halten — beantwortet direkt, ob das Limit zu
+        # niedrig oder das JSON zu gross ist (Wolf-Ping 2026-06-22).
+        last_usage = (
+            getattr(call_attempts[-1][0], "usage", None) if call_attempts else None
+        )
+        truncated_output_tokens = (
+            int(getattr(last_usage, "output_tokens", 0) or 0) if last_usage else 0
+        )
+        failure_kind = "truncation_error"
+        failure_detail = (
+            f"stop_reason=max_tokens output_token_count={truncated_output_tokens} "
+            f"max_tokens={max_tokens}"
+        )
         logger.error(
             "insight-engine-brief-truncated-exhausted",
             extra={
@@ -3778,12 +3858,19 @@ def _run_brief_llm(
                 "anthropic_calls": len(call_attempts),
                 "recall_count": len(call_attempts) - 1,
                 "outcome": "truncated",
+                "output_token_count": truncated_output_tokens,
                 "max_tokens": max_tokens,
             },
         )
     else:
         cleaned = _strip_codefence(raw_text)
         pos = parse_error.pos if parse_error and parse_error.pos is not None else 0
+        failure_kind = "json_parse_error"
+        failure_detail = (
+            f"{parse_error} (char_position={pos}, raw_length={len(cleaned)})"
+            if parse_error
+            else f"JSON-Parse fehlgeschlagen ohne JSONDecodeError (raw_length={len(cleaned)})"
+        )
         logger.error(
             "insight-engine-json-parse-failed",
             extra={
@@ -3830,6 +3917,8 @@ def _run_brief_llm(
         output_tokens=output_tokens_total,
         cost=cost,
         anthropic_calls=len(call_attempts),
+        failure_kind=failure_kind,
+        failure_detail=failure_detail,
     )
 
 
@@ -3989,6 +4078,9 @@ def generate_weekly_report(
         citation_validate=lambda out: _validate_citations(
             out, agg, pair_key=pair_key, iso_year=agg.iso_year, iso_week=agg.iso_week
         ),
+        # Diagnose (additiv): liefert auf dem Strikt-Failure-Pfad die
+        # gebrochenen Citation-Sektionen fuer den Cron-Diagnose-Block.
+        citation_detail=lambda out: _describe_citation_failures(out, agg),
         strict_citations=bool(settings.insight_citation_strict_enforce),
     )
 
@@ -3997,6 +4089,17 @@ def generate_weekly_report(
     # (niemals über den Namen). Macht die Filmnamen im Frontend (Sprint 2)
     # auf eine film-zentrierte Ansicht verlinkbar.
     _enrich_fokus_title_ids(session, result.llm_output)
+
+    # Diagnose-Instrumentierung (2026-06-22, additiv): bei terminalem
+    # Failure die Klassifikation aus dem Kernel an den Cron durchreichen,
+    # damit der Sammelfehler ``no_llm_output`` aufgeschluesselt wird. Nur
+    # gesetzt, wenn wirklich kein Brief entstand — Erfolgsfall bleibt None.
+    failure_diagnostic: Optional[dict] = None
+    if result.llm_output is None and result.failure_kind is not None:
+        failure_diagnostic = {
+            "kind": result.failure_kind,
+            "detail": result.failure_detail,
+        }
 
     return InsightReport(
         pair_key=agg.pair_key,
@@ -4014,6 +4117,7 @@ def generate_weekly_report(
         input_tokens=result.input_tokens or None,
         output_tokens=result.output_tokens or None,
         raw_llm_text=result.raw_text,
+        failure_diagnostic=failure_diagnostic,
     )
 
 

@@ -303,6 +303,48 @@ def test_cron_brief_gen_counts_missing_llm_output_as_failed(db, monkeypatch):
         assert all(e["error_class"] == "no_llm_output" for e in briefs["errors"])
 
 
+def test_cron_brief_gen_surfaces_failure_diagnostic(db, monkeypatch):
+    """Diagnose-Instrumentierung (2026-06-22): wenn der Report eine
+    ``failure_diagnostic`` traegt, schluesselt der Cron den Sammelfehler
+    ``no_llm_output`` in die konkrete Klasse auf und legt Roh-Output +
+    Detail in einen dedizierten ``diagnostic``-Block. Rein additiv — der
+    Fallback auf ``no_llm_output`` (kein Diagnostic) ist separat getestet."""
+    monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
+    raw = "{" + ("x" * 5000) + "}"  # > head+tail → wird gekuerzt
+    brief_mock = MagicMock(
+        return_value=SimpleNamespace(
+            cost_usd_estimate=0.0,
+            llm_output=None,
+            raw_llm_text=raw,
+            failure_diagnostic={
+                "kind": "truncation_error",
+                "detail": "stop_reason=max_tokens output_token_count=20000 max_tokens=20000",
+            },
+        )
+    )
+    _patch_cron_neighbors(monkeypatch, db, brief_gen_mock=brief_mock)
+    run_id = _seed_run(db)
+
+    asyncio.run(cron_module._run_cron_sync_background(run_id, run_index=0))
+
+    n_pairs = _enabled_pair_count()
+    with Session(db) as session:
+        run = session.get(CronRun, run_id)
+        briefs = run.summary_json["briefs"]
+        assert briefs["failed"] == n_pairs
+        assert len(briefs["errors"]) == n_pairs
+        err = briefs["errors"][0]
+        # Aufgeschluesselt statt pauschal no_llm_output.
+        assert err["error_class"] == "truncation_error"
+        assert "output_token_count=20000" in err["error_message"]
+        diag = err["diagnostic"]
+        assert diag["kind"] == "truncation_error"
+        assert "max_tokens=20000" in diag["detail"]
+        # Roh-Output ist present und auf head+tail gekuerzt.
+        assert "[TRUNCATED" in diag["raw_llm_output"]
+        assert len(diag["raw_llm_output"]) < len(raw)
+
+
 def test_cron_brief_gen_uses_yesterday_for_iso_week(db, monkeypatch):
     monkeypatch.setenv("ENABLE_BRIEF_GEN_IN_CRON", "true")
     brief_mock = MagicMock(
