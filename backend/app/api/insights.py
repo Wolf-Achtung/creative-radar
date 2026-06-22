@@ -145,9 +145,10 @@ def pairs(session: Session = Depends(get_session)) -> PairsResponse:
     iteration). Markets are emitted in fixed DE → US → UK order.
 
     Sprint 28.05.2026 (Studio-Kennzahl): liefert zusaetzlich pro Pair
-    eine Live-Kennzahl (``posts_count_this_week``) und den Timestamp
-    des juengsten persistierten Briefs (``last_generated_at``). Drei
-    Aggregat-Queries fuer ALLE Pairs zusammen — kein N+1:
+    eine Live-Kennzahl (``posts_count_completed_week`` + KW-Kennung
+    ``iso_week``/``iso_year``) und den Timestamp des juengsten
+    persistierten Briefs (``last_generated_at``). Drei Aggregat-Queries
+    fuer ALLE Pairs zusammen — kein N+1:
 
     1. ``SELECT Channel.handle, Channel.id WHERE handle IN (all-handles)``
        — Handle-zu-Channel-ID-Map fuer alle Pair-Channels zusammen.
@@ -160,8 +161,23 @@ def pairs(session: Session = Depends(get_session)) -> PairsResponse:
     (``_channel_stats``-Window + ``_post_age_reference``):
     ``published_at >= ws OR (published_at IS NULL AND detected_at >= ws)``.
     So zaehlt die Kachel-Kennzahl identisch zum Brief-Inhalt.
+
+    Sprint Studio-Kachel-Vorwoche (2026-06-22): die Kennzahl zaehlt jetzt
+    die ABGESCHLOSSENE ISO-Woche (KW-1), beidseitig gebounded, statt der
+    laufenden Woche. Anker ist ``last_completed_iso_week_anchor()`` —
+    dieselbe kanonische Quelle, die Brief-Detailseite und Segment-Roundups
+    nutzen. Damit laufen Kachel-Counter und Brief auch an Nicht-Montagen
+    (Sonntag, manuelle Reruns) auf dasselbe Wochenfenster, und die Kachel
+    zeigt nicht mehr dauerhaft 0/1 zwischen den Montags-Cron-Laeufen.
     """
-    week_start = _iso_week_start_utc()
+    # Beide Fenster-Grenzen aus EINEM Anker: ``last_completed_iso_week_anchor``
+    # liefert eine Zeit innerhalb der KW-1, ``_iso_week_start_utc`` floort sie
+    # auf Montag 00:00 dieser Woche. ``+7 Tage`` ist das exklusive Ende
+    # (Montag 00:00 der laufenden Woche).
+    completed_anchor = last_completed_iso_week_anchor()
+    week_start = _iso_week_start_utc(completed_anchor)
+    week_end = week_start + timedelta(days=7)
+    completed_iso_year, completed_iso_week, _ = week_start.isocalendar()
 
     # Bauteil 1: alle Pair-Channel-Handles sammeln, eine Channel-Lookup-
     # Query, handle→channel_id-Map.
@@ -194,14 +210,19 @@ def pairs(session: Session = Depends(get_session)) -> PairsResponse:
             select(Post.channel_id, sa.func.count()).where(
                 Post.channel_id.in_(all_channel_ids)
             ).where(
+                # Beidseitig gebounded auf die abgeschlossene ISO-Woche
+                # ``[week_start, week_end)`` — NULL-Fallback auf detected_at
+                # identisch zu #190 / ``_channel_stats``.
                 sa.or_(
                     sa.and_(
                         Post.published_at.is_not(None),
                         Post.published_at >= week_start,
+                        Post.published_at < week_end,
                     ),
                     sa.and_(
                         Post.published_at.is_(None),
                         Post.detected_at >= week_start,
+                        Post.detected_at < week_end,
                     ),
                 )
             ).group_by(Post.channel_id)
@@ -275,7 +296,9 @@ def pairs(session: Session = Depends(get_session)) -> PairsResponse:
                 markets=_markets_for_pair(pair_def),
                 frequency_label=INSIGHT_FREQUENCY_LABEL,
                 enabled=True,
-                posts_count_this_week=int(posts_count),
+                posts_count_completed_week=int(posts_count),
+                iso_week=completed_iso_week,
+                iso_year=completed_iso_year,
                 last_generated_at=last_generated_at,
                 headline=headline,
                 has_brief=latest_brief is not None,
