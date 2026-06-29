@@ -1,3 +1,4 @@
+import os
 from urllib.parse import quote_plus
 
 from sqlalchemy import inspect, text
@@ -51,6 +52,17 @@ DATABASE_URL = resolve_database_url()
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
 
+def _pg_statement_timeout_ms() -> int:
+    """Server-side ``statement_timeout`` in milliseconds for the Postgres
+    engine. ENV ``PG_STATEMENT_TIMEOUT_MS`` (Default 60000 = 60s); ``0``
+    disables it. Bad values fall back to the default."""
+    raw = os.environ.get("PG_STATEMENT_TIMEOUT_MS", "60000")
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 60000
+
+
 def _build_connect_args(is_sqlite: bool) -> dict:
     """Per-driver ``connect_args`` for ``create_engine``.
 
@@ -70,13 +82,35 @@ def _build_connect_args(is_sqlite: bool) -> dict:
     """
     if is_sqlite:
         return {"check_same_thread": False}
-    return {
+    args = {
         "connect_timeout": 10,
         "keepalives": 1,
         "keepalives_idle": 30,
         "keepalives_interval": 10,
         "keepalives_count": 3,
     }
+    # Server-side statement_timeout (Sprint 2026-06-29). Die Title-Sync-Stage
+    # hing am 29.06. 5,4h in einem ``_upsert_normalized_title``-``session.commit``
+    # (run 11415f23); der 16.06.-Run 5,8 Tage. ``connect_timeout``/Keepalives
+    # oben fangen nur einen TOTEN Socket — ein vom Server angenommener, aber
+    # serverseitig blockierender Commit/Lock-Wait laeuft unbegrenzt. libpq
+    # ``options="-c statement_timeout=<ms>"`` laesst Postgres jedes Statement
+    # (inkl. COMMIT/Lock-Wait) nach der Frist abbrechen → der synchron
+    # blockierende Commit wirft, ``sync_titles_from_tmdb`` faengt es und
+    # verbucht den Run als error statt den Worker stundenlang zu pinnen.
+    #
+    # Default 60000ms (60s): weit ueber jeder legitimen Einzel-Query der App
+    # (per-Row-Upserts, Brief-/Roundup-Aggregations-SELECTs sind sub-Sekunde
+    # bis niedrige Sekunden), deckelt aber den Stunden-/Tage-Hang entschieden.
+    # ENV ``PG_STATEMENT_TIMEOUT_MS`` zum Nachjustieren ohne Deploy; ``0`` =
+    # aus (Notausstieg). Postgres-only: der sqlite-Testpfad nimmt den Branch
+    # oben und sieht ``options`` nie; Alembic baut eine eigene Engine ohne
+    # ``_build_connect_args``, ein langer Migrations-/Index-Build wird also
+    # nicht gekillt.
+    timeout_ms = _pg_statement_timeout_ms()
+    if timeout_ms > 0:
+        args["options"] = f"-c statement_timeout={timeout_ms}"
+    return args
 
 
 connect_args = _build_connect_args(_is_sqlite)
