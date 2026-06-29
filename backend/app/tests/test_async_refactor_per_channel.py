@@ -282,19 +282,41 @@ async def test_zero_yield_channels_reported(engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_async_asset_creation_runs_in_parallel(engine, monkeypatch):
-    """Block-2 PC-2: 10 items run via ``asyncio.gather`` should finish in
-    roughly the time of the slowest single item — NOT 10× sequential.
+    """Block-2 PC-2: items inside a channel run concurrently via
+    ``asyncio.gather``, NOT sequentially.
 
-    We instrument the OpenAI stub to await an ``asyncio.sleep(0.1)`` per
-    call. Sequential would take >=1.0s; concurrent under Semaphore(5)
-    should finish well under that ceiling. We allow generous slack to
-    avoid CI flake while still excluding the sequential regime.
+    The concurrency claim is carried by a deterministic in-flight counter:
+    the stub records how many OpenAI calls overlap, and we assert the peak
+    reaches the configured ``DEFAULT_OPENAI_CONCURRENCY`` ceiling. With 10
+    items and a 0.1s stub the gather fills the semaphore before any call
+    returns, so a sequential regime (peak 1) is excluded structurally —
+    independent of wall-clock time.
+
+    Flake-Fix (2026-06-29): the previous wall-clock-only assertion
+    (``elapsed < 0.6``) was calibrated to the old ``openai_concurrency=5``
+    (2 waves * 0.1s = ~0.2s). Block 2.5 dialed the budget to 3, moving the
+    floor to ``ceil(10/3) = 4`` waves * 0.1s = ~0.4s; per-item DB/screenshot
+    overhead then routinely pushed the total past 0.6s while concurrency was
+    perfectly fine. The in-flight check below is timing-independent; the
+    wall-clock bound is only a generous hang/deadlock guard.
     """
     seeded = _seed_channels(engine, ["fastch"])
     raw_items = [_ig_raw(f"par-{i}", "fastch") for i in range(10)]
 
-    async def slow_openai_stub(**kwargs):
+    in_flight = 0
+    max_seen = 0
+    lock = asyncio.Lock()
+
+    async def slow_counting_openai_stub(**kwargs):
+        nonlocal in_flight, max_seen
+        async with lock:
+            in_flight += 1
+            max_seen = max(max_seen, in_flight)
+        # 0.1s is long enough that every slot of the semaphore is occupied
+        # simultaneously before the first call returns → peak == ceiling.
         await asyncio.sleep(0.1)
+        async with lock:
+            in_flight -= 1
         return {
             "asset_type": None,
             "language": "en",
@@ -306,7 +328,7 @@ async def test_async_asset_creation_runs_in_parallel(engine, monkeypatch):
         }
 
     from app.api import monitor as monitor_mod
-    monkeypatch.setattr(monitor_mod, "analyze_creative_text_async", slow_openai_stub)
+    monkeypatch.setattr(monitor_mod, "analyze_creative_text_async", slow_counting_openai_stub)
     monkeypatch.setattr(persistence_mod, "capture_asset_screenshot_async", _stub_capture_async)
 
     loop = asyncio.get_event_loop()
@@ -322,9 +344,19 @@ async def test_async_asset_creation_runs_in_parallel(engine, monkeypatch):
     elapsed = loop.time() - started
 
     assert summary["created_assets"] == 10
-    # 10 sequential = 1.0s. 10 concurrent under Semaphore(5) = 2 batches *
-    # 0.1s = ~0.2s. We assert <0.6s so a slow CI box is still safe.
-    assert elapsed < 0.6, f"items did not run concurrently: {elapsed:.3f}s"
+    # The real concurrency claim: the gather fills the OpenAI semaphore to
+    # its configured ceiling. ``==`` (not ``<=``) catches BOTH an
+    # under-parallel regression (peak would drop) and a semaphore breach
+    # (peak would exceed). Constant imported, never hardcoded, so a future
+    # budget change drags this assertion along instead of silently passing.
+    assert max_seen == DEFAULT_OPENAI_CONCURRENCY, (
+        f"expected peak in-flight == {DEFAULT_OPENAI_CONCURRENCY}, saw {max_seen}"
+    )
+    # Generous wall-clock sanity: its only job is excluding a hang/deadlock,
+    # NOT proving concurrency (the in-flight check above does that). 10 *
+    # 0.1s sequential would be ~1.0s; 2.0s leaves wide headroom for a loaded
+    # CI box so this never flakes.
+    assert elapsed < 2.0, f"sync did not complete promptly: {elapsed:.3f}s"
 
 
 # --------------------------------------------------------------------------
