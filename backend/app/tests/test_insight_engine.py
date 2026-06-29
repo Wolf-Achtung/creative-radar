@@ -3046,6 +3046,79 @@ def test_before_coercion_then_after_validator_enforces_de_vs_us():
     )
 
 
+# ---------------------------------------------------------------------------
+# Cron-Run 11415f23 (29.06.2026) — Doppel-Encoding. Vier von neun weekly_briefs
+# failten mit schema_validation_error: Opus encodierte die acht komplexesten
+# verschachtelten Felder ZWEIFACH zu Strings ('"[{…}]"', fuehrendes ``"``).
+# Der Top-Level-Parse liefert dann einen str, der selbst wieder ein JSON-String
+# ist; ein einzelnes json.loads ergibt erneut einen str → Feld bleibt str →
+# Pydantic meldet input_type=str auf FELD-Ebene (loc durchgaengig Feld, nie
+# feld.N.sub). Die beschraenkte Entpack-Schleife (max 3) in
+# ``_coerce_stringified_json`` loest beide Encoding-Lagen auf.
+
+
+def _double_encoded(value) -> str:
+    """Stellt das 11415f23-Muster her: ein Feldwert, der nach dem Top-Level-
+    Parse ein str ist, welcher SELBST wieder ein JSON-String ist. Zweimaliges
+    json.loads ergibt die native Struktur, einmaliges nur erneut einen str."""
+    return json.dumps(json.dumps(value))
+
+
+def test_double_encoded_json_fields_from_run_11415f23_are_coerced():
+    """Regression run 11415f23: alle acht tief verschachtelten Felder kommen
+    doppelt-stringifiziert an (fuehrendes ``"``). Vor dem Fix kippte das
+    Single-Unwrap (Guard ``[{``, ein json.loads) → input_type=str auf
+    Feld-Ebene. Nach dem Fix entpackt die Schleife beide Lagen und der Brief
+    validiert sauber."""
+    konkurrenz = {"was_alle_machen": "alle setzen auf Kinetic", "format_trend": "vertikal"}
+    tonalitaet = [{"adjektiv": "düster", "begruendung": "weil die Top-Posts dunkel graden"}]
+    watch_outs = [{"watch_out": "zu schnelle Cuts", "konsequenz": "Drop-off nach 3s"}]
+    ganz_konkret = [{"nummer": 1, "pattern": "Hook in Sekunde 1", "lern_take": "frueher Payoff zieht"}]
+    fuer_motion_designer = {"caption_style": "bold-uppercase", "text_overlay": "minimal"}
+    cross_market_insight = {"de_vs_us": "DE zieht spaeter", "transfer_opportunity": "US-Hook nach DE"}
+
+    body = _brief_body(
+        trends=_double_encoded([_TREND]),
+        actions=_double_encoded([_ACTION]),
+        konkurrenz=_double_encoded(konkurrenz),
+        tonalitaet=_double_encoded(tonalitaet),
+        watch_outs=_double_encoded(watch_outs),
+        ganz_konkret=_double_encoded(ganz_konkret),
+        fuer_motion_designer=_double_encoded(fuer_motion_designer),
+        cross_market_insight=_double_encoded(cross_market_insight),
+    )
+
+    report = LLMReport.model_validate(body, context=_NO_LAGE)
+
+    assert isinstance(report.trends, list) and report.trends[0].name == "n"
+    assert isinstance(report.actions, list) and report.actions[0].what == "w"
+    assert report.konkurrenz.was_alle_machen == "alle setzen auf Kinetic"
+    assert report.tonalitaet[0].adjektiv == "düster"
+    assert report.watch_outs[0].konsequenz == "Drop-off nach 3s"
+    assert report.ganz_konkret[0].nummer == 1 and report.ganz_konkret[0].pattern == "Hook in Sekunde 1"
+    assert report.fuer_motion_designer.caption_style == "bold-uppercase"
+    assert report.cross_market_insight.transfer_opportunity == "US-Hook nach DE"
+
+
+def test_triple_encoded_json_field_within_cap_is_coerced():
+    """Cap-Beleg: dreifaches Encoding wird von der 3er-Schleife noch aufgeloest."""
+    triple = json.dumps(json.dumps(json.dumps([_TREND])))
+    report = LLMReport.model_validate(_brief_body(trends=triple), context=_NO_LAGE)
+    assert isinstance(report.trends, list) and report.trends[0].name == "n"
+
+
+def test_quoted_non_json_string_passed_through_clean_type_error():
+    """Defensiv-Vertrag fuer den neuen ``"``-Zweig: ein doppelt-gequoteter
+    REINER Satz (kein JSON-Container im Kern) wird NICHT in eine Liste verbogen
+    — nach dem Entpacken bleibt ein str, der Original wird durchgereicht und
+    Pydantic meldet den echten list_type-Fehler auf ``trends``."""
+    body = _brief_body(trends=json.dumps("trailer cuts laufen"))  # '"trailer cuts laufen"'
+    with pytest.raises(ValidationError) as exc:
+        LLMReport.model_validate(body, context=_NO_LAGE)
+    assert any(e["loc"] == ("trends",) and e["type"] == "list_type"
+               for e in exc.value.errors())
+
+
 def test_aggregate_pair_paramountplus_uk_only_on_ig_tt_not_yt():
     """paramountplus voll-Pair-Garantie: TT + IG haben alle drei Märkte,
     YT hat keinen UK-Channel. aggregate_pair liefert eine
