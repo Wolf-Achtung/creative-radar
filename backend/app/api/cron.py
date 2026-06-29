@@ -32,7 +32,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import engine, get_session
-from app.models.entities import Asset, CronRun, InsightReport as InsightReportRow
+from app.models.entities import Asset, CronRun, InsightReport as InsightReportRow, TitleSyncRun
 from app.services.apify_connector import (
     is_apify_configured,
     is_tiktok_configured,
@@ -462,6 +462,41 @@ def _run_vision_backlog(
     }
 
 
+def _title_sync_stage_timeout_seconds() -> int:
+    raw = os.environ.get("TITLE_SYNC_STAGE_TIMEOUT_SECONDS", "3600")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 3600
+
+
+def _mark_stuck_title_sync_run_error(session: Session, timeout_s: int) -> None:
+    """Best-effort audit-cleanup nach einem Stage-Timeout.
+
+    ``asyncio.wait_for`` cancelt die Coroutine mit ``CancelledError`` — die
+    leitet sich von ``BaseException`` ab und wird vom ``except Exception`` in
+    ``sync_titles_from_tmdb`` NICHT gefangen, also bleibt die dort angelegte
+    ``TitleSyncRun``-Row auf ``running`` haengen (genau das Zombie-Symptom der
+    17.06.-Rows). Hier die juengste laufende tmdb-Row auf ``error`` setzen.
+    Defensiv: die Session kann nach dem Cancel mitten in einer Transaktion
+    stehen, daher erst ``rollback``; ein Fehlschlag hier darf die Stage nicht
+    kippen (sie ist ohnehin schon als Timeout verbucht)."""
+    try:
+        session.rollback()
+        stuck = session.exec(
+            select(TitleSyncRun)
+            .where(TitleSyncRun.source == "tmdb", TitleSyncRun.status == "running")
+            .order_by(TitleSyncRun.created_at.desc())
+        ).first()
+        if stuck is not None:
+            stuck.status = "error"
+            stuck.error_message = f"stage_timeout after {timeout_s}s"
+            session.add(stuck)
+            session.commit()
+    except Exception:  # noqa: BLE001 — best-effort audit cleanup
+        logger.exception("failed to mark timed-out title_sync run as error")
+
+
 async def _run_title_sync_after_scrape(session: Session) -> dict:
     """Pull the TMDb title catalogue (movies + TV series) as a cron stage,
     BEFORE the rematch step so freshly synced titles are available to match
@@ -472,17 +507,49 @@ async def _run_title_sync_after_scrape(session: Session) -> dict:
     stage skipped, scrape/rematch/briefs run normally; no code deploy needed.
     ``sync_titles_from_tmdb`` writes its own ``TitleSyncRun`` audit row, so
     idempotency and logging are already handled there.
+
+    Stage-Timeout (Sprint 2026-06-29): der Pass laeuft in ``asyncio.wait_for``
+    (ENV ``TITLE_SYNC_STAGE_TIMEOUT_SECONDS``, Default 3600s). Bei Timeout wird
+    die Stage als ``error`` verbucht, die haengende Run-Row auf ``error``
+    gesetzt und der Cron laeuft zu rematch/briefs weiter — der ewig-``running``-
+    Zustand (5,4h-Hang 29.06., 5,8-Tage-Hang 16.06.) ist damit gedeckelt. Die
+    Stage-Dauer (``duration_seconds``) landet im Summary, damit der Default
+    nach dem ersten sauberen Lauf datengetrieben statt geschaetzt sitzt.
+
+    WICHTIG — der Timeout deckelt die ASYNC-Wall-Clock (httpx-Discover,
+    kumulative Pagination). Ein rein SYNCHRON blockierender ``session.commit``
+    (die bestaetigte 29.06.-Hangstelle in ``_upsert_normalized_title``) haelt
+    den Event-Loop und kann hier NICHT unterbrochen werden — den faengt der
+    ``statement_timeout`` auf Engine-Ebene (separater Commit). Die zwei Hebel
+    sind komplementaer, nicht redundant.
     """
     enabled = os.getenv("ENABLE_TITLE_SYNC_IN_CRON", "true").lower() == "true"
     if not enabled:
         logger.info("title_sync.skipped reason=env_disabled")
         return {"enabled": False}
+    timeout_s = _title_sync_stage_timeout_seconds()
+    started = time.monotonic()
     try:
-        result = await sync_titles_from_tmdb(session)
+        result = await asyncio.wait_for(sync_titles_from_tmdb(session), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        elapsed = round(time.monotonic() - started, 1)
+        logger.error(
+            "cron title-sync stage timed out after %ss (limit %ss)", elapsed, timeout_s
+        )
+        _mark_stuck_title_sync_run_error(session, timeout_s)
+        return {
+            "enabled": True,
+            "error": f"stage_timeout after {timeout_s}s",
+            "timed_out": True,
+            "duration_seconds": elapsed,
+        }
     except Exception as exc:  # noqa: BLE001 — top-level guard, best-effort stage
+        elapsed = round(time.monotonic() - started, 1)
         logger.exception("cron title-sync failed")
-        return {"enabled": True, "error": str(exc)[:500]}
-    return {"enabled": True, **result}
+        return {"enabled": True, "error": str(exc)[:500], "duration_seconds": elapsed}
+    elapsed = round(time.monotonic() - started, 1)
+    logger.info("title_sync.complete duration_seconds=%s", elapsed)
+    return {"enabled": True, "duration_seconds": elapsed, **result}
 
 
 def _run_rematch_after_sync(session: Session) -> dict:
