@@ -704,18 +704,32 @@ class LLMReport(BaseModel):
         belegt an disney/lionsgate KW24 (``trends``/``actions`` als String).
 
         Vor der Feld-Validierung jeden Container-typed Wert pruefen: ist er ein
-        ``str``, der nach Strip mit ``[`` oder ``{`` beginnt, einmal
+        ``str``, der nach Strip mit ``[``, ``{`` oder ``"`` beginnt,
         ``json.loads`` anwenden und das Ergebnis weiterreichen. Defensiv fuer
         ALLE list/dict-typed Felder, nicht nur trends/actions.
+
+        Doppel-Encoding (Cron-Run 11415f23, 29.06.2026): Opus encodiert die
+        komplexesten Unterstrukturen sporadisch ZWEIFACH zu Strings — der
+        Top-Level-Parse liefert dann einen ``str``, der selbst wieder ein
+        JSON-String ist (``'"[{…}]"'``, fuehrendes ``"``). Ein einzelnes
+        ``json.loads`` ergibt erneut einen ``str`` → das Feld bleibt ``str`` →
+        Pydantic meldet ``input_type=str`` auf FELD-Ebene (nie ``feld.N.sub``).
+        Belegt fuer alle acht tief verschachtelten Felder (trends, actions,
+        ganz_konkret, watch_outs, konkurrenz, tonalitaet, fuer_motion_designer,
+        cross_market_insight). Deshalb in einer beschraenkten Schleife (max 3
+        Durchlaeufe) weiter entpacken, solange das Ergebnis ein ``str`` bleibt,
+        der noch nach JSON aussieht. Der Cap haelt einen pathologischen Wert
+        bounded; 3 deckt bis zu dreifaches Encoding.
 
         Robustheit: ``json.loads``-Fehler werden abgefangen und der
         ORIGINAL-String durchgereicht — so meldet Pydantic den echten
         Typ-Fehler statt zu crashen (ein ``str``, der kein valides JSON ist,
-        ist ein echter Modell-Fehler, kein Repair-Fall). Reine ``str``-Felder
-        (``headline``/``tldr``) stehen NICHT in der Allow-Liste und bleiben
-        unangetastet. Copy-on-write: das Eingabe-Dict wird nie mutiert
-        (wichtig fuer Cache-Hydrate, wo ``row.llm_output`` wiederverwendet
-        wird)."""
+        ist ein echter Modell-Fehler, kein Repair-Fall). Bleibt der Wert nach
+        dem Cap weiterhin ``str``, wird ebenfalls der Original durchgereicht.
+        Reine ``str``-Felder (``headline``/``tldr``) stehen NICHT in der
+        Allow-Liste und bleiben unangetastet. Copy-on-write: das Eingabe-Dict
+        wird nie mutiert (wichtig fuer Cache-Hydrate, wo ``row.llm_output``
+        wiederverwendet wird)."""
         if not isinstance(data, dict):
             return data
         json_fields = (
@@ -729,13 +743,29 @@ class LLMReport(BaseModel):
             value = data.get(field)
             if not isinstance(value, str):
                 continue
-            stripped = value.strip()
-            if not stripped or stripped[0] not in "[{":
+            # Beschraenkte Entpack-Schleife: pro Durchlauf einmal json.loads,
+            # solange der aktuelle Wert ein str ist, der nach Strip mit
+            # ``"``/``[``/``{`` beginnt. Stoppt, sobald ein Container (list/dict)
+            # erreicht ist, der String nicht mehr nach JSON aussieht, json.loads
+            # scheitert, oder der Cap (3) greift.
+            current = value
+            parsed = None
+            for _ in range(3):
+                stripped = current.strip()
+                if not stripped or stripped[0] not in '"[{':
+                    break
+                try:
+                    decoded = json.loads(stripped)
+                except (ValueError, TypeError):
+                    break  # kein valides JSON → letzten Stand nicht uebernehmen
+                parsed = decoded
+                if not isinstance(decoded, str):
+                    break  # Container erreicht → fertig
+                current = decoded  # noch ein str (Doppel-Encoding) → weiter
+            if parsed is None or isinstance(parsed, str):
+                # Nichts entpackt ODER nach Cap immer noch str → Originalwert
+                # lassen, Pydantic meldet den echten Typ-Fehler (Defensiv-Vertrag).
                 continue
-            try:
-                parsed = json.loads(stripped)
-            except (ValueError, TypeError):
-                continue  # kein valides JSON → Original lassen, Pydantic meldet den echten Fehler
             if repaired is None:
                 repaired = dict(data)
             repaired[field] = parsed
