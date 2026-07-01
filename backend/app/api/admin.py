@@ -68,6 +68,7 @@ from app.services.forecast import generate_er_forecast
 from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
 from app.services.title_aggregation import AmbiguousTitleError
+from app.services.rate_limit import rate_limit
 from app.services.segment_roundup import (
     ROUNDUP_DEFAULT_TOP_POSTS_N,
     ROUNDUP_DEFAULT_WINDOW_DAYS,
@@ -521,15 +522,17 @@ def regenerate_insights(
             "eine echte Neugenerierung mit UPSERT. Ohne ``replace=true`` "
             "respektiert der Endpoint den Cache-Hit-Vertrag und liefert den "
             "existierenden Brief unverändert zurück. Operator-only — pro Pair "
-            "~$0.40 Opus-Cost pro Aufruf."
+            "~$0.15 Opus-Cost pro Aufruf."
         ),
     ),
     session: Session = Depends(get_session),
 ):
     """Sprint 1 (Persistenz) — manueller Regenerate-Trigger.
 
-    Kostet pro generiertem Brief ~$0.40 (Opus 4.7). Ein ``pair=all``-Lauf
-    über die sechs aktiven Tier-A-Pairs liegt bei ~$2.40. Auto-Trigger im
+    Kostet pro generiertem Brief ~$0.15 (Opus 4.8, Preis korrigiert
+    2026-07-01 — zuvor stand hier veraltetes Opus-4/4.1-Pricing). Ein
+    ``pair=all``-Lauf über die sechs aktiven Tier-A-Pairs liegt bei ~$0.90.
+    Auto-Trigger im
     Cron-Lauf folgt im Cadence-Sprint; bis dahin füllt Wolf den Cache
     manuell über diesen Endpoint.
 
@@ -962,7 +965,11 @@ def _cookie_kwargs() -> dict:
     }
 
 
-@login_router.post("/login", response_model=AdminLoginResponse)
+@login_router.post(
+    "/login",
+    response_model=AdminLoginResponse,
+    dependencies=[Depends(rate_limit("admin-login", max_calls=5, window_seconds=60))],
+)
 def admin_login(payload: AdminLoginRequest, response: Response) -> AdminLoginResponse:
     """Passwort-Login. Erfolg: setzt Session-Cookie + gibt
     ``expires_unix`` fuer den Frontend-Anzeige zurueck (kann z.B. einen

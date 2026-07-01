@@ -1,0 +1,10 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+# Default Ruff rule set (pyflakes + a slice of pycodestyle). Deliberately not
+# wired into CI as a gate — added as opt-in tooling (Sicherheits-Audit
+# 2026-07-01, "kein Lint-Setup" finding). Existing findings are not
+# auto-fixed here; run `ruff check app` locally when you want to clean up.
+select = ["E4", "E7", "E9", "F"]

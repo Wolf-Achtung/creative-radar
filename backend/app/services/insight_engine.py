@@ -12,10 +12,10 @@ this MVP. Adding a new pair before then is a config-only change in this file.
 
 Cost expectation: with the Sprint-Trailerhaus-Prompt-v1 expanded prompt +
 ``ganz genau`` mode the per-call shape is roughly 8-12k input + 3-4k output
-tokens. At Opus 4.7 list price (~$15 / $75 per Mtok) that's ~$0.35-0.50
-per report. Earlier numbers (~$0.20) were for the v0 prompt. The endpoint
-still accepts ``dry_run=true`` to skip the LLM call entirely when iterating
-on the aggregation or prompt.
+tokens. At Opus 4.8 list price ($5 / $25 per Mtok, corrected 2026-07-01 —
+the $15/$75 figure here previously was stale Opus-4/4.1-era pricing) that's
+~$0.12-0.16 per report. The endpoint still accepts ``dry_run=true`` to skip
+the LLM call entirely when iterating on the aggregation or prompt.
 """
 from __future__ import annotations
 
@@ -511,10 +511,15 @@ MARKETS_DISPLAY_ORDER: tuple[str, ...] = ("DE", "US", "UK")
 
 # ---------- Model + cost ----------------------------------------------------
 
-# Opus 4.7 alias — the briefing pins the engine to the latest Opus. Override
-# via ENV (see config.Settings.anthropic_*_model pattern) if Wolf wants to
-# force a datestamped pin, but no override is wired today: one Opus, one call.
-OPUS_MODEL_ALIAS = "claude-opus-4-7"
+# Opus model alias used across every Opus-tier call (weekly briefs, segment
+# roundups, cutter-weekly, title briefs, ER forecast — see the cross-module
+# imports of this name). Sicherheits-Audit 2026-07-01: this used to be a
+# hardcoded literal, completely disconnected from
+# ``settings.anthropic_opus_model`` despite the ``.env.example``/config.py
+# comments implying ``ANTHROPIC_OPUS_MODEL`` was the override knob — it
+# never was. Now sourced from settings, so the ENV var actually reaches the
+# most expensive LLM call path in the system.
+OPUS_MODEL_ALIAS = settings.anthropic_opus_model
 
 
 # ---------- Structured-Outputs-Tool (Sprint 28.05.2026) ------------------

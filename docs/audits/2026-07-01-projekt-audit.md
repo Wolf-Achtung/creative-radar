@@ -2,6 +2,8 @@
 
 Analyse-Modus: Code-Review am tatsächlichen Stand von `main`/`claude/new-session-nscarp` (Commit `7cab306`), kein Zugriff auf Live-DB oder Railway-ENV. Wo eine Aussage von der tatsächlichen Produktions-ENV-Konfiguration abhängt (die von hier aus nicht einsehbar ist), ist das explizit vermerkt.
 
+> **Update 2026-07-01 (Folge-Runde, nach Merge von PR #288):** Wolf hat bestätigt, dass Railway `CORS_ORIGINS` bereits explizit auf eine feste Liste (`app.creative-radar.de`, `creative-radar.ki-sicherheit.jetzt`, die Netlify-Preview-Domain) gesetzt hat — **H1 ist in Production also bereits entschärft**, der Code-Default war nur ein Fallback-Härtung für den Fall eines fehlenden ENV-Werts. Alle übrigen Hoch/Mittel/Niedrig-Punkte aus diesem Report (H2, H3, M1–M5, N1, N2, N6) wurden in dieser Folge-Runde umgesetzt und getestet (1129 Backend-Tests grün, `pip-audit`/`npm audit` beide clean) — Details am Ende des Dokuments unter "Update: vollständig umgesetzt". Dabei kam ein **neuer Hoch-Fund** ans Licht: `insight_engine.OPUS_MODEL_ALIAS` war ein hartcodierter String, komplett getrennt von `settings.anthropic_opus_model` — die in M5 dokumentierte ENV-Konfigurierbarkeit des Opus-Modells war für den eigentlichen Brief-Gen-Pfad (und vier weitere Services) nie wirksam. Siehe "Update"-Abschnitt.
+
 **Kontext-Hinweis:** Das Repo enthält bereits mehrere frühere Audits (`CREATIVE_RADAR_DIAGNOSIS.md`, Stand 30.04., und `creative-radar-bughunt-premortem-2026-05-17.md`). Beide sind inzwischen teilweise überholt — z. B. ist der dort bemängelte tote `visual_analyzed`-Counter (`insights.py:116`) längst korrigiert, ebenso "keine Authentifizierung" (Bearer-Auth + Admin-Session existieren jetzt). Dieser Report verifiziert unabhängig am aktuellen Code, nicht an den alten Diagnosen.
 
 ---
@@ -140,3 +142,37 @@ Gezielte Suche nach typischen Mustern (`sk-...`, AWS-Keys, hartkodierte Tokens) 
 - `backend/app/api/health.py`: `GET /api/health` liefert zusätzlich ein `timestamp`-Feld (rein additiv, N3).
 
 Nicht angetastet: Dependency-Upgrades, Rate-Limiting, Security-Headers, Image-Proxy-Redirect-Verhalten, Modell-Default-Versionen, Node-Pin — diese benötigen entweder eine Produktentscheidung oder bergen ein reales Breaking-Change-Risiko und sind daher zur Bestätigung oben aufgeführt statt umgesetzt.
+
+---
+
+## Update: vollständig umgesetzt (Folge-Runde, nach ausdrücklicher Freigabe)
+
+Wolf hat bestätigt, dass Production-CORS bereits korrekt gesetzt ist, und alle verbleibenden Punkte freigegeben (inkl. Modell-Upgrade nach expliziter Rückfrage). Umgesetzt und mit vollem Testlauf verifiziert:
+
+**H2 — Dependency-CVEs behoben.** `fastapi` 0.115.6 → 0.138.2 (zieht `starlette` automatisch auf 1.3.1), `python-multipart` → 0.0.32, `jinja2` → 3.1.6, `python-dotenv` → 1.2.2, `starlette` jetzt explizit gepinnt. `pip-audit` meldet danach **0 bekannte Schwachstellen**. Der Starlette-Major-Sprung hat eine reale Breaking-Change getroffen: `app.include_router(...)` flacht Sub-Routen nicht mehr in `app.router.routes` ab (neuer `_IncludedRouter`-Wrapper) — zwei Layout-Probe-Tests in `test_auth_middleware.py` mussten auf einen rekursiven Route-Walker umgestellt werden (`_collect_registered_paths`), Verhalten selbst unverändert.
+
+**H3 — Vite gepatcht.** `vite` 8.0.10 → 8.1.2 (exakt gepinnt). `npm audit` meldet danach **0 Schwachstellen**, Frontend-Build verifiziert.
+
+**M1 — Security-Headers ergänzt.** Neue Middleware in `main.py` setzt `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` auf jede Antwort. Bewusst ohne CSP — die eingebaute Swagger-UI unter `/docs` lädt Inline-Skripte/CDN-Assets, eine CSP hätte ohne sorgfältige Whitelist die Doku gebrochen.
+
+**M2 — Rate-Limiting ergänzt.** Neues `app/services/rate_limit.py` (In-Memory, IP-basiert, `Retry-After`-Header, Kill-Switch `RATE_LIMIT_ENABLED`). Angewendet auf `/api/admin/login` (5/60s — Brute-Force-Bremse) sowie `/api/monitor/apify-instagram`, `/api/monitor/apify-tiktok`, `/api/assets/analyze-visual-batch`, `/api/reports/generate-weekly`, `/api/reports/generate` (je 10/60s). Nicht Multi-Instanz-sicher (dokumentiert) — ausreichend für den aktuellen Single-Instance-Railway-Deploy.
+
+**M3 — Image-Proxy-SSRF geschlossen.** `follow_redirects=True` entfernt; Redirects werden jetzt manuell aufgelöst (max. 5 Hops) und jedes Redirect-Ziel erneut gegen `image_proxy_host_suffixes` geprüft, bevor ihm gefolgt wird. Drei neue Tests (Redirect auf erlaubten Host, Redirect auf fremden Host → 403, Redirect-Loop → 502).
+
+**M4 — `.env.example` vervollständigt** (bereits in PR #288 gemerged).
+
+**M5 + neuer Fund — Modell-Defaults korrigiert.**
+- `anthropic_sonnet_model`: `claude-sonnet-4-6` → `claude-sonnet-5`; Pricing bleibt $3/$15 pro Mtok (Standard-Rate ab 01.09.2026 — bis dahin läuft Sonnet 5 günstiger mit $2/$10 Einführungspreis, Cost-Logs überschätzen bis dahin leicht).
+- `anthropic_opus_model`: `claude-opus-4-7` → `claude-opus-4-8`. **Dabei aufgefallen:** die bisherigen Pricing-Konstanten ($15/$75 pro Mtok) waren schlicht falsch — laut offizieller Anthropic-Pricing-Doku (platform.claude.com/docs/en/about-claude/pricing, gegengeprüft am 2026-07-01) liegt Opus 4.5–4.8 einheitlich bei **$5/$25 pro Mtok**, $15/$75 ist Alt-Pricing von Opus 4/4.1. Korrigiert auf `0.005`/`0.025` pro 1k Token — das senkt die in `cost_log` geschriebenen Schätzkosten für jeden Opus-Call um Faktor 3 auf den tatsächlichen Wert (betrifft auch den `anthropic_monthly_budget_usd`-Hard-Cap: der hat bisher mit 3x überschätzten Kosten gerechnet, also deutlich konservativer ausgelöst als nötig — keine Sicherheitslücke, aber ein handfester Grund, warum das Budget "schneller leer" wirkte als es real war).
+- **Neuer Hoch-Fund, gleich mitgefixt:** `insight_engine.OPUS_MODEL_ALIAS` war ein eigenständiger hartcodierter String (`"claude-opus-4-7"`), komplett getrennt von `settings.anthropic_opus_model`. Verwendet als Default-Parameter in `generate_weekly_report`, `generate_and_persist_report` (insight_engine.py), sowie importiert in `segment_roundup.py`, `cutter_weekly.py`, `title_brief.py`, `forecast.py` — praktisch **jeder** Opus-Call im System. Kein einziger der vier echten Call-Sites (cron.py, admin.py, insights.py ×2) übergab `model=` explizit, alle liefen also über den hartcodierten String, egal was `ANTHROPIC_OPUS_MODEL` in Railway gesetzt hatte. Gefixt: `OPUS_MODEL_ALIAS = settings.anthropic_opus_model` — die ENV-Variable erreicht jetzt tatsächlich den teuersten LLM-Call-Pfad im System. Ein Test (`test_insight_engine.py`) mit hartcodierter Kostenerwartung musste an die korrigierten Opus-Preise angepasst werden.
+- `openai_model` (`gpt-4o-mini`) **bewusst nicht geändert**: offizielle OpenAI-Docs (`platform.openai.com/docs/models`, `developers.openai.com/api/docs/models`) waren nicht abrufbar (403), alle Web-Treffer zu einem Nachfolgemodell stammten aus SEO-Aggregator-Seiten mit unüblichen, nicht verifizierbaren Modellnamen. Ein falscher Modellname hätte jeden Vision-/Text-Call sofort mit 404 brechen lassen — das Risiko einer falschen Ersetzung wiegt schwerer als der Nutzen eines unbestätigten Downgrades auf ein älteres Modell. `gpt-4o-mini` läuft über die direkte OpenAI-API bestätigt weiter (nur ChatGPT-Produkt/Azure-Foundry-Deployments sind von Retirements betroffen). Empfehlung: bei Gelegenheit im OpenAI-Dashboard direkt nachsehen, welches Nachfolgemodell aktuell empfohlen wird.
+
+**N1 — Node-Version gepinnt.** `netlify.toml` → `NODE_VERSION = "22"`, `frontend/package.json` → `engines.node` passend zu Vite 8s Anforderung (`^20.19.0 || >=22.12.0`). Verifiziert: Build läuft auf Node 22.22.2 durch.
+
+**N2 — Lint-Setup ergänzt (Tooling, nicht CI-Gate).** `backend/pyproject.toml` mit Ruff-Config (Default-Regelsatz), `frontend/eslint.config.js` (Flat-Config, React + React-Hooks-Plugins, `npm run lint`-Script). Bewusst nicht in CI verdrahtet — beide Tools zeigen jeweils ~150–260 bestehende Findings, deren Behebung ein eigener, separat zu priorisierender Schritt ist (kein Blindfix im Rahmen dieses Audits).
+
+**N6 — Upload-Limit ergänzt.** `POST /api/channels/import-excel` liest jetzt in 1-MiB-Chunks mit hartem Cap bei 10 MiB (413 bei Überschreitung), statt die komplette Datei unbegrenzt in den Speicher zu laden.
+
+**Nicht umgesetzt (bewusst, siehe Begründung oben):** `openai_model`-Version (Verifikation über offizielle Quelle nicht möglich), API-Response-Format-Vereinheitlichung (N3, würde Frontend brechen), `trend_summary_de`-Refactoring (N5, reines Tech-Debt, kein akuter Bug), CSP (bewusst weggelassen wegen Swagger-UI-Kompatibilität), bestehende Lint-Findings (nicht blind gefixt).
+
+**Testergebnis nach allen Änderungen:** 1129 Backend-Tests grün (0 fehlgeschlagen, 10 skipped), Frontend-Build grün, `pip-audit` 0 Findings, `npm audit` 0 Findings.

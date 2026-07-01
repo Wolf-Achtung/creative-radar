@@ -2,6 +2,13 @@
   command = "cd frontend && npm i && npm run build"
   publish = "frontend/dist"
 
+[build.environment]
+  # Sicherheits-Audit 2026-07-01: kein Node-Pin vorhanden, Netlifys Default
+  # kann sich aendern und den Build unbemerkt brechen (vite@8 verlangt
+  # ^20.19.0 || >=22.12.0). Node 22 ist Active LTS und der hier verifiziert
+  # funktionierende Build-Node.
+  NODE_VERSION = "22"
+
 [[redirects]]
   from = "/api/*"
   to = "https://api.creative-radar.de/api/:splat"
