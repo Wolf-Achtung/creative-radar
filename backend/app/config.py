@@ -41,8 +41,15 @@ class Settings(BaseSettings):
     # record_youtube_api_call() in services/cost_log.py.
     youtube_api_key: str | None = None
     youtube_results_limit_per_channel: int = 10
-    frontend_url: str = "*"
-    cors_origins: str = "*"
+    frontend_url: str = "https://app.creative-radar.de"
+    # Sicherheits-Audit 2026-07-01: Default war zuvor "*". In Kombination mit
+    # allow_credentials=True (main.py, fuer das Admin-Session-Cookie) haette
+    # das jede beliebige Origin credentialed Cross-Origin-Requests machen
+    # lassen (Starlette spiegelt bei allow_origins=["*"] den Request-Origin
+    # zurueck, sobald allow_credentials=True gesetzt ist). Fester Produktions-
+    # Origin als Default; via ENV weiterhin auf eine komma-separierte Liste
+    # oder explizit "*" ueberschreibbar (siehe allowed_origins-Property).
+    cors_origins: str = "https://app.creative-radar.de"
     backend_url: str = ""
     report_timezone: str = "Europe/Berlin"
 
