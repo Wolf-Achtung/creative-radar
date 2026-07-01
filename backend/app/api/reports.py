@@ -12,6 +12,7 @@ from app.schemas.dto import (
     ReportSuggestResponse,
 )
 from app.admin_session import require_admin_session
+from app.services.rate_limit import rate_limit
 from app.services.report_generator import generate_weekly_report_html
 from app.services.report_renderer_v2 import generate_report_html
 from app.services.report_selector import select_assets_for_report
@@ -122,7 +123,10 @@ def get_report(report_id: UUID, session: Session = Depends(get_session)):
     return report
 
 
-@router.post("/generate-weekly")
+@router.post(
+    "/generate-weekly",
+    dependencies=[Depends(rate_limit("report-generate", max_calls=10, window_seconds=60))],
+)
 def generate_weekly(payload: GenerateWeeklyReportRequest, session: Session = Depends(get_session)):
     html, meta = generate_weekly_report_html(session, payload.week_start, payload.week_end, payload.include_only_reviewed)
     report = WeeklyReport(
@@ -153,7 +157,10 @@ def suggest_report(payload: ReportSuggestRequest, session: Session = Depends(get
     )
 
 
-@router.post('/generate')
+@router.post(
+    '/generate',
+    dependencies=[Depends(rate_limit("report-generate", max_calls=10, window_seconds=60))],
+)
 def generate_from_suggestion(payload: ReportGenerateRequest, session: Session = Depends(get_session)):
     date_from, date_to = _range_to_dates(payload.date_range)
     assets = [session.get(Asset, asset_id) for asset_id in payload.asset_ids]

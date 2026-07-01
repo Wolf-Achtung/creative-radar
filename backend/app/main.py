@@ -51,6 +51,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def security_headers_middleware(request, call_next):
+    """Sicherheits-Audit 2026-07-01: Basis-Header, die auf keiner Antwort
+    gesetzt waren. Bewusst ohne Content-Security-Policy — die eingebaute
+    Swagger-UI unter /docs laedt Inline-Skripte/-Styles + CDN-Assets, eine
+    CSP haette das ohne sorgfaeltige Whitelist gebrochen. Registriert NACH
+    der CORSMiddleware, damit dieser Layer aussen liegt und die Header auch
+    auf CORS-Preflight- und Auth-Fehlerantworten landen (Starlette baut die
+    Middleware-Kette in umgekehrter add()-Reihenfolge auf)."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
+
 storage_candidates = [
     Path("storage"),
     Path("backend/storage"),

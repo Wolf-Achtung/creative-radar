@@ -425,8 +425,9 @@ def test_generate_with_mocked_llm(monkeypatch):
         assert report.llm_output is not None
         assert report.llm_output.headline == "Headline test"
         assert report.llm_output.trends[0].name == "Hook unter 15s"
-        # Cost estimate = (5000/1000)*0.015 + (800/1000)*0.075 = 0.075 + 0.06 = 0.135
-        assert report.cost_usd_estimate == pytest.approx(0.135, abs=0.001)
+        # Cost estimate = (5000/1000)*0.005 + (800/1000)*0.025 = 0.025 + 0.02 = 0.045
+        # (Opus 4.8 pricing, corrected 2026-07-01 — see config.py)
+        assert report.cost_usd_estimate == pytest.approx(0.045, abs=0.001)
 
 
 def test_generate_weekly_report_logs_to_costlog(monkeypatch):

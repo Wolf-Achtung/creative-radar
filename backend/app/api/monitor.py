@@ -14,6 +14,7 @@ from app.config import settings
 from app.database import DB_POOL_TOTAL_BUDGET, get_session
 from app.models.entities import Asset, Channel, Post, Title
 from app.schemas.dto import ApifyMonitorRequest, TikTokMonitorRequest
+from app.services.rate_limit import rate_limit
 from app.services.apify_connector import (
     is_apify_configured,
     is_tiktok_configured,
@@ -538,7 +539,10 @@ async def _run_apify_sync_for_platform_async(
     }
 
 
-@router.post("/apify-instagram")
+@router.post(
+    "/apify-instagram",
+    dependencies=[Depends(rate_limit("apify-monitor", max_calls=10, window_seconds=60))],
+)
 async def apify_instagram_monitor(payload: ApifyMonitorRequest, session: Session = Depends(get_session)):
     if not is_apify_configured():
         raise HTTPException(status_code=400, detail="Apify ist nicht konfiguriert. Bitte APIFY_API_TOKEN und APIFY_INSTAGRAM_ACTOR_ID in Railway setzen.")
@@ -571,7 +575,10 @@ async def apify_instagram_monitor(payload: ApifyMonitorRequest, session: Session
     }
 
 
-@router.post("/apify-tiktok")
+@router.post(
+    "/apify-tiktok",
+    dependencies=[Depends(rate_limit("apify-monitor", max_calls=10, window_seconds=60))],
+)
 async def apify_tiktok_monitor(payload: TikTokMonitorRequest, session: Session = Depends(get_session)):
     if not is_tiktok_configured():
         raise HTTPException(status_code=400, detail="TikTok-Apify ist nicht konfiguriert. Bitte APIFY_API_TOKEN und APIFY_TIKTOK_ACTOR_ID in Railway setzen.")

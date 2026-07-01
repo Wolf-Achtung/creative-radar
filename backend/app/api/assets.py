@@ -6,6 +6,7 @@ from app.database import get_session
 from app.models.entities import Asset, CandidateStatus, Channel, Post, ReviewStatus, Title, TitleCandidate
 from app.schemas.dto import AssetReviewUpdate
 from app.admin_session import require_admin_session
+from app.services.rate_limit import rate_limit
 from app.services.match_key import slugify_match_key
 from app.services.storage import resolve_url
 from app.services.visual_analysis import analyze_asset_visual
@@ -200,7 +201,10 @@ def analyze_visual(asset_id: UUID, session: Session = Depends(get_session)):
     }}
 
 
-@router.post("/analyze-visual-batch")
+@router.post(
+    "/analyze-visual-batch",
+    dependencies=[Depends(rate_limit("analyze-visual-batch", max_calls=10, window_seconds=60))],
+)
 def analyze_visual_batch(limit: int = 10, only_pending: bool = True, session: Session = Depends(get_session)):
     statuses = ["pending"] if only_pending else ["pending", "error", "no_source", "text_fallback", "fetch_failed"]
     statement = select(Asset).where(Asset.visual_analysis_status.in_(statuses)).order_by(Asset.created_at.desc()).limit(max(1, min(limit, 50)))

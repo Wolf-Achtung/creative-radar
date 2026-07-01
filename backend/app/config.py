@@ -79,23 +79,28 @@ class Settings(BaseSettings):
     # Anthropic API (Sprint 5.3.1). Hybrid model strategy: Haiku for the
     # mechanical fields (format + tone), Sonnet for the contextual fields
     # (purpose + lifecycle_stage) and the vision call. Model strings are
-    # the alias form by default — the alias auto-tracks the latest 4.5/4.6
-    # release; override via Railway ENV to pin a specific datestamp.
-    # Pricing per 1k tokens, source: anthropic.com/pricing as of 2026-05.
+    # the alias form by default; override via Railway ENV to pin a specific
+    # datestamp. Pricing per 1k tokens, source: platform.claude.com/docs/
+    # en/about-claude/pricing as of 2026-07-01 (Sicherheits-Audit — this also
+    # corrected the Opus row below, which had been carrying stale Opus-4/4.1-
+    # era pricing 3x too high; see insight_engine.OPUS_MODEL_ALIAS for the
+    # matching fix that actually wires this field into the brief-gen path).
     anthropic_api_key: str | None = None
     anthropic_haiku_model: str = "claude-haiku-4-5-20251001"
-    anthropic_sonnet_model: str = "claude-sonnet-4-6"
+    anthropic_sonnet_model: str = "claude-sonnet-5"
     anthropic_haiku_input_per_1k_usd: float = 0.001
     anthropic_haiku_output_per_1k_usd: float = 0.005
+    # Standard-Rate ab 01.09.2026; Sonnet 5 laeuft bis dahin mit Einfuehrungs-
+    # preis $2/$10 pro Mtok (0.002/0.010 pro 1k) - guenstiger als hier
+    # veranschlagt, die Cost-Logs ueberschaetzen also bis dahin leicht.
     anthropic_sonnet_input_per_1k_usd: float = 0.003
     anthropic_sonnet_output_per_1k_usd: float = 0.015
-    # Opus 4.7 list price (anthropic.com/pricing, 2026-05): $15/Mtok input,
-    # $75/Mtok output. The weekly-brief path (generate_weekly_report) pins
-    # to claude-opus-4-7; override the alias via ENV to a datestamped pin
-    # if Wolf wants to freeze a specific release.
-    anthropic_opus_model: str = "claude-opus-4-7"
-    anthropic_opus_input_per_1k_usd: float = 0.015
-    anthropic_opus_output_per_1k_usd: float = 0.075
+    # Opus 4.8 list price: $5/Mtok input, $25/Mtok output — identisch zu
+    # Opus 4.5/4.6/4.7, die vorherigen $15/$75 hier waren falsch (das war
+    # Opus-4/4.1-Alt-Pricing).
+    anthropic_opus_model: str = "claude-opus-4-8"
+    anthropic_opus_input_per_1k_usd: float = 0.005
+    anthropic_opus_output_per_1k_usd: float = 0.025
 
     # Bearer-token auth (Phase 4 W4 Task 4.3). Default off so the rollout can
     # land Frontend changes first; Wolf flips AUTH_ENABLED=true once both
@@ -138,6 +143,12 @@ class Settings(BaseSettings):
     admin_session_secret: str | None = None
     admin_session_ttl_seconds: int = 8 * 3600
     admin_auth_enabled: bool = False
+
+    # Sicherheits-Audit 2026-07-01 — Kill-Switch fuer das In-Memory-Rate-
+    # Limiting (app/services/rate_limit.py). Default an; auf false setzen,
+    # falls ein Incident (z. B. False-Positives durch geteiltes NAT) das
+    # ohne Code-Deploy erfordert.
+    rate_limit_enabled: bool = True
 
     image_proxy_allowed_hosts: str = (
         "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"

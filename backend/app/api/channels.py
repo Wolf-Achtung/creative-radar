@@ -15,6 +15,13 @@ router = APIRouter(
     dependencies=[Depends(require_admin_session)],
 )
 
+# Sicherheits-Audit 2026-07-01: der Excel-Import las die komplette Datei
+# ohne Limit in den Speicher (im Unterschied zum Image-Proxy, der
+# image_proxy_max_bytes durchsetzt) — ein einfacher Memory-DoS-Vektor ueber
+# eine sehr grosse Datei. 10 MiB sind grosszuegig fuer eine Channel-
+# Whitelist-Tabelle.
+_MAX_IMPORT_EXCEL_BYTES = 10 * 1024 * 1024
+
 
 @router.get("")
 def list_channels(market: Market | None = None, active: bool | None = None, mvp: bool | None = None, session: Session = Depends(get_session)):
@@ -70,6 +77,20 @@ def seed_mvp_channels(session: Session = Depends(get_session)):
 async def import_excel(file: UploadFile = File(...), session: Session = Depends(get_session)):
     if not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(status_code=400, detail="Bitte eine Excel-Datei .xlsx hochladen.")
-    data = await file.read()
-    result = import_channels_from_excel(session, data)
+
+    chunks: list[bytes] = []
+    total_bytes = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > _MAX_IMPORT_EXCEL_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Datei zu groß (Limit {_MAX_IMPORT_EXCEL_BYTES // (1024 * 1024)} MiB).",
+            )
+        chunks.append(chunk)
+
+    result = import_channels_from_excel(session, b"".join(chunks))
     return result

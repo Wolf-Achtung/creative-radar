@@ -248,14 +248,34 @@ def test_path_is_public_rejects_lookalikes() -> None:
 # ---------- production-layout probe ----------
 
 
+def _collect_registered_paths(routes) -> set[str]:
+    """Flatten Starlette's route tree into a set of leaf paths.
+
+    Starlette >=1.0 stopped flattening ``app.include_router(...)`` calls
+    into ``app.router.routes`` directly — each call now shows up as one
+    opaque ``_IncludedRouter`` wrapper with no ``.path`` of its own; the
+    actual routes live on its ``original_router.routes``. Recursing here
+    keeps the layout-probe meaningful across that Starlette-version change
+    instead of silently seeing an empty registered-paths set.
+    """
+    paths: set[str] = set()
+    for route in routes:
+        path = getattr(route, "path", None)
+        if path is not None:
+            paths.add(path)
+            continue
+        nested = getattr(getattr(route, "original_router", None), "routes", None)
+        if nested is not None:
+            paths |= _collect_registered_paths(nested)
+    return paths
+
+
 def test_public_path_prefixes_match_real_route_prefixes() -> None:
     """Layout-probe: every PUBLIC_PATH_PREFIX must correspond to at least
     one real registered route. Catches the case where a prefix in the
     whitelist gets stale (e.g. a router gets renamed) and protects from
     the W4-Hotfix-3 'paths drifted from code' regression class."""
-    registered_paths = {
-        getattr(route, "path", "") for route in app.router.routes
-    }
+    registered_paths = _collect_registered_paths(app.router.routes)
     # Strip query strings and FastAPI path params for easier matching.
     registered_prefixes = {p.rstrip("/") for p in registered_paths if p}
 
@@ -278,9 +298,7 @@ def test_public_path_prefixes_match_real_route_prefixes() -> None:
 
 def test_public_path_exact_paths_match_real_routes() -> None:
     """Same probe as above for the exact-match list."""
-    registered_paths = {
-        getattr(route, "path", "") for route in app.router.routes
-    }
+    registered_paths = _collect_registered_paths(app.router.routes)
     for path in PUBLIC_PATH_EXACT:
         assert path in registered_paths, (
             f"PUBLIC_PATH_EXACT lists {path!r} but no route is registered "

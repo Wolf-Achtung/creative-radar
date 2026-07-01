@@ -110,3 +110,44 @@ def test_proxy_returns_502_when_content_length_exceeds_cap():
         r = client.get("/api/img", params={"url": "https://scontent.cdninstagram.com/v/huge.jpg"})
     assert r.status_code == 502
     assert "too large" in r.json()["detail"].lower()
+
+
+# -- Redirect re-validation (Sicherheits-Audit 2026-07-01) --------------------
+
+def _redirect_response(location: str):
+    return httpx.Response(status_code=302, headers={"location": location}, content=b"")
+
+
+def test_proxy_follows_redirect_to_whitelisted_host():
+    redirect = _redirect_response("https://p16-common-sign.tiktokcdn-us.com/v/final.jpg")
+    final = _mock_response(200, b"final-bytes", "image/jpeg")
+    with patch("app.api.proxy.httpx.AsyncClient") as ac:
+        instance = ac.return_value
+        instance.get = AsyncMock(side_effect=[redirect, final])
+        instance.aclose = AsyncMock()
+        r = client.get("/api/img", params={"url": "https://scontent.cdninstagram.com/v/start.jpg"})
+    assert r.status_code == 200
+    assert r.content == b"final-bytes"
+    assert r.headers["x-proxy-source-host"] == "p16-common-sign.tiktokcdn-us.com"
+
+
+def test_proxy_rejects_redirect_to_non_whitelisted_host():
+    redirect = _redirect_response("https://internal.evil.example/secrets")
+    with patch("app.api.proxy.httpx.AsyncClient") as ac:
+        instance = ac.return_value
+        instance.get = AsyncMock(return_value=redirect)
+        instance.aclose = AsyncMock()
+        r = client.get("/api/img", params={"url": "https://scontent.cdninstagram.com/v/start.jpg"})
+    assert r.status_code == 403
+    assert "redirect target" in r.json()["detail"].lower()
+
+
+def test_proxy_rejects_too_many_redirects():
+    redirects = [_redirect_response("https://scontent.cdninstagram.com/v/loop.jpg") for _ in range(10)]
+    with patch("app.api.proxy.httpx.AsyncClient") as ac:
+        instance = ac.return_value
+        instance.get = AsyncMock(side_effect=redirects)
+        instance.aclose = AsyncMock()
+        r = client.get("/api/img", params={"url": "https://scontent.cdninstagram.com/v/start.jpg"})
+    assert r.status_code == 502
+    assert "too many redirects" in r.json()["detail"].lower()
