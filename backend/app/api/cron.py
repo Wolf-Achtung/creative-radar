@@ -26,6 +26,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
@@ -552,7 +553,15 @@ async def _run_title_sync_after_scrape(session: Session) -> dict:
     return {"enabled": True, "duration_seconds": elapsed, **result}
 
 
-def _run_rematch_after_sync(session: Session) -> dict:
+def _rematch_stage_timeout_seconds() -> int:
+    raw = os.environ.get("REMATCH_STAGE_TIMEOUT_SECONDS", "1800")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1800
+
+
+async def _run_rematch_after_sync(session: Session) -> dict:
     """Sprint 10e — auto re-match unassigned assets after every cron sync.
 
     New TMDb-title rows arrive continuously between cron runs (Sprint 10a's
@@ -566,13 +575,50 @@ def _run_rematch_after_sync(session: Session) -> dict:
     the new-asset path. Failures are absorbed into the summary instead of
     failing the whole cron — re-match is a best-effort enrichment, the
     sync itself has already succeeded by this point.
+
+    Stage-Timeout (Diagnose-Folge 2026-07-06): der title_sync-Fix zieht pro
+    Studio den kompletten TMDb-Backkatalog ohne Seiten-Cap (Absicht, wegen der
+    frueheren 96%-Match-Luecke) — der Titel-Katalog ist dadurch stark
+    gewachsen. Der 06.07.-Lauf hat dadurch beim Rematch das komplette
+    2h-Gesamtbudget (``CRON_TOTAL_RUN_TIMEOUT_SECONDS``) verbraucht, OHNE dass
+    Briefs/Roundups/Cutter-Weekly noch liefen. Eigener Timeout (ENV
+    ``REMATCH_STAGE_TIMEOUT_SECONDS``, Default 1800s = 30min) deckelt das:
+    bei Ueberschreitung wird die Stage als Timeout verbucht und der Cron
+    laeuft zu Briefs/Roundups weiter — die fuer die woechentliche Cadence
+    wichtiger sind als ein vollstaendiger Rematch-Durchlauf in derselben
+    Woche (unmatched Assets werden beim naechsten Lauf erneut versucht).
+
+    Bekannte Grenze (wie beim Total-Timeout-Wrapper): ``wait_for`` kann den
+    darunterliegenden ``asyncio.to_thread``-Aufruf nicht wirklich abbrechen —
+    der Thread laeuft im Hintergrund weiter (inkl. seiner Batch-Commits alle
+    50 Assets), bis ``rematch_unassigned_assets`` selbst zurueckkehrt. Bei
+    einem Redeploy waehrend dieses Zombie-Zustands wird der Thread mit dem
+    Container beendet.
     """
+    timeout_s = _rematch_stage_timeout_seconds()
+    started = time.monotonic()
+    logger.info("rematch.start")
     try:
-        summary = rematch_unassigned_assets(session)
+        summary = await asyncio.wait_for(
+            asyncio.to_thread(rematch_unassigned_assets, session), timeout=timeout_s
+        )
+    except asyncio.TimeoutError:
+        elapsed = round(time.monotonic() - started, 1)
+        logger.error(
+            "cron rematch stage timed out after %ss (limit %ss)", elapsed, timeout_s
+        )
+        return {
+            "error": f"stage_timeout after {timeout_s}s",
+            "timed_out": True,
+            "duration_seconds": elapsed,
+        }
     except Exception as exc:  # noqa: BLE001 — top-level guard, see PC-4
+        elapsed = round(time.monotonic() - started, 1)
         logger.exception("auto-rematch after cron sync failed")
-        return {"error": str(exc)[:500]}
-    return summary.to_dict()
+        return {"error": str(exc)[:500], "duration_seconds": elapsed}
+    elapsed = round(time.monotonic() - started, 1)
+    logger.info("rematch.complete duration_seconds=%s", elapsed)
+    return {**summary.to_dict(), "duration_seconds": elapsed}
 
 
 def _truncate_head_tail(text: str, *, head: int = 2000, tail: int = 2000) -> str:
@@ -1135,6 +1181,28 @@ def _cron_total_timeout_seconds() -> int:
         return 7200
 
 
+async def _ping_cron_heartbeat(success: bool) -> None:
+    """Optionaler Healthchecks.io-artiger Dead-Man's-Switch-Ping nach jedem
+    Cron-Lauf (Diagnose-Folge 2026-07-06 — es gab bisher kein Alerting; ein
+    haengender/fehlgeschlagener Lauf fiel nur auf, wenn zufaellig jemand aufs
+    Dashboard schaute). ``settings.cron_heartbeat_url`` leer = No-Op.
+
+    Bei Erfolg wird die Basis-URL gepingt, bei Fehlschlag ``/fail`` angehaengt
+    (healthchecks.io-Konvention) — der Dienst alarmiert dann sofort statt erst
+    nach Ablauf des Erwartungsfensters. Best-effort: ein Fehler beim Ping-Call
+    selbst (Netzwerk, DNS, ...) darf den Cron-Lauf nicht kippen — nur geloggt.
+    """
+    url = settings.cron_heartbeat_url
+    if not url:
+        return
+    target = url if success else f"{url.rstrip('/')}/fail"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.get(target)
+    except httpx.HTTPError:
+        logger.warning("cron-heartbeat-ping-failed", extra={"success": success, "url": target})
+
+
 async def _run_cron_sync_background(
     run_id: UUID,
     run_index: int,
@@ -1186,6 +1254,7 @@ async def _run_cron_sync_background(
                 run.completed_at = datetime.now(timezone.utc)
                 session.add(run)
                 session.commit()
+        await _ping_cron_heartbeat(success=False)
 
 
 async def _run_cron_sync_background_impl(
@@ -1237,6 +1306,7 @@ async def _run_cron_sync_background_impl(
                     run_id, budget.spent_usd_cents, budget.budget_usd_cents,
                     budget.pct_used * 100,
                 )
+                await _ping_cron_heartbeat(success=False)
                 return
 
             # Sprint F0.7 — Anthropic-Monatsbudget-Pre-Flight. Exakt analog
@@ -1268,6 +1338,7 @@ async def _run_cron_sync_background_impl(
                     anthropic_budget.budget_usd_cents,
                     anthropic_budget.pct_used * 100,
                 )
+                await _ping_cron_heartbeat(success=False)
                 return
 
             # Brief-/Roundup-Ziel-KW: laufende KW (manueller Force-Lauf) vs.
@@ -1310,7 +1381,7 @@ async def _run_cron_sync_background_impl(
             # gezogene Titel im selben Lauf gematcht werden. Hinter
             # ENABLE_TITLE_SYNC_IN_CRON (Default true); eigener try/except.
             summary["title_sync"] = await _run_title_sync_after_scrape(session)
-            summary["rematch"] = await asyncio.to_thread(_run_rematch_after_sync, session)
+            summary["rematch"] = await _run_rematch_after_sync(session)
             # Cadence-Sprint 2026-05-17 — Brief-Generation für die gerade
             # abgeschlossene ISO-Woche. Vor diesem Sprint hat der Sonntag-Cron
             # nur Scrape gemacht; Briefs entstanden ausschließlich lazy beim
@@ -1449,6 +1520,12 @@ async def _run_cron_sync_background_impl(
             session.add(run)
             session.commit()
             logger.info("cron run %s completed: %s", run_id, summary)
+            # Nur der Infrastruktur-Erfolg (Scrape/Vision/Rematch/Briefs-Stage
+            # lief durch) zaehlt hier als "success" — ein stilles Brief-Gen-
+            # Komplettversagen (silent/all_failed oben) hat sein eigenes
+            # logger.critical-Signal und ist bewusst kein zweiter Heartbeat-
+            # Kanal, um die Alarm-Semantik nicht zu vermischen.
+            await _ping_cron_heartbeat(success=True)
         except Exception as exc:  # noqa: BLE001 — top-level guard, status persists
             logger.exception("cron run %s failed", run_id)
             run.status = "failed"
@@ -1456,6 +1533,7 @@ async def _run_cron_sync_background_impl(
             run.completed_at = datetime.now(timezone.utc)
             session.add(run)
             session.commit()
+            await _ping_cron_heartbeat(success=False)
 
 
 @router.post("/sync-all")

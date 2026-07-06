@@ -102,6 +102,15 @@ class Settings(BaseSettings):
     anthropic_opus_input_per_1k_usd: float = 0.005
     anthropic_opus_output_per_1k_usd: float = 0.025
 
+    # Diagnose-Folge 2026-07-06 — bis dahin gab es kein Alerting auf den
+    # woechentlichen Cron-Lauf: ein haengender/fehlgeschlagener Lauf fiel nur
+    # auf, wenn zufaellig jemand aufs Dashboard schaute. Optionaler
+    # Healthchecks.io-artiger Ping (Dead-Man's-Switch): leer = No-Op (Default).
+    # Erfolg pingt die Basis-URL, Fehlschlag haengt ``/fail`` an (healthchecks.io-
+    # Konvention) — der Dienst alarmiert dann sofort statt erst nach Ablauf
+    # des Erwartungsfensters.
+    cron_heartbeat_url: str | None = None
+
     # Bearer-token auth (Phase 4 W4 Task 4.3). Default off so the rollout can
     # land Frontend changes first; Wolf flips AUTH_ENABLED=true once both
     # Netlify and Railway carry the matching token. Public-path whitelist

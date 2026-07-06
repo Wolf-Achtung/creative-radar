@@ -98,7 +98,7 @@ def _patch_cron_neighbors(monkeypatch, db, *, brief_gen_mock=None, anthropic_cos
     )
     monkeypatch.setattr(
         cron_module, "_run_rematch_after_sync",
-        lambda session: {},
+        AsyncMock(return_value={}),
     )
     monkeypatch.setattr(
         cron_module, "aggregate_apify_costs_since",
