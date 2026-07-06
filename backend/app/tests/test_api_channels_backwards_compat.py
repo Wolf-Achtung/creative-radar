@@ -168,6 +168,26 @@ def test_patch_channel_only_monitoring_enabled_keeps_other_fields(
     assert body["acquisition_strategy"] == "manual"
 
 
+def test_patch_channel_platform_channel_id(client: TestClient) -> None:
+    """Diagnose 2026-07-06 (NetflixUK): the column existed on the Channel
+    model and cron.py already preferred it over handle-based YouTube
+    lookup, but ``ChannelUpdate`` never exposed it — so a broken handle
+    (legacy '/user/' vanity URL, not a real @handle) could never be fixed
+    via the API, only by direct DB access."""
+    created = client.post(
+        "/api/channels",
+        json={"name": "YT Target", "url": "https://youtube.com/@broken", "platform": "youtube"},
+    ).json()
+    channel_id = created["id"]
+
+    patch_response = client.patch(
+        f"/api/channels/{channel_id}",
+        json={"platform_channel_id": "UCGie8GMlUo3kBKIopdvumVQ"},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    assert patch_response.json()["platform_channel_id"] == "UCGie8GMlUo3kBKIopdvumVQ"
+
+
 # ---------- GET ----------
 
 
