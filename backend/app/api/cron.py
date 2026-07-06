@@ -464,11 +464,17 @@ def _run_vision_backlog(
 
 
 def _title_sync_stage_timeout_seconds() -> int:
-    raw = os.environ.get("TITLE_SYNC_STAGE_TIMEOUT_SECONDS", "3600")
+    # Default 1800s (Diagnose-Folge 2026-07-06): der ursprüngliche 3600s-Schätzwert
+    # (siehe Docstring unten) ist durch die Batch-Commit-Fix jetzt weit über dem
+    # gemessenen Bedarf — zwei saubere Läufe post-Fix brauchten 516s/523s. 1800s
+    # gibt ~3,5x Puffer über dem Messwert (Katalog wächst pro Woche weiter, da
+    # title_sync bewusst ohne Seiten-Cap läuft) und deckt sich mit dem
+    # REMATCH_STAGE_TIMEOUT_SECONDS-Default für konsistente Erwartungen.
+    raw = os.environ.get("TITLE_SYNC_STAGE_TIMEOUT_SECONDS", "1800")
     try:
         return max(1, int(raw))
     except ValueError:
-        return 3600
+        return 1800
 
 
 def _mark_stuck_title_sync_run_error(session: Session, timeout_s: int) -> None:
@@ -509,13 +515,14 @@ async def _run_title_sync_after_scrape(session: Session) -> dict:
     ``sync_titles_from_tmdb`` writes its own ``TitleSyncRun`` audit row, so
     idempotency and logging are already handled there.
 
-    Stage-Timeout (Sprint 2026-06-29): der Pass laeuft in ``asyncio.wait_for``
-    (ENV ``TITLE_SYNC_STAGE_TIMEOUT_SECONDS``, Default 3600s). Bei Timeout wird
-    die Stage als ``error`` verbucht, die haengende Run-Row auf ``error``
-    gesetzt und der Cron laeuft zu rematch/briefs weiter — der ewig-``running``-
-    Zustand (5,4h-Hang 29.06., 5,8-Tage-Hang 16.06.) ist damit gedeckelt. Die
-    Stage-Dauer (``duration_seconds``) landet im Summary, damit der Default
-    nach dem ersten sauberen Lauf datengetrieben statt geschaetzt sitzt.
+    Stage-Timeout (Sprint 2026-06-29, Default datengetrieben nachjustiert
+    2026-07-06): der Pass laeuft in ``asyncio.wait_for`` (ENV
+    ``TITLE_SYNC_STAGE_TIMEOUT_SECONDS``, Default 1800s — siehe Begruendung
+    in ``_title_sync_stage_timeout_seconds``). Bei Timeout wird die Stage als
+    ``error`` verbucht, die haengende Run-Row auf ``error`` gesetzt und der
+    Cron laeuft zu rematch/briefs weiter — der ewig-``running``-Zustand
+    (5,4h-Hang 29.06., 5,8-Tage-Hang 16.06.) ist damit gedeckelt. Die
+    Stage-Dauer (``duration_seconds``) landet im Summary.
 
     WICHTIG — der Timeout deckelt die ASYNC-Wall-Clock (httpx-Discover,
     kumulative Pagination). Ein rein SYNCHRON blockierender ``session.commit``
