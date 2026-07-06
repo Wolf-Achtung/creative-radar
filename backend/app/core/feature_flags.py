@@ -12,6 +12,10 @@ Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
   Non-Pair-Segment-Roundup-Pfad (Pilot-Endpoint + Cron-Block).
 - ``FEATURE_CUTTER_WEEKLY_ENABLED`` (bool): An/Aus-Schalter fuer den
   Cutter-Wochenbriefing-Cron-Block (Trockenlauf).
+- ``FEATURE_DESIGNER_WEEKLY_ENABLED`` (bool): An/Aus-Schalter fuer den
+  Designer-Wochenbriefing-Cron-Block (Trockenlauf, Sprint 2026-07-06).
+  Default off, unabhaengig vom Cutter-Flag — Wolf review't den Prompt-
+  Output separat, bevor das hier in Production Kosten verursacht.
 
 Historie: PR #155 hat das Pattern eingefuehrt, mit zwei zusaetzlichen
 Helpern ``is_uk_enabled_for_pair`` und ``is_independents_enabled``. Beide
@@ -60,3 +64,22 @@ def is_cutter_weekly_enabled() -> bool:
     Frontend-Pfad bis zur Kalibrierung der Evidenzschwelle).
     """
     return os.getenv("FEATURE_CUTTER_WEEKLY_ENABLED", "false").lower() == "true"
+
+
+def is_designer_weekly_enabled() -> bool:
+    """Returns True wenn der Designer-Wochenbriefing-Block im Montags-Cron
+    aktiv ist (Sprint 2026-07-06, Trockenlauf-Phase, mirror von
+    ``is_cutter_weekly_enabled``).
+
+    Env-Var: ``FEATURE_DESIGNER_WEEKLY_ENABLED``
+    Format: ``"true"`` oder ``"false"`` (case-insensitive). Andere Werte
+    werden defensiv als ``False`` interpretiert.
+    Default: ``"false"`` — unabhaengig vom Cutter-Flag, damit dieses
+    Feature nicht versehentlich mit anspringt, bevor der Prompt-Output
+    reviewt ist.
+
+    Der Flag schaltet NUR den Cron-Block — es gibt bewusst keinen
+    public Endpoint (Trockenlauf: persistieren + Admin-Lesezugriff, kein
+    Frontend-Pfad bis zur Kalibrierung der Evidenzschwelle).
+    """
+    return os.getenv("FEATURE_DESIGNER_WEEKLY_ENABLED", "false").lower() == "true"

@@ -1,21 +1,27 @@
-"""Cutter-Wochenbriefing — LLM-Synthese + Persistenz (Commit B/C).
+"""Designer-Wochenbriefing — LLM-Synthese + Persistenz.
 
-Master-Plan-Sprint 2026-06-12: Quer über alle persistierten Pair-Briefs
-(``insight_report.aggregation``) und Segment-Roundups
-(``segment_roundup.channels_aggregation``) einer ISO-Woche wird pro
-Plattform (Instagram/TikTok/YouTube) geprüft, ob ein belegtes Muster
-vorliegt. **Die Code-Prüfung entscheidet, was ein Muster ist** — das LLM
-formuliert ausschließlich, was diese Prüfung freigegeben hat, und darf
-nichts dazuerfinden.
+Sprint 2026-07-06: mirror von ``cutter_weekly.py`` 1:1, nur die LLM-Lens
+unterscheidet sich — Motion-/Grafik-Beobachtung (Caption-Style, Text-
+Overlay, Branding-Einsatz, analog ``FuerMotionDesigner`` in
+``schemas/insights.py``) statt Schnitt-Beobachtung.
 
-Refactor 2026-07-06: die deterministische Evidenz-Schicht (Commit A —
-``collect_week_posts``, ``compute_platform_p75``, ``check_platform_pattern``,
-``build_weekly_evidence``, ``collect_forecast_signals``) lebt jetzt
-persona-neutral in ``services/weekly_briefing_evidence.py``, weil das neue
-Designer-Wochenbriefing (``designer_weekly.py``) exakt dieselbe Pruefung
-braucht — nur die LLM-Lens unterscheidet sich. Dieses Modul importiert sie
-von dort und re-exportiert die Namen (siehe Imports unten), damit bestehende
-Aufrufer/Tests von ``cutter_weekly.<name>`` unveraendert funktionieren.
+Hintergrund: die 9 Pair-Briefs tragen bereits eine ``FuerMotionDesigner``-
+Sektion, aber die ist in 9 separaten Wochen-Briefs vergraben und deckt
+nur Majors ab. Cutter-Weekly hat gezeigt, dass ein EIGENSTAENDIGES
+Wochen-Synthese-Artefakt — quer ueber alle 9 Pair-Briefs UND die 6
+Segment-Roundups (Majors, Independents, Verleiher) — praktisch genutzt
+wird, weil es die Beobachtung buendelt statt sie zu verstreuen. Designer-
+Weekly schliesst dieselbe Luecke fuer die Design-/Motion-Rolle.
+
+**Die Code-Pruefung (``services/weekly_briefing_evidence.py``) entscheidet,
+was ein Muster ist** — das LLM formuliert ausschliesslich, was diese
+Pruefung freigegeben hat, und darf nichts dazuerfinden. Dieselbe
+Evidenz-Disziplin wie Cutter-Weekly, dieselbe Schwelle (siehe Docstring
+von ``weekly_briefing_evidence.py`` fuer die bewusste Begruendung, warum
+KEIN eigenes Caption-/Overlay-Signal existiert und die ER-p75-Schwelle
+wiederverwendet wird — es gibt schlicht kein strukturiertes Caption-
+Style-Feld auf ``Post``, das eine eigene deterministische Pruefung
+tragen koennte).
 """
 from __future__ import annotations
 
@@ -26,46 +32,35 @@ from typing import Optional
 from sqlmodel import Session
 
 from app.schemas.insights import (
-    CutterPlatformBlock,
-    CutterWeeklyLLMReport,
-    CutterWeeklyReport,
+    DesignerPlatformBlock,
+    DesignerWeeklyLLMReport,
+    DesignerWeeklyReport,
     WeeklyBriefingEvidence,
     WeeklyEvidencePost,
     WeeklyForecastSignal,
     WeeklyPlatformEvidence,
 )
-# Re-exportiert fuer Backwards-Compat: bestehender Code/Tests rufen diese
-# Namen als ``cutter_weekly.<name>`` auf. Die Implementierung lebt seit dem
-# Refactor 2026-07-06 in der geteilten Evidenz-Schicht (siehe Modul-
-# Docstring); Cutter- UND Designer-Weekly importieren von dort.
-from app.services.weekly_briefing_evidence import (  # noqa: F401
-    WEEKLY_BRIEFING_PLATFORMS as CUTTER_PLATFORMS,
-    _percentile,
+from app.services.weekly_briefing_evidence import (
     build_weekly_evidence,
-    check_platform_pattern,
     collect_forecast_signals,
-    collect_week_posts,
-    compute_platform_p75,
-    post_er,
-    week_bounds,
 )
 
 logger = logging.getLogger(__name__)
 
 
 # ===========================================================================
-# Commit B — LLM-Synthese mit Beleg-Validierung (Citation strict)
+# LLM-Synthese mit Beleg-Validierung (Citation strict) — mirror Cutter-Weekly
 # ===========================================================================
 #
-# Arbeitsteilung (Kern-Disziplin des Sprints): ``build_weekly_evidence``
-# oben hat entschieden, WAS ein Muster ist. Das LLM bekommt ausschliesslich
-# die freigegebenen Muster-Kandidaten (kompakt, nicht die vollen Blobs)
-# und formuliert pro freigegebener Plattform einen Block. Leerlauf-
-# Plattformen erhalten deterministische Code-Bloecke — das LLM sieht sie
-# nicht und kann fuer sie nichts erfinden. Citation strict von Tag 1
-# (Wolf-Entscheidung 3): jede zitierte ID muss im Allow-Set der
-# stuetzenden Posts liegen, sonst wird die komplette Antwort verworfen
-# und einmal neu angefragt; danach ``llm_output=None`` (Evidence bleibt).
+# Arbeitsteilung (identisch zu Cutter-Weekly): ``build_weekly_evidence``
+# hat entschieden, WAS ein Muster ist. Das LLM bekommt ausschliesslich die
+# freigegebenen Muster-Kandidaten (kompakt, nicht die vollen Blobs) und
+# formuliert pro freigegebener Plattform einen Block. Leerlauf-Plattformen
+# erhalten deterministische Code-Bloecke — das LLM sieht sie nicht und
+# kann fuer sie nichts erfinden. Citation strict: jede zitierte ID muss im
+# Allow-Set der stuetzenden Posts liegen, sonst wird die komplette Antwort
+# verworfen und einmal neu angefragt; danach ``llm_output=None`` (Evidence
+# bleibt).
 
 _PLATFORM_LABELS: dict[str, str] = {
     "instagram": "Instagram",
@@ -84,15 +79,15 @@ _PROMPT_POSTS_CAP = 10
 # Worst case 4 Anthropic-Calls — bewusst unter dem Pair-Brief-Niveau.
 _MAX_LLM_ATTEMPTS = 2
 
-CUTTER_WEEKLY_SYSTEM_PROMPT = """Du schreibst das woechentliche Cutter-Briefing fuer ein Trailerhaus: eine plattformweise Mustersicht quer ueber alle beobachteten Studios, Verleiher und Independents.
+DESIGNER_WEEKLY_SYSTEM_PROMPT = """Du schreibst das woechentliche Designer-Briefing fuer ein Trailerhaus: eine plattformweise Mustersicht quer ueber alle beobachteten Studios, Verleiher und Independents — aus der Motion-Design-/Grafik-Perspektive eines Motion-Designers/Grafikers.
 
 DEINE ROLLE — UND IHRE GRENZE:
 Eine Code-Pruefung hat bereits entschieden, welche Plattformen diese Woche ein belegtes Muster haben (Evidenzschwelle: mehrere ueberdurchschnittliche Posts ueber mehrere Titel verteilt). Du bekommst NUR die freigegebenen Plattformen mit ihren Beleg-Posts. Du formulierst, was diese Belege gemeinsam zeigen — du entscheidest NICHT, ob ein Muster existiert, und du erfindest keine Muster fuer Plattformen, die dir nicht vorgelegt wurden.
 
 TON UND HALTUNG:
 - Sachlich, beobachtend, in ganzen Saetzen. Schreibe Zahlen aus (33.000, nicht 33k).
-- Beschreibe, WAS die Posts gemeinsam haben (Format, Laenge, Aufbau, Titel-Mix) — behaupte NIE, WARUM es funktioniert hat. Keine kausalen Schnitt-Diagnosen ("funktioniert, weil der Hook frueh kommt" ist verboten; "die starken Posts dieser Woche oeffnen alle in den ersten zwei Sekunden mit Footage" ist erlaubt).
-- Der optionale schnitt_impuls ist ein vorsichtiger Hinweis zum Hinschauen, keine Anweisung und keine Erfolgsgarantie. Wenn die Belege keinen Impuls decken: null.
+- Beschreibe, WAS die Posts gemeinsam haben aus Design-Sicht (Caption-Style, Text-Overlay-Einsatz, Branding-Platzierung, visueller Aufbau, Titel-Mix) — behaupte NIE, WARUM es funktioniert hat. Keine kausalen Diagnosen ("das Caption-Overlay hat funktioniert, weil..." ist verboten; "die starken Posts dieser Woche setzen alle grossflaechige Text-Overlays im ersten Drittel ein" ist erlaubt).
+- Der optionale design_impuls ist ein vorsichtiger Hinweis zum Hinschauen, keine Anweisung und keine Erfolgsgarantie. Wenn die Belege keinen Impuls decken: null.
 - Kein Berater-Vokabular, keine Wertungsformeln, kein Szene-Jargon.
 
 EVIDENZ-PFLICHT (hart):
@@ -110,8 +105,8 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown-Zaeune, exakt in d
   "bloecke": [
     {
       "platform": "instagram|tiktok|youtube — nur die dir vorgelegten Plattformen, jede genau einmal",
-      "beobachtung": "2-4 Saetze: das verdichtete Muster dieser Woche mit 1-2 konkreten Belegen im Fliesstext (Titel + Kennzahl)",
-      "schnitt_impuls": "1-2 Saetze vorsichtiger Impuls oder null",
+      "beobachtung": "2-4 Saetze: das verdichtete Design-Muster dieser Woche mit 1-2 konkreten Belegen im Fliesstext (Titel + Kennzahl)",
+      "design_impuls": "1-2 Saetze vorsichtiger Impuls oder null",
       "cited_post_ids": ["exakte post_url-Strings aus der Beleg-Liste dieser Plattform"]
     }
   ],
@@ -159,7 +154,7 @@ def _build_user_prompt(
     released = _released_platforms(evidence)
     sections: list[str] = [
         (
-            f"# Cutter-Wochenbriefing KW {evidence.iso_week}/{evidence.iso_year}\n\n"
+            f"# Designer-Wochenbriefing KW {evidence.iso_week}/{evidence.iso_year}\n\n"
             f"Die Code-Pruefung hat fuer {len(released)} Plattform(en) ein belegtes "
             f"Muster freigegeben. Schreibe fuer JEDE der folgenden Plattformen genau "
             f"einen Block — fuer keine andere."
@@ -212,7 +207,7 @@ def _build_user_prompt(
     return "\n\n".join(sections)
 
 
-def _leerlauf_block(p: WeeklyPlatformEvidence) -> CutterPlatformBlock:
+def _leerlauf_block(p: WeeklyPlatformEvidence) -> DesignerPlatformBlock:
     """Deterministischer Leerlauf-Block — vom Code erzeugt, nicht vom LLM.
     Der ehrliche Kern des Briefings: lieber 'kein Muster' als ein
     erfundenes."""
@@ -226,23 +221,23 @@ def _leerlauf_block(p: WeeklyPlatformEvidence) -> CutterPlatformBlock:
         beobachtung = (
             f"Kein klares Muster diese Woche auf {label}: {p.reason}"
         )
-    return CutterPlatformBlock(
+    return DesignerPlatformBlock(
         platform=p.platform,
         beobachtung=beobachtung,
-        schnitt_impuls=None,
+        design_impuls=None,
         cited_post_ids=[],
         generated_by="code",
     )
 
 
 def _validate_llm_report(
-    report: CutterWeeklyLLMReport,
+    report: DesignerWeeklyLLMReport,
     evidence: WeeklyBriefingEvidence,
     signals: list[WeeklyForecastSignal],
 ) -> list[str]:
     """Strict-Validierung der LLM-Antwort gegen die Code-Pruefung.
     Rueckgabe: Liste der Verstoesse (leer = belegt). Jeder Verstoss
-    verwirft die GESAMTE Antwort — Citation strict von Tag 1."""
+    verwirft die GESAMTE Antwort — Citation strict, mirror Cutter-Weekly."""
     problems: list[str] = []
     allow_sets = _build_allow_sets(evidence)
     released = set(allow_sets)
@@ -301,19 +296,19 @@ def _validate_llm_report(
 
 def _assemble_report(
     evidence: WeeklyBriefingEvidence,
-    llm_report: Optional[CutterWeeklyLLMReport],
-) -> CutterWeeklyLLMReport:
+    llm_report: Optional[DesignerWeeklyLLMReport],
+) -> DesignerWeeklyLLMReport:
     """Finaler Report in fester Plattform-Reihenfolge: freigegebene
     Plattformen tragen den validierten LLM-Block (``generated_by='llm'``),
     Leerlauf-Plattformen den deterministischen Code-Block. Die
     Asymmetrie-Caveat zum Forecast-Signal stempelt der Code — sie haengt
     nicht von der Disziplin des Modells ab."""
-    llm_blocks: dict[str, CutterPlatformBlock] = {}
+    llm_blocks: dict[str, DesignerPlatformBlock] = {}
     if llm_report is not None:
         for b in llm_report.bloecke:
             llm_blocks[b.platform] = b.model_copy(update={"generated_by": "llm"})
 
-    blocks: list[CutterPlatformBlock] = []
+    blocks: list[DesignerPlatformBlock] = []
     for p in evidence.platforms:
         if p.status == "pattern_released" and p.platform in llm_blocks:
             blocks.append(llm_blocks[p.platform])
@@ -327,7 +322,7 @@ def _assemble_report(
             "Verleiher-/Independent-Segmente existiert kein Forecast-Pendant."
         )
 
-    return CutterWeeklyLLMReport(
+    return DesignerWeeklyLLMReport(
         bloecke=blocks,
         quer_muster=llm_report.quer_muster if llm_report else None,
         quer_cited_post_ids=(
@@ -340,32 +335,32 @@ def _assemble_report(
     )
 
 
-def generate_cutter_weekly(
+def generate_designer_weekly(
     session: Session,
     *,
     now: Optional[datetime] = None,
     model: Optional[str] = None,
     max_tokens: int = 4000,
-) -> CutterWeeklyReport:
-    """End-to-End-Generierung des Cutter-Wochenbriefings (ohne Persistenz —
-    die kommt in Commit C dazu).
+) -> DesignerWeeklyReport:
+    """End-to-End-Generierung des Designer-Wochenbriefings (ohne Persistenz).
 
-    Ablauf:
-    1. ``build_weekly_evidence`` — deterministische Pruefung (Commit A).
+    Ablauf (identisch zu ``generate_cutter_weekly``):
+    1. ``build_weekly_evidence`` — deterministische Pruefung, geteilt mit
+       Cutter-Weekly (``services/weekly_briefing_evidence.py``).
     2. Forecast-Signale der Majors einsammeln (beobachtend, gratis im
        Cron-Kontext nach dem Einordnungs-Warmup).
     3. Keine Plattform freigegeben → KEIN LLM-Call (``model='none'``),
        der Report besteht aus deterministischen Leerlauf-Bloecken.
        Ehrlicher Leerlauf kostet nichts.
-    4. Sonst genau ein Opus-Call (Wolf-Entscheidung 4) mit kompaktem
-       Kandidaten-Prompt; bis zu ein frischer Wiederholungs-Anlauf bei
-       Schema-/Citation-Fail. Jeder bezahlte Call landet einzeln im
-       costlog (``operation='cutter_weekly'``, F0.7-Cap).
+    4. Sonst genau ein Opus-Call mit kompaktem Kandidaten-Prompt; bis zu
+       ein frischer Wiederholungs-Anlauf bei Schema-/Citation-Fail. Jeder
+       bezahlte Call landet einzeln im costlog
+       (``operation='designer_weekly'``, F0.7-Cap).
     5. Total-Fail → ``llm_output=None`` + ``raw_llm_text`` — der
        Evidence-Blob bleibt vollstaendig (Kalibrierungs-Produkt).
     """
-    # Lazy imports analog collect_forecast_signals (kein Engine-Load im
-    # reinen Evidenz-Pfad, keine Import-Zyklen Richtung insight_engine).
+    # Lazy imports analog cutter_weekly.py (kein Engine-Load im reinen
+    # Evidenz-Pfad, keine Import-Zyklen Richtung insight_engine).
     from app.services.anthropic_client import (
         call_with_json_retry,
         is_anthropic_configured,
@@ -385,10 +380,10 @@ def generate_cutter_weekly(
     released = _released_platforms(evidence)
     if not released:
         logger.info(
-            "cutter-weekly-no-pattern-week",
+            "designer-weekly-no-pattern-week",
             extra={"iso_year": evidence.iso_year, "iso_week": evidence.iso_week},
         )
-        return CutterWeeklyReport(
+        return DesignerWeeklyReport(
             iso_year=evidence.iso_year,
             iso_week=evidence.iso_week,
             generated_at=generated_at,
@@ -401,14 +396,14 @@ def generate_cutter_weekly(
         from app.services.anthropic_client import AnthropicAuthError
 
         raise AnthropicAuthError(
-            "ANTHROPIC_API_KEY ist nicht gesetzt — Cutter-Wochenbriefing "
+            "ANTHROPIC_API_KEY ist nicht gesetzt — Designer-Wochenbriefing "
             "kann nicht generieren."
         )
 
     user_prompt = _build_user_prompt(evidence, signals)
     log_extra = {"iso_year": evidence.iso_year, "iso_week": evidence.iso_week}
 
-    llm_output: Optional[CutterWeeklyLLMReport] = None
+    llm_output: Optional[DesignerWeeklyLLMReport] = None
     raw_for_response: Optional[str] = None
     input_tokens_total = 0
     output_tokens_total = 0
@@ -416,11 +411,11 @@ def generate_cutter_weekly(
     for attempt in range(_MAX_LLM_ATTEMPTS):
         retry_result = call_with_json_retry(
             model=model,
-            system=CUTTER_WEEKLY_SYSTEM_PROMPT,
+            system=DESIGNER_WEEKLY_SYSTEM_PROMPT,
             user_message=user_prompt,
             max_tokens=max_tokens,
             max_recalls=1,
-            log_prefix="cutter-weekly",
+            log_prefix="designer-weekly",
             log_extra={**log_extra, "outer_attempt": attempt},
         )
 
@@ -439,7 +434,7 @@ def generate_cutter_weekly(
             record_anthropic_call(
                 usage,
                 model=model,
-                operation="cutter_weekly",
+                operation="designer_weekly",
                 meta={
                     "iso_year": evidence.iso_year,
                     "iso_week": evidence.iso_week,
@@ -453,7 +448,7 @@ def generate_cutter_weekly(
         if retry_result.parsed is None:
             raw_for_response = last_raw_text
             logger.error(
-                "cutter-weekly-json-parse-failed",
+                "designer-weekly-json-parse-failed",
                 extra={
                     **log_extra,
                     "outer_attempt": attempt,
@@ -464,11 +459,11 @@ def generate_cutter_weekly(
 
         candidate = _unwrap_single_key(retry_result.parsed, expected_field="bloecke")
         try:
-            parsed_report = CutterWeeklyLLMReport.model_validate(candidate)
+            parsed_report = DesignerWeeklyLLMReport.model_validate(candidate)
         except ValueError as exc:
             raw_for_response = last_raw_text
             logger.error(
-                "cutter-weekly-schema-validation-failed",
+                "designer-weekly-schema-validation-failed",
                 extra={
                     **log_extra,
                     "outer_attempt": attempt,
@@ -482,7 +477,7 @@ def generate_cutter_weekly(
         if problems:
             raw_for_response = last_raw_text
             logger.error(
-                "cutter-weekly-citation-rejected",
+                "designer-weekly-citation-rejected",
                 extra={
                     **log_extra,
                     "outer_attempt": attempt,
@@ -494,7 +489,7 @@ def generate_cutter_weekly(
         llm_output = parsed_report
         raw_for_response = None
         logger.info(
-            "cutter-weekly-llm-ok",
+            "designer-weekly-llm-ok",
             extra={
                 **log_extra,
                 "outer_attempt": attempt,
@@ -510,7 +505,7 @@ def generate_cutter_weekly(
         else None
     )
 
-    return CutterWeeklyReport(
+    return DesignerWeeklyReport(
         iso_year=evidence.iso_year,
         iso_week=evidence.iso_week,
         generated_at=generated_at,
@@ -529,24 +524,24 @@ def generate_cutter_weekly(
 
 
 # ===========================================================================
-# Commit C — Persistenz (Trockenlauf: persistieren, kein Frontend-Pfad)
+# Persistenz — mirror Cutter-Weekly Commit C
 # ===========================================================================
 
 
-def _persist_cutter_weekly(session: Session, report: CutterWeeklyReport) -> None:
-    """Upsert einer ``cutter_weekly_briefing``-Row keyed auf
-    ``(iso_year, iso_week)``. Last-Write-Wins (delete-then-insert) analog
-    ``_persist_report``/``_persist_roundup``.
+def _persist_designer_weekly(session: Session, report: DesignerWeeklyReport) -> None:
+    """Upsert einer ``designer_weekly_briefing``-Row keyed auf
+    ``(iso_year, iso_week)``. Last-Write-Wins (delete-then-insert), mirror
+    ``_persist_cutter_weekly``.
 
-    BEWUSSTE Abweichung von der Roundup-Konvention: KEIN Persist-Skip bei
-    ``llm_output=None``. Der Evidence-Blob ist das Kalibrierungs-Produkt
-    der Trockenlauf-Phase (Wolf-Festlegung: nicht optional) — eine Woche,
-    deren LLM-Synthese an der strikten Citation-Validierung scheitert,
-    muss mit ihren freigegebenen/verworfenen Mustern trotzdem in der
-    Tabelle landen. ``raw_llm_text`` traegt dann die letzte verworfene
-    Antwort fuer die Diagnose.
+    BEWUSSTE Abweichung von der Roundup-Konvention (identisch zu Cutter):
+    KEIN Persist-Skip bei ``llm_output=None``. Der Evidence-Blob ist das
+    Kalibrierungs-Produkt der Trockenlauf-Phase — eine Woche, deren
+    LLM-Synthese an der strikten Citation-Validierung scheitert, muss mit
+    ihren freigegebenen/verworfenen Mustern trotzdem in der Tabelle
+    landen. ``raw_llm_text`` traegt dann die letzte verworfene Antwort
+    fuer die Diagnose.
     """
-    from app.models.entities import CutterWeeklyBriefing
+    from app.models.entities import DesignerWeeklyBriefing
 
     cost_cents: Optional[int] = (
         int(round(report.cost_usd_estimate * 100))
@@ -555,13 +550,13 @@ def _persist_cutter_weekly(session: Session, report: CutterWeeklyReport) -> None
     )
 
     existing = session.get(
-        CutterWeeklyBriefing, (report.iso_year, report.iso_week)
+        DesignerWeeklyBriefing, (report.iso_year, report.iso_week)
     )
     if existing is not None:
         session.delete(existing)
         session.flush()
 
-    row = CutterWeeklyBriefing(
+    row = DesignerWeeklyBriefing(
         iso_year=report.iso_year,
         iso_week=report.iso_week,
         evidence=report.evidence.model_dump(mode="json"),
@@ -580,7 +575,7 @@ def _persist_cutter_weekly(session: Session, report: CutterWeeklyReport) -> None
     session.add(row)
     session.commit()
     logger.info(
-        "cutter-weekly-persisted",
+        "designer-weekly-persisted",
         extra={
             "iso_year": report.iso_year,
             "iso_week": report.iso_week,
@@ -591,15 +586,15 @@ def _persist_cutter_weekly(session: Session, report: CutterWeeklyReport) -> None
     )
 
 
-def generate_and_persist_cutter_weekly(
+def generate_and_persist_designer_weekly(
     session: Session,
     *,
     now: Optional[datetime] = None,
     model: Optional[str] = None,
-) -> CutterWeeklyReport:
+) -> DesignerWeeklyReport:
     """End-to-End: Evidenz-Pruefung → LLM-Synthese → persistieren
-    (idempotent Last-Write-Wins). Cron-Block (Commit D) und ein
-    etwaiger manueller Admin-Trigger rufen das hier auf."""
-    report = generate_cutter_weekly(session, now=now, model=model)
-    _persist_cutter_weekly(session, report)
+    (idempotent Last-Write-Wins). Cron-Block und ein etwaiger manueller
+    Admin-Trigger rufen das hier auf. Mirror ``generate_and_persist_cutter_weekly``."""
+    report = generate_designer_weekly(session, now=now, model=model)
+    _persist_designer_weekly(session, report)
     return report

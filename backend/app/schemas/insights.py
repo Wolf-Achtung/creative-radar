@@ -1257,15 +1257,23 @@ class ForecastResponse(BaseModel):
     einordnung: Optional[str] = None
 
 
-# --- Cutter-Wochenbriefing (plattformweise Mustersicht) --------------------
-# Master-Plan-Sprint 2026-06-12. Deterministische Evidenz-Schicht: die
-# Code-Pruefung (services/cutter_weekly.py) entscheidet, was als Muster
-# gilt — das LLM formuliert spaeter nur Freigegebenes. Der Evidence-Blob
-# ist das Kalibrierungs-Produkt der Trockenlauf-Phase und wird vollstaendig
+# --- Wochenbriefings (plattformweise Mustersicht) ---------------------------
+# Master-Plan-Sprint 2026-06-12 (Cutter), erweitert 2026-07-06 (Designer).
+# Deterministische Evidenz-Schicht: die Code-Pruefung
+# (services/weekly_briefing_evidence.py) entscheidet, was als Muster gilt —
+# das LLM formuliert spaeter nur Freigegebenes. Der Evidence-Blob ist das
+# Kalibrierungs-Produkt der Trockenlauf-Phase und wird vollstaendig
 # persistiert (freigegebene UND verworfene Muster mit Grund).
+#
+# Die folgenden Typen sind PERSONA-NEUTRAL (Refactor 2026-07-06, vormals
+# ``Cutter*``-praefigiert): Cutter- und Designer-Weekly teilen dieselbe
+# Evidenz-Pipeline (DB-Queries, p75-Schwelle, Muster-Urteil) und damit
+# dieselben Beleg-/Ergebnis-Formen. Nur die LLM-Synthese-Schemas weiter
+# unten (``CutterPlatformBlock``/``DesignerPlatformBlock`` usw.) sind
+# rollenspezifisch, weil sie das jeweilige Vokabular tragen.
 
 
-class CutterEvidencePost(BaseModel):
+class WeeklyEvidencePost(BaseModel):
     """Ein Beleg-Post fuer die Muster-Pruefung. Kompakte Sicht auf einen
     ``RankedPost`` aus den persistierten Aggregations-Blobs, angereichert
     um die abgeleitete ER und den Distinct-Key der ≥3-Filme-Pruefung.
@@ -1290,7 +1298,7 @@ class CutterEvidencePost(BaseModel):
     title_original: Optional[str] = None
 
 
-class CutterPlatformEvidence(BaseModel):
+class WeeklyPlatformEvidence(BaseModel):
     """Pruefergebnis fuer EINE Plattform. ``status``:
 
     - ``pattern_released`` — ≥ min_posts Woche-Posts mit ER ≥ p75 ueber
@@ -1310,10 +1318,10 @@ class CutterPlatformEvidence(BaseModel):
     week_posts_total: int = 0
     candidates_above_p75: int = 0
     distinct_keys: list[str] = Field(default_factory=list)
-    supporting_posts: list[CutterEvidencePost] = Field(default_factory=list)
+    supporting_posts: list[WeeklyEvidencePost] = Field(default_factory=list)
 
 
-class CutterWeeklyParams(BaseModel):
+class WeeklyBriefingParams(BaseModel):
     """Verstellbare Schwellen der Evidenz-Pruefung — pro Lauf in den
     Evidence-Blob gestempelt, damit die Kalibrierung pro Woche sieht,
     mit welchen Parametern entschieden wurde."""
@@ -1323,7 +1331,7 @@ class CutterWeeklyParams(BaseModel):
     p75_min_sample: int
 
 
-class CutterWeeklySources(BaseModel):
+class WeeklyBriefingSources(BaseModel):
     """Audit-Trail: welche persistierten Blobs der ISO-Woche eingelesen
     wurden. ``unreadable_rows`` listet Rows, deren Blob nicht gegen das
     aktuelle Pydantic-Schema validierte (geskippt, nicht fatal)."""
@@ -1332,21 +1340,22 @@ class CutterWeeklySources(BaseModel):
     unreadable_rows: list[str] = Field(default_factory=list)
 
 
-class CutterForecastSignal(BaseModel):
+class WeeklyForecastSignal(BaseModel):
     """Ein beobachtendes Markt-Signal aus dem ER-Forecast (Variante 1):
     nur ``status='ok'``-Maerkte der Majors, nur Richtung — keine
-    Prognosezahl, keine kausale Schnitt-Diagnose. Plattform-Dimension
-    bewusst NICHT vorhanden (der Forecast aggregiert ueber Plattformen —
-    ein plattform-spezifisches Signal waere ein Kategorienfehler)."""
+    Prognosezahl, keine kausale Diagnose. Plattform-Dimension bewusst
+    NICHT vorhanden (der Forecast aggregiert ueber Plattformen — ein
+    plattform-spezifisches Signal waere ein Kategorienfehler)."""
     pair_key: str
     market: str
     direction: str  # "steigend" | "fallend" | "stabil"
     n_points: int
 
 
-class CutterWeeklyEvidence(BaseModel):
+class WeeklyBriefingEvidence(BaseModel):
     """Vollstaendiges Ergebnis der deterministischen Evidenz-Pruefung
     fuer eine ISO-Woche — der Kalibrierungs-Blob des Trockenlaufs.
+    Geteilt von Cutter- und Designer-Weekly.
 
     ``title_key_share`` misst den Anteil der Woche-Posts, deren
     Distinct-Key aus ``title_original`` kam (vs. Pair-/Channel-Fallback) —
@@ -1356,12 +1365,12 @@ class CutterWeeklyEvidence(BaseModel):
     iso_week: int
     week_start: datetime
     week_end: datetime
-    params: CutterWeeklyParams
-    sources: CutterWeeklySources
-    platforms: list[CutterPlatformEvidence]
+    params: WeeklyBriefingParams
+    sources: WeeklyBriefingSources
+    platforms: list[WeeklyPlatformEvidence]
     week_posts_total: int = 0
     title_key_share: Optional[float] = None
-    forecast_signals: list[CutterForecastSignal] = Field(default_factory=list)
+    forecast_signals: list[WeeklyForecastSignal] = Field(default_factory=list)
 
 
 class CutterPlatformBlock(BaseModel):
@@ -1398,7 +1407,7 @@ class CutterWeeklyLLMReport(BaseModel):
     quer_cited_post_ids: list[str] = Field(default_factory=list)
     # Markt-level Forecast-Notiz (Variante 1, beobachtend) — nur erlaubt,
     # wenn ok-Signale vorliegen; plattform-spezifische Trend-Aussagen
-    # waeren ein Kategorienfehler (siehe CutterForecastSignal).
+    # waeren ein Kategorienfehler (siehe WeeklyForecastSignal).
     markt_signal_notiz: Optional[str] = None
     data_caveats: list[str] = Field(default_factory=list)
 
@@ -1415,8 +1424,71 @@ class CutterWeeklyReport(BaseModel):
     iso_week: int
     generated_at: datetime
     model: str
-    evidence: CutterWeeklyEvidence
+    evidence: WeeklyBriefingEvidence
     llm_output: Optional[CutterWeeklyLLMReport] = None
+    cost_usd_estimate: Optional[float] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    raw_llm_text: Optional[str] = Field(
+        default=None,
+        description="Raw assistant text — populated only when the LLM answer was discarded (parse/schema/citation fail).",
+    )
+
+
+# --- Designer-Wochenbriefing (Motion-/Grafik-Lens) --------------------------
+# Sprint 2026-07-06: spiegelt Cutter-Weekly 1:1 (services/designer_weekly.py),
+# teilt dieselbe Evidenz-Pipeline (siehe WeeklyBriefingEvidence oben) und
+# unterscheidet sich NUR in der LLM-Lens/Vokabular — Motion-Design-Beobachtung
+# statt Schnitt-Beobachtung. Terminologie bewusst identisch zu
+# ``FuerMotionDesigner`` (caption_style/text_overlay/branding_einsatz) statt
+# neu erfunden.
+
+
+class DesignerPlatformBlock(BaseModel):
+    """Ein Plattform-Block des Designer-Wochenbriefings. ``generated_by``
+    unterscheidet ehrlich: ``"llm"`` = vom Modell formuliert (nur fuer
+    Plattformen mit freigegebenem Muster), ``"code"`` = deterministischer
+    Leerlauf-Block, den der Code OHNE LLM-Beteiligung erzeugt."""
+    model_config = ConfigDict(extra="ignore")
+
+    platform: str
+    beobachtung: str
+    # Vorsichtiger Design-Impuls — beobachtend, keine kausale Diagnose,
+    # keine Anweisung. Analog Cutters ``schnitt_impuls``. Optional: nur
+    # wo die Belege ihn decken, sonst null.
+    design_impuls: Optional[str] = None
+    cited_post_ids: list[str] = Field(default_factory=list)
+    generated_by: str = "llm"
+
+
+class DesignerWeeklyLLMReport(BaseModel):
+    """Synthese-Output des Designer-Wochenbriefings. Vom LLM kommen nur
+    Bloecke fuer freigegebene Plattformen; die Leerlauf-Bloecke ergaenzt
+    der Code beim Zusammenbau. Citation strict: jede ``cited_post_ids``-
+    Liste muss vollstaendig im Allow-Set der stuetzenden Posts ihrer
+    Plattform liegen, sonst wird die Antwort verworfen (analog Cutter,
+    Wolf-Entscheidung 3, 12.06.2026)."""
+    model_config = ConfigDict(extra="ignore")
+
+    bloecke: list[DesignerPlatformBlock]
+    quer_muster: Optional[str] = None
+    quer_cited_post_ids: list[str] = Field(default_factory=list)
+    markt_signal_notiz: Optional[str] = None
+    data_caveats: list[str] = Field(default_factory=list)
+
+
+class DesignerWeeklyReport(BaseModel):
+    """Vollstaendiger Wochen-Report — Evidence-Blob + LLM-Synthese, analog
+    ``CutterWeeklyReport``. ``llm_output = None`` heisst: LLM-Synthese nach
+    allen Versuchen verworfen; der Evidence-Blob bleibt trotzdem das
+    Kalibrierungs-Produkt und wird persistiert. ``model = "none"`` heisst:
+    kein LLM-Call noetig (keine Plattform freigegeben)."""
+    iso_year: int
+    iso_week: int
+    generated_at: datetime
+    model: str
+    evidence: WeeklyBriefingEvidence
+    llm_output: Optional[DesignerWeeklyLLMReport] = None
     cost_usd_estimate: Optional[float] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None

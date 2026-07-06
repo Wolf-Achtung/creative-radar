@@ -1,7 +1,9 @@
-"""Tests für die LLM-Synthese des Cutter-Wochenbriefings (Commit B).
+"""Tests für die LLM-Synthese des Designer-Wochenbriefings.
 
-Kern-Disziplin unter Test: das LLM formuliert nur, was die Code-Prüfung
-freigegeben hat — Citation strict von Tag 1 (Wolf-Entscheidung 3).
+Mirror von ``test_cutter_weekly_llm.py`` — dieselbe Evidenz-Disziplin,
+nur die Design-Lens (``design_impuls`` statt ``schnitt_impuls``,
+``DesignerPlatformBlock``/``DesignerWeeklyLLMReport`` statt Cutter-
+Pendants) und ``operation='designer_weekly'`` im Costlog.
 
 Abgedeckt:
 - Leerlauf-Woche → KEIN LLM-Call, drei deterministische Code-Blöcke.
@@ -13,7 +15,8 @@ Abgedeckt:
   Evidence bleibt vollständig (Kalibrierungs-Produkt).
 - Validator-Einzelfälle: Plattform-Mismatch, <2 Belege, Quer-Muster
   ohne Zwei-Plattform-Deckung, markt_signal_notiz ohne Signale.
-- Forecast-Signale: nur status=ok-Märkte werden Signale.
+- Forecast-Signale: nur status=ok-Märkte werden Signale (geteilte
+  Evidenz-Pipeline, hier über das ``designer_weekly``-Modul aufgerufen).
 """
 from __future__ import annotations
 
@@ -27,27 +30,27 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.schemas.insights import (
-    WeeklyEvidencePost,
-    WeeklyForecastSignal,
-    CutterPlatformBlock,
-    WeeklyPlatformEvidence,
+    DesignerWeeklyLLMReport,
     WeeklyBriefingEvidence,
-    CutterWeeklyLLMReport,
     WeeklyBriefingParams,
     WeeklyBriefingSources,
+    WeeklyEvidencePost,
+    WeeklyForecastSignal,
+    WeeklyPlatformEvidence,
 )
-from app.services import cutter_weekly
+from app.services import designer_weekly
 from app.services.anthropic_client import JsonRetryResult
+from app.services.weekly_briefing_evidence import week_bounds
 
 
 ANCHOR = datetime(2026, 6, 3, 12, 0, tzinfo=timezone.utc)
 ISO_YEAR, ISO_WEEK = ANCHOR.isocalendar().year, ANCHOR.isocalendar().week
-WEEK_START, WEEK_END = cutter_weekly.week_bounds(ISO_YEAR, ISO_WEEK)
+WEEK_START, WEEK_END = week_bounds(ISO_YEAR, ISO_WEEK)
 
 
 @pytest.fixture
 def db():
-    fd, path = tempfile.mkstemp(prefix="cr_cutter_llm_", suffix=".db")
+    fd, path = tempfile.mkstemp(prefix="cr_designer_llm_", suffix=".db")
     os.close(fd)
     engine = create_engine(
         f"sqlite:///{path}", connect_args={"check_same_thread": False}
@@ -64,8 +67,8 @@ def db():
 
 
 # ---------------------------------------------------------------------------
-# Evidence-Fixtures (direkt konstruiert — die deterministische Schicht
-# ist in test_cutter_weekly_evidence.py abgedeckt)
+# Evidence-Fixtures (direkt konstruiert — die deterministische Schicht ist
+# geteilt mit Cutter-Weekly und in test_cutter_weekly_evidence.py abgedeckt)
 # ---------------------------------------------------------------------------
 
 
@@ -141,8 +144,8 @@ def _valid_llm_payload(**overrides) -> dict:
         "bloecke": [
             {
                 "platform": "instagram",
-                "beobachtung": "Die starken Posts dieser Woche sind kurze Clips.",
-                "schnitt_impuls": None,
+                "beobachtung": "Die starken Posts dieser Woche setzen grossflaechige Text-Overlays.",
+                "design_impuls": None,
                 "cited_post_ids": IG_URLS[:2],
             }
         ],
@@ -182,7 +185,7 @@ def costlog_spy(monkeypatch):
 @pytest.fixture
 def no_forecast_signals(monkeypatch):
     monkeypatch.setattr(
-        cutter_weekly, "collect_forecast_signals", lambda session: []
+        designer_weekly, "collect_forecast_signals", lambda session: []
     )
 
 
@@ -194,7 +197,7 @@ def no_forecast_signals(monkeypatch):
 def test_no_pattern_week_skips_llm_call(db, monkeypatch, no_forecast_signals):
     evidence = _evidence([_idle("instagram"), _idle("tiktok"), _idle("youtube", "no_threshold")])
     monkeypatch.setattr(
-        cutter_weekly, "build_weekly_evidence", lambda session, now=None: evidence
+        designer_weekly, "build_weekly_evidence", lambda session, now=None: evidence
     )
 
     def _must_not_be_called(**kwargs):
@@ -205,7 +208,7 @@ def test_no_pattern_week_skips_llm_call(db, monkeypatch, no_forecast_signals):
     )
 
     with Session(db) as session:
-        report = cutter_weekly.generate_cutter_weekly(session, now=ANCHOR)
+        report = designer_weekly.generate_designer_weekly(session, now=ANCHOR)
 
     assert report.model == "none"
     assert report.cost_usd_estimate is None
@@ -227,7 +230,7 @@ def test_released_pattern_uses_llm_block_and_code_idle(
 ):
     evidence = _evidence([_released_ig(IG_URLS), _idle("tiktok"), _idle("youtube")])
     monkeypatch.setattr(
-        cutter_weekly, "build_weekly_evidence", lambda session, now=None: evidence
+        designer_weekly, "build_weekly_evidence", lambda session, now=None: evidence
     )
     monkeypatch.setattr(
         "app.services.anthropic_client.call_with_json_retry",
@@ -238,7 +241,7 @@ def test_released_pattern_uses_llm_block_and_code_idle(
     )
 
     with Session(db) as session:
-        report = cutter_weekly.generate_cutter_weekly(session, now=ANCHOR)
+        report = designer_weekly.generate_designer_weekly(session, now=ANCHOR)
 
     assert report.llm_output is not None
     blocks = {b.platform: b for b in report.llm_output.bloecke}
@@ -254,7 +257,7 @@ def test_released_pattern_uses_llm_block_and_code_idle(
     assert report.input_tokens == 1000 and report.output_tokens == 300
     assert report.cost_usd_estimate is not None
     assert len(costlog_spy) == 1
-    assert costlog_spy[0]["operation"] == "cutter_weekly"
+    assert costlog_spy[0]["operation"] == "designer_weekly"
     assert costlog_spy[0]["meta"] == {"iso_year": ISO_YEAR, "iso_week": ISO_WEEK}
 
 
@@ -268,7 +271,7 @@ def test_citation_violation_triggers_one_retry_then_succeeds(
 ):
     evidence = _evidence([_released_ig(IG_URLS), _idle("tiktok"), _idle("youtube")])
     monkeypatch.setattr(
-        cutter_weekly, "build_weekly_evidence", lambda session, now=None: evidence
+        designer_weekly, "build_weekly_evidence", lambda session, now=None: evidence
     )
     bad = _valid_llm_payload(
         bloecke=[{
@@ -293,7 +296,7 @@ def test_citation_violation_triggers_one_retry_then_succeeds(
     )
 
     with Session(db) as session:
-        report = cutter_weekly.generate_cutter_weekly(session, now=ANCHOR)
+        report = designer_weekly.generate_designer_weekly(session, now=ANCHOR)
 
     assert calls["n"] == 2
     assert report.llm_output is not None
@@ -308,7 +311,7 @@ def test_both_attempts_rejected_yields_none_llm_output(
 ):
     evidence = _evidence([_released_ig(IG_URLS), _idle("tiktok"), _idle("youtube")])
     monkeypatch.setattr(
-        cutter_weekly, "build_weekly_evidence", lambda session, now=None: evidence
+        designer_weekly, "build_weekly_evidence", lambda session, now=None: evidence
     )
     bad = _valid_llm_payload(
         bloecke=[{
@@ -326,7 +329,7 @@ def test_both_attempts_rejected_yields_none_llm_output(
     )
 
     with Session(db) as session:
-        report = cutter_weekly.generate_cutter_weekly(session, now=ANCHOR)
+        report = designer_weekly.generate_designer_weekly(session, now=ANCHOR)
 
     # Antwort verworfen — aber der Evidence-Blob (Kalibrierungs-Produkt)
     # ist vollständig da, inklusive der freigegebenen Muster.
@@ -346,8 +349,8 @@ def _validate(payload_overrides: dict, signals=None) -> list[str]:
         [_released_ig(IG_URLS), _idle("tiktok"), _idle("youtube")],
         signals=signals,
     )
-    report = CutterWeeklyLLMReport.model_validate(_valid_llm_payload(**payload_overrides))
-    return cutter_weekly._validate_llm_report(report, evidence, signals or [])
+    report = DesignerWeeklyLLMReport.model_validate(_valid_llm_payload(**payload_overrides))
+    return designer_weekly._validate_llm_report(report, evidence, signals or [])
 
 
 def test_validator_rejects_platform_mismatch():
@@ -371,7 +374,7 @@ def test_validator_rejects_too_few_citations():
 
 def test_validator_rejects_quer_muster_on_single_platform():
     problems = _validate({
-        "quer_muster": "Überall kurze Clips.",
+        "quer_muster": "Überall grossflaechige Overlays.",
         "quer_cited_post_ids": IG_URLS[:2],  # nur IG — kein Quer-Beleg
     })
     assert any("keine zwei Plattformen" in p for p in problems)
@@ -397,15 +400,15 @@ def test_assemble_report_stamps_asymmetry_caveat():
     evidence = _evidence(
         [_released_ig(IG_URLS), _idle("tiktok"), _idle("youtube")], signals=signals
     )
-    llm_report = CutterWeeklyLLMReport.model_validate(_valid_llm_payload())
-    assembled = cutter_weekly._assemble_report(evidence, llm_report)
+    llm_report = DesignerWeeklyLLMReport.model_validate(_valid_llm_payload())
+    assembled = designer_weekly._assemble_report(evidence, llm_report)
     assert any("kein Forecast-Pendant" in c for c in assembled.data_caveats)
     # LLM-Caveats bleiben erhalten.
     assert any("TikTok" in c for c in assembled.data_caveats)
 
 
 # ---------------------------------------------------------------------------
-# Forecast-Signale: nur ok-Status wird Signal
+# Forecast-Signale: geteilte Pipeline, hier ueber designer_weekly aufgerufen
 # ---------------------------------------------------------------------------
 
 
@@ -429,7 +432,7 @@ def test_collect_forecast_signals_only_ok_markets(db, monkeypatch):
     )
 
     with Session(db) as session:
-        signals = cutter_weekly.collect_forecast_signals(session)
+        signals = designer_weekly.collect_forecast_signals(session)
 
     assert len(signals) == 1
     assert signals[0].pair_key == "disney"
@@ -452,6 +455,6 @@ def test_collect_forecast_signals_isolates_pair_failure(db, monkeypatch):
     )
 
     with Session(db) as session:
-        signals = cutter_weekly.collect_forecast_signals(session)
+        signals = designer_weekly.collect_forecast_signals(session)
 
     assert [s.pair_key for s in signals] == ["disney"]
