@@ -42,6 +42,7 @@ class ChannelUpdate(BaseModel):
     mvp: Optional[bool] = None
     notes: Optional[str] = None
     platform: Optional[str] = None
+    platform_channel_id: Optional[str] = None
     channel_role: Optional[ChannelRole] = None
     quality_tier: Optional[QualityTier] = None
     acquisition_strategy: Optional[AcquisitionStrategy] = None
