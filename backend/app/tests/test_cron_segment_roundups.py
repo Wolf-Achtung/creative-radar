@@ -350,7 +350,7 @@ def test_cron_background_runs_briefs_before_roundups(db, monkeypatch):
         cron_module, "_execute_platform_sync",
         AsyncMock(return_value=({}, [])),
     )
-    monkeypatch.setattr(cron_module, "_run_rematch_after_sync", lambda s: {})
+    monkeypatch.setattr(cron_module, "_run_rematch_after_sync", AsyncMock(return_value={}))
     monkeypatch.setattr(
         cron_module, "aggregate_apify_costs_since",
         lambda s, since: {"estimated_cost_usd": 0.0},

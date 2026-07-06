@@ -434,6 +434,8 @@ def test_cron_run_always_emits_rematch_summary(client_with_auth, db):
         # No active assets in the fixture -> rematch sees zero work, but
         # all four counters must be present (and zero) so dashboard logic
         # doesn't have to defend against missing keys.
+        duration = rematch.pop("duration_seconds")
+        assert isinstance(duration, (int, float))
         assert rematch == {
             "checked": 0,
             "auto_matched": 0,

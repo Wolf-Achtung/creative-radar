@@ -553,7 +553,15 @@ async def _run_title_sync_after_scrape(session: Session) -> dict:
     return {"enabled": True, "duration_seconds": elapsed, **result}
 
 
-def _run_rematch_after_sync(session: Session) -> dict:
+def _rematch_stage_timeout_seconds() -> int:
+    raw = os.environ.get("REMATCH_STAGE_TIMEOUT_SECONDS", "1800")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1800
+
+
+async def _run_rematch_after_sync(session: Session) -> dict:
     """Sprint 10e — auto re-match unassigned assets after every cron sync.
 
     New TMDb-title rows arrive continuously between cron runs (Sprint 10a's
@@ -567,13 +575,50 @@ def _run_rematch_after_sync(session: Session) -> dict:
     the new-asset path. Failures are absorbed into the summary instead of
     failing the whole cron — re-match is a best-effort enrichment, the
     sync itself has already succeeded by this point.
+
+    Stage-Timeout (Diagnose-Folge 2026-07-06): der title_sync-Fix zieht pro
+    Studio den kompletten TMDb-Backkatalog ohne Seiten-Cap (Absicht, wegen der
+    frueheren 96%-Match-Luecke) — der Titel-Katalog ist dadurch stark
+    gewachsen. Der 06.07.-Lauf hat dadurch beim Rematch das komplette
+    2h-Gesamtbudget (``CRON_TOTAL_RUN_TIMEOUT_SECONDS``) verbraucht, OHNE dass
+    Briefs/Roundups/Cutter-Weekly noch liefen. Eigener Timeout (ENV
+    ``REMATCH_STAGE_TIMEOUT_SECONDS``, Default 1800s = 30min) deckelt das:
+    bei Ueberschreitung wird die Stage als Timeout verbucht und der Cron
+    laeuft zu Briefs/Roundups weiter — die fuer die woechentliche Cadence
+    wichtiger sind als ein vollstaendiger Rematch-Durchlauf in derselben
+    Woche (unmatched Assets werden beim naechsten Lauf erneut versucht).
+
+    Bekannte Grenze (wie beim Total-Timeout-Wrapper): ``wait_for`` kann den
+    darunterliegenden ``asyncio.to_thread``-Aufruf nicht wirklich abbrechen —
+    der Thread laeuft im Hintergrund weiter (inkl. seiner Batch-Commits alle
+    50 Assets), bis ``rematch_unassigned_assets`` selbst zurueckkehrt. Bei
+    einem Redeploy waehrend dieses Zombie-Zustands wird der Thread mit dem
+    Container beendet.
     """
+    timeout_s = _rematch_stage_timeout_seconds()
+    started = time.monotonic()
+    logger.info("rematch.start")
     try:
-        summary = rematch_unassigned_assets(session)
+        summary = await asyncio.wait_for(
+            asyncio.to_thread(rematch_unassigned_assets, session), timeout=timeout_s
+        )
+    except asyncio.TimeoutError:
+        elapsed = round(time.monotonic() - started, 1)
+        logger.error(
+            "cron rematch stage timed out after %ss (limit %ss)", elapsed, timeout_s
+        )
+        return {
+            "error": f"stage_timeout after {timeout_s}s",
+            "timed_out": True,
+            "duration_seconds": elapsed,
+        }
     except Exception as exc:  # noqa: BLE001 — top-level guard, see PC-4
+        elapsed = round(time.monotonic() - started, 1)
         logger.exception("auto-rematch after cron sync failed")
-        return {"error": str(exc)[:500]}
-    return summary.to_dict()
+        return {"error": str(exc)[:500], "duration_seconds": elapsed}
+    elapsed = round(time.monotonic() - started, 1)
+    logger.info("rematch.complete duration_seconds=%s", elapsed)
+    return {**summary.to_dict(), "duration_seconds": elapsed}
 
 
 def _truncate_head_tail(text: str, *, head: int = 2000, tail: int = 2000) -> str:
@@ -1336,7 +1381,7 @@ async def _run_cron_sync_background_impl(
             # gezogene Titel im selben Lauf gematcht werden. Hinter
             # ENABLE_TITLE_SYNC_IN_CRON (Default true); eigener try/except.
             summary["title_sync"] = await _run_title_sync_after_scrape(session)
-            summary["rematch"] = await asyncio.to_thread(_run_rematch_after_sync, session)
+            summary["rematch"] = await _run_rematch_after_sync(session)
             # Cadence-Sprint 2026-05-17 — Brief-Generation für die gerade
             # abgeschlossene ISO-Woche. Vor diesem Sprint hat der Sonntag-Cron
             # nur Scrape gemacht; Briefs entstanden ausschließlich lazy beim
