@@ -635,6 +635,47 @@ class CutterWeeklyBriefing(SQLModel, table=True):
     output_tokens: Optional[int] = None
 
 
+class DesignerWeeklyBriefing(SQLModel, table=True):
+    """Persisted Designer-Wochenbriefing — eine Row pro (iso_year, iso_week).
+
+    Sprint 2026-07-06: mirror von ``CutterWeeklyBriefing`` field-fuer-field.
+    Gleiche Trockenlauf-Logik (Feature-Flag default off, kein Frontend-Pfad),
+    dieselbe geteilte Evidenz-Pipeline (``services/weekly_briefing_evidence.py``)
+    — nur die LLM-Lens (Motion-/Grafik-Beobachtung statt Schnitt-Beobachtung,
+    ``services/designer_weekly.py``) unterscheidet sich.
+
+    JSON-Blobs:
+    - ``evidence`` ist das Kalibrierungs-Produkt (analog Cutter): p75-
+      Schwellen, Kandidaten-Zahlen pro Plattform, freigegebene UND
+      verworfene Muster mit Grund, ``title_key_share``-Messung und die
+      Forecast-Signale des Laufs (``WeeklyBriefingEvidence``-Form).
+    - ``llm_output`` ist die zusammengebaute ``DesignerWeeklyLLMReport``-
+      Form (LLM-Bloecke + deterministische Leerlauf-Bloecke). NULLABLE —
+      bewusste Abweichung von der Roundup-Konvention (persist-skip bei
+      ``llm_output=None``): eine Woche, deren LLM-Synthese nach allen
+      Anlaeufen an der strikten Citation-Validierung scheitert, wird
+      TROTZDEM persistiert, weil der Evidence-Blob das eigentliche
+      Produkt der Trockenlauf-Phase ist. ``raw_llm_text`` haelt in dem
+      Fall die letzte verworfene Antwort fuer die Diagnose.
+
+    ``model='none'`` markiert Leerlauf-Wochen ohne LLM-Call (keine
+    Plattform freigegeben — der Report besteht aus Code-Bloecken).
+    Last-Write-Wins beim Regenerate (analog ``cutter_weekly_briefing``).
+    """
+    __tablename__ = "designer_weekly_briefing"
+    __table_args__ = _CR_TABLE_ARGS
+    iso_year: int = Field(primary_key=True)
+    iso_week: int = Field(primary_key=True)
+    evidence: dict = Field(sa_column=Column(JSON, nullable=False))
+    llm_output: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    raw_llm_text: Optional[str] = None
+    generated_at: datetime = Field(default_factory=utc_now, index=True)
+    model: str = Field(max_length=64)
+    cost_usd_cents: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+
+
 class TitleInsightReport(SQLModel, table=True):
     """Persisted title brief — one row per (title_id, iso_year, iso_week).
 

@@ -1,11 +1,13 @@
-"""Tests für die Persistenz des Cutter-Wochenbriefings (Commit C).
+"""Tests für die Persistenz des Designer-Wochenbriefings.
+
+Mirror von ``test_cutter_weekly_persistence.py``.
 
 Kernpunkte:
 - Roundtrip: Row trägt evidence + llm_output + Kosten/Token, PK
   (iso_year, iso_week), Last-Write-Wins beim Regenerate.
-- BEWUSSTE Abweichung von der Roundup-Konvention: llm_output=None wird
-  TROTZDEM persistiert (Evidence-Blob = Kalibrierungs-Produkt),
-  raw_llm_text trägt die verworfene Antwort.
+- BEWUSSTE Abweichung von der Roundup-Konvention (identisch zu Cutter):
+  llm_output=None wird TROTZDEM persistiert (Evidence-Blob =
+  Kalibrierungs-Produkt), raw_llm_text trägt die verworfene Antwort.
 - Leerlauf-Woche (model='none') persistiert mit drei Code-Blöcken.
 - Re-Hydrierung der Blobs über die Pydantic-Schemas.
 """
@@ -18,28 +20,29 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models.entities import CutterWeeklyBriefing
+from app.models.entities import DesignerWeeklyBriefing
 from app.schemas.insights import (
-    WeeklyEvidencePost,
-    CutterPlatformBlock,
-    WeeklyPlatformEvidence,
+    DesignerPlatformBlock,
+    DesignerWeeklyLLMReport,
+    DesignerWeeklyReport,
     WeeklyBriefingEvidence,
-    CutterWeeklyLLMReport,
     WeeklyBriefingParams,
-    CutterWeeklyReport,
     WeeklyBriefingSources,
+    WeeklyEvidencePost,
+    WeeklyPlatformEvidence,
 )
-from app.services import cutter_weekly
+from app.services import designer_weekly
+from app.services.weekly_briefing_evidence import week_bounds
 
 
 ANCHOR = datetime(2026, 6, 3, 12, 0, tzinfo=timezone.utc)
 ISO_YEAR, ISO_WEEK = ANCHOR.isocalendar().year, ANCHOR.isocalendar().week
-WEEK_START, WEEK_END = cutter_weekly.week_bounds(ISO_YEAR, ISO_WEEK)
+WEEK_START, WEEK_END = week_bounds(ISO_YEAR, ISO_WEEK)
 
 
 @pytest.fixture
 def db():
-    fd, path = tempfile.mkstemp(prefix="cr_cutter_persist_", suffix=".db")
+    fd, path = tempfile.mkstemp(prefix="cr_designer_persist_", suffix=".db")
     os.close(fd)
     engine = create_engine(
         f"sqlite:///{path}", connect_args={"check_same_thread": False}
@@ -101,21 +104,21 @@ def _evidence() -> WeeklyBriefingEvidence:
     )
 
 
-def _llm_output() -> CutterWeeklyLLMReport:
-    return CutterWeeklyLLMReport(
+def _llm_output() -> DesignerWeeklyLLMReport:
+    return DesignerWeeklyLLMReport(
         bloecke=[
-            CutterPlatformBlock(
+            DesignerPlatformBlock(
                 platform="instagram",
-                beobachtung="Kurze Clips trugen die Woche.",
+                beobachtung="Grossflaechige Text-Overlays trugen die Woche.",
                 cited_post_ids=["https://ig.example/1"],
                 generated_by="llm",
             ),
-            CutterPlatformBlock(
+            DesignerPlatformBlock(
                 platform="tiktok",
                 beobachtung="Kein klares Muster diese Woche auf TikTok: zu wenig",
                 generated_by="code",
             ),
-            CutterPlatformBlock(
+            DesignerPlatformBlock(
                 platform="youtube",
                 beobachtung="Keine belastbare Vergleichsbasis fuer YouTube diese Woche: kein n",
                 generated_by="code",
@@ -125,7 +128,7 @@ def _llm_output() -> CutterWeeklyLLMReport:
     )
 
 
-def _report(**overrides) -> CutterWeeklyReport:
+def _report(**overrides) -> DesignerWeeklyReport:
     fields = dict(
         iso_year=ISO_YEAR,
         iso_week=ISO_WEEK,
@@ -138,13 +141,13 @@ def _report(**overrides) -> CutterWeeklyReport:
         output_tokens=300,
     )
     fields.update(overrides)
-    return CutterWeeklyReport(**fields)
+    return DesignerWeeklyReport(**fields)
 
 
 def test_persist_roundtrip_and_rehydration(db):
     with Session(db) as session:
-        cutter_weekly._persist_cutter_weekly(session, _report())
-        row = session.get(CutterWeeklyBriefing, (ISO_YEAR, ISO_WEEK))
+        designer_weekly._persist_designer_weekly(session, _report())
+        row = session.get(DesignerWeeklyBriefing, (ISO_YEAR, ISO_WEEK))
         assert row is not None
         assert row.model == "claude-opus-4-7"
         assert row.cost_usd_cents == 42
@@ -155,15 +158,15 @@ def test_persist_roundtrip_and_rehydration(db):
         assert evidence.platforms[0].status == "pattern_released"
         assert evidence.platforms[0].supporting_posts[0].post_url == "https://ig.example/1"
         assert evidence.title_key_share == pytest.approx(1.0)
-        llm = CutterWeeklyLLMReport.model_validate(row.llm_output)
+        llm = DesignerWeeklyLLMReport.model_validate(row.llm_output)
         assert [b.generated_by for b in llm.bloecke] == ["llm", "code", "code"]
 
 
 def test_persist_is_last_write_wins(db):
     with Session(db) as session:
-        cutter_weekly._persist_cutter_weekly(session, _report(model="first"))
-        cutter_weekly._persist_cutter_weekly(session, _report(model="second"))
-        rows = session.exec(select(CutterWeeklyBriefing)).all()
+        designer_weekly._persist_designer_weekly(session, _report(model="first"))
+        designer_weekly._persist_designer_weekly(session, _report(model="second"))
+        rows = session.exec(select(DesignerWeeklyBriefing)).all()
         assert len(rows) == 1
         assert rows[0].model == "second"
 
@@ -177,8 +180,8 @@ def test_persist_keeps_row_when_llm_output_is_none(db):
         cost_usd_estimate=0.10,
     )
     with Session(db) as session:
-        cutter_weekly._persist_cutter_weekly(session, report)
-        row = session.get(CutterWeeklyBriefing, (ISO_YEAR, ISO_WEEK))
+        designer_weekly._persist_designer_weekly(session, report)
+        row = session.get(DesignerWeeklyBriefing, (ISO_YEAR, ISO_WEEK))
         assert row is not None
         assert row.llm_output is None
         assert "verworfen" in row.raw_llm_text
@@ -195,22 +198,22 @@ def test_generate_and_persist_no_pattern_week(db, monkeypatch):
         p.reason = p.reason or "unter Schwelle"
         p.supporting_posts = []
     monkeypatch.setattr(
-        cutter_weekly, "build_weekly_evidence",
+        designer_weekly, "build_weekly_evidence",
         lambda session, now=None: idle_evidence,
     )
     monkeypatch.setattr(
-        cutter_weekly, "collect_forecast_signals", lambda session: []
+        designer_weekly, "collect_forecast_signals", lambda session: []
     )
 
     with Session(db) as session:
-        report = cutter_weekly.generate_and_persist_cutter_weekly(
+        report = designer_weekly.generate_and_persist_designer_weekly(
             session, now=ANCHOR
         )
-        row = session.get(CutterWeeklyBriefing, (ISO_YEAR, ISO_WEEK))
+        row = session.get(DesignerWeeklyBriefing, (ISO_YEAR, ISO_WEEK))
 
     assert report.model == "none"
     assert row is not None
     assert row.model == "none"
     assert row.cost_usd_cents is None
-    llm = CutterWeeklyLLMReport.model_validate(row.llm_output)
+    llm = DesignerWeeklyLLMReport.model_validate(row.llm_output)
     assert all(b.generated_by == "code" for b in llm.bloecke)

@@ -34,7 +34,7 @@ from app.models.entities import (
 from app.schemas.insights import (
     ChannelRoundupStats,
     ChannelStats,
-    CutterEvidencePost,
+    WeeklyEvidencePost,
     PairAggregation,
     PlatformAggregation,
     RankedPost,
@@ -282,9 +282,9 @@ def test_post_er_sentinel_guard_and_zero_views():
 # ---------------------------------------------------------------------------
 
 
-def _candidate(url: str, er: float, key: str) -> CutterEvidencePost:
+def _candidate(url: str, er: float, key: str) -> WeeklyEvidencePost:
     views = 1000
-    return CutterEvidencePost(
+    return WeeklyEvidencePost(
         post_url=url,
         platform="instagram",
         er=er,
