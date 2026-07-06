@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     pgdatabase: str | None = None
 
     openai_api_key: str | None = None
-    openai_model: str = "gpt-4o-mini"
+    # 2026-07-06: switched from gpt-4o-mini to gpt-5.4-mini on request.
+    openai_model: str = "gpt-5.4-mini"
     perplexity_api_key: str | None = None
     perplexity_model: str = "sonar-pro"
     tmdb_api_key: str | None = None
@@ -71,10 +72,15 @@ class Settings(BaseSettings):
     # Apify default pricing: ~ 0.4 USD per Compute Unit. Override via ENV
     # if Wolf negotiates a different rate.
     apify_compute_unit_usd: float = 0.4
-    # OpenAI gpt-4o-mini Vision/Text pricing per 1k tokens (USD).
-    # Source: openai.com/api/pricing as of 2026-04. Update if model changes.
-    openai_input_per_1k_usd: float = 0.000150
-    openai_output_per_1k_usd: float = 0.000600
+    # OpenAI gpt-5.4-mini Vision/Text pricing per 1k tokens (USD).
+    # 2026-07-06: switched from gpt-4o-mini. LOW-MEDIUM CONFIDENCE — could not
+    # verify against openai.com/api/pricing directly (403'd from this sandbox),
+    # sourced from third-party pricing aggregators only (converged on $0.75/
+    # $4.50 per 1M tokens across several sites, but none is OpenAI's own
+    # domain). Please confirm against platform.openai.com/docs/pricing (or an
+    # actual billed API response) before trusting cost reports built on this.
+    openai_input_per_1k_usd: float = 0.00075
+    openai_output_per_1k_usd: float = 0.0045
 
     # Anthropic API (Sprint 5.3.1). Hybrid model strategy: Haiku for the
     # mechanical fields (format + tone), Sonnet for the contextual fields
