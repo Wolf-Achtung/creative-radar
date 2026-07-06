@@ -1300,11 +1300,20 @@ def _run_designer_weekly_after_cutter_weekly(
 
 
 def _cron_total_timeout_seconds() -> int:
-    raw = os.environ.get("CRON_TOTAL_RUN_TIMEOUT_SECONDS", "7200")
+    # Re-Audit 2026-07-06: mit title_sync (1800s) + rematch (1800s) beide auf
+    # ihrem eigenen Timeout UND den weiterhin ungedeckelten Stages (Scrape/
+    # Vision/Briefs/Roundups/Forecasts/Cutter- und Designer-Weekly, beobachtet
+    # ~3200-3500s zusammen) blieben beim alten 7200s-Default nur noch ~2-7min
+    # Puffer — der neue Designer-Weekly-Block hat die Marge weiter verengt.
+    # 9000s (2,5h) stellt wieder eine komfortable Marge her, ohne das normale
+    # Laufzeitverhalten zu aendern (dieser Wert greift ohnehin nur im
+    # Worst-Case-Havariefall, siehe Docstring von
+    # ``_run_cron_sync_background``).
+    raw = os.environ.get("CRON_TOTAL_RUN_TIMEOUT_SECONDS", "9000")
     try:
         return max(1, int(raw))
     except ValueError:
-        return 7200
+        return 9000
 
 
 async def _ping_cron_heartbeat(success: bool) -> None:
