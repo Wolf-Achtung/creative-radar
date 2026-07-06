@@ -49,6 +49,7 @@ from app.models.entities import (
     Channel,
     CostLog,
     CutterWeeklyBriefing,
+    DesignerWeeklyBriefing,
     Post,
     Title,
 )
@@ -812,6 +813,65 @@ def cutter_weekly_latest(
             raise HTTPException(
                 status_code=404,
                 detail="Noch kein Cutter-Wochenbriefing persistiert.",
+            )
+
+    return {
+        "iso_year": row.iso_year,
+        "iso_week": row.iso_week,
+        "generated_at": row.generated_at,
+        "model": row.model,
+        "cost_usd_cents": row.cost_usd_cents,
+        "input_tokens": row.input_tokens,
+        "output_tokens": row.output_tokens,
+        "llm_output": row.llm_output,
+        "evidence": row.evidence,
+        "raw_llm_text": row.raw_llm_text,
+    }
+
+
+@router.get("/designer-weekly/latest")
+def designer_weekly_latest(
+    iso_year: int | None = Query(
+        default=None,
+        description="ISO-Jahr einer konkreten Woche — nur zusammen mit iso_week.",
+    ),
+    iso_week: int | None = Query(
+        default=None, ge=1, le=53,
+        description="ISO-Woche — nur zusammen mit iso_year.",
+    ),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Trockenlauf-Lesezugriff auf das Designer-Wochenbriefing — mirror
+    ``cutter_weekly_latest`` (Diagnose-Folge 2026-07-06, Designer-Weekly
+    Kalibrierungsphase). Ohne Parameter: die juengste Woche. Mit
+    ``iso_year`` + ``iso_week``: exakte Row. Ein Frontend-Pfad ist bewusst
+    NICHT Teil dieses Sprints (erst nach Kalibrierung, analog Cutter)."""
+    if (iso_year is None) != (iso_week is None):
+        raise HTTPException(
+            status_code=422,
+            detail="iso_year und iso_week nur zusammen angeben (oder beide weglassen).",
+        )
+
+    if iso_year is not None:
+        row = session.get(DesignerWeeklyBriefing, (iso_year, iso_week))
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Kein Designer-Wochenbriefing fuer KW {iso_week}/{iso_year}.",
+            )
+    else:
+        row = session.exec(
+            select(DesignerWeeklyBriefing)
+            .order_by(
+                DesignerWeeklyBriefing.iso_year.desc(),
+                DesignerWeeklyBriefing.iso_week.desc(),
+            )
+            .limit(1)
+        ).first()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Noch kein Designer-Wochenbriefing persistiert.",
             )
 
     return {
