@@ -26,6 +26,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
@@ -1135,6 +1136,28 @@ def _cron_total_timeout_seconds() -> int:
         return 7200
 
 
+async def _ping_cron_heartbeat(success: bool) -> None:
+    """Optionaler Healthchecks.io-artiger Dead-Man's-Switch-Ping nach jedem
+    Cron-Lauf (Diagnose-Folge 2026-07-06 — es gab bisher kein Alerting; ein
+    haengender/fehlgeschlagener Lauf fiel nur auf, wenn zufaellig jemand aufs
+    Dashboard schaute). ``settings.cron_heartbeat_url`` leer = No-Op.
+
+    Bei Erfolg wird die Basis-URL gepingt, bei Fehlschlag ``/fail`` angehaengt
+    (healthchecks.io-Konvention) — der Dienst alarmiert dann sofort statt erst
+    nach Ablauf des Erwartungsfensters. Best-effort: ein Fehler beim Ping-Call
+    selbst (Netzwerk, DNS, ...) darf den Cron-Lauf nicht kippen — nur geloggt.
+    """
+    url = settings.cron_heartbeat_url
+    if not url:
+        return
+    target = url if success else f"{url.rstrip('/')}/fail"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.get(target)
+    except httpx.HTTPError:
+        logger.warning("cron-heartbeat-ping-failed", extra={"success": success, "url": target})
+
+
 async def _run_cron_sync_background(
     run_id: UUID,
     run_index: int,
@@ -1186,6 +1209,7 @@ async def _run_cron_sync_background(
                 run.completed_at = datetime.now(timezone.utc)
                 session.add(run)
                 session.commit()
+        await _ping_cron_heartbeat(success=False)
 
 
 async def _run_cron_sync_background_impl(
@@ -1237,6 +1261,7 @@ async def _run_cron_sync_background_impl(
                     run_id, budget.spent_usd_cents, budget.budget_usd_cents,
                     budget.pct_used * 100,
                 )
+                await _ping_cron_heartbeat(success=False)
                 return
 
             # Sprint F0.7 — Anthropic-Monatsbudget-Pre-Flight. Exakt analog
@@ -1268,6 +1293,7 @@ async def _run_cron_sync_background_impl(
                     anthropic_budget.budget_usd_cents,
                     anthropic_budget.pct_used * 100,
                 )
+                await _ping_cron_heartbeat(success=False)
                 return
 
             # Brief-/Roundup-Ziel-KW: laufende KW (manueller Force-Lauf) vs.
@@ -1449,6 +1475,12 @@ async def _run_cron_sync_background_impl(
             session.add(run)
             session.commit()
             logger.info("cron run %s completed: %s", run_id, summary)
+            # Nur der Infrastruktur-Erfolg (Scrape/Vision/Rematch/Briefs-Stage
+            # lief durch) zaehlt hier als "success" — ein stilles Brief-Gen-
+            # Komplettversagen (silent/all_failed oben) hat sein eigenes
+            # logger.critical-Signal und ist bewusst kein zweiter Heartbeat-
+            # Kanal, um die Alarm-Semantik nicht zu vermischen.
+            await _ping_cron_heartbeat(success=True)
         except Exception as exc:  # noqa: BLE001 — top-level guard, status persists
             logger.exception("cron run %s failed", run_id)
             run.status = "failed"
@@ -1456,6 +1488,7 @@ async def _run_cron_sync_background_impl(
             run.completed_at = datetime.now(timezone.utc)
             session.add(run)
             session.commit()
+            await _ping_cron_heartbeat(success=False)
 
 
 @router.post("/sync-all")

@@ -78,6 +78,27 @@ export function formatDate(value) {
   try { return new Date(value).toLocaleDateString('de-DE'); } catch (_) { return 'Datum offen'; }
 }
 
+export function formatDateTime(value) {
+  if (!value) return '—';
+  try { return new Date(value).toLocaleString('de-DE'); } catch (_) { return '—'; }
+}
+
+// Diagnose-Folge 2026-07-06: read-only Anzeige des letzten Cron-Laufs, ohne
+// selbst einen Lauf anzustossen (im Unterschied zum Polling in
+// triggerFullSync). Deutschsprachige Statuslabels fuer die vier moeglichen
+// CronRun.status-Werte (siehe cron.py).
+const CRON_RUN_STATUS_LABELS = {
+  running: 'läuft noch',
+  completed: 'abgeschlossen',
+  failed: 'fehlgeschlagen',
+  error: 'Fehler',
+  budget_exceeded: 'abgebrochen (Budget)',
+};
+
+export function formatCronRunStatus(status) {
+  return CRON_RUN_STATUS_LABELS[status] || status || '—';
+}
+
 export function clip(text, max = 260) {
   if (!text) return '';
   return text.length > max ? `${text.slice(0, max).trim()} …` : text;
@@ -633,6 +654,7 @@ export function SourcesPanel({
   onFullSync,
   cronBusy,
   cronMessage,
+  lastCronRun,
 }) {
   return (
     <>
@@ -643,6 +665,20 @@ export function SourcesPanel({
           <strong> laufende Woche</strong> neu erzeugen (überschreibt bestehende).
           Läuft im Hintergrund und dauert einige Minuten.
         </p>
+        {/* Read-only Status des letzten Laufs (Diagnose-Folge 2026-07-06) —
+            unabhaengig vom Trigger-Button, kein Seiteneffekt beim Ansehen. */}
+        <div className="status-pills">
+          <span className="pill">Letzter Lauf: {formatDateTime(lastCronRun?.started_at)}</span>
+          <span className={`pill ${lastCronRun?.status === 'completed' ? 'good' : lastCronRun?.status && lastCronRun.status !== 'running' ? 'warn' : ''}`}>
+            Status: {formatCronRunStatus(lastCronRun?.status)}
+          </span>
+          <span className="pill">
+            Dauer: {lastCronRun?.duration_seconds != null ? `${Math.round(lastCronRun.duration_seconds / 60)} Min.` : '—'}
+          </span>
+          {lastCronRun?.error_message && (
+            <span className="pill warn">Fehler: {lastCronRun.error_message}</span>
+          )}
+        </div>
         <div className="section-actions">
           <button className="primary" onClick={onFullSync} disabled={busy || cronBusy}>
             {cronBusy ? 'Läuft … (Scrape → Briefs, dauert einige Minuten)' : 'Jetzt komplett aktualisieren'}
@@ -740,6 +776,10 @@ export function AdminApp({ onLogout }) {
   const [cronBusy, setCronBusy] = useState(false);
   const [cronMessage, setCronMessage] = useState('');
   const cronPollRef = useRef(null);
+  // Read-only "letzter Lauf"-Status (Diagnose-Folge 2026-07-06) — unabhaengig
+  // vom Trigger-Button, damit man den Stand pruefen kann ohne einen neuen
+  // Lauf anzustossen.
+  const [lastCronRun, setLastCronRun] = useState(null);
 
   const sortedTitles = useMemo(() => {
     const map = new Map();
@@ -796,8 +836,9 @@ export function AdminApp({ onLogout }) {
   }
 
   async function load() {
-    const [h, c, t, a, stats, candidates] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), fetchAssetsForMode(assetMode), endpoints.titleWhitelistStats().catch(() => null), endpoints.titleCandidates().catch(() => [])]);
+    const [h, c, t, a, stats, candidates, cronRuns] = await Promise.all([endpoints.health(), endpoints.channels(), endpoints.titles(), fetchAssetsForMode(assetMode), endpoints.titleWhitelistStats().catch(() => null), endpoints.titleCandidates().catch(() => []), endpoints.cronRuns(1).catch(() => null)]);
     setHealth(h); setChannels(c); setTitles(t); setAssets(a); setWhitelistStats(stats); setTitleCandidates(candidates);
+    setLastCronRun(Array.isArray(cronRuns) ? (cronRuns[0] || null) : null);
     setAssetOffset(0);
     setAssetsHasMore(assetMode === 'all' && a.length === ASSET_PAGE_SIZE);
     try { setReport(await endpoints.latestReport()); } catch (_) { setReport(null); }
@@ -1171,6 +1212,7 @@ export function AdminApp({ onLogout }) {
           onFullSync={triggerFullSync}
           cronBusy={cronBusy}
           cronMessage={cronMessage}
+          lastCronRun={lastCronRun}
         />
       )}
 
