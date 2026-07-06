@@ -1127,7 +1127,68 @@ def _run_cutter_weekly_after_forecasts(
     return summary
 
 
+def _cron_total_timeout_seconds() -> int:
+    raw = os.environ.get("CRON_TOTAL_RUN_TIMEOUT_SECONDS", "7200")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 7200
+
+
 async def _run_cron_sync_background(
+    run_id: UUID,
+    run_index: int,
+    target_week: str = "completed",
+    force: bool = False,
+    brief_pairs: list[str] | None = None,
+) -> None:
+    """Global safety-net wrapper around ``_run_cron_sync_background_impl``.
+
+    Diagnose 2026-07-06: der 06.07.-Lauf brauchte allein 27,9 Min fuer die
+    Title-Sync-Stage (``title_sync.complete duration_seconds=1671.6``) —
+    dieselbe Company-Axis-Discover-Schleife, die am 16.06./29.06. 5,8 Tage
+    bzw. 5,4h haengen blieb (PR #287). Die dortigen Fixes (Stage-``wait_for``
+    + Postgres-``statement_timeout``) decken NUR die Title-Sync-Stage; jede
+    andere Stage (Vision/Rematch/Briefs/Roundups/Cutter-Weekly, alle via
+    ``asyncio.to_thread``) hat weiterhin keine Wall-Clock-Decke. Dieser
+    ENV-``CRON_TOTAL_RUN_TIMEOUT_SECONDS``-Timeout (Default 7200s = 2h, weit
+    ueber der bisher beobachteten Worst-Case-Laufzeit) ist der letzte
+    Ausweg: egal WELCHE Stage in Zukunft haengt, der komplette Lauf terminiert
+    garantiert und der ``CronRun`` wird als ``error`` verbucht statt fuer
+    Tage/Stunden auf ``running`` zu bleiben und den naechsten Montag zu
+    blockieren.
+
+    Bekannte Grenze (analog zum Stage-Timeout-Kommentar unten): ``wait_for``
+    kann einen ``asyncio.to_thread``-Aufruf nicht wirklich abbrechen — der
+    zugrunde liegende OS-Thread laeuft im Hintergrund weiter, bis die
+    synchrone Funktion selbst zurueckkehrt (der Thread haelt dann noch
+    dieselbe Session, ein spaeter Commit ist moeglich). Bei einem Timeout
+    von 2h gegen eine Worst-Case-Beobachtung von <30 Min ist das ein
+    akzeptabler Trade-off fuer einen Wert, der ausschliesslich als
+    Last-Resort-Schutz gegen einen echten, sonst unbegrenzten Haenger dient.
+    """
+    timeout_s = _cron_total_timeout_seconds()
+    try:
+        await asyncio.wait_for(
+            _run_cron_sync_background_impl(run_id, run_index, target_week, force, brief_pairs),
+            timeout=timeout_s,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "cron run %s exceeded total timeout of %ss - marking as error",
+            run_id, timeout_s,
+        )
+        with Session(engine) as session:
+            run = session.get(CronRun, run_id)
+            if run is not None and run.status == "running":
+                run.status = "error"
+                run.error_message = f"total_run_timeout after {timeout_s}s"
+                run.completed_at = datetime.now(timezone.utc)
+                session.add(run)
+                session.commit()
+
+
+async def _run_cron_sync_background_impl(
     run_id: UUID,
     run_index: int,
     target_week: str = "completed",

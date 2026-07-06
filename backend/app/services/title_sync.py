@@ -20,6 +20,19 @@ from app.services.tmdb_client import TMDbClient
 #
 # Eine Quelle: dieses Dict ist der einzige Ort, an dem die Pair->Company-IDs
 # definiert sind. Kuratierbar ohne weiteren Code-Change.
+# Sicherheits-/Performance-Audit 2026-07-06: der Company-Axis-Sync trifft pro
+# Company-Set/Markt/Medientyp den vollen TMDb-Katalog (siehe Docstring unten)
+# — bei grossen Studios laufen das ueber 100 Discover-Seiten. Vorher committete
+# ``_upsert_normalized_title`` nach JEDEM einzelnen Titel (2 Commits/Titel
+# inkl. Alias-Schreibvorgang) — bei mehreren tausend Titeln pro Lauf tausende
+# einzelne, WAL-fsync'te Postgres-Commits, der dominante Faktor an der
+# beobachteten ~28-Minuten-Laufzeit (title_sync.complete duration_seconds=1671.6,
+# 06.07.2026) und mutmasslich Hauptursache der frueheren 5,4h/5,8-Tage-Haenger
+# (PR #287) bei ungünstiger DB-Latenz. Batch-Commit alle
+# ``_TITLE_SYNC_COMMIT_BATCH_SIZE`` Titel reduziert die Commit-Anzahl um
+# denselben Faktor, ohne Fetch-/Match-Semantik zu aendern.
+_TITLE_SYNC_COMMIT_BATCH_SIZE = 100
+
 PAIR_COMPANY_SETS: dict[str, list[int]] = {
     "disney": [2, 3, 420, 1, 127928, 3475, 6125],
     "sonypictures": [34, 5, 559],
@@ -107,7 +120,7 @@ def _upsert_normalized_title(
         title.market_relevance = Market.MIXED
 
     session.add(title)
-    session.commit()
+    session.flush()
     session.refresh(title)
 
     for alias in normalized.get("aliases") or []:
@@ -122,7 +135,7 @@ def _upsert_normalized_title(
         ).first()
         if not existing_kw:
             session.add(TitleKeyword(title_id=title.id, keyword=alias, keyword_type="alias", active=True))
-    session.commit()
+    session.flush()
 
 
 async def sync_titles_from_tmdb(
@@ -197,6 +210,8 @@ async def sync_titles_from_tmdb(
                     seen_keys.add(key)
                     _upsert_normalized_title(session, normalized, market, is_series=False)
                     upserted_count += 1
+                    if upserted_count % _TITLE_SYNC_COMMIT_BATCH_SIZE == 0:
+                        session.commit()
 
                 series = await client.discover_series_by_company(
                     companies, language=language, region=region
@@ -214,6 +229,8 @@ async def sync_titles_from_tmdb(
                     seen_keys.add(key)
                     _upsert_normalized_title(session, normalized, market, is_series=True)
                     upserted_count += 1
+                    if upserted_count % _TITLE_SYNC_COMMIT_BATCH_SIZE == 0:
+                        session.commit()
 
         run.fetched_count = fetched_count
         run.upserted_count = upserted_count
