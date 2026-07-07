@@ -188,6 +188,23 @@ def test_patch_channel_platform_channel_id(client: TestClient) -> None:
     assert patch_response.json()["platform_channel_id"] == "UCGie8GMlUo3kBKIopdvumVQ"
 
 
+def test_patch_channel_platform_channel_id_too_long_is_422(client: TestClient) -> None:
+    """Re-Audit 2026-07-06: the DB column caps at 64 chars (models/entities.py)
+    but the DTO had no matching constraint — an over-length value would have
+    reached Postgres and surfaced as an unhandled 500 instead of a clean 422."""
+    created = client.post(
+        "/api/channels",
+        json={"name": "YT Target 2", "url": "https://youtube.com/@broken2", "platform": "youtube"},
+    ).json()
+    channel_id = created["id"]
+
+    patch_response = client.patch(
+        f"/api/channels/{channel_id}",
+        json={"platform_channel_id": "U" * 65},
+    )
+    assert patch_response.status_code == 422
+
+
 # ---------- GET ----------
 
 

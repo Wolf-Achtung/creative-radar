@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal, Optional
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.models.entities import (
     AcquisitionStrategy,
     AssetType,
@@ -42,7 +42,10 @@ class ChannelUpdate(BaseModel):
     mvp: Optional[bool] = None
     notes: Optional[str] = None
     platform: Optional[str] = None
-    platform_channel_id: Optional[str] = None
+    # Re-Audit 2026-07-06: max_length matches Channel.platform_channel_id's
+    # DB column (models/entities.py) — an over-length value would otherwise
+    # reach Postgres and surface as an unhandled 500 instead of a clean 422.
+    platform_channel_id: Optional[str] = Field(default=None, max_length=64)
     channel_role: Optional[ChannelRole] = None
     quality_tier: Optional[QualityTier] = None
     acquisition_strategy: Optional[AcquisitionStrategy] = None
