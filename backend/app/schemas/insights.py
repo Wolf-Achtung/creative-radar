@@ -19,11 +19,14 @@ schemas without changes; the only thing that grows is the lookup map in
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationInfo, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class TopPost(BaseModel):
@@ -756,7 +759,19 @@ class LLMReport(BaseModel):
                     break
                 try:
                     decoded = json.loads(stripped)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError) as exc:
+                    # Diagnose 2026-07-13: vorher wurde diese Exception
+                    # kommentarlos verschluckt, sodass ein Netflix-Brief
+                    # mit schema_validation_error auf ganz_konkret/
+                    # konkurrenz keinerlei Hinweis hinterliess, WARUM die
+                    # Reparatur scheiterte (nur "input_type=str" von
+                    # Pydantic, ohne die eigentliche json.loads-Ursache).
+                    # Snippet hart auf 300 Zeichen gekappt, damit ein
+                    # pathologisch langes Feld den Log nicht flutet.
+                    logger.warning(
+                        "insight-schema-json-repair-failed field=%s error=%s snippet=%r",
+                        field, exc, stripped[:300],
+                    )
                     break  # kein valides JSON → letzten Stand nicht uebernehmen
                 parsed = decoded
                 if not isinstance(decoded, str):
