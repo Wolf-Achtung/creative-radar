@@ -72,10 +72,22 @@ def already_triggered_this_week(session: Session, now: datetime) -> bool:
 
 
 async def maybe_trigger_scheduled_run(now: datetime | None = None) -> bool:
-    """Prueft das Zeitfenster + Wochen-Dedup und startet bei Bedarf den
-    reguraeren Sync-Lauf (``target_week='completed'``, ``force=False`` —
-    identisch zum bisherigen GitHub-Action-Trigger). Gibt ``True`` zurueck,
-    wenn ein Lauf gestartet wurde (fuer Tests)."""
+    """Reapt hängengebliebene Runs auf JEDEM Tick (60s), unabhaengig vom
+    Zeitfenster, und startet bei Bedarf den regulaeren Sync-Lauf
+    (``target_week='completed'``, ``force=False`` — identisch zum
+    bisherigen GitHub-Action-Trigger). Gibt ``True`` zurueck, wenn ein Lauf
+    gestartet wurde (fuer Tests).
+
+    Incident 2026-07-13 (Folgefund): ein manuell getriggerter Recovery-Lauf
+    wurde durch einen Railway-Redeploy (ausgeloest von einem waehrenddessen
+    gemergten PR) mitten im Lauf gekillt. Der ``CronRun``-Eintrag blieb
+    ``running``, weil ``_reap_stale_runs`` bis dahin nur beim naechsten
+    ``POST /sync-all`` lief — ohne neuen manuellen Trigger blieb die Zeile
+    zwei Stunden lang faelschlich als "laeuft noch" sichtbar. Reap jetzt auf
+    jedem 60s-Tick, damit ein gekillter Lauf spaetestens ``CRON_RUN_
+    TIMEOUT_MINUTES`` (Default 30min) spaeter korrekt als ``failed``
+    markiert ist, statt fuer immer auf ``running`` haengen zu bleiben.
+    """
     # Lazy imports: vermeiden einen Modul-Ladezeit-Zirkelimport mit
     # ``app.api.cron`` (das dieses Modul NICHT importiert — nur ``main.py``
     # importiert beide unabhaengig voneinander).
@@ -83,11 +95,12 @@ async def maybe_trigger_scheduled_run(now: datetime | None = None) -> bool:
     from app.services.cron_channel_selection import compute_run_index
 
     now = now or datetime.now(timezone.utc)
-    if not is_trigger_window(now):
-        return False
 
     with Session(engine) as session:
         _reap_stale_runs(session)
+
+        if not is_trigger_window(now):
+            return False
         if already_triggered_this_week(session, now):
             return False
 

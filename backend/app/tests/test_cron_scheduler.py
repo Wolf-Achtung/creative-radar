@@ -90,6 +90,38 @@ async def test_skips_outside_trigger_window(monkeypatch, db):
 
 
 @pytest.mark.asyncio
+async def test_reaps_stale_runs_even_outside_trigger_window(monkeypatch, db):
+    # Incident 2026-07-13 (Folgefund): ein Railway-Redeploy hat einen
+    # laufenden Recovery-Run gekillt, ohne dass irgendetwas den CronRun als
+    # "failed" markiert hat, weil Reap bisher nur beim naechsten manuellen
+    # Trigger lief. Dieser Test beweist, dass ein Tick AUSSERHALB des
+    # Montags-Fensters die verwaiste Zeile trotzdem aufraeumt.
+    #
+    # ``_reap_stale_runs`` vergleicht gegen die ECHTE Wanduhrzeit (nicht den
+    # ``now``-Parameter dieser Funktion) — ``started_at`` muss also relativ
+    # zur echten Gegenwart in der Vergangenheit liegen, unabhaengig vom
+    # fiktiven Testdatum ``_OUT_OF_WINDOW``.
+    monkeypatch.setattr(cron_scheduler, "engine", db)
+    stale_cutoff_minutes = 30
+    with Session(db) as session:
+        orphaned = CronRun(
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=stale_cutoff_minutes + 5),
+            status="running",
+        )
+        session.add(orphaned)
+        session.commit()
+        orphaned_id = orphaned.id
+
+    fired = await cron_scheduler.maybe_trigger_scheduled_run(now=_OUT_OF_WINDOW)
+
+    assert fired is False  # ausserhalb des Fensters wird kein neuer Lauf gestartet
+    with Session(db) as session:
+        refreshed = session.get(CronRun, orphaned_id)
+        assert refreshed.status == "failed"
+        assert refreshed.error_message == "stale_run_timeout"
+
+
+@pytest.mark.asyncio
 async def test_dedups_against_a_run_already_started_this_week(monkeypatch, db):
     monkeypatch.setattr(cron_scheduler, "engine", db)
     monkeypatch.setattr("app.api.cron._reap_stale_runs", lambda session: None)
