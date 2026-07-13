@@ -186,4 +186,20 @@ export const endpoints = {
     return api(`/api/admin/cron/sync-all?${params.toString()}`, { method: 'POST' });
   },
   cronRuns: (limit = 1) => api(`/api/admin/cron/runs?limit=${limit}`),
+
+  // Platin 2 (Admin Ops-Dashboard) — reine Lesezugriffe auf bereits
+  // bestehende Budget-/Kosten-Endpoints (F0.6/F0.7/Incident 2026-07-13),
+  // die bisher nur per curl abfragbar waren. Kein neuer Backend-Code.
+  costSummary: ({ fromDate, toDate, groupBy = 'provider' } = {}) => {
+    const params = new URLSearchParams({ group_by: groupBy });
+    if (fromDate) params.set('from_date', fromDate);
+    if (toDate) params.set('to_date', toDate);
+    return api(`/api/admin/cost-summary?${params.toString()}`);
+  },
+  apifyBudgetStatus: () => api('/api/admin/budget-status'),
+  anthropicBudgetStatus: () => api('/api/admin/anthropic-budget-status'),
+  openaiBudgetStatus: () => api('/api/admin/openai-budget-status'),
+
+  // Platin 4 — Breakout-Feed über alle Pairs (rein lesend, kein LLM-Call).
+  breakouts: ({ limit = 20 } = {}) => api(`/api/admin/breakouts?limit=${limit}`),
 };

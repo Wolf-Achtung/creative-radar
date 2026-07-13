@@ -32,7 +32,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.admin_session import (
     ADMIN_SESSION_COOKIE,
@@ -65,7 +65,12 @@ from app.services.budget_check import (
 )
 from app.core.feature_flags import is_segment_roundups_enabled
 from app.models.entities import ChannelSegment
-from app.services.insight_engine import PAIRS, generate_and_persist_report
+from app.services.insight_engine import (
+    PAIRS,
+    compute_breakout_feed,
+    generate_and_persist_report,
+    run_prompt_eval,
+)
 from app.services.forecast import generate_er_forecast
 from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
@@ -228,6 +233,27 @@ def openai_budget_status(session: Session = Depends(get_session)) -> dict:
     ``openai``-provider bucket (Vision-Analyse + Caption-Analyse).
     """
     return compute_openai_monthly_spend(session).to_dict()
+
+
+@router.get("/breakouts")
+def breakouts(
+    window_days: int = Query(30, ge=7, le=90),
+    limit: int = Query(20, ge=1, le=100),
+    min_multiplier: float = Query(2.0, ge=1.0, le=20.0),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Platin 4 — Breakout-Feed über alle aktivierten Pairs.
+
+    Rein lesend, kein LLM-Call: wiederverwendet ``aggregate_pair`` (DB-only)
+    und die darin bereits berechneten ``ChannelStats.breakouts``, gefiltert
+    auf ``multiplier >= min_multiplier`` (Default 2x Kanal-Schnitt) und
+    sortiert nach ``weighted_score`` (Z-Score × Recency-Decay) absteigend.
+    Kann beliebig oft aufgerufen werden — keine Budget-Auswirkung.
+    """
+    entries = compute_breakout_feed(
+        session, window_days=window_days, limit=limit, min_multiplier=min_multiplier,
+    )
+    return {"count": len(entries), "min_multiplier": min_multiplier, "entries": entries}
 
 
 # ---------- YouTube sync (Sprint 5.2.3) -------------------------------
@@ -651,6 +677,60 @@ def regenerate_insights(
         })
 
     return {"results": results, "total_cost_cents": total_cost_cents}
+
+
+class PromptEvalRequest(BaseModel):
+    variant_b_system_prompt: str = Field(min_length=50, max_length=40000)
+
+
+@router.post("/insights/eval-prompt")
+def eval_prompt(
+    body: PromptEvalRequest,
+    pair: str = Query(..., description="Pair-Key (z.B. 'netflix'). Kein 'all' — ein Eval-Lauf ist pro Pair."),
+    window_days: int = Query(30, ge=7, le=90),
+    target_week: str = Query(
+        "completed",
+        pattern="^(completed|current)$",
+        description="Wie bei /insights/regenerate: 'completed' (Default) nimmt die zuletzt abgeschlossene KW.",
+    ),
+    session: Session = Depends(get_session),
+):
+    """Platin 3 — Eval-Harness für Brief-Prompts.
+
+    Vergleicht den aktuellen Produktions-``SYSTEM_PROMPT`` ("variant_a")
+    gegen einen im Request-Body übergebenen Kandidaten-Prompt-Text
+    ("variant_b") auf DENSELBEN echten, bereits gesammelten Daten für ein
+    Pair/Woche. Beide Varianten laufen auf identischem Aggregations-/
+    User-Prompt-Input, damit der Vergleich fair ist. Kein Ergebnis wird im
+    ``InsightReport``-Cache gespeichert — beliebig oft wiederholbar ohne
+    das Cache-Poisoning-Risiko von ``/insights/regenerate``.
+
+    Kosten: ~2x ein normaler Brief (~$0.30 bei aktuellen Opus-Preisen) pro
+    Aufruf, taucht unter ``operation=prompt_eval`` in
+    ``/admin/cost-summary?group_by=operation`` separat auf. Rein
+    Operator-getriggert, nie Teil des automatischen Wochen-Crons.
+    """
+    if pair not in PAIRS:
+        raise HTTPException(status_code=404, detail=f"Unbekannter Pair-Key: {pair!r}")
+    if not PAIRS[pair].get("enabled", False):
+        raise HTTPException(status_code=409, detail=f"Pair {pair!r} ist aktuell deaktiviert.")
+
+    eval_now = (
+        datetime.now(timezone.utc)
+        if target_week == "current"
+        else datetime.now(timezone.utc) - timedelta(days=1)
+    )
+    try:
+        result = run_prompt_eval(
+            session,
+            pair,
+            variant_b_system_prompt=body.variant_b_system_prompt,
+            window_days=window_days,
+            now=eval_now,
+        )
+    except (AnthropicAuthError, AnthropicRateLimitError, AnthropicAPIError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return result
 
 
 def _looks_like_uuid(value: str) -> bool:

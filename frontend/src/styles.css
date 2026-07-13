@@ -1704,8 +1704,8 @@ a:hover { text-decoration: underline; }
   color: #b3ada2;
 }
 
-/* V3 Sprint 6 — Markt-Zeitreihe (dependency-freie CSS-Balken). Eigene
-   Klassen, kein Eingriff in andere Sektionen. */
+/* V3 Sprint 6 — Markt-Zeitreihe. Platin 1 (2026-07-13): SVG-Liniendiagramm
+   statt CSS-Balken, dependency-frei (kein Chart-Package). */
 .market-timeline-header {
   display: flex;
   align-items: baseline;
@@ -1727,56 +1727,62 @@ a:hover { text-decoration: underline; }
   font-size: 13px;
   color: #9a9288;
 }
-.market-timeline-row { margin-bottom: 16px; }
-.market-timeline-market {
-  margin: 0 0 6px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.market-timeline-chart-wrap { width: 100%; }
+.market-timeline-chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.market-timeline-chart-grid {
+  stroke: #ece7de;
+  stroke-width: 1;
+}
+.market-timeline-chart-axis-y {
+  font-size: 9px;
+  fill: #9a9288;
+}
+.market-timeline-chart-axis-x {
+  font-size: 9px;
+  fill: #9a9288;
+}
+.market-timeline-chart-axis-x-forecast {
+  fill: #7c7468;
+  font-style: italic;
+}
+.market-timeline-chart-line {
+  stroke-width: 2;
+}
+.market-timeline-chart-line-forecast {
+  stroke-dasharray: 4 3;
+  opacity: 0.75;
+}
+.market-timeline-chart-dot { stroke: #fff; stroke-width: 1; }
+.market-timeline-chart-dot-forecast { cursor: default; }
+.market-timeline-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 11px;
   color: #7c7468;
 }
-.market-timeline-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-}
-.market-timeline-col {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
+.market-timeline-chart-legend-item {
+  display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
 }
-.market-timeline-bar-track {
-  width: 100%;
-  height: 64px;
-  display: flex;
-  align-items: flex-end;
-  background: #faf8f4;
-  border: 1px solid #ece7de;
-  border-radius: 4px;
+.market-timeline-chart-legend-swatch {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
 }
-.market-timeline-bar {
-  width: 100%;
-  background: #c8744a;
-  border-radius: 3px 3px 0 0;
-  transition: height 0.2s ease;
-}
-.market-timeline-bar-empty { background: transparent; }
-.market-timeline-er {
-  font-size: 10px;
-  color: #1d2330;
-}
-.market-timeline-views {
-  font-size: 9px;
-  color: #b3ada2;
-  white-space: nowrap;
-}
-.market-timeline-week {
-  font-size: 10px;
-  color: #9a9288;
-  white-space: nowrap;
+.market-timeline-chart-legend-item-forecast { font-style: italic; }
+.market-timeline-chart-legend-swatch-forecast {
+  width: 12px;
+  height: 0;
+  border-top: 2px dashed #7c7468;
+  border-radius: 0;
 }
 
 /* V3 Sprint 7 — ER-Prognose (admin-only). Eigene Klassen, additiv. */
@@ -1996,3 +2002,75 @@ a:hover { text-decoration: underline; }
   color: #1d2330;
   cursor: help;
 }
+
+/* Platin 2 — Admin Ops-Dashboard (Monitoring-Tab). */
+.ops-budget-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .ops-budget-grid { grid-template-columns: 1fr; }
+}
+.ops-budget-card {
+  border: 1px solid #e7e2d9;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #faf8f4;
+}
+.ops-budget-card h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7c7468;
+}
+.ops-budget-value { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: #1d2330; }
+.ops-budget-bar-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #ece7de;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.ops-budget-bar { height: 100%; background: #2f7a3f; border-radius: 999px; }
+.ops-budget-card-soft .ops-budget-bar { background: #b3722f; }
+.ops-budget-card-hard .ops-budget-bar { background: #b3402f; }
+.ops-budget-card-soft { border-color: #f2c489; }
+.ops-budget-card-hard { border-color: #e0a598; background: #fdf3f0; }
+
+.ops-cost-table, .ops-runs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ops-cost-table th, .ops-cost-table td,
+.ops-runs-table th, .ops-runs-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid #ece7de;
+}
+.ops-cost-table th, .ops-runs-table th {
+  color: #7c7468;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ops-cost-total { font-weight: 700; }
+.ops-runs-row-warn td:nth-child(2) { color: #b3402f; font-weight: 600; }
+
+.ops-breakouts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ops-breakouts-table th, .ops-breakouts-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid #ece7de;
+}
+.ops-breakouts-table th {
+  color: #7c7468;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ops-breakouts-caption a { color: #1d2330; }
+.ops-breakouts-multiplier { font-weight: 700; color: #c8744a; white-space: nowrap; }

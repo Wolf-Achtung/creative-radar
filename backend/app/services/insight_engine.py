@@ -2902,6 +2902,78 @@ def aggregate_pair(
     )
 
 
+BREAKOUT_FEED_DEFAULT_LIMIT = 20
+BREAKOUT_FEED_MIN_MULTIPLIER = 2.0
+
+
+def compute_breakout_feed(
+    session: Session,
+    *,
+    window_days: int = 30,
+    now: Optional[datetime] = None,
+    limit: int = BREAKOUT_FEED_DEFAULT_LIMIT,
+    min_multiplier: float = BREAKOUT_FEED_MIN_MULTIPLIER,
+) -> list[dict]:
+    """Platin 4 — Pair-übergreifender Breakout-Feed fürs Admin Ops-Dashboard.
+
+    Wiederverwendet ``aggregate_pair`` (rein DB-basiert, KEIN LLM-Call) und
+    sammelt die darin bereits berechneten ``ChannelStats.breakouts``
+    (Sprint 28.05.2026, Punkt 4 — Z-Score gegen die Channel-Baseline,
+    Recency-decayed) über ALLE aktivierten Pairs/Plattformen/Märkte ein.
+
+    Die per-Channel-``breakouts``-Liste selbst hat keine Mindestschwelle
+    (Top-3 nach ``weighted_score``, auch wenn keiner davon wirklich
+    heraussticht) — für einen pair-übergreifenden Feed wollen wir nur
+    echte Ausreisser, daher der zusätzliche ``multiplier >= min_multiplier``
+    Filter (Default 2x Kanal-Schnitt).
+
+    Rein lesend, keine neuen Kosten (kein Anthropic-/OpenAI-Call) — kann
+    beliebig oft aufgerufen werden, z.B. für Dashboard-Polling. Ein
+    Aggregations-Fehler bei einem einzelnen Pair (Daten-Edge-Case) wird
+    geloggt und übersprungen, statt den ganzen Feed zu leeren — dieselbe
+    Isolations-Konvention wie beim ``pair=all``-Regenerate-Loop.
+    """
+    window_end = now or datetime.now(timezone.utc)
+    entries: list[dict] = []
+    for pair_key, pair_def in PAIRS.items():
+        if not pair_def.get("enabled", False):
+            continue
+        try:
+            agg = aggregate_pair(session, pair_key, window_days=window_days, now=window_end)
+        except Exception:
+            logger.exception("breakout_feed.aggregate_pair_failed pair=%s", pair_key)
+            continue
+        for platform_agg in agg.per_platform:
+            for market, channel in (
+                ("DE", platform_agg.de_channel),
+                ("US", platform_agg.us_channel),
+                ("UK", platform_agg.uk_channel),
+            ):
+                if channel is None:
+                    continue
+                for post in channel.breakouts:
+                    score = post.breakout_score
+                    if score is None or score.multiplier < min_multiplier:
+                        continue
+                    entries.append({
+                        "pair_key": pair_key,
+                        "pair_label": pair_def.get("label", pair_key),
+                        "platform": platform_agg.platform,
+                        "market": market,
+                        "post_url": post.post_url,
+                        "caption_excerpt": post.caption_excerpt,
+                        "views": post.views,
+                        "engagement_sum": post.engagement_sum,
+                        "published_at": post.published_at.isoformat() if post.published_at else None,
+                        "multiplier": round(score.multiplier, 2),
+                        "weighted_score": round(score.weighted_score, 3),
+                        "z_score": round(score.z_score, 2),
+                    })
+
+    entries.sort(key=lambda e: (-e["weighted_score"], -(e["views"] or 0), e["post_url"] or ""))
+    return entries[:limit]
+
+
 def _empty_title_coverage() -> TitleCoverage:
     """Zero-valued TitleCoverage. Used as the fallback when a pair has no
     platforms configured at all (defensive — every enabled pair has at
@@ -4124,6 +4196,113 @@ def generate_weekly_report(
         raw_llm_text=result.raw_text,
         failure_diagnostic=failure_diagnostic,
     )
+
+
+def _summarize_eval_variant(result: "_BriefLLMResult") -> dict:
+    output = result.llm_output
+    return {
+        "status": "ok" if output is not None else "generation_failed",
+        "headline": output.headline if output is not None else None,
+        "tldr": output.tldr if output is not None else None,
+        "failure_kind": result.failure_kind,
+        "failure_detail": result.failure_detail,
+        "raw_llm_text": result.raw_text if output is None else None,
+        "input_tokens": result.input_tokens or None,
+        "output_tokens": result.output_tokens or None,
+        "cost_usd": result.cost,
+    }
+
+
+def run_prompt_eval(
+    session: Session,
+    pair_key: str,
+    *,
+    variant_b_system_prompt: str,
+    window_days: int = 30,
+    model: str = OPUS_MODEL_ALIAS,
+    max_tokens: int = 20000,
+    now: Optional[datetime] = None,
+) -> dict:
+    """Platin 3 — side-by-side eval of two brief system-prompt variants on
+    the SAME real, already-collected aggregation for one pair/week.
+
+    Runs ``aggregate_pair``/``_build_user_prompt`` exactly ONCE (free,
+    DB-only) so both variants see identical input data, then calls Opus
+    TWICE through the shared ``_run_brief_llm`` kernel: once with the
+    current production ``SYSTEM_PROMPT`` ("a", the baseline) and once with
+    ``variant_b_system_prompt`` ("b", the candidate). Neither result is
+    persisted to the ``InsightReport`` cache — this is a read-only
+    experimentation tool, safe to re-run repeatedly without the
+    cache-poisoning risk that ``/insights/regenerate`` guards against.
+
+    Cost accounting: both calls flow through the normal
+    ``record_anthropic_call`` path (counts toward the real monthly Anthropic
+    budget, as it is real spend) but tagged ``operation="prompt_eval"``
+    instead of ``"weekly_brief"`` so it shows up as its own bucket in
+    ``/admin/cost-summary?group_by=operation``. ~2x a normal brief per call
+    (~$0.30 at current Opus pricing) — an operator-triggered, on-demand
+    tool, never part of the automated weekly cron.
+
+    Citations run in soft mode only (``strict_citations=False`` always,
+    regardless of ``settings.insight_citation_strict_enforce``) — an eval
+    run wants to SEE both outputs even if one has an unverified citation,
+    not have that variant silently retried/discarded.
+    """
+    if not is_anthropic_configured():
+        raise AnthropicAuthError(
+            "ANTHROPIC_API_KEY ist nicht gesetzt — Prompt-Eval kann nicht laufen."
+        )
+
+    agg = aggregate_pair(session, pair_key, window_days=window_days, now=now)
+    user_prompt = _build_user_prompt(agg, previous_context=None)
+
+    def _run(variant_label: str, system_prompt: str) -> _BriefLLMResult:
+        return _run_brief_llm(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            tool_name=_BRIEF_TOOL_NAME,
+            tool_description=_BRIEF_TOOL_DESCRIPTION,
+            input_schema=_BRIEF_TOOL_INPUT_SCHEMA,
+            validate=functools.partial(
+                LLMReport.model_validate,
+                context={
+                    "has_de_data": agg.de_channel is not None,
+                    "has_cross_market": _has_cross_market_lage(agg),
+                },
+            ),
+            model=model,
+            max_tokens=max_tokens,
+            log_subject=f"{pair_key}:eval:{variant_label}",
+            call_extra={
+                "pair": pair_key,
+                "eval_variant": variant_label,
+                "model": model,
+                "prompt_chars": len(user_prompt),
+            },
+            record_meta={
+                "pair_key": agg.pair_key,
+                "iso_week": agg.iso_week,
+                "iso_year": agg.iso_year,
+                "eval_variant": variant_label,
+            },
+            operation="prompt_eval",
+            citation_validate=lambda out: _validate_citations(
+                out, agg, pair_key=pair_key, iso_year=agg.iso_year, iso_week=agg.iso_week
+            ),
+            citation_detail=lambda out: _describe_citation_failures(out, agg),
+            strict_citations=False,
+        )
+
+    result_a = _run("a", SYSTEM_PROMPT)
+    result_b = _run("b", variant_b_system_prompt)
+
+    return {
+        "pair_key": agg.pair_key,
+        "iso_year": agg.iso_year,
+        "iso_week": agg.iso_week,
+        "variant_a": _summarize_eval_variant(result_a),
+        "variant_b": _summarize_eval_variant(result_b),
+    }
 
 
 def _hydrate_from_persisted(row: InsightReportRow, *, window_days: int) -> InsightReport:
