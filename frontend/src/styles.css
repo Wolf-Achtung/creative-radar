@@ -1704,8 +1704,8 @@ a:hover { text-decoration: underline; }
   color: #b3ada2;
 }
 
-/* V3 Sprint 6 — Markt-Zeitreihe (dependency-freie CSS-Balken). Eigene
-   Klassen, kein Eingriff in andere Sektionen. */
+/* V3 Sprint 6 — Markt-Zeitreihe. Platin 1 (2026-07-13): SVG-Liniendiagramm
+   statt CSS-Balken, dependency-frei (kein Chart-Package). */
 .market-timeline-header {
   display: flex;
   align-items: baseline;
@@ -1727,56 +1727,62 @@ a:hover { text-decoration: underline; }
   font-size: 13px;
   color: #9a9288;
 }
-.market-timeline-row { margin-bottom: 16px; }
-.market-timeline-market {
-  margin: 0 0 6px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.market-timeline-chart-wrap { width: 100%; }
+.market-timeline-chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.market-timeline-chart-grid {
+  stroke: #ece7de;
+  stroke-width: 1;
+}
+.market-timeline-chart-axis-y {
+  font-size: 9px;
+  fill: #9a9288;
+}
+.market-timeline-chart-axis-x {
+  font-size: 9px;
+  fill: #9a9288;
+}
+.market-timeline-chart-axis-x-forecast {
+  fill: #7c7468;
+  font-style: italic;
+}
+.market-timeline-chart-line {
+  stroke-width: 2;
+}
+.market-timeline-chart-line-forecast {
+  stroke-dasharray: 4 3;
+  opacity: 0.75;
+}
+.market-timeline-chart-dot { stroke: #fff; stroke-width: 1; }
+.market-timeline-chart-dot-forecast { cursor: default; }
+.market-timeline-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 11px;
   color: #7c7468;
 }
-.market-timeline-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-}
-.market-timeline-col {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
+.market-timeline-chart-legend-item {
+  display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
 }
-.market-timeline-bar-track {
-  width: 100%;
-  height: 64px;
-  display: flex;
-  align-items: flex-end;
-  background: #faf8f4;
-  border: 1px solid #ece7de;
-  border-radius: 4px;
+.market-timeline-chart-legend-swatch {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
 }
-.market-timeline-bar {
-  width: 100%;
-  background: #c8744a;
-  border-radius: 3px 3px 0 0;
-  transition: height 0.2s ease;
-}
-.market-timeline-bar-empty { background: transparent; }
-.market-timeline-er {
-  font-size: 10px;
-  color: #1d2330;
-}
-.market-timeline-views {
-  font-size: 9px;
-  color: #b3ada2;
-  white-space: nowrap;
-}
-.market-timeline-week {
-  font-size: 10px;
-  color: #9a9288;
-  white-space: nowrap;
+.market-timeline-chart-legend-item-forecast { font-style: italic; }
+.market-timeline-chart-legend-swatch-forecast {
+  width: 12px;
+  height: 0;
+  border-top: 2px dashed #7c7468;
+  border-radius: 0;
 }
 
 /* V3 Sprint 7 — ER-Prognose (admin-only). Eigene Klassen, additiv. */

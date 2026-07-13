@@ -1884,26 +1884,172 @@ const SLOW_THRESHOLD_MS = 60_000;
 // V3 Sprint 6 — deskriptive Markt-Zeitreihe. Eigener Read-only-Call
 // (sibling zum insightsWeekly-Call), rein darstellend: tatsächliche
 // Wochenwerte je Markt (DE/US/UK) über die Brief-Wochen des Pairs.
-// Dependency-frei: CSS-Balken, eine Spalte je ISO-Woche, lückenlose Achse
-// (fehlende KW = leere Spalte). KEINE Trendlinie, KEINE "wächst/fällt"-
-// Aussage, KEINE Prognose (Sprint 7). Σ Views als Balkenhöhe (gemeinsam
-// über alle Märkte skaliert, damit DE/US/UK vergleichbar sind), die
-// aggregierte ER als Tooltip + kleine Sekundärzahl.
+// Lückenlose Achse (fehlende KW = Lücke in der Linie). Seit Platin 1
+// (2026-07-13) ein SVG-Liniendiagramm statt CSS-Balken, siehe
+// MarketTimelineChart weiter unten.
 const TIMELINE_MARKETS = ['DE', 'US', 'UK'];
 
-// Dezente Zweitzeile: gerundete Aufrufe pro KW-Balken (deutsche Schreibweise,
-// kompakt, damit die schmale Spalte nicht bricht). Views sind hier NICHT die
-// Balkenhöhe (das ist die ER) — nur sekundärer Kontext unter dem ER-Label.
-function formatViewsCompact(views) {
-  const v = Number(views) || 0;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace('.', ',')} Mio`;
-  if (v >= 1_000) return `${Math.round(v / 1_000)} Tsd`;
-  return String(v);
+// Platin 1 (2026-07-13) — dependency-freies SVG-Liniendiagramm statt CSS-
+// Balken. Ersetzt die frühere 3-Zeilen-Balkendarstellung durch einen
+// gemeinsamen Chart mit farbcodierten Markt-Linien, damit DE/US/UK direkt
+// vergleichbar sind statt untereinander gestapelt. Die Prognose (bereits
+// vorhandener /forecast-Endpoint, sonst nur in ErForecastSection als Text
+// sichtbar) wird hier zusätzlich als gestrichelte Verlängerung der
+// jeweiligen Marktlinie eingeblendet — visuelle Brücke zwischen Historie
+// und Prognose, ohne die textuelle Prognose-Karte (R²/Richtung/Einordnung)
+// zu ersetzen oder zu duplizieren.
+const TIMELINE_MARKET_COLORS = { DE: '#c8744a', US: '#3f6fae', UK: '#6a9955' };
+
+function buildTimelineRuns(values) {
+  // values: Array<number|null> — gibt Läufe zusammenhängender Indizes
+  // zurück (Lücken bei fehlenden Wochenwerten unterbrechen die Linie,
+  // statt sie fälschlich durchzuziehen).
+  const runs = [];
+  let current = [];
+  values.forEach((v, i) => {
+    if (v == null) {
+      if (current.length) runs.push(current);
+      current = [];
+    } else {
+      current.push(i);
+    }
+  });
+  if (current.length) runs.push(current);
+  return runs;
+}
+
+const CHART_WIDTH = 600;
+const CHART_HEIGHT = 200;
+const CHART_PAD = { top: 12, right: 16, bottom: 26, left: 40 };
+
+function MarketTimelineChart({ weeks, markets, forecast }) {
+  const forecastByMarket = {};
+  if (forecast && forecast.markets) {
+    for (const m of TIMELINE_MARKETS) {
+      const f = forecast.markets[m];
+      if (f && f.status === 'ok' && f.forecast_er != null) forecastByMarket[m] = f.forecast_er;
+    }
+  }
+  const hasForecastColumn = Boolean(forecast?.next_week) && Object.keys(forecastByMarket).length > 0;
+  const columnCount = weeks.length + (hasForecastColumn ? 1 : 0);
+  const lastIndex = Math.max(columnCount - 1, 1);
+
+  let maxEr = 0;
+  for (const m of TIMELINE_MARKETS) {
+    for (const p of markets[m] || []) if (p.er != null) maxEr = Math.max(maxEr, p.er);
+    if (forecastByMarket[m] != null) maxEr = Math.max(maxEr, forecastByMarket[m]);
+  }
+  maxEr = maxEr || 1;
+
+  const xFor = (i) => CHART_PAD.left + (i / lastIndex) * (CHART_WIDTH - CHART_PAD.left - CHART_PAD.right);
+  const yFor = (v) => CHART_HEIGHT - CHART_PAD.bottom - (v / maxEr) * (CHART_HEIGHT - CHART_PAD.top - CHART_PAD.bottom);
+
+  const gridLines = [0, 0.5, 1].map((frac) => ({ y: yFor(maxEr * frac), label: formatRankedPercent(maxEr * frac) }));
+
+  // Nur jede n-te KW-Achsenbeschriftung zeigen, wenn zu viele Wochen für
+  // lesbaren Abstand vorliegen (>10 Spalten).
+  const labelStep = weeks.length > 10 ? Math.ceil(weeks.length / 8) : 1;
+
+  return (
+    <div className="market-timeline-chart-wrap">
+      <svg
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        className="market-timeline-chart"
+        role="img"
+        aria-label="Zeitreihe der Interaktionsrate je Markt, gestrichelt die Prognose"
+      >
+        {gridLines.map((g, i) => (
+          <g key={i}>
+            <line x1={CHART_PAD.left} x2={CHART_WIDTH - CHART_PAD.right} y1={g.y} y2={g.y} className="market-timeline-chart-grid" />
+            <text x={CHART_PAD.left - 6} y={g.y} className="market-timeline-chart-axis-y" textAnchor="end" dominantBaseline="middle">
+              {g.label}
+            </text>
+          </g>
+        ))}
+
+        {weeks.map((wk, i) => (
+          (i % labelStep === 0 || i === weeks.length - 1) && (
+            <text key={`${wk.iso_year}-${wk.iso_week}`} x={xFor(i)} y={CHART_HEIGHT - 6} className="market-timeline-chart-axis-x" textAnchor="middle">
+              {`KW${wk.iso_week}`}
+            </text>
+          )
+        ))}
+        {hasForecastColumn && (
+          <text x={xFor(columnCount - 1)} y={CHART_HEIGHT - 6} className="market-timeline-chart-axis-x market-timeline-chart-axis-x-forecast" textAnchor="middle">
+            Prognose
+          </text>
+        )}
+
+        {TIMELINE_MARKETS.map((m) => {
+          const points = markets[m] || [];
+          const erSeries = weeks.map((wk, i) => (points[i] && points[i].er != null ? points[i].er : null));
+          const runs = buildTimelineRuns(erSeries);
+          const color = TIMELINE_MARKET_COLORS[m];
+          const forecastValue = forecastByMarket[m];
+          let lastDefinedIndex = -1;
+          erSeries.forEach((v, i) => { if (v != null) lastDefinedIndex = i; });
+
+          return (
+            <g key={m}>
+              {runs.map((run, ri) => (
+                <path
+                  key={ri}
+                  d={run.map((i, j) => `${j === 0 ? 'M' : 'L'} ${xFor(i)},${yFor(erSeries[i])}`).join(' ')}
+                  className="market-timeline-chart-line"
+                  stroke={color}
+                  fill="none"
+                />
+              ))}
+              {hasForecastColumn && forecastValue != null && lastDefinedIndex >= 0 && (
+                <path
+                  d={`M ${xFor(lastDefinedIndex)},${yFor(erSeries[lastDefinedIndex])} L ${xFor(columnCount - 1)},${yFor(forecastValue)}`}
+                  className="market-timeline-chart-line market-timeline-chart-line-forecast"
+                  stroke={color}
+                  fill="none"
+                />
+              )}
+              {weeks.map((wk, i) => {
+                const p = points[i];
+                if (!p || p.er == null) return null;
+                const title = `KW ${wk.iso_week}/${wk.iso_year} · ${m}\n${formatRankedPercent(p.er)} Interaktion\n${formatNumber(p.views || 0)} Aufrufe\n${formatNumber(p.posts || 0)} Posts`;
+                return (
+                  <circle key={`${wk.iso_year}-${wk.iso_week}`} cx={xFor(i)} cy={yFor(p.er)} r={3} fill={color} className="market-timeline-chart-dot">
+                    <title>{title}</title>
+                  </circle>
+                );
+              })}
+              {hasForecastColumn && forecastValue != null && (
+                <circle cx={xFor(columnCount - 1)} cy={yFor(forecastValue)} r={4} fill="#fff" stroke={color} strokeWidth={2} className="market-timeline-chart-dot-forecast">
+                  <title>{`Prognose ${forecast.next_week ? `KW ${forecast.next_week.iso_week}/${forecast.next_week.iso_year}` : ''} · ${m}\n${formatRankedPercent(forecastValue)} erwartete Interaktion`}</title>
+                </circle>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+
+      <div className="market-timeline-chart-legend">
+        {TIMELINE_MARKETS.map((m) => (
+          <span key={m} className="market-timeline-chart-legend-item">
+            <span className="market-timeline-chart-legend-swatch" style={{ background: TIMELINE_MARKET_COLORS[m] }} />
+            {m}
+          </span>
+        ))}
+        {hasForecastColumn && (
+          <span className="market-timeline-chart-legend-item market-timeline-chart-legend-item-forecast">
+            <span className="market-timeline-chart-legend-swatch market-timeline-chart-legend-swatch-forecast" />
+            Prognose (gestrichelt)
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function MarketTimelineSection({ pair }) {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'done' | 'error'
+  const [forecast, setForecast] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1912,21 +2058,17 @@ function MarketTimelineSection({ pair }) {
       .insightsTimeline(pair)
       .then((res) => { if (!cancelled) { setData(res); setStatus('done'); } })
       .catch(() => { if (!cancelled) { setStatus('error'); } });
+    // Bewusst tolerant: schlägt der Forecast fehl oder liefert er
+    // "too_volatile", zeigt der Chart einfach keine gestrichelte
+    // Verlängerung — kein Fehlerzustand für die ganze Sektion.
+    endpoints
+      .insightsForecast(pair)
+      .then((res) => { if (!cancelled) setForecast(res); })
+      .catch(() => { if (!cancelled) setForecast(null); });
     return () => { cancelled = true; };
   }, [pair]);
 
   const weeks = Array.isArray(data?.weeks) ? data.weeks : [];
-  // Gemeinsamer ER-Maßstab über ALLE Märkte/Wochen (>0, Division-Schutz),
-  // damit die Balkenhöhen von DE/US/UK visuell vergleichbar sind. Höhe und
-  // Label zeigen dieselbe Metrik (Engagement-Rate) — NICHT Views.
-  const maxEr = useMemo(() => {
-    let mx = 0;
-    const markets = data?.markets || {};
-    for (const m of TIMELINE_MARKETS) {
-      for (const p of markets[m] || []) mx = Math.max(mx, p.er || 0);
-    }
-    return mx || 1;
-  }, [data]);
 
   // Rendert nichts, wenn keine Brief-Wochen vorliegen — wie die anderen
   // graceful-degradierenden Sektionen.
@@ -1949,45 +2091,7 @@ function MarketTimelineSection({ pair }) {
       {status === 'loading' && <p className="market-timeline-hint">Lade Zeitreihe …</p>}
 
       {status === 'done' && (
-        <div className="market-timeline-grid">
-          {TIMELINE_MARKETS.map((m) => {
-            const points = (data.markets && data.markets[m]) || [];
-            return (
-              <div key={m} className="market-timeline-row">
-                <h4 className="market-timeline-market">{m}</h4>
-                <div className="market-timeline-bars">
-                  {weeks.map((wk, i) => {
-                    const p = points[i] || { views: 0, er: null, posts: 0 };
-                    // Balkenhöhe = ER (gemeinsamer Maßstab). Kein Balken, wenn
-                    // keine ER (er=null, z.B. kein Post mit views>0).
-                    const pct = p.er != null ? Math.round((p.er / maxEr) * 100) : 0;
-                    const erText = p.er != null ? formatRankedPercent(p.er) : '—';
-                    const title =
-                      `KW ${wk.iso_week}/${wk.iso_year} · ${m}\n` +
-                      `${erText} Interaktion\n` +
-                      `${formatNumber(p.views || 0)} Aufrufe\n` +
-                      `${formatNumber(p.posts || 0)} Posts`;
-                    return (
-                      <div key={`${wk.iso_year}-${wk.iso_week}`} className="market-timeline-col" title={title}>
-                        <div className="market-timeline-bar-track">
-                          <div
-                            className={p.er != null ? 'market-timeline-bar' : 'market-timeline-bar market-timeline-bar-empty'}
-                            style={{ height: `${p.er != null ? Math.max(pct, 2) : 0}%` }}
-                          />
-                        </div>
-                        <span className="market-timeline-er">{erText}</span>
-                        {p.posts > 0 && (
-                          <span className="market-timeline-views">{formatViewsCompact(p.views)}</span>
-                        )}
-                        <span className="market-timeline-week">KW{wk.iso_week}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <MarketTimelineChart weeks={weeks} markets={data.markets || {}} forecast={forecast} />
       )}
     </CollapsibleCard>
   );
