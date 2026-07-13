@@ -223,6 +223,23 @@ class Settings(BaseSettings):
     anthropic_hard_cap_pct: float = 1.00
     anthropic_budget_enforced: bool = True
 
+    # Incident 2026-07-13 (Re-Audit-Folgefund) — OpenAI hatte als einziger
+    # der drei kostenpflichtigen Provider (Apify/Anthropic/OpenAI) gar
+    # keinen Monatsbudget-Deckel. Beobachteter Verbrauch mit gpt-5.4-nano
+    # lag bei ~$1-1,50 pro Wochenlauf (Vision + Caption-Analyse); der
+    # Wechsel auf gpt-5.4-mini (bessere Instruktions-Befolgung/Bildver-
+    # staendnis, siehe Modell-Vergleich in der Session) treibt das je nach
+    # Aggregator-Pricing hoeher. $50 Default spiegelt den Apify-Cap-Wert
+    # und gibt bei realistischer Hochrechnung (~$5-10/Woche) deutliche
+    # Cushion. Mechanik exakt analog Apify/Anthropic:
+    # ``compute_openai_monthly_spend`` summiert den ``openai``-Provider-
+    # Bucket, Pre-Flight im Cron bricht den ganzen Run mit
+    # ``status='budget_exceeded'`` ab, Kill-Switch via ENV.
+    openai_monthly_budget_usd: float = 50.0
+    openai_soft_warn_pct: float = 0.80
+    openai_hard_cap_pct: float = 1.00
+    openai_budget_enforced: bool = True
+
     # Sprint 28.05.2026 (Evidenz-Block / Quellen-Attribution) —
     # Stufenmodell B→A fuer den Citation-Validator im Pair-Brief-Pfad.
     # Default ``False`` (Phase 1, Soft-Mode): das LLM ist im

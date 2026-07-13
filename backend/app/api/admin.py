@@ -61,6 +61,7 @@ from app.services.anthropic_client import (
 from app.services.budget_check import (
     compute_anthropic_monthly_spend,
     compute_apify_monthly_spend,
+    compute_openai_monthly_spend,
 )
 from app.core.feature_flags import is_segment_roundups_enabled
 from app.models.entities import ChannelSegment
@@ -215,6 +216,18 @@ def anthropic_budget_status(session: Session = Depends(get_session)) -> dict:
     show in the same monthly figure that the cron pre-flight evaluates.
     """
     return compute_anthropic_monthly_spend(session).to_dict()
+
+
+@router.get("/openai-budget-status")
+def openai_budget_status(session: Session = Depends(get_session)) -> dict:
+    """Incident 2026-07-13 — current OpenAI monthly budget snapshot.
+
+    Mirror of ``/budget-status``/``/anthropic-budget-status`` for the
+    OpenAI side, same reasoning: separate endpoint per provider so each
+    stays a flat, stable-shape dict for dashboards. Aggregates the single
+    ``openai``-provider bucket (Vision-Analyse + Caption-Analyse).
+    """
+    return compute_openai_monthly_spend(session).to_dict()
 
 
 # ---------- YouTube sync (Sprint 5.2.3) -------------------------------
