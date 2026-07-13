@@ -213,10 +213,19 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
         # a day or two of ingest, which is exactly the Vision-Backlog's
         # entire population by definition. Reuse the ingest-time evidence
         # instead of re-fetching a link that may long since be dead.
+        # Re-Audit-Folgefund 2026-07-13: asset_screenshot_persistence.py
+        # (Ingest-Pfad) records no timestamp for the capture -- only
+        # visual_evidence_url/status/source_url. Without this,
+        # ``captured_at`` would silently land as None here even though the
+        # evidence genuinely was captured, misreading as "capture failed"
+        # to a future reader. ``asset.created_at`` is captured in the same
+        # request as the ingest-time evidence fetch, so it's the closest
+        # available approximation.
         evidence = VisualEvidenceResult(
             status="captured",
             evidence_url=asset.visual_evidence_url,
             source_url=asset.visual_source_url,
+            captured_at=asset.created_at.isoformat() if asset.created_at else None,
         )
     else:
         evidence = capture_asset_screenshot(asset)
