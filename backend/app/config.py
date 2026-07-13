@@ -73,12 +73,13 @@ class Settings(BaseSettings):
     # if Wolf negotiates a different rate.
     apify_compute_unit_usd: float = 0.4
     # OpenAI gpt-5.4-mini Vision/Text pricing per 1k tokens (USD).
-    # 2026-07-06: switched from gpt-4o-mini. LOW-MEDIUM CONFIDENCE — could not
-    # verify against openai.com/api/pricing directly (403'd from this sandbox),
-    # sourced from third-party pricing aggregators only (converged on $0.75/
-    # $4.50 per 1M tokens across several sites, but none is OpenAI's own
-    # domain). Please confirm against platform.openai.com/docs/pricing (or an
-    # actual billed API response) before trusting cost reports built on this.
+    # 2026-07-06: switched from gpt-4o-mini. MEDIUM-HIGH CONFIDENCE (re-audit
+    # 2026-07-13) — openai.com/api/pricing still 403s from this sandbox, but
+    # several independent third-party sources (incl. OpenRouter, which pulls
+    # pricing programmatically from provider APIs) now converge unanimously on
+    # $0.75/$4.50 per 1M tokens with no outliers. Still no first-party source
+    # confirmed; verify against platform.openai.com/docs/pricing (or an actual
+    # billed API response) before trusting cost reports built on this.
     openai_input_per_1k_usd: float = 0.00075
     openai_output_per_1k_usd: float = 0.0045
 
