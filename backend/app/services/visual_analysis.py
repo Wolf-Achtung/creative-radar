@@ -13,7 +13,7 @@ from app.models.entities import Asset, AssetType, Channel, Post, Title
 from app.prompts import visual_analysis as visual_analysis_prompt
 from app.services.cost_log import record_openai_call
 from app.services.match_key import slugify_match_key
-from app.services.screenshot_capture import capture_asset_screenshot
+from app.services.screenshot_capture import VisualEvidenceResult, capture_asset_screenshot
 from app.services.storage import get_storage, is_object_key, resolve_url
 
 
@@ -201,12 +201,30 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
     session.commit()
     session.refresh(asset)
 
-    evidence = capture_asset_screenshot(asset)
-    asset.visual_evidence_status = evidence.status
+    if asset.visual_evidence_status == "captured" and asset.visual_evidence_url:
+        # Sprint 5.3.6 (asset_screenshot_persistence.py) already captured
+        # evidence at INGEST time -- before the Asset row was even
+        # committed -- and stored it permanently in our own S3/R2 bucket.
+        # Incident 2026-07-13: this vision pass unconditionally called
+        # capture_asset_screenshot() again regardless, discarding that
+        # already-secured copy and re-fetching from the ORIGINAL social
+        # CDN URL instead (Instagram links in particular expire within
+        # ~24-48h) -- guaranteed to fail for anything not analyzed within
+        # a day or two of ingest, which is exactly the Vision-Backlog's
+        # entire population by definition. Reuse the ingest-time evidence
+        # instead of re-fetching a link that may long since be dead.
+        evidence = VisualEvidenceResult(
+            status="captured",
+            evidence_url=asset.visual_evidence_url,
+            source_url=asset.visual_source_url,
+        )
+    else:
+        evidence = capture_asset_screenshot(asset)
+        asset.visual_evidence_status = evidence.status
     if evidence.evidence_url:
         asset.visual_evidence_url = evidence.evidence_url
-        asset.visual_source_url = evidence.source_url
-        asset.visual_evidence_pack = {"full_screenshot": evidence.evidence_url, "title_crop": asset.visual_crop_title_url, "cta_crop": asset.visual_crop_cta_url, "kinetic_crop": asset.visual_crop_kinetic_url, "thumbnail": asset.thumbnail_url, "source_url": evidence.source_url, "captured_at": evidence.captured_at}
+        asset.visual_source_url = evidence.source_url or asset.visual_source_url
+        asset.visual_evidence_pack = {"full_screenshot": evidence.evidence_url, "title_crop": asset.visual_crop_title_url, "cta_crop": asset.visual_crop_cta_url, "kinetic_crop": asset.visual_crop_kinetic_url, "thumbnail": asset.thumbnail_url, "source_url": evidence.source_url or asset.visual_source_url, "captured_at": evidence.captured_at}
         image_url = asset.visual_evidence_url
     else:
         # Incident 2026-07-13: capture_asset_screenshot() already tried every

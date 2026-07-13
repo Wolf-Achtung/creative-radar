@@ -309,6 +309,54 @@ def test_capture_fetch_failed_dominates_over_vision_text_fallback(
     assert result.visual_analysis_status == "fetch_failed"
 
 
+def test_reuses_ingest_time_evidence_without_refetching(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Follow-up to Incident 2026-07-13: Sprint 5.3.6
+    (asset_screenshot_persistence.py) already captures evidence at INGEST
+    time -- before the Asset row is even committed -- and stores it
+    permanently in our own S3/R2 bucket. Vision must reuse that secured
+    copy instead of discarding it and re-fetching from the original
+    (possibly since-expired) social CDN URL. This is exactly why the
+    Vision-Backlog run 41a80fc1 hit 200/200 fetch_failed: every one of
+    those assets already had ingest-time evidence, thrown away."""
+    asset = _make(session)
+    asset.visual_evidence_status = "captured"
+    asset.visual_evidence_url = "evidence/already-secured.jpg"
+    asset.visual_source_url = "https://cdn.example/original.jpg"
+    session.add(asset)
+    session.commit()
+
+    capture_mock = MagicMock()
+    monkeypatch.setattr(visual_analysis, "capture_asset_screenshot", capture_mock)
+    _mock_openai(monkeypatch, return_content='{"ocr_text": "x", "visual_summary_de": "y"}')
+
+    result = analyze_asset_visual(session, asset)
+
+    capture_mock.assert_not_called()
+    assert result.visual_evidence_url == "evidence/already-secured.jpg"
+    assert result.visual_analysis_status == "analyzed"
+
+
+def test_still_live_fetches_when_no_ingest_time_evidence(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No ingest-time evidence (asset predates Sprint 5.3.6, or ingest-time
+    capture itself failed) -> the existing live-fetch path still runs,
+    unchanged."""
+    asset = _make(session)
+    assert asset.visual_evidence_status is None  # never captured at ingest
+
+    monkeypatch.setattr(visual_analysis, "capture_asset_screenshot",
+                        lambda a: _captured(a))
+    _mock_openai(monkeypatch, return_content='{"ocr_text": "x", "visual_summary_de": "y"}')
+
+    result = analyze_asset_visual(session, asset)
+
+    assert result.visual_analysis_status == "analyzed"
+    assert result.visual_evidence_url == f"evidence/{asset.id}_test.jpg"
+
+
 def test_no_source_status_unchanged(session: Session,
                                     monkeypatch: pytest.MonkeyPatch) -> None:
     asset = _make(session)
