@@ -3108,6 +3108,28 @@ def test_triple_encoded_json_field_within_cap_is_coerced():
     assert isinstance(report.trends, list) and report.trends[0].name == "n"
 
 
+def test_malformed_json_field_logs_the_swallowed_repair_error(caplog):
+    """Diagnose 2026-07-13 (Netflix-Brief, Cron-Run 41a80fc1): ganz_konkret/
+    konkurrenz scheiterten mit schema_validation_error, aber der Log zeigte
+    nur Pydantics generisches ``input_type=str`` — die eigentliche
+    json.loads-Exception aus der Reparatur-Schleife wurde bis dahin
+    kommentarlos verschluckt. Ein Feldwert, der wie JSON beginnt (``[``)
+    aber invalides JSON ist, muss jetzt eine WARNING mit Feldname und der
+    echten json.loads-Fehlermeldung loggen, bevor Pydantic den finalen
+    Typ-Fehler meldet."""
+    broken = '[{"nummer": 1, "pattern": "unterbrochen'  # kein schliessendes ] / "
+    with caplog.at_level(logging.WARNING, logger="app.schemas.insights"):
+        with pytest.raises(ValidationError) as exc:
+            LLMReport.model_validate(_brief_body(ganz_konkret=broken), context=_NO_LAGE)
+
+    assert any(e["loc"] == ("ganz_konkret",) and e["type"] == "list_type"
+               for e in exc.value.errors())
+    assert any(
+        "insight-schema-json-repair-failed" in r.message and "ganz_konkret" in r.message
+        for r in caplog.records
+    )
+
+
 def test_quoted_non_json_string_passed_through_clean_type_error():
     """Defensiv-Vertrag fuer den neuen ``"``-Zweig: ein doppelt-gequoteter
     REINER Satz (kein JSON-Container im Kern) wird NICHT in eine Liste verbogen

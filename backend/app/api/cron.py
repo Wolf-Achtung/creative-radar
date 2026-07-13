@@ -48,6 +48,7 @@ from app.services.budget_check import (
     aggregate_openai_costs_since,
     compute_anthropic_monthly_spend,
     compute_apify_monthly_spend,
+    compute_openai_monthly_spend,
 )
 from app.services.cron_channel_selection import compute_run_index, select_channels_for_cron
 from app.core.feature_flags import (
@@ -1476,6 +1477,34 @@ async def _run_cron_sync_background_impl(
                 await _ping_cron_heartbeat(success=False)
                 return
 
+            # Incident 2026-07-13 (Re-Audit-Folgefund) — OpenAI-Monatsbudget-
+            # Pre-Flight. Exakt analog zu Apify/Anthropic darueber: bislang
+            # der einzige der drei kostenpflichtigen Provider ganz ohne
+            # Deckel, obwohl Vision-Analyse + Caption-Analyse real und
+            # ungebremst Kosten verursachen (~500-700 Calls/Woche).
+            openai_budget = compute_openai_monthly_spend(session)
+            if openai_budget.hard_cap_exceeded and openai_budget.enforced:
+                summary = {
+                    "skipped": True,
+                    "reason": "openai_budget_exceeded",
+                    "budget": budget.to_dict(),
+                    "anthropic_budget": anthropic_budget.to_dict(),
+                    "openai_budget": openai_budget.to_dict(),
+                }
+                run.summary_json = summary
+                run.status = "budget_exceeded"
+                run.completed_at = datetime.now(timezone.utc)
+                session.add(run)
+                session.commit()
+                logger.warning(
+                    "cron run %s aborted: openai budget %d/%d cents (%.1f%%)",
+                    run_id, openai_budget.spent_usd_cents,
+                    openai_budget.budget_usd_cents,
+                    openai_budget.pct_used * 100,
+                )
+                await _ping_cron_heartbeat(success=False)
+                return
+
             # Brief-/Roundup-Ziel-KW: laufende KW (manueller Force-Lauf) vs.
             # gerade abgeschlossene KW (wöchentlicher Default). Siehe
             # Docstring + H4-Mitigation-Kommentar am Brief-Stage-Aufruf.
@@ -1592,6 +1621,11 @@ async def _run_cron_sync_background_impl(
             summary["anthropic_budget"] = anthropic_budget.to_dict()
             if anthropic_budget.soft_warn_exceeded:
                 summary["anthropic_budget_warning"] = True
+            # Incident 2026-07-13 — dritter Provider-Cap-Block, gleiches
+            # Schema wie ``budget``/``anthropic_budget`` oben.
+            summary["openai_budget"] = openai_budget.to_dict()
+            if openai_budget.soft_warn_exceeded:
+                summary["openai_budget_warning"] = True
             # Cadence-Sprint 2026-05-17 — Frühwarnsignal #2 aus dem Premortem
             # (PR #147, Failure-Mode #2 "Bug regrediert nach Refactor").
             # Logger.critical landet rot in Railway-Logs.

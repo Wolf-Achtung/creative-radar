@@ -25,6 +25,7 @@ logging.basicConfig(
     stream=sys.stdout,
     force=True,
 )
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Creative Radar API", version="1.0.0")
 
@@ -83,6 +84,22 @@ app.mount("/storage", StaticFiles(directory=str(storage_path)), name="storage")
 @app.on_event("startup")
 async def on_startup():
     create_db_and_tables()
+    # Incident 2026-07-13: OPENAI_MODEL war in Railway auf "gpt-5.4-nano"
+    # gesetzt, obwohl Code-Default und alle Pricing-Kommentare fuer
+    # "gpt-5.4-mini" ausgelegt waren -- dieser Drift blieb eine ganze
+    # Session lang unbemerkt, weil sich Railway-ENV-Werte nirgends im Log
+    # zeigen. Ein Log-Eintrag beim Start macht das ab jetzt in jedem
+    # Railway-Log-Sichtbarkeitsfenster sofort sichtbar, ohne dass jemand
+    # manuell die ENV-Liste ziehen muss.
+    logger.info(
+        "startup.resolved_config openai_model=%s anthropic_sonnet_model=%s "
+        "auth_enabled=%s admin_auth_enabled=%s storage_backend=%s",
+        settings.openai_model,
+        settings.anthropic_sonnet_model,
+        settings.auth_enabled,
+        settings.admin_auth_enabled,
+        settings.storage_backend,
+    )
     # Incident 2026-07-13: der bisherige alleinige Trigger (GitHub Actions
     # Schedule) feuerte woechentlich 1,5-4,5h zu spaet. Der Loop unten laeuft
     # im selben Prozess und pollt die Uhrzeit selbst -- keine externe

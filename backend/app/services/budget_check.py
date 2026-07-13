@@ -217,6 +217,56 @@ def compute_anthropic_monthly_spend(
     )
 
 
+def compute_openai_monthly_spend(
+    session: Session,
+    *,
+    now: datetime | None = None,
+) -> BudgetStatus:
+    """Aggregate OpenAI USD spend over the current calendar month (UTC).
+
+    Incident 2026-07-13 (Re-Audit-Folgefund): unlike Apify (F0.6) and
+    Anthropic (F0.7), OpenAI never had a monthly hard-cap despite being a
+    real, uncapped cost line (Vision-Analyse + Caption-Analyse, ~500-700
+    Calls/Woche). Same shape and semantics as the other two: calendar-
+    month window, half-open interval, permissive failure policy. Sums
+    ``cost_usd_millicents`` for the single ``openai`` provider bucket
+    (matches ``aggregate_openai_costs_since`` above).
+    """
+    window_start, window_end = _month_window_utc(now)
+
+    budget_usd = float(settings.openai_monthly_budget_usd or 0.0)
+    budget_usd_cents = int(round(budget_usd * 100))
+
+    try:
+        spent_millicents = int(session.exec(
+            select(func.coalesce(func.sum(CostLog.cost_usd_millicents), 0))
+            .where(CostLog.provider == "openai")
+            .where(CostLog.timestamp >= window_start)
+            .where(CostLog.timestamp < window_end)
+        ).one())
+    except Exception as exc:  # noqa: BLE001
+        # Permissive fallback — same reasoning as the Apify/Anthropic paths.
+        logger.warning("openai-budget-read-failed: %s", exc)
+        spent_millicents = 0
+
+    spent_usd_cents = spent_millicents // 1000
+
+    pct_used = (spent_usd_cents / budget_usd_cents) if budget_usd_cents > 0 else 0.0
+    soft_pct = float(settings.openai_soft_warn_pct or 0.0)
+    hard_pct = float(settings.openai_hard_cap_pct or 0.0)
+
+    return BudgetStatus(
+        window_start=window_start,
+        window_end=window_end,
+        spent_usd_cents=spent_usd_cents,
+        budget_usd_cents=budget_usd_cents,
+        pct_used=pct_used,
+        soft_warn_exceeded=pct_used >= soft_pct,
+        hard_cap_exceeded=pct_used >= hard_pct,
+        enforced=bool(settings.openai_budget_enforced),
+    )
+
+
 def _aggregate_costs_by_provider_prefix(
     session: Session,
     *,
