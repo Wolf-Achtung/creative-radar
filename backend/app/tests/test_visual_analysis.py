@@ -320,6 +320,41 @@ def test_no_source_status_unchanged(session: Session,
     assert result.visual_analysis_status == "no_source"
 
 
+def test_openai_not_called_when_capture_already_fetch_failed(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Incident 2026-07-13: a Vision-Backlog run burned ~$3 on 200/200
+    fetch_failed assets because the OpenAI call still fired with the exact
+    same dead thumbnail_url/screenshot_url that capture_asset_screenshot()
+    had just proven unreachable -- and the result was discarded anyway
+    (fetch_failed always dominates, see test above). The fix must skip the
+    OpenAI call entirely once capture already exhausted every candidate
+    source, not just discard its result afterwards."""
+    asset = _make(session)
+    monkeypatch.setattr(visual_analysis, "capture_asset_screenshot",
+                        lambda a: VisualEvidenceResult(status="fetch_failed"))
+    fake_client = _mock_openai(monkeypatch, return_content='{"ocr_text": "x"}')
+
+    result = analyze_asset_visual(session, asset)
+
+    assert result.visual_analysis_status == "fetch_failed"
+    fake_client.chat.completions.create.assert_not_called()
+
+
+def test_openai_not_called_when_capture_has_no_source(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asset = _make(session)
+    monkeypatch.setattr(visual_analysis, "capture_asset_screenshot",
+                        lambda a: VisualEvidenceResult(status="no_source"))
+    fake_client = _mock_openai(monkeypatch, return_content="{}")
+
+    result = analyze_asset_visual(session, asset)
+
+    assert result.visual_analysis_status == "no_source"
+    fake_client.chat.completions.create.assert_not_called()
+
+
 def test_whitelist_guard_collapses_hallucinated_status_from_heuristic_path(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

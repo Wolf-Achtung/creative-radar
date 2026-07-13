@@ -207,7 +207,19 @@ def analyze_asset_visual(session: Session, asset: Asset) -> Asset:
         asset.visual_evidence_url = evidence.evidence_url
         asset.visual_source_url = evidence.source_url
         asset.visual_evidence_pack = {"full_screenshot": evidence.evidence_url, "title_crop": asset.visual_crop_title_url, "cta_crop": asset.visual_crop_cta_url, "kinetic_crop": asset.visual_crop_kinetic_url, "thumbnail": asset.thumbnail_url, "source_url": evidence.source_url, "captured_at": evidence.captured_at}
-    image_url = asset.visual_evidence_url or asset.thumbnail_url or asset.screenshot_url
+        image_url = asset.visual_evidence_url
+    else:
+        # Incident 2026-07-13: capture_asset_screenshot() already tried every
+        # known source (screenshot_url/thumbnail_url/visual_source_url/
+        # asset_url) via a live fetch and none resolved -- falling back to
+        # asset.thumbnail_url/screenshot_url here would resubmit the exact
+        # same already-proven-dead link to OpenAI, paying for a guaranteed
+        # failure. Common on Vision-Backlog assets whose original social
+        # CDN link (esp. Instagram, ~24-48h validity) expired before the
+        # backlog queue reached them -- one run burned $3 on 200/200
+        # fetch_failed this way. Skip straight to the caption-only
+        # heuristic path below instead.
+        image_url = None
     caption = (post.caption if post else "") or ""
 
     # Variante D / X: Vision weist KEINE title_id mehr zu. Der frühere
