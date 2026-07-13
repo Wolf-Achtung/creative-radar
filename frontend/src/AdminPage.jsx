@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { endpoints } from './api/client';
-import { AdminApp } from './App';
+import { AdminApp } from './AdminApp';
 import './styles.css';
 
 // Sprint 28.05.2026 (Admin-Sektion) — Login-Gate + Logout fuer den
