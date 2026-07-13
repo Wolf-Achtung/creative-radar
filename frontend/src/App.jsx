@@ -29,7 +29,7 @@ function Router() {
 // inhaltlich ueberholt — entfernt. Die anderen drei Werkzeuge wandern
 // in die geschuetzte Admin-Sektion (siehe AdminPage.jsx).
 export const STATUS_OPTIONS = ['all', 'new', 'needs_review', 'approved', 'highlight', 'rejected'];
-export const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'Quellen'];
+export const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'Quellen', 'Monitoring'];
 
 // V3 Perf-Fix: Seitengröße für den "Alle anzeigen"-Modus von "Treffer prüfen".
 export const ASSET_PAGE_SIZE = 50;
@@ -739,6 +739,145 @@ export function SourcesPanel({
   );
 }
 
+// Platin 2 (2026-07-13) — Admin Ops-Dashboard. Reine Anzeige-Komponente
+// auf Basis bereits bestehender Endpoints (cost-summary, die drei
+// */budget-status-Routen, cron/runs), die bislang nur per curl geprüft
+// werden konnten. Lädt erst beim Öffnen des Tabs (kein Extra-Call auf
+// jedem Admin-Seitenaufruf), eigener Fehlerzustand statt globalem
+// error/message-State, damit ein Ladefehler hier nicht die restliche
+// Admin-UI blockiert.
+function formatUsdCents(cents) {
+  if (cents === null || cents === undefined) return '—';
+  try { return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'USD' }).format(Number(cents) / 100); }
+  catch (_) { return `$${(Number(cents) / 100).toFixed(2)}`; }
+}
+
+function formatPct1(fraction) {
+  if (fraction === null || fraction === undefined) return '—';
+  return `${(Number(fraction) * 100).toFixed(1)}%`;
+}
+
+const BUDGET_CARDS = [
+  { key: 'apify', label: 'Apify (Scraping)', fetcher: 'apifyBudgetStatus' },
+  { key: 'anthropic', label: 'Anthropic (Briefs, Vision-Fallback)', fetcher: 'anthropicBudgetStatus' },
+  { key: 'openai', label: 'OpenAI (Vision, Caption)', fetcher: 'openaiBudgetStatus' },
+];
+
+function BudgetStatusCard({ label, status }) {
+  if (!status) return (
+    <div className="ops-budget-card ops-budget-card-loading">
+      <h4>{label}</h4>
+      <p className="muted small">Lädt …</p>
+    </div>
+  );
+  const level = status.hard_cap_exceeded ? 'hard' : status.soft_warn_exceeded ? 'soft' : 'ok';
+  return (
+    <div className={`ops-budget-card ops-budget-card-${level}`}>
+      <h4>{label}</h4>
+      <p className="ops-budget-value">{formatUsdCents(status.spent_usd_cents)} <span className="muted">/ {formatUsdCents(status.budget_usd_cents)}</span></p>
+      <div className="ops-budget-bar-track">
+        <div className="ops-budget-bar" style={{ width: `${Math.min(Math.round((status.pct_used || 0) * 100), 100)}%` }} />
+      </div>
+      <p className="muted small">
+        {formatPct1(status.pct_used)} genutzt
+        {status.hard_cap_exceeded && status.enforced && ' · Limit erreicht, weitere Läufe werden abgebrochen'}
+        {status.hard_cap_exceeded && !status.enforced && ' · Limit erreicht (nicht erzwungen)'}
+        {!status.hard_cap_exceeded && status.soft_warn_exceeded && ' · Warnschwelle erreicht'}
+      </p>
+    </div>
+  );
+}
+
+export function MonitoringPanel() {
+  const [budgets, setBudgets] = useState({});
+  const [costSummary, setCostSummary] = useState(null);
+  const [cronRuns, setCronRuns] = useState(null);
+  const [status, setStatus] = useState('loading'); // 'loading' | 'done' | 'error'
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      Promise.all(BUDGET_CARDS.map((c) => endpoints[c.fetcher]().catch(() => null))),
+      endpoints.costSummary({ groupBy: 'provider' }).catch(() => null),
+      endpoints.cronRuns(10).catch(() => null),
+    ]).then(([budgetResults, cost, runs]) => {
+      if (cancelled) return;
+      const byKey = {};
+      BUDGET_CARDS.forEach((c, i) => { byKey[c.key] = budgetResults[i]; });
+      setBudgets(byKey);
+      setCostSummary(cost);
+      setCronRuns(Array.isArray(runs) ? runs : []);
+      setStatus('done');
+    }).catch(() => { if (!cancelled) setStatus('error'); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <>
+      <Section title="Budgets diesen Monat" kicker="Kalendermonat, UTC">
+        {status === 'error' && <p className="error">Konnte Budget-/Kostendaten nicht laden.</p>}
+        <div className="ops-budget-grid">
+          {BUDGET_CARDS.map((c) => (
+            <BudgetStatusCard key={c.key} label={c.label} status={budgets[c.key]} />
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Kosten nach Provider" kicker="Letzte 30 Tage">
+        {status === 'loading' && <p className="muted small">Lädt …</p>}
+        {status === 'done' && costSummary && costSummary.buckets.length === 0 && (
+          <p className="muted small">Keine Kosten im Zeitraum.</p>
+        )}
+        {status === 'done' && costSummary && costSummary.buckets.length > 0 && (
+          <table className="ops-cost-table">
+            <thead>
+              <tr><th>Provider</th><th>Aufrufe</th><th>Kosten</th></tr>
+            </thead>
+            <tbody>
+              {costSummary.buckets.map((b) => (
+                <tr key={b.key}>
+                  <td>{b.key}</td>
+                  <td>{formatNumber(b.count)}</td>
+                  <td>{formatUsdCents(b.cost_usd_cents)}</td>
+                </tr>
+              ))}
+              <tr className="ops-cost-total">
+                <td>Gesamt</td>
+                <td>{formatNumber(costSummary.total_count)}</td>
+                <td>{formatUsdCents(costSummary.total_cost_usd_cents)}</td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      <Section title="Letzte Cron-Läufe" kicker="Neueste zuerst">
+        {status === 'loading' && <p className="muted small">Lädt …</p>}
+        {status === 'done' && cronRuns && cronRuns.length === 0 && (
+          <p className="muted small">Noch keine Läufe protokolliert.</p>
+        )}
+        {status === 'done' && cronRuns && cronRuns.length > 0 && (
+          <table className="ops-runs-table">
+            <thead>
+              <tr><th>Gestartet</th><th>Status</th><th>Dauer</th><th>Hinweis</th></tr>
+            </thead>
+            <tbody>
+              {cronRuns.map((r) => (
+                <tr key={r.id} className={r.status === 'completed' ? '' : 'ops-runs-row-warn'}>
+                  <td>{formatDateTime(r.started_at)}</td>
+                  <td>{formatCronRunStatus(r.status)}</td>
+                  <td>{r.duration_seconds != null ? `${Math.round(r.duration_seconds / 60)} Min.` : '—'}</td>
+                  <td>{r.error_message || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+    </>
+  );
+}
+
 // Sprint 28.05.2026 (Admin-Sektion): die Tools-Logik aus dem bisherigen
 // App() in eine eigene AdminApp-Komponente herausgezogen + exportiert.
 // AdminPage.jsx wraps sie mit einem Login-Gate. Die Startseite (App()
@@ -1218,6 +1357,7 @@ export function AdminApp({ onLogout }) {
           lastCronRun={lastCronRun}
         />
       )}
+      {activeTab === 'Monitoring' && <MonitoringPanel />}
 
       <footer className="footer-status">
         API: {health?.status || 'offen'} · Kanäle {channels.length} · Titel {titles.length} · Treffer {assets.length}

@@ -2002,3 +2002,60 @@ a:hover { text-decoration: underline; }
   color: #1d2330;
   cursor: help;
 }
+
+/* Platin 2 — Admin Ops-Dashboard (Monitoring-Tab). */
+.ops-budget-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .ops-budget-grid { grid-template-columns: 1fr; }
+}
+.ops-budget-card {
+  border: 1px solid #e7e2d9;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #faf8f4;
+}
+.ops-budget-card h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7c7468;
+}
+.ops-budget-value { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: #1d2330; }
+.ops-budget-bar-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #ece7de;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.ops-budget-bar { height: 100%; background: #2f7a3f; border-radius: 999px; }
+.ops-budget-card-soft .ops-budget-bar { background: #b3722f; }
+.ops-budget-card-hard .ops-budget-bar { background: #b3402f; }
+.ops-budget-card-soft { border-color: #f2c489; }
+.ops-budget-card-hard { border-color: #e0a598; background: #fdf3f0; }
+
+.ops-cost-table, .ops-runs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ops-cost-table th, .ops-cost-table td,
+.ops-runs-table th, .ops-runs-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid #ece7de;
+}
+.ops-cost-table th, .ops-runs-table th {
+  color: #7c7468;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ops-cost-total { font-weight: 700; }
+.ops-runs-row-warn td:nth-child(2) { color: #b3402f; font-weight: 600; }
