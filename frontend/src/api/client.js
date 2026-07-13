@@ -167,11 +167,21 @@ export const endpoints = {
   adminMe: () => api('/api/admin/me'),
 
   // "Jetzt komplett aktualisieren" (Admin-Button): löst den vollen Cron-Lauf
-  // on-demand aus. Default targetWeek='current' + force=true → laufende KW mit
-  // Force-Overwrite (der wöchentliche GitHub-Action-Cron sendet keine Params →
-  // completed/false, byte-identisch). Antwort ist 202 mit run_id; der Lauf ist
-  // ein mehrminütiger BackgroundTask, dessen Status über cronRuns gepollt wird.
-  cronSyncAll: ({ targetWeek = 'current', force = true } = {}) => {
+  // on-demand aus. Default targetWeek='completed' + force=true → gerade
+  // abgeschlossene KW mit Force-Overwrite (identisch zum wöchentlichen
+  // GitHub-Action-Cron, nur eben force=true statt false). Antwort ist 202 mit
+  // run_id; der Lauf ist ein mehrminütiger BackgroundTask, dessen Status über
+  // cronRuns gepollt wird.
+  //
+  // Incident 2026-07-13: der Default war zuvor 'current' — nach einem
+  // gescheiterten Montags-Cron hat ein manueller Klick auf diesen Button
+  // damit die GERADE ERST BEGONNENE KW (Stunden statt Tage an Daten) unter
+  // dem Cache-Key der Woche abgelegt. Der reguläre Cron (target_week=
+  // completed) hat die Woche danach als "schon generiert" übersprungen und
+  // konnte sie nie mehr mit vollständigen Daten überschreiben. 'completed'
+  // als Default macht den Button sicher als Recovery-Pfad nach einem
+  // fehlgeschlagenen Scheduled-Run.
+  cronSyncAll: ({ targetWeek = 'completed', force = true } = {}) => {
     const params = new URLSearchParams({ target_week: targetWeek, force: String(force) });
     return api(`/api/admin/cron/sync-all?${params.toString()}`, { method: 'POST' });
   },

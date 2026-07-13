@@ -1022,9 +1022,12 @@ export function AdminApp({ onLogout }) {
     });
   }
 
-  // "Jetzt komplett aktualisieren": triggert den vollen Cron-Lauf (laufende KW
-  // + Force) und pollt dann GET /cron/runs, bis der BackgroundTask fertig ist.
-  // Kein globales ``busy`` (sperrt sonst 5 Min die UI), kein Kosten-Dialog.
+  // "Jetzt komplett aktualisieren": triggert den vollen Cron-Lauf (gerade
+  // abgeschlossene KW + Force) und pollt dann GET /cron/runs, bis der
+  // BackgroundTask fertig ist. Kein globales ``busy`` (sperrt sonst 5 Min die
+  // UI), kein Kosten-Dialog. target_week='completed' (nicht 'current' — siehe
+  // Incident 2026-07-13 in client.js), damit dieser Button als Recovery nach
+  // einem fehlgeschlagenen Scheduled-Run sicher ist.
   function summarizeCronRun(runRow) {
     const s = runRow?.summary || {};
     const briefs = s.briefs || {};
@@ -1053,7 +1056,7 @@ export function AdminApp({ onLogout }) {
     setCronMessage('');
     setCronBusy(true);
     try {
-      await endpoints.cronSyncAll({ targetWeek: 'current', force: true });
+      await endpoints.cronSyncAll({ targetWeek: 'completed', force: true });
       setCronMessage('Lauf gestartet … (Scrape → Briefs, dauert einige Minuten)');
     } catch (err) {
       // 409: ein Lauf läuft bereits — kein Fehler, sondern Hinweis. Wir pollen
