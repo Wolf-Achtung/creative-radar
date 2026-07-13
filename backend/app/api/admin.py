@@ -526,6 +526,22 @@ def regenerate_insights(
             "~$0.15 Opus-Cost pro Aufruf."
         ),
     ),
+    target_week: str = Query(
+        "completed",
+        pattern="^(completed|current)$",
+        description=(
+            "Incident 2026-07-13 (Folgefund): ohne diesen Parameter griff der "
+            "Endpoint stets ``now=None`` -> ``datetime.now()`` intern, also "
+            "immer die LAUFENDE KW -- ein gezielter Reparatur-Aufruf fuer "
+            "einen einzelnen zuvor fehlgeschlagenen Pair-Brief haette so "
+            "versehentlich die naechste KW mit einem Bruchteil ihrer Daten "
+            "vorzeitig befuellt (derselbe Cache-Poisoning-Mechanismus wie "
+            "beim Montags-Cron-Bug). ``completed`` (Default): gerade "
+            "abgeschlossene KW (``utcnow - 1 Tag``, identisch zum "
+            "woechentlichen Cron). ``current``: laufende KW, fuer den "
+            "seltenen Fall, dass wirklich ein Zwischenstand gebraucht wird."
+        ),
+    ),
     session: Session = Depends(get_session),
 ):
     """Sprint 1 (Persistenz) — manueller Regenerate-Trigger.
@@ -549,6 +565,11 @@ def regenerate_insights(
     Der ``replace``-Param wird per Pair durchgereicht — bei ``pair=all``
     wirkt er auf alle iterierten Pairs gleichermassen.
     """
+    regen_now = (
+        datetime.now(timezone.utc)
+        if target_week == "current"
+        else datetime.now(timezone.utc) - timedelta(days=1)
+    )
     if pair == "all":
         pairs_to_run = [k for k, v in PAIRS.items() if v.get("enabled", False)]
     elif pair in PAIRS:
@@ -580,6 +601,7 @@ def regenerate_insights(
                 window_days=window_days,
                 force=True,
                 replace=replace,
+                now=regen_now,
             )
         except (AnthropicAuthError, AnthropicRateLimitError, AnthropicAPIError) as exc:
             logger.warning("regenerate-insight failed for pair=%s: %s", p, exc)

@@ -92,13 +92,17 @@ def _utc_naive(dt: datetime) -> datetime:
 
 
 def _current_iso_year_week() -> tuple[int, int]:
-    """Heutige ISO (year, week) — die ``/api/admin/insights/regenerate``-
-    Route reicht kein ``now``-Argument an ``generate_and_persist_report``
-    durch, daher fällt ``aggregate_pair`` auf ``datetime.now(timezone.utc)``
-    zurück und der Composite-PK-Lookup geht gegen die heutige ISO-Woche.
-    Tests müssen ihren Seed an dieselbe Woche binden, sonst kippt der
+    """Heutige ISO (year, week). Incident 2026-07-13 (Folgefund): die
+    Route hat jetzt einen ``target_week``-Parameter (Default ``completed``
+    = ``utcnow - 1 Tag``, gegen versehentliches Cache-Poisoning der
+    laufenden KW bei einem gezielten Ein-Pair-Reparatur-Aufruf). Diese
+    Tests binden ihren Seed bewusst an die HEUTIGE Woche und rufen die
+    Route deshalb explizit mit ``target_week=current`` auf, um bei der
+    urspruenglichen "jetzt"-Semantik zu bleiben — sonst kippt der
     ``existing is not None``-Pfad sobald der Wandkalender umblättert
-    (genau das ist mit PR #150 zwischen 2026-05-17 und 2026-05-18 passiert)."""
+    (genau das ist mit PR #150 zwischen 2026-05-17 und 2026-05-18 passiert,
+    und waere ohne das explizite ``target_week=current`` hier wieder
+    passiert, sobald ein Testlauf auf einen Montag faellt)."""
     iso = datetime.now(timezone.utc).isocalendar()
     return iso.year, iso.week
 
@@ -270,7 +274,7 @@ def test_regenerate_with_force_alone_returns_cached_brief(client, db, monkeypatc
 
     response = client.post(
         "/api/admin/insights/regenerate",
-        params={"pair": pair, "force": "true"},
+        params={"pair": pair, "force": "true", "target_week": "current"},
     )
     assert response.status_code == 200, response.text
     body = response.json()
@@ -318,7 +322,7 @@ def test_regenerate_with_replace_triggers_new_generation(client, db, monkeypatch
 
     response = client.post(
         "/api/admin/insights/regenerate",
-        params={"pair": pair, "replace": "true"},
+        params={"pair": pair, "replace": "true", "target_week": "current"},
     )
     assert response.status_code == 200, response.text
 
@@ -347,6 +351,45 @@ def test_regenerate_with_replace_triggers_new_generation(client, db, monkeypatch
             )
         ).all()
         assert len(all_rows) == 1
+
+
+def test_regenerate_default_target_week_is_completed_not_current(
+    client, db, monkeypatch
+):
+    """Incident 2026-07-13 (Folgefund): ohne expliziten ``target_week``-Param
+    muss die Route jetzt die gerade ABGESCHLOSSENE KW treffen
+    (``utcnow - 1 Tag``), nicht die laufende. Ein gezielter Ein-Pair-
+    Reparatur-Aufruf fuer einen zuvor fehlgeschlagenen Brief (z.B. Netflix)
+    darf nicht versehentlich die naechste KW mit einem Bruchteil ihrer
+    Daten vorzeitig befuellen — derselbe Cache-Poisoning-Mechanismus wie
+    beim Montags-Cron-Bug (siehe cron_scheduler.py)."""
+    pair = "disney"
+    fresh_report = _build_synthetic_report(
+        pair, 2026, 1, generated_at=datetime(2026, 5, 17, 14, 0, 0, tzinfo=timezone.utc),
+    )
+    captured_now: list[datetime] = []
+
+    def _mock_generate_weekly_report(session, pair_key, **kwargs):
+        captured_now.append(kwargs["now"])
+        return fresh_report
+
+    monkeypatch.setattr(
+        engine_module, "generate_weekly_report", _mock_generate_weekly_report,
+    )
+
+    response = client.post(
+        "/api/admin/insights/regenerate",
+        params={"pair": pair, "replace": "true"},  # kein target_week -> Default
+    )
+    assert response.status_code == 200, response.text
+    assert len(captured_now) == 1
+
+    expected = datetime.now(timezone.utc) - timedelta(days=1)
+    delta = abs((captured_now[0] - expected).total_seconds())
+    assert delta < 5, (
+        f"Default target_week muss 'completed' (utcnow - 1 Tag) sein, "
+        f"bekam now={captured_now[0]!r}"
+    )
 
 
 def test_regenerate_all_with_replace_triggers_all_enabled_pairs(client, db, monkeypatch):
@@ -380,7 +423,7 @@ def test_regenerate_all_with_replace_triggers_all_enabled_pairs(client, db, monk
 
     response = client.post(
         "/api/admin/insights/regenerate",
-        params={"pair": "all", "replace": "true"},
+        params={"pair": "all", "replace": "true", "target_week": "current"},
     )
     assert response.status_code == 200, response.text
 
@@ -447,7 +490,7 @@ def test_regenerate_surfaces_raw_llm_text_on_generation_failure(client, db, monk
 
     response = client.post(
         "/api/admin/insights/regenerate",
-        params={"pair": pair, "replace": "false"},
+        params={"pair": pair, "replace": "false", "target_week": "current"},
     )
     assert response.status_code == 200, response.text
 
