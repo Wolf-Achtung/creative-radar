@@ -1,30 +1,33 @@
 name: Cron Sync
 
-# Triggers the Apify cron-sync endpoint every Monday at 03:00 UTC.
-# Schedule expression: minute hour day-of-month month day-of-week
-#   "0 3 * * 1"  — Monday (1) at 03:00 UTC
-# Berlin time: 05:00 Berlin (CEST, summer) / 04:00 CET (winter).
+# Manueller Fallback-Trigger fuer den Apify-Cron-Sync-Endpoint.
 #
-# Cadence-Sprint 2026-05-17: Schedule von Sonntag auf Montag verschoben,
-# damit Brief-Generation in derselben Cron-Stage läuft, in der Cutter Montag
-# früh ins Office kommen. Sonntag-Variante hatte Scrape ohne Briefs erzeugt
-# → Cutter sahen montags den Mittwochs-Brief vom Lazy-Generate-Burst.
-# B-Class channel rotation cycles through 3 buckets — Monday picks one bucket
-# per week, the other two get picked up in the following weeks.
+# Incident 2026-07-13: der bisherige ``schedule: '0 3 * * 1'``-Trigger
+# feuerte ueber sieben beobachtete Wochen hinweg konsistent 1,5-4,5h zu
+# spaet (GitHubs eigenes Best-effort-Scheduling fuer den geteilten
+# Actions-Runner-Pool, kein Bug in diesem Repo). Der primaere woechentliche
+# Trigger laeuft seitdem in-process im Backend selbst
+# (``backend/app/services/cron_scheduler.py`` — derselbe immer-laufende
+# Railway-Web-Prozess pollt die Uhrzeit selbst, keine externe Runner-Queue
+# mehr im Trigger-Pfad). Der ``schedule:``-Block hier wurde deshalb entfernt;
+# dieser Workflow existiert nur noch fuer manuelle Verifikations-/Recovery-
+# Laeufe ueber die GitHub-Actions-UI.
+#
+# Cadence-Sprint 2026-05-17: der (ehemalige) Schedule war bewusst auf Montag
+# gelegt, damit Brief-Generation in derselben Cron-Stage läuft, in der
+# Cutter Montag früh ins Office kommen — gilt unveraendert fuer den
+# In-Process-Trigger.
 #
 # Setup once (Wolf-Aktion, see PR body):
 #   Settings -> Secrets and variables -> Actions
 #     CR_API_URL    = https://api.creative-radar.de
 #     CR_API_TOKEN  = <bearer token used for manual curl>
 #
-# ``workflow_dispatch`` ist seit Sprint 5.3.5 aktiv und erlaubt manuelle
-# Test-Runs über die GitHub-Actions-UI (Actions → "Cron Sync" → "Run
-# workflow"). Nach Merge des Cadence-Sprints nutzt Wolf das für den
-# Verifikations-Lauf, siehe PR-Body Phase-C-Plan.
+# ``workflow_dispatch`` erlaubt manuelle Runs über die GitHub-Actions-UI
+# (Actions → "Cron Sync" → "Run workflow") — z.B. zur Verifikation oder als
+# Notfall-Fallback, falls der In-Process-Trigger mal ausfaellt.
 
 on:
-  schedule:
-    - cron: '0 3 * * 1'
   workflow_dispatch:
 
 jobs:
