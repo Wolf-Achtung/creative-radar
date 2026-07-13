@@ -2902,6 +2902,78 @@ def aggregate_pair(
     )
 
 
+BREAKOUT_FEED_DEFAULT_LIMIT = 20
+BREAKOUT_FEED_MIN_MULTIPLIER = 2.0
+
+
+def compute_breakout_feed(
+    session: Session,
+    *,
+    window_days: int = 30,
+    now: Optional[datetime] = None,
+    limit: int = BREAKOUT_FEED_DEFAULT_LIMIT,
+    min_multiplier: float = BREAKOUT_FEED_MIN_MULTIPLIER,
+) -> list[dict]:
+    """Platin 4 — Pair-übergreifender Breakout-Feed fürs Admin Ops-Dashboard.
+
+    Wiederverwendet ``aggregate_pair`` (rein DB-basiert, KEIN LLM-Call) und
+    sammelt die darin bereits berechneten ``ChannelStats.breakouts``
+    (Sprint 28.05.2026, Punkt 4 — Z-Score gegen die Channel-Baseline,
+    Recency-decayed) über ALLE aktivierten Pairs/Plattformen/Märkte ein.
+
+    Die per-Channel-``breakouts``-Liste selbst hat keine Mindestschwelle
+    (Top-3 nach ``weighted_score``, auch wenn keiner davon wirklich
+    heraussticht) — für einen pair-übergreifenden Feed wollen wir nur
+    echte Ausreisser, daher der zusätzliche ``multiplier >= min_multiplier``
+    Filter (Default 2x Kanal-Schnitt).
+
+    Rein lesend, keine neuen Kosten (kein Anthropic-/OpenAI-Call) — kann
+    beliebig oft aufgerufen werden, z.B. für Dashboard-Polling. Ein
+    Aggregations-Fehler bei einem einzelnen Pair (Daten-Edge-Case) wird
+    geloggt und übersprungen, statt den ganzen Feed zu leeren — dieselbe
+    Isolations-Konvention wie beim ``pair=all``-Regenerate-Loop.
+    """
+    window_end = now or datetime.now(timezone.utc)
+    entries: list[dict] = []
+    for pair_key, pair_def in PAIRS.items():
+        if not pair_def.get("enabled", False):
+            continue
+        try:
+            agg = aggregate_pair(session, pair_key, window_days=window_days, now=window_end)
+        except Exception:
+            logger.exception("breakout_feed.aggregate_pair_failed pair=%s", pair_key)
+            continue
+        for platform_agg in agg.per_platform:
+            for market, channel in (
+                ("DE", platform_agg.de_channel),
+                ("US", platform_agg.us_channel),
+                ("UK", platform_agg.uk_channel),
+            ):
+                if channel is None:
+                    continue
+                for post in channel.breakouts:
+                    score = post.breakout_score
+                    if score is None or score.multiplier < min_multiplier:
+                        continue
+                    entries.append({
+                        "pair_key": pair_key,
+                        "pair_label": pair_def.get("label", pair_key),
+                        "platform": platform_agg.platform,
+                        "market": market,
+                        "post_url": post.post_url,
+                        "caption_excerpt": post.caption_excerpt,
+                        "views": post.views,
+                        "engagement_sum": post.engagement_sum,
+                        "published_at": post.published_at.isoformat() if post.published_at else None,
+                        "multiplier": round(score.multiplier, 2),
+                        "weighted_score": round(score.weighted_score, 3),
+                        "z_score": round(score.z_score, 2),
+                    })
+
+    entries.sort(key=lambda e: (-e["weighted_score"], -(e["views"] or 0), e["post_url"] or ""))
+    return entries[:limit]
+
+
 def _empty_title_coverage() -> TitleCoverage:
     """Zero-valued TitleCoverage. Used as the fallback when a pair has no
     platforms configured at all (defensive — every enabled pair has at

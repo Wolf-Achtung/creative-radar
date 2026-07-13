@@ -199,4 +199,7 @@ export const endpoints = {
   apifyBudgetStatus: () => api('/api/admin/budget-status'),
   anthropicBudgetStatus: () => api('/api/admin/anthropic-budget-status'),
   openaiBudgetStatus: () => api('/api/admin/openai-budget-status'),
+
+  // Platin 4 — Breakout-Feed über alle Pairs (rein lesend, kein LLM-Call).
+  breakouts: ({ limit = 20 } = {}) => api(`/api/admin/breakouts?limit=${limit}`),
 };

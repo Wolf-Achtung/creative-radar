@@ -65,7 +65,12 @@ from app.services.budget_check import (
 )
 from app.core.feature_flags import is_segment_roundups_enabled
 from app.models.entities import ChannelSegment
-from app.services.insight_engine import PAIRS, generate_and_persist_report, run_prompt_eval
+from app.services.insight_engine import (
+    PAIRS,
+    compute_breakout_feed,
+    generate_and_persist_report,
+    run_prompt_eval,
+)
 from app.services.forecast import generate_er_forecast
 from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
@@ -228,6 +233,27 @@ def openai_budget_status(session: Session = Depends(get_session)) -> dict:
     ``openai``-provider bucket (Vision-Analyse + Caption-Analyse).
     """
     return compute_openai_monthly_spend(session).to_dict()
+
+
+@router.get("/breakouts")
+def breakouts(
+    window_days: int = Query(30, ge=7, le=90),
+    limit: int = Query(20, ge=1, le=100),
+    min_multiplier: float = Query(2.0, ge=1.0, le=20.0),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Platin 4 — Breakout-Feed über alle aktivierten Pairs.
+
+    Rein lesend, kein LLM-Call: wiederverwendet ``aggregate_pair`` (DB-only)
+    und die darin bereits berechneten ``ChannelStats.breakouts``, gefiltert
+    auf ``multiplier >= min_multiplier`` (Default 2x Kanal-Schnitt) und
+    sortiert nach ``weighted_score`` (Z-Score × Recency-Decay) absteigend.
+    Kann beliebig oft aufgerufen werden — keine Budget-Auswirkung.
+    """
+    entries = compute_breakout_feed(
+        session, window_days=window_days, limit=limit, min_multiplier=min_multiplier,
+    )
+    return {"count": len(entries), "min_multiplier": min_multiplier, "entries": entries}
 
 
 # ---------- YouTube sync (Sprint 5.2.3) -------------------------------

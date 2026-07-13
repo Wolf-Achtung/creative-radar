@@ -2059,3 +2059,18 @@ a:hover { text-decoration: underline; }
 }
 .ops-cost-total { font-weight: 700; }
 .ops-runs-row-warn td:nth-child(2) { color: #b3402f; font-weight: 600; }
+
+.ops-breakouts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ops-breakouts-table th, .ops-breakouts-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid #ece7de;
+}
+.ops-breakouts-table th {
+  color: #7c7468;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ops-breakouts-caption a { color: #1d2330; }
+.ops-breakouts-multiplier { font-weight: 700; color: #c8744a; white-space: nowrap; }

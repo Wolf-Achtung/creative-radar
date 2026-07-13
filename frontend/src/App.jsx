@@ -788,10 +788,16 @@ function BudgetStatusCard({ label, status }) {
   );
 }
 
+function formatMultiplier(value) {
+  if (value === null || value === undefined) return '—';
+  return `${Number(value).toFixed(1)}x`;
+}
+
 export function MonitoringPanel() {
   const [budgets, setBudgets] = useState({});
   const [costSummary, setCostSummary] = useState(null);
   const [cronRuns, setCronRuns] = useState(null);
+  const [breakouts, setBreakouts] = useState(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'done' | 'error'
 
   useEffect(() => {
@@ -800,13 +806,15 @@ export function MonitoringPanel() {
       Promise.all(BUDGET_CARDS.map((c) => endpoints[c.fetcher]().catch(() => null))),
       endpoints.costSummary({ groupBy: 'provider' }).catch(() => null),
       endpoints.cronRuns(10).catch(() => null),
-    ]).then(([budgetResults, cost, runs]) => {
+      endpoints.breakouts({ limit: 15 }).catch(() => null),
+    ]).then(([budgetResults, cost, runs, breakoutFeed]) => {
       if (cancelled) return;
       const byKey = {};
       BUDGET_CARDS.forEach((c, i) => { byKey[c.key] = budgetResults[i]; });
       setBudgets(byKey);
       setCostSummary(cost);
       setCronRuns(Array.isArray(runs) ? runs : []);
+      setBreakouts(breakoutFeed?.entries ?? []);
       setStatus('done');
     }).catch(() => { if (!cancelled) setStatus('error'); });
     return () => { cancelled = true; };
@@ -846,6 +854,35 @@ export function MonitoringPanel() {
                 <td>{formatNumber(costSummary.total_count)}</td>
                 <td>{formatUsdCents(costSummary.total_cost_usd_cents)}</td>
               </tr>
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      <Section title="Breakouts" kicker="Über alle Pairs, ≥2x Kanal-Schnitt">
+        {status === 'loading' && <p className="muted small">Lädt …</p>}
+        {status === 'done' && breakouts && breakouts.length === 0 && (
+          <p className="muted small">Aktuell keine Ausreisser über der Schwelle.</p>
+        )}
+        {status === 'done' && breakouts && breakouts.length > 0 && (
+          <table className="ops-breakouts-table">
+            <thead>
+              <tr><th>Pair</th><th>Markt</th><th>Post</th><th>Vielfaches</th><th>Aufrufe</th></tr>
+            </thead>
+            <tbody>
+              {breakouts.map((b) => (
+                <tr key={b.post_url}>
+                  <td>{b.pair_label}</td>
+                  <td>{b.market}</td>
+                  <td className="ops-breakouts-caption">
+                    <a href={b.post_url} target="_blank" rel="noreferrer">
+                      {clip(b.caption_excerpt || b.post_url, 70)}
+                    </a>
+                  </td>
+                  <td className="ops-breakouts-multiplier">{formatMultiplier(b.multiplier)}</td>
+                  <td>{formatNumber(b.views)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
