@@ -336,6 +336,12 @@ def test_reuses_ingest_time_evidence_without_refetching(
     capture_mock.assert_not_called()
     assert result.visual_evidence_url == "evidence/already-secured.jpg"
     assert result.visual_analysis_status == "analyzed"
+    # Re-Audit-Folgefund 2026-07-13: captured_at must NOT silently land as
+    # None just because the reused evidence came from ingest time (which
+    # records no timestamp of its own) -- that would misread as "capture
+    # failed" to a future reader. asset.created_at is the closest available
+    # approximation.
+    assert result.visual_evidence_pack["captured_at"] == result.created_at.isoformat()
 
 
 def test_still_live_fetches_when_no_ingest_time_evidence(
