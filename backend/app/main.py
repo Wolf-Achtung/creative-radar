@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 
@@ -9,6 +10,7 @@ from app.config import settings
 from app.database import create_db_and_tables
 from app.auth import auth_middleware
 from app.api import health, channels, titles, posts, assets, reports, monitor, insights, proxy, admin, cron, thumbnails
+from app.services.cron_scheduler import run_scheduler_loop
 
 # Configure the root logger to stream INFO+ to stdout. Without this, Python's
 # default "lastResort" handler only emits WARNING+ to stderr, so every
@@ -79,8 +81,15 @@ app.mount("/storage", StaticFiles(directory=str(storage_path)), name="storage")
 
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     create_db_and_tables()
+    # Incident 2026-07-13: der bisherige alleinige Trigger (GitHub Actions
+    # Schedule) feuerte woechentlich 1,5-4,5h zu spaet. Der Loop unten laeuft
+    # im selben Prozess und pollt die Uhrzeit selbst -- keine externe
+    # Runner-Queue mehr im Trigger-Pfad. Referenz auf app.state, damit die
+    # Task nicht vom GC eingesammelt wird (asyncio-Empfehlung fuer
+    # "fire-and-forget"-Tasks).
+    app.state.cron_scheduler_task = asyncio.create_task(run_scheduler_loop())
 
 
 app.include_router(health.router)
