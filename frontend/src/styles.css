@@ -1488,6 +1488,7 @@ a:hover { text-decoration: underline; }
   .pair-tile-action,
   .hero__back-link,
   .site-footer,
+  .page-nav,
   nav.tabs {
     display: none !important;
   }
@@ -2075,6 +2076,34 @@ a:hover { text-decoration: underline; }
 }
 .ops-breakouts-caption a { color: #1d2330; }
 .ops-breakouts-multiplier { font-weight: 700; color: #a74435; white-space: nowrap; }
+
+/* UX-Audit Befund 9 — "Auf dieser Seite"-Sprungnavigation der Brief-Seite. */
+.page-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.page-nav-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #6f675b;
+}
+.page-nav-chip {
+  background: #f8f5ee;
+  border: 1px solid #e6ded1;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1d2330;
+  cursor: pointer;
+}
+.page-nav-chip:hover { background: #efe9de; }
+.page-nav-chip:focus-visible { outline: 2px solid #a74435; outline-offset: 1px; }
 
 /* UX-Audit Befunde 1+8 — globaler Footer (Rechtliches + Admin-Link). */
 .site-footer {
