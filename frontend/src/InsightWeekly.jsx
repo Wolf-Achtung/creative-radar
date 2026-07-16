@@ -243,7 +243,7 @@ function LLMDetailSections({ output }) {
                     Top-Post ansehen ↗
                   </a>
                 )}
-                <span style={{ color: '#888', marginLeft: '0.5rem', fontSize: '0.9em' }}>
+                <span style={{ color: '#6f675b', marginLeft: '0.5rem', fontSize: '0.9em' }}>
                   · {item.markt} · {item.format_typ}
                   {item.release_datum && ` · ${item.release_datum}`}
                   {item.verdict && ` · ${item.verdict}`}
@@ -264,7 +264,7 @@ function LLMDetailSections({ output }) {
                 {item.bezug && (
                   <div style={{
                     fontSize: '0.75em',
-                    color: '#888',
+                    color: '#6f675b',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                     marginBottom: '0.25rem',

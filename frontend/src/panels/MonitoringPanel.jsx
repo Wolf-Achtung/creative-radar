@@ -104,10 +104,10 @@ export function MonitoringPanel() {
 
       <Section title="Kosten nach Provider" kicker="Letzte 30 Tage">
         {status === 'loading' && <p className="muted small">Lädt …</p>}
-        {status === 'done' && costSummary && costSummary.buckets.length === 0 && (
+        {status === 'done' && costSummary?.buckets && costSummary.buckets.length === 0 && (
           <p className="muted small">Keine Kosten im Zeitraum.</p>
         )}
-        {status === 'done' && costSummary && costSummary.buckets.length > 0 && (
+        {status === 'done' && costSummary?.buckets && costSummary.buckets.length > 0 && (
           <table className="ops-cost-table">
             <thead>
               <tr><th>Provider</th><th>Aufrufe</th><th>Kosten</th></tr>

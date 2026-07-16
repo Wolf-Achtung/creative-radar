@@ -204,8 +204,11 @@ export default function RoundupBlock() {
       marginBottom: '1.5rem',
       borderRadius: '12px',
     }}>
+      {/* UX-Audit Befund 6 (2026-07-14): helleres Coral auf dunklem Teal
+          (#ffa294, 4.87:1) statt #F26B5E (3.16:1) — WCAG AA für kleinen
+          Text. Gleicher Fix wie der Kicker der Studio-Sektion. */}
       <p style={{
-        color: '#F26B5E',
+        color: '#ffa294',
         fontSize: '0.75em',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
@@ -216,10 +219,10 @@ export default function RoundupBlock() {
       <SectionHelpPanel sectionKey="landingRoundups" onDark />
 
       {roundups === null && (
-        <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Roundups …</p>
+        <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>Lade Roundups …</p>
       )}
       {error && (
-        <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>
+        <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>
           Roundups momentan nicht verfügbar. Bitte später erneut versuchen.
         </p>
       )}

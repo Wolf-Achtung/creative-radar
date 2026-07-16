@@ -129,8 +129,8 @@ export default function AdminPage() {
             <h1>Creative Radar</h1>
           </div>
         </header>
-        <p style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
-          Pruefe Anmeldung …
+        <p style={{ textAlign: 'center', padding: '2rem', color: '#6f675b' }}>
+          Prüfe Anmeldung …
         </p>
       </main>
     );
