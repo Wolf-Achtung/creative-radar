@@ -4,6 +4,7 @@ import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
 import { GLOSSARY, GLOSSARY_ORDER, glossaryDefinition, glossaryFull } from './glossary';
 import { GlossaryHint, HelpTooltip, SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
+import { SiteFooter } from './components/SiteFooter';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
@@ -242,7 +243,7 @@ function LLMDetailSections({ output }) {
                     Top-Post ansehen ↗
                   </a>
                 )}
-                <span style={{ color: '#888', marginLeft: '0.5rem', fontSize: '0.9em' }}>
+                <span style={{ color: '#6f675b', marginLeft: '0.5rem', fontSize: '0.9em' }}>
                   · {item.markt} · {item.format_typ}
                   {item.release_datum && ` · ${item.release_datum}`}
                   {item.verdict && ` · ${item.verdict}`}
@@ -263,7 +264,7 @@ function LLMDetailSections({ output }) {
                 {item.bezug && (
                   <div style={{
                     fontSize: '0.75em',
-                    color: '#888',
+                    color: '#6f675b',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                     marginBottom: '0.25rem',
@@ -716,16 +717,74 @@ function useLocalStorage(key, defaultValue) {
 // Default false: normaler Browser-Modus arbeitet exakt wie vorher.
 const PrintModeContext = createContext(false);
 
+// UX-Audit Befund 9 (2026-07-14) — Sprungnavigation "Auf dieser Seite".
+// Die Brief-Seite stapelt 10+ standardmäßig geschlossene Sektionen; ohne
+// Übersicht ist Orientierung nur durch Scrollen möglich. Sektionen
+// registrieren sich selbst (nur wenn sie wirklich rendern — bedingte
+// Sektionen wie Breakouts/Forecast tauchen sonst nicht auf), die
+// PageNav rendert daraus sortierte Sprung-Chips. Der Kontext trägt NUR
+// die stabile Register-API (useMemo, keine Daten) — die Sektionsliste
+// fließt als Prop in PageNav, sonst würde jede Registrierung alle
+// registrierenden Effects re-triggern.
+const SectionNavContext = createContext(null);
+
+function useSectionNav(anchorId, label, order, enabled = true) {
+  const ctx = useContext(SectionNavContext);
+  useEffect(() => {
+    if (!anchorId || !ctx || !enabled) return undefined;
+    ctx.register({ id: anchorId, label, order });
+    return () => ctx.unregister(anchorId);
+  }, [anchorId, label, order, enabled, ctx]);
+}
+
+function PageNav({ sections }) {
+  // Unter 3 Sektionen ist die Leiste Noise statt Orientierung.
+  if (!sections || sections.length < 3) return null;
+  const sorted = [...sections].sort((a, b) => a.order - b.order);
+  const jump = (id) => {
+    // Erst die (ggf. zugeklappte) Ziel-Sektion öffnen, dann scrollen —
+    // CollapsibleCards mit anchorId lauschen auf dieses Event.
+    window.dispatchEvent(new CustomEvent('cr-open-section', { detail: id }));
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+  return (
+    <nav className="page-nav" aria-label="Auf dieser Seite">
+      <span className="page-nav-label">Auf dieser Seite:</span>
+      {sorted.map((s) => (
+        <button key={s.id} type="button" className="page-nav-chip" onClick={() => jump(s.id)}>
+          {s.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 function CollapsibleCard({
   title,
   subtitle,
   defaultOpen = false,
   variant = 'card',
   helpKey = null,
+  // UX-Audit Befund 9: Top-Level-Karten mit anchorId registrieren sich
+  // in der PageNav und öffnen sich beim Sprung dorthin. navLabel kürzt
+  // lange Titel für den Chip, navOrder sortiert (Registrierung passiert
+  // bei async nachladenden Sektionen nicht in Dokumentreihenfolge).
+  anchorId = null,
+  navLabel = null,
+  navOrder = 99,
   children,
 }) {
   const printMode = useContext(PrintModeContext);
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  useSectionNav(anchorId, navLabel || title, navOrder);
+  useEffect(() => {
+    if (!anchorId) return undefined;
+    const onOpen = (event) => { if (event.detail === anchorId) setIsOpen(true); };
+    window.addEventListener('cr-open-section', onOpen);
+    return () => window.removeEventListener('cr-open-section', onOpen);
+  }, [anchorId]);
   // effectiveOpen: im PrintMode IMMER offen, sonst der User-State.
   // Aenderung gegenueber #192: die Render-Bedingung unten reagiert auf
   // ``effectiveOpen``, der State-Zyklus (User-Toggle, ViewMode-Sync)
@@ -768,7 +827,7 @@ function CollapsibleCard({
     </button>
   );
   return (
-    <section className={className}>
+    <section className={className} id={anchorId || undefined}>
       {helpKey ? (
         <>
           <div className="collapsible-header-row">
@@ -1168,6 +1227,9 @@ function CrossMarketHeadlineSection({ aggregation, llmOutput }) {
       title="Drei Märkte, ein Film — DE / US / UK im Vergleich"
       defaultOpen={false}
       helpKey="pairCrossMarket"
+      anchorId="sec-cross-market"
+      navLabel="Drei Märkte"
+      navOrder={3}
     >
       <div className="cm-axis-grid">
         <CrossMarketAxisBlock
@@ -1291,7 +1353,7 @@ function BreakoutsSection({ aggregation, pairKey }) {
     return null;
   }
   return (
-    <CollapsibleCard title="Breakouts dieser Woche" defaultOpen={false} helpKey="pairBreakouts">
+    <CollapsibleCard title="Breakouts dieser Woche" defaultOpen={false} helpKey="pairBreakouts" anchorId="sec-breakouts" navLabel="Breakouts" navOrder={2}>
       <p className="breakouts-intro">
         Posts, die deutlich über dem Kanal-Schnitt liegen — relativ, nicht absolut.
         <GlossaryHint term="breakout" />
@@ -1381,17 +1443,20 @@ function TopRankingSection({ aggregation, pairKey }) {
     [aggregation, platformFilter, rangeFilter],
   );
 
+  // If the filter hides everything but there's data on other platforms /
+  // anderen Zeitraeumen, keep the section visible with an empty-state
+  // hint instead of a sudden disappear-on-select. ``'all'`` + ``'30d'``
+  // ist der unfilterte Vergleichs-Stand. (UX-Audit Befund 9: vor den
+  // Early-Return gezogen, damit der useSectionNav-Hook unconditional
+  // laeuft und die Sektion nur bei echtem Rendern in der PageNav steht.)
+  const hasAnyData = deList.length > 0 || usList.length > 0 || ukList.length > 0
+    || collectRankedPosts(aggregation, 'DE', 'all').length > 0
+    || collectRankedPosts(aggregation, 'US', 'all').length > 0
+    || collectRankedPosts(aggregation, 'UK', 'all').length > 0;
+  useSectionNav('sec-top-posts', 'Top-Posts', 1, hasAnyData);
+
   // Graceful degrade for older persisted briefs (pre-Sprint-2).
-  if (deList.length === 0 && usList.length === 0 && ukList.length === 0) {
-    // If the filter hides everything but there's data on other platforms /
-    // anderen Zeitraeumen, keep the section visible with an empty-state
-    // hint instead of a sudden disappear-on-select. ``'all'`` + ``'30d'``
-    // ist der unfilterte Vergleichs-Stand.
-    const hasAnyData = collectRankedPosts(aggregation, 'DE', 'all').length > 0
-      || collectRankedPosts(aggregation, 'US', 'all').length > 0
-      || collectRankedPosts(aggregation, 'UK', 'all').length > 0;
-    if (!hasAnyData) return null;
-  }
+  if (!hasAnyData) return null;
 
   // Sprint 28.05.2026 (PDF-Baustein 2): im Print alle Top-Posts (bis
   // zum ranked_posts-limit von 10) zeigen, sonst der "Mehr"-Toggle-
@@ -1406,7 +1471,7 @@ function TopRankingSection({ aggregation, pairKey }) {
     : 'Keine Daten';
 
   return (
-    <section className="ranking-section card">
+    <section className="ranking-section card" id="sec-top-posts">
       <div className="ranking-header">
         <h3>Top-Posts<SectionHelpHint sectionKey="pairTopPosts" /></h3>
         <div className="ranking-controls">
@@ -1784,6 +1849,11 @@ function FilmDetailSection({ fokusItems }) {
     return () => { cancelled = true; };
   }, [selectedId]);
 
+  // UX-Audit Befund 9: vor dem Early-Return registrieren (Hook muss
+  // unconditional laufen); enabled-Flag hält die PageNav sauber, wenn
+  // die Sektion nicht rendert.
+  useSectionNav('sec-film-detail', 'Film-Detail', 4, titleOptions.length > 0);
+
   if (titleOptions.length === 0) return null;
 
   const marketByName = {};
@@ -1792,7 +1862,7 @@ function FilmDetailSection({ fokusItems }) {
   }
 
   return (
-    <section className="card film-detail-section">
+    <section className="card film-detail-section" id="sec-film-detail">
       <div className="film-detail-header">
         <h3>Film-Detailansicht<SectionHelpHint sectionKey="pairFilmDetail" /></h3>
         <select
@@ -2076,7 +2146,7 @@ function MarketTimelineSection({ pair }) {
   if (status === 'done' && weeks.length === 0) return null;
 
   return (
-    <CollapsibleCard title="Markt-Zeitreihe" defaultOpen={false} helpKey="pairTimeline">
+    <CollapsibleCard title="Markt-Zeitreihe" defaultOpen={false} helpKey="pairTimeline" anchorId="sec-timeline" navLabel="Zeitreihe" navOrder={8}>
       {status === 'done' && (
         <p className="market-timeline-weekcount">
           {weeks.length} {weeks.length === 1 ? 'Woche' : 'Wochen'}
@@ -2144,6 +2214,9 @@ function ErForecastSection({ pair }) {
       subtitle={next ? `für KW ${next.iso_week}/${next.iso_year}` : undefined}
       defaultOpen={false}
       helpKey="pairForecast"
+      anchorId="sec-forecast"
+      navLabel="ER-Prognose"
+      navOrder={9}
     >
       <p className="er-forecast-note">
         Lineare Regression über die Interaktionsrate der bisherigen Wochen, dazu
@@ -2210,6 +2283,16 @@ export default function InsightWeekly({ pair }) {
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'slow' | 'done' | 'error'
   const [windowDays, setWindowDays] = useState(30);
   const [dryRun, setDryRun] = useState(false);
+  // UX-Audit Befund 9: Registry der gerenderten Top-Level-Sektionen für
+  // die "Auf dieser Seite"-Sprungnavigation. Die API ist stabil
+  // (useMemo ohne Deps), die Liste fließt als Prop in <PageNav> — nicht
+  // über den Kontext, sonst würde jede Registrierung alle
+  // useSectionNav-Effects re-triggern.
+  const [navSections, setNavSections] = useState([]);
+  const navApi = useMemo(() => ({
+    register: (entry) => setNavSections((prev) => [...prev.filter((e) => e.id !== entry.id), entry]),
+    unregister: (id) => setNavSections((prev) => prev.filter((e) => e.id !== id)),
+  }), []);
 
   async function load() {
     setStatus('loading');
@@ -2268,13 +2351,16 @@ export default function InsightWeekly({ pair }) {
 
   return (
     <PrintModeContext.Provider value={printMode}>
+    <SectionNavContext.Provider value={navApi}>
     <main className={`page insight-page ${printMode ? 'is-print' : ''}`}>
       <header className="hero">
         <div className="hero__left">
           {/* Rueckweg zur Startseite — vorher Sackgasse aus der Pair-Brief-
               Ansicht, kein klickbares Logo. Schlichter Text-Link ueber dem
               Eyebrow, fuegt sich in das bestehende Hero-Layout ein. */}
-          <a href="/" className="hero__back-link">← Übersicht</a>
+          {/* UX-Audit Befund 5 (2026-07-14): einheitliches Rückweg-Label
+              auf allen Seiten ("← zur Übersicht"). */}
+          <a href="/" className="hero__back-link">← zur Übersicht</a>
           <p className="eyebrow">STUDIO-REVIEW</p>
           <h1>{label}</h1>
           <p>Social-Media-Wochenanalyse — DE, US, UK im Vergleich.</p>
@@ -2361,6 +2447,8 @@ export default function InsightWeekly({ pair }) {
               Render-Logik und ihren section_help-Key selbst. */}
           <LLMHeadlineCard output={report.llm_output} raw={report.raw_llm_text} />
 
+          <PageNav sections={navSections} />
+
           <TopRankingSection
             aggregation={report.aggregation}
             pairKey={pair}
@@ -2396,6 +2484,9 @@ export default function InsightWeekly({ pair }) {
                 subtitle="Worum geht's · Pattern · Trends + Actions · Watch-Outs · Tonalität · Konkurrenz"
                 defaultOpen={false}
                 helpKey="pairWeekDetail"
+                anchorId="sec-week-detail"
+                navLabel="Wochen-Detail"
+                navOrder={5}
               >
                 <LLMDetailSections output={report.llm_output} />
               </CollapsibleCard>
@@ -2405,6 +2496,9 @@ export default function InsightWeekly({ pair }) {
                 subtitle="Cutter · Motion-Designer · Creative Producer · Vergleichbare Posts"
                 defaultOpen={false}
                 helpKey="pairRoles"
+                anchorId="sec-roles"
+                navLabel="Kreativ-Empfehlungen"
+                navOrder={6}
               >
                 <LLMRoleSections
                   output={report.llm_output}
@@ -2419,6 +2513,9 @@ export default function InsightWeekly({ pair }) {
             subtitle="TikTok · Instagram · YouTube — Channel-Stats pro Markt"
             defaultOpen={false}
             helpKey="pairPlatformDetails"
+            anchorId="sec-platforms"
+            navLabel="Plattform-Details"
+            navOrder={7}
           >
             <MultiPlatformStats aggregation={report.aggregation} />
           </CollapsibleCard>
@@ -2437,6 +2534,9 @@ export default function InsightWeekly({ pair }) {
               subtitle="Risks · Data Caveats"
               defaultOpen={false}
               helpKey="pairMethodology"
+              anchorId="sec-methodology"
+              navLabel="Methodik"
+              navOrder={10}
             >
               <LLMMetaSection output={report.llm_output} />
             </CollapsibleCard>
@@ -2453,10 +2553,12 @@ export default function InsightWeekly({ pair }) {
       )}
 
       <footer className="footer-status">
-        <a href="/">← zurück zum Hauptdashboard</a>
+        <a href="/">← zur Übersicht</a>
         {report && <span> · generiert {formatDateISO(report.generated_at)}</span>}
       </footer>
+      <SiteFooter />
     </main>
+    </SectionNavContext.Provider>
     </PrintModeContext.Provider>
   );
 }

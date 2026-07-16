@@ -99,7 +99,7 @@ button:hover:not(:disabled) { transform: translateY(-1px); }
   border: 1px solid #ece4d8;
 }
 .card h2 { margin: 0 0 14px; font-size: 30px; letter-spacing: -0.02em; }
-.section-kicker { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #F26B5E; font-weight: 700; }
+.section-kicker { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #a74435; font-weight: 700; }
 
 .workflow-steps {
   display: grid;
@@ -248,7 +248,7 @@ input, select, textarea { border: 1px solid #ddd4c6; border-radius: 10px; paddin
   cursor: pointer;
 }
 .review-mode-toggle button + button { border-left: 1px solid #ece4d8; }
-.review-mode-toggle button.active { background: #F26B5E; color: #fff; }
+.review-mode-toggle button.active { background: #1d2330; color: #fff; }
 .review-mode-toggle button:disabled.active { opacity: 1; cursor: default; }
 .review-mode-toggle button:disabled:not(.active) { opacity: 0.5; cursor: default; }
 
@@ -483,7 +483,7 @@ a:hover { text-decoration: underline; }
   flex-direction: column;
 }
 .insight-channel-card .insight-kpi-row strong { font-size: 22px; letter-spacing: -0.02em; }
-.insight-channel-card .insight-kpi-row span { font-size: 12px; color: #7c7468; text-transform: uppercase; letter-spacing: .06em; }
+.insight-channel-card .insight-kpi-row span { font-size: 12px; color: #6f675b; text-transform: uppercase; letter-spacing: .06em; }
 .insight-buckets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .insight-hashtags { margin-bottom: 12px; }
 .insight-hashtags > div { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -613,12 +613,12 @@ a:hover { text-decoration: underline; }
   margin-left: 4px;
 }
 .collapsible-header:focus-visible {
-  outline: 2px solid #F26B5E;
+  outline: 2px solid #a74435;
   outline-offset: 2px;
   border-radius: 4px;
 }
 .collapsible-header:hover .collapsible-title {
-  color: #F26B5E;
+  color: #a74435;
 }
 .collapsible-content {
   display: flex;
@@ -647,7 +647,7 @@ a:hover { text-decoration: underline; }
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(242, 107, 94, 0.15);
-  color: #F26B5E;
+  color: #a74435;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -694,12 +694,12 @@ a:hover { text-decoration: underline; }
    Asymmetrie ist Absicht: zwei verschiedene Interaktionen, zwei
    verschiedene Hover-Reaktionen. */
 .pair-tile:hover {
-  border-left-color: #F26B5E;
+  border-left-color: #a74435;
   transform: translateY(-2px);
   box-shadow: 0 6px 14px rgba(29, 35, 48, 0.08);
 }
 .pair-tile:focus-visible {
-  outline: 2px solid #F26B5E;
+  outline: 2px solid #a74435;
   outline-offset: 2px;
   border-radius: 8px;
 }
@@ -716,7 +716,7 @@ a:hover { text-decoration: underline; }
   transition: color 0.15s ease, transform 0.15s ease;
 }
 .pair-tile:hover .pair-tile-action {
-  color: #F26B5E;
+  color: #a74435;
   transform: translateX(3px);
 }
 .pair-tile-name {
@@ -814,13 +814,13 @@ a:hover { text-decoration: underline; }
 }
 .roles-tab.is-active {
   color: #1d2330;
-  border-bottom-color: #F26B5E;
+  border-bottom-color: #a74435;
 }
 .roles-tab.is-empty {
   color: #b8ad9e;
 }
 .roles-tab:focus-visible {
-  outline: 2px solid #F26B5E;
+  outline: 2px solid #a74435;
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -876,7 +876,7 @@ a:hover { text-decoration: underline; }
   font-family: inherit;
   cursor: pointer;
 }
-.ranking-sort-select:focus { outline: 2px solid #F26B5E; outline-offset: 1px; }
+.ranking-sort-select:focus { outline: 2px solid #a74435; outline-offset: 1px; }
 
 .ranking-grid {
   display: grid;
@@ -891,7 +891,7 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7c7468;
+  color: #6f675b;
 }
 
 /* Sprint 5a: redesigned card layout. Two-column grid (rank | body) so
@@ -921,7 +921,7 @@ a:hover { text-decoration: underline; }
   font-size: 28px;
   font-weight: 700;
   line-height: 1;
-  color: #F26B5E;
+  color: #a74435;
   opacity: 0.4;
   padding-top: 2px;
   min-width: 40px;
@@ -1063,7 +1063,7 @@ a:hover { text-decoration: underline; }
 .platform-youtube   { background: #ff0000;  color: #fff; }
 
 .ranked-post-date {
-  color: #7c7468;
+  color: #6f675b;
   font-size: 12px;
   opacity: 0.75;
   cursor: help;
@@ -1078,7 +1078,7 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   font-style: italic;
   font-weight: 500;
-  color: #F26B5E;
+  color: #a74435;
   letter-spacing: -0.01em;
   margin: 0;
 }
@@ -1103,7 +1103,7 @@ a:hover { text-decoration: underline; }
   font-size: 22px;
   font-weight: 700;
   line-height: 1;
-  color: #F26B5E;
+  color: #a74435;
   letter-spacing: -0.01em;
 }
 .ranked-post-primary-metric span {
@@ -1130,7 +1130,7 @@ a:hover { text-decoration: underline; }
   margin: 14px auto 0;
   padding: 8px 18px;
   background: transparent;
-  color: #7c7468;
+  color: #6f675b;
   border: 1px solid #ece4d8;
   border-radius: 8px;
   font-family: inherit;
@@ -1138,7 +1138,7 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
 }
 .ranking-toggle:hover { background: #f8f5ee; color: #1d2330; }
-.ranking-toggle:focus { outline: 2px solid #F26B5E; outline-offset: 1px; }
+.ranking-toggle:focus { outline: 2px solid #a74435; outline-offset: 1px; }
 
 .ranking-empty {
   color: #9a8f7e;
@@ -1243,7 +1243,7 @@ a:hover { text-decoration: underline; }
 .help-tooltip-trigger:hover,
 .help-tooltip-trigger:focus,
 .help-tooltip-trigger[aria-expanded="true"] { opacity: 1; }
-.help-tooltip-trigger:focus-visible { outline: 2px solid #F26B5E; outline-offset: 1px; }
+.help-tooltip-trigger:focus-visible { outline: 2px solid #a74435; outline-offset: 1px; }
 .help-tooltip-content {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -1377,11 +1377,11 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 .pdf-export-btn:hover {
-  background: #F26B5E;
-  border-color: #F26B5E;
+  background: #a74435;
+  border-color: #a74435;
 }
 .pdf-export-btn:focus-visible {
-  outline: 2px solid #F26B5E;
+  outline: 2px solid #a74435;
   outline-offset: 2px;
 }
 
@@ -1446,7 +1446,7 @@ a:hover { text-decoration: underline; }
   list-style: revert;
 }
 .section-help-summary:focus-visible {
-  outline: 2px solid #F26B5E;
+  outline: 2px solid #a74435;
   outline-offset: 2px;
 }
 .section-help-text {
@@ -1487,6 +1487,8 @@ a:hover { text-decoration: underline; }
   .footer-status a,
   .pair-tile-action,
   .hero__back-link,
+  .site-footer,
+  .page-nav,
   nav.tabs {
     display: none !important;
   }
@@ -1618,7 +1620,7 @@ a:hover { text-decoration: underline; }
 .film-detail-error {
   margin: 0;
   font-size: 14px;
-  color: #7c7468;
+  color: #6f675b;
 }
 .film-detail-error { color: #b3261e; }
 .film-detail-meta {
@@ -1665,7 +1667,7 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7c7468;
+  color: #6f675b;
 }
 .film-market-summary-metrics {
   display: flex;
@@ -1682,7 +1684,7 @@ a:hover { text-decoration: underline; }
 }
 .film-market-summary-metric span {
   font-size: 11px;
-  color: #9a9288;
+  color: #6f675b;
 }
 
 /* V3 Sprint 5 — Markt-Delta gegen DE. Dezente Zeile unter den Roh-Kennzahlen,
@@ -1701,7 +1703,7 @@ a:hover { text-decoration: underline; }
 }
 .film-market-summary-delta-base {
   font-style: italic;
-  color: #b3ada2;
+  color: #6f675b;
 }
 
 /* V3 Sprint 6 — Markt-Zeitreihe. Platin 1 (2026-07-13): SVG-Liniendiagramm
@@ -1714,18 +1716,18 @@ a:hover { text-decoration: underline; }
 .market-timeline-header h3 { margin: 0; }
 .market-timeline-weekcount {
   font-size: 12px;
-  color: #7c7468;
+  color: #6f675b;
 }
 .market-timeline-caveat {
   margin: 4px 0 14px;
   font-size: 11px;
   font-style: italic;
-  color: #9a9288;
+  color: #6f675b;
 }
 .market-timeline-hint {
   margin: 0;
   font-size: 13px;
-  color: #9a9288;
+  color: #6f675b;
 }
 .market-timeline-chart-wrap { width: 100%; }
 .market-timeline-chart {
@@ -1739,14 +1741,14 @@ a:hover { text-decoration: underline; }
 }
 .market-timeline-chart-axis-y {
   font-size: 9px;
-  fill: #9a9288;
+  fill: #6f675b;
 }
 .market-timeline-chart-axis-x {
   font-size: 9px;
-  fill: #9a9288;
+  fill: #6f675b;
 }
 .market-timeline-chart-axis-x-forecast {
-  fill: #7c7468;
+  fill: #6f675b;
   font-style: italic;
 }
 .market-timeline-chart-line {
@@ -1764,7 +1766,7 @@ a:hover { text-decoration: underline; }
   gap: 14px;
   margin-top: 10px;
   font-size: 11px;
-  color: #7c7468;
+  color: #6f675b;
 }
 .market-timeline-chart-legend-item {
   display: inline-flex;
@@ -1792,11 +1794,11 @@ a:hover { text-decoration: underline; }
   gap: 10px;
 }
 .er-forecast-header h3 { margin: 0; }
-.er-forecast-target { font-size: 12px; color: #7c7468; }
+.er-forecast-target { font-size: 12px; color: #6f675b; }
 .er-forecast-note {
   margin: 4px 0 14px;
   font-size: 11px;
-  color: #9a9288;
+  color: #6f675b;
 }
 .er-forecast-grid {
   display: grid;
@@ -1820,11 +1822,11 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7c7468;
+  color: #6f675b;
 }
 .er-forecast-value { display: flex; flex-direction: column; }
 .er-forecast-value strong { font-size: 18px; color: #1d2330; line-height: 1.2; }
-.er-forecast-value span { font-size: 11px; color: #9a9288; }
+.er-forecast-value span { font-size: 11px; color: #6f675b; }
 .er-forecast-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1835,14 +1837,14 @@ a:hover { text-decoration: underline; }
 .er-forecast-dir { font-weight: 600; }
 .er-forecast-dir-steigend { color: #2f7a3f; }
 .er-forecast-dir-fallend { color: #b3402f; }
-.er-forecast-dir-stabil { color: #7c7468; }
+.er-forecast-dir-stabil { color: #6f675b; }
 .er-forecast-r2 { color: #1d2330; }
-.er-forecast-n { color: #9a9288; }
+.er-forecast-n { color: #6f675b; }
 .er-forecast-insufficient {
   margin: 0;
   font-size: 12px;
   font-style: italic;
-  color: #9a9288;
+  color: #6f675b;
 }
 .er-forecast-einordnung {
   margin: 14px 0 0;
@@ -1860,7 +1862,7 @@ a:hover { text-decoration: underline; }
   list-style: revert;
 }
 .glossary-block-summary:focus-visible {
-  outline: 2px solid #F26B5E;
+  outline: 2px solid #a74435;
   outline-offset: 2px;
 }
 .glossary-block-list {
@@ -1886,7 +1888,7 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7c7468;
+  color: #6f675b;
 }
 .film-market-empty {
   margin: 0;
@@ -1901,7 +1903,7 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #9a9288;
+  color: #6f675b;
 }
 
 .film-post-card {
@@ -1975,13 +1977,13 @@ a:hover { text-decoration: underline; }
 }
 .film-post-metric span {
   font-size: 11px;
-  color: #7c7468;
+  color: #6f675b;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .film-post-date {
   font-size: 12px;
-  color: #7c7468;
+  color: #6f675b;
   opacity: 0.75;
   cursor: help;
 }
@@ -1994,7 +1996,7 @@ a:hover { text-decoration: underline; }
 }
 .film-post-stat {
   font-size: 11px;
-  color: #7c7468;
+  color: #6f675b;
   white-space: nowrap;
 }
 .film-post-stat-rate {
@@ -2023,7 +2025,7 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #7c7468;
+  color: #6f675b;
 }
 .ops-budget-value { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: #1d2330; }
 .ops-budget-bar-track {
@@ -2052,7 +2054,7 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid #ece7de;
 }
 .ops-cost-table th, .ops-runs-table th {
-  color: #7c7468;
+  color: #6f675b;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -2067,10 +2069,59 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid #ece7de;
 }
 .ops-breakouts-table th {
-  color: #7c7468;
+  color: #6f675b;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .ops-breakouts-caption a { color: #1d2330; }
-.ops-breakouts-multiplier { font-weight: 700; color: #c8744a; white-space: nowrap; }
+.ops-breakouts-multiplier { font-weight: 700; color: #a74435; white-space: nowrap; }
+
+/* UX-Audit Befund 9 — "Auf dieser Seite"-Sprungnavigation der Brief-Seite. */
+.page-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.page-nav-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #6f675b;
+}
+.page-nav-chip {
+  background: #f8f5ee;
+  border: 1px solid #e6ded1;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1d2330;
+  cursor: pointer;
+}
+.page-nav-chip:hover { background: #efe9de; }
+.page-nav-chip:focus-visible { outline: 2px solid #a74435; outline-offset: 1px; }
+
+/* UX-Audit Befunde 1+8 — globaler Footer (Rechtliches + Admin-Link). */
+.site-footer {
+  margin: 28px 0 8px;
+  padding: 16px 4px 8px;
+  border-top: 1px solid #e6ded1;
+  font-size: 13px;
+}
+.site-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.site-footer nav a { color: #5e564a; }
+.site-footer nav span { color: #b3ada2; }
+.site-footer-copy {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #6f675b;
+}

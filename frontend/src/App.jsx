@@ -4,7 +4,9 @@ import { endpoints } from './api/client';
 import InsightWeekly from './InsightWeekly';
 import RoundupBlock from './RoundupBlock';
 import AdminPage from './AdminPage';
+import LegalPage from './LegalPage';
 import { SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
+import { SiteFooter } from './components/SiteFooter';
 import {
   computePairSectionDefaults,
   formatPairUpdated,
@@ -25,6 +27,13 @@ function Router() {
   }
   if (path === '/admin' || path === '/admin/') {
     return <AdminPage />;
+  }
+  // UX-Audit Befund 1 (2026-07-14): Rechtsseiten als eigene Routen.
+  if (path === '/impressum' || path === '/impressum/') {
+    return <LegalPage page="impressum" />;
+  }
+  if (path === '/datenschutz' || path === '/datenschutz/') {
+    return <LegalPage page="datenschutz" />;
   }
   return <App />;
 }
@@ -73,7 +82,7 @@ function App() {
       </header>
 
       <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
-        <p style={{ color: '#F26B5E', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Die Woche im Rückblick</p>
+        <p style={{ color: '#ffa294', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Die Woche im Rückblick</p>
         <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.5rem' }}>Die großen Studios<SectionHelpHint sectionKey="landingStudios" /></h2>
         <SectionHelpPanel sectionKey="landingStudios" onDark />
         {/* Sprint 28.05.2026 (Kachel-Klick-Signal): Lead-Zeile traegt
@@ -87,10 +96,10 @@ function App() {
           </p>
         )}
         {pairs === null && (
-          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>Lade Studios …</p>
+          <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>Lade Studios …</p>
         )}
         {pairsError && (
-          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>
+          <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>
             Studio-Liste momentan nicht verfügbar. Bitte später erneut versuchen.
           </p>
         )}
@@ -100,7 +109,7 @@ function App() {
             sprangen alle nicht an. Jetzt expliziter Slot, analog
             RoundupBlock's Empty-State. */}
         {pairs !== null && !pairsError && pairs.length === 0 && (
-          <p style={{ color: '#aaa', margin: 0, fontSize: '0.95em' }}>
+          <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>
             Keine Studios konfiguriert.
           </p>
         )}
@@ -170,6 +179,7 @@ function App() {
       </section>
 
       <RoundupBlock />
+      <SiteFooter />
     </main>
   );
 }

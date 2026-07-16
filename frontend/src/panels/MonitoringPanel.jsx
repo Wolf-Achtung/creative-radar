@@ -55,6 +55,11 @@ export function MonitoringPanel() {
   const [cronRuns, setCronRuns] = useState(null);
   const [breakouts, setBreakouts] = useState(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'done' | 'error'
+  // UX-Audit Befund 13 (2026-07-14): der Panel lud nur einmal beim Öffnen
+  // des Tabs; der globale "Aktualisieren"-Button im Footer erreicht diesen
+  // lokalen State nicht. ``reloadKey`` re-triggert den Lade-Effect über
+  // den neuen Panel-eigenen Refresh-Button.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +79,7 @@ export function MonitoringPanel() {
       setStatus('done');
     }).catch(() => { if (!cancelled) setStatus('error'); });
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadKey]);
 
   return (
     <>
@@ -85,14 +90,24 @@ export function MonitoringPanel() {
             <BudgetStatusCard key={c.key} label={c.label} status={budgets[c.key]} />
           ))}
         </div>
+        <div className="section-actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => { setStatus('loading'); setReloadKey((k) => k + 1); }}
+            disabled={status === 'loading'}
+          >
+            {status === 'loading' ? 'Lädt …' : 'Daten aktualisieren'}
+          </button>
+        </div>
       </Section>
 
       <Section title="Kosten nach Provider" kicker="Letzte 30 Tage">
         {status === 'loading' && <p className="muted small">Lädt …</p>}
-        {status === 'done' && costSummary && costSummary.buckets.length === 0 && (
+        {status === 'done' && costSummary?.buckets && costSummary.buckets.length === 0 && (
           <p className="muted small">Keine Kosten im Zeitraum.</p>
         )}
-        {status === 'done' && costSummary && costSummary.buckets.length > 0 && (
+        {status === 'done' && costSummary?.buckets && costSummary.buckets.length > 0 && (
           <table className="ops-cost-table">
             <thead>
               <tr><th>Provider</th><th>Aufrufe</th><th>Kosten</th></tr>
