@@ -37,20 +37,27 @@ export function ReviewPanel({
     : `${visibleAssets.length} von ${assets.length} geladen${assetsHasMore ? ' (weitere verfügbar)' : ''}`;
   return (
     <Section title="Treffer prüfen" kicker={modeKicker} helpKey="adminReview"><p className="muted small">Standard: nur Assets mit offenem Titel-Vorschlag. „Alle Treffer" lädt den vollen Bestand seitenweise.</p>
+      {/* UX-Audit Befund 11 (2026-07-14): der aktive Modus war vorher per
+          ``disabled`` markiert — sah "kaputt" statt "ausgewählt" aus.
+          Jetzt aria-pressed + .active-Stil; der Klick auf den bereits
+          aktiven Modus ist ein No-Op im Handler statt einer gesperrten
+          Schaltfläche. */}
       <div className="review-mode-toggle">
         <button
           type="button"
           className={assetMode === 'candidates' ? 'active' : ''}
-          onClick={() => onSwitchAssetMode('candidates')}
-          disabled={busy || assetMode === 'candidates'}
+          aria-pressed={assetMode === 'candidates'}
+          onClick={() => assetMode !== 'candidates' && onSwitchAssetMode('candidates')}
+          disabled={busy}
         >
           Nur Titel-Vorschläge
         </button>
         <button
           type="button"
           className={assetMode === 'all' ? 'active' : ''}
-          onClick={() => onSwitchAssetMode('all')}
-          disabled={busy || assetMode === 'all'}
+          aria-pressed={assetMode === 'all'}
+          onClick={() => assetMode !== 'all' && onSwitchAssetMode('all')}
+          disabled={busy}
         >
           Alle Treffer (seitenweise)
         </button>

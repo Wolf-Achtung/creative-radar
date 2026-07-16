@@ -80,7 +80,7 @@ function AdminLogin({ onLoginSuccess }) {
             <button type="submit" className="primary" disabled={submitting || !password}>
               {submitting ? 'Pruefe …' : 'Anmelden'}
             </button>
-            <a className="secondary" href="/" style={{ marginLeft: '0.75rem' }}>← zur Startseite</a>
+            <a className="secondary" href="/" style={{ marginLeft: '0.75rem' }}>← zur Übersicht</a>
           </div>
         </form>
       </section>

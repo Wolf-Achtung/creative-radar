@@ -24,12 +24,17 @@ export function SourcesPanel({
 }) {
   return (
     <>
-      <Section title="Komplett aktualisieren" kicker="Voller Lauf für die laufende Woche">
+      {/* UX-Audit Befund 2 (2026-07-14): Copy sagte "laufende Woche", der
+          Lauf verarbeitet aber seit dem Incident-Fix 2026-07-13
+          (target_week='completed', siehe client.js) die zuletzt
+          ABGESCHLOSSENE Woche — Text an das echte Systemverhalten
+          angeglichen. */}
+      <Section title="Komplett aktualisieren" kicker="Voller Lauf für die zuletzt abgeschlossene Woche">
         <p className="muted small">
           Löst den vollen Lauf aus: Posts scrapen, Bilder auswerten, Titel
           synchronisieren, Treffer neu zuordnen sowie Briefs und Roundups für die
-          <strong> laufende Woche</strong> neu erzeugen (überschreibt bestehende).
-          Läuft im Hintergrund und dauert einige Minuten.
+          <strong> zuletzt abgeschlossene Woche</strong> neu erzeugen (überschreibt
+          bestehende). Läuft im Hintergrund und dauert einige Minuten.
         </p>
         {/* Read-only Status des letzten Laufs (Diagnose-Folge 2026-07-06) —
             unabhaengig vom Trigger-Button, kein Seiteneffekt beim Ansehen. */}

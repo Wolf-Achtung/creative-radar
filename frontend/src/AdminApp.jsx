@@ -29,7 +29,11 @@ export function AdminApp({ onLogout }) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [activeTab, setActiveTab] = useState(null);
+  // UX-Audit Befund 3 (2026-07-14): vorher ``null`` — der Admin startete
+  // mit leerem Inhaltsbereich, bis der Nutzer einen Tab entdeckte.
+  // "Treffer prüfen" als Default ist die Hypothese für den häufigsten
+  // wiederkehrenden Arbeitsschritt (per Nutzungsdaten zu validieren).
+  const [activeTab, setActiveTab] = useState('Treffer prüfen');
   const [channelFile, setChannelFile] = useState(null);
   const [monitorForm, setMonitorForm] = useState({ max_channels: 5, results_limit_per_channel: 5, only_whitelist_matches: false });
   const [tiktokForm, setTiktokForm] = useState({ username: 'warnerbros', max_channels: 1, results_limit_per_channel: 5, only_whitelist_matches: false });
@@ -409,10 +413,14 @@ export function AdminApp({ onLogout }) {
         <div>
           <p className="eyebrow">Admin-Bereich</p>
           <h1>Creative Radar — Werkzeuge</h1>
-          <p>Treffer pruefen · Quellen verwalten · Reports erstellen.</p>
+          {/* UX-Audit Befund 10: alle vier Tabs nennen, Orthografie
+              vereinheitlicht (prüfen mit Umlaut). */}
+          <p>Treffer prüfen · Reports erstellen · Quellen verwalten · Monitoring.</p>
         </div>
         <div className="admin-header-actions">
-          <a className="hero__back-link" href="/">← zur Startseite</a>
+          {/* UX-Audit Befund 5: einheitliches Rückweg-Label ("← zur
+              Übersicht") auf allen Seiten. */}
+          <a className="hero__back-link" href="/">← zur Übersicht</a>
           <button type="button" className="secondary admin-logout-btn" onClick={onLogout}>Abmelden</button>
         </div>
       </header>
@@ -426,9 +434,25 @@ export function AdminApp({ onLogout }) {
         </div>
       )}
 
-      <nav className="tabs">
+      {/* UX-Audit Befunde 4+7 (2026-07-14): kein Toggle-Verhalten mehr
+          (Klick auf den aktiven Tab liess vorher das Panel auf einen
+          leeren Zustand kollabieren — widerspricht dem erwarteten
+          Tab-Pattern), plus ARIA-Tab-Semantik: role=tablist/tab und
+          aria-selected, damit der aktive Zustand nicht nur ueber Farbe
+          kommuniziert wird. Der Inline-Coral-Override entfaellt —
+          .tabs button.active in styles.css ist die eine Quelle fuer den
+          Aktiv-Stil. */}
+      <nav className="tabs" role="tablist" aria-label="Admin-Werkzeuge">
         {NAV_ITEMS.map((tab) => (
-          <button key={tab} className={activeTab === tab ? 'active' : ''} style={activeTab === tab ? { background: '#F26B5E', color: 'white', borderColor: '#F26B5E' } : {}} onClick={() => setActiveTab(activeTab === tab ? null : tab)}>{tab}</button>
+          <button
+            key={tab}
+            role="tab"
+            aria-selected={activeTab === tab}
+            className={activeTab === tab ? 'active' : ''}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab}
+          </button>
         ))}
       </nav>
 

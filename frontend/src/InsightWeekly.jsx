@@ -2274,7 +2274,9 @@ export default function InsightWeekly({ pair }) {
           {/* Rueckweg zur Startseite — vorher Sackgasse aus der Pair-Brief-
               Ansicht, kein klickbares Logo. Schlichter Text-Link ueber dem
               Eyebrow, fuegt sich in das bestehende Hero-Layout ein. */}
-          <a href="/" className="hero__back-link">← Übersicht</a>
+          {/* UX-Audit Befund 5 (2026-07-14): einheitliches Rückweg-Label
+              auf allen Seiten ("← zur Übersicht"). */}
+          <a href="/" className="hero__back-link">← zur Übersicht</a>
           <p className="eyebrow">STUDIO-REVIEW</p>
           <h1>{label}</h1>
           <p>Social-Media-Wochenanalyse — DE, US, UK im Vergleich.</p>
@@ -2453,7 +2455,7 @@ export default function InsightWeekly({ pair }) {
       )}
 
       <footer className="footer-status">
-        <a href="/">← zurück zum Hauptdashboard</a>
+        <a href="/">← zur Übersicht</a>
         {report && <span> · generiert {formatDateISO(report.generated_at)}</span>}
       </footer>
     </main>
