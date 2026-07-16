@@ -4,7 +4,9 @@ import { endpoints } from './api/client';
 import InsightWeekly from './InsightWeekly';
 import RoundupBlock from './RoundupBlock';
 import AdminPage from './AdminPage';
+import LegalPage from './LegalPage';
 import { SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
+import { SiteFooter } from './components/SiteFooter';
 import {
   computePairSectionDefaults,
   formatPairUpdated,
@@ -25,6 +27,13 @@ function Router() {
   }
   if (path === '/admin' || path === '/admin/') {
     return <AdminPage />;
+  }
+  // UX-Audit Befund 1 (2026-07-14): Rechtsseiten als eigene Routen.
+  if (path === '/impressum' || path === '/impressum/') {
+    return <LegalPage page="impressum" />;
+  }
+  if (path === '/datenschutz' || path === '/datenschutz/') {
+    return <LegalPage page="datenschutz" />;
   }
   return <App />;
 }
@@ -170,6 +179,7 @@ function App() {
       </section>
 
       <RoundupBlock />
+      <SiteFooter />
     </main>
   );
 }

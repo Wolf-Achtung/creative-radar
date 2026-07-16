@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { endpoints } from './api/client';
 import { AdminApp } from './AdminApp';
+import { SiteFooter } from './components/SiteFooter';
 import './styles.css';
 
 // Sprint 28.05.2026 (Admin-Sektion) — Login-Gate + Logout fuer den
@@ -78,12 +79,13 @@ function AdminLogin({ onLoginSuccess }) {
           )}
           <div className="section-actions">
             <button type="submit" className="primary" disabled={submitting || !password}>
-              {submitting ? 'Pruefe …' : 'Anmelden'}
+              {submitting ? 'Prüfe …' : 'Anmelden'}
             </button>
             <a className="secondary" href="/" style={{ marginLeft: '0.75rem' }}>← zur Übersicht</a>
           </div>
         </form>
       </section>
+      <SiteFooter />
     </main>
   );
 }

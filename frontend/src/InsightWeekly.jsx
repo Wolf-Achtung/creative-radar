@@ -4,6 +4,7 @@ import StaleWarning from './StaleWarning';
 import WeekBanner, { formatDateShort } from './WeekBanner';
 import { GLOSSARY, GLOSSARY_ORDER, glossaryDefinition, glossaryFull } from './glossary';
 import { GlossaryHint, HelpTooltip, SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
+import { SiteFooter } from './components/SiteFooter';
 
 // Pre-fetch labels — used when the URL pair-key arrives before the API
 // response (or when the API errors). Mirrors ``PAIRS`` in
@@ -2458,6 +2459,7 @@ export default function InsightWeekly({ pair }) {
         <a href="/">← zur Übersicht</a>
         {report && <span> · generiert {formatDateISO(report.generated_at)}</span>}
       </footer>
+      <SiteFooter />
     </main>
     </PrintModeContext.Provider>
   );

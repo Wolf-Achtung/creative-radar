@@ -1487,6 +1487,7 @@ a:hover { text-decoration: underline; }
   .footer-status a,
   .pair-tile-action,
   .hero__back-link,
+  .site-footer,
   nav.tabs {
     display: none !important;
   }
@@ -2074,3 +2075,24 @@ a:hover { text-decoration: underline; }
 }
 .ops-breakouts-caption a { color: #1d2330; }
 .ops-breakouts-multiplier { font-weight: 700; color: #c8744a; white-space: nowrap; }
+
+/* UX-Audit Befunde 1+8 — globaler Footer (Rechtliches + Admin-Link). */
+.site-footer {
+  margin: 28px 0 8px;
+  padding: 16px 4px 8px;
+  border-top: 1px solid #e6ded1;
+  font-size: 13px;
+}
+.site-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.site-footer nav a { color: #5e564a; }
+.site-footer nav span { color: #b3ada2; }
+.site-footer-copy {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #8a8276;
+}
