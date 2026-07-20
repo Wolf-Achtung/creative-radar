@@ -9,6 +9,29 @@
   # funktionierende Build-Node.
   NODE_VERSION = "22"
 
+# Domain-Kanonisierung (Sprint User-Login 2026-07): das Login-Session-
+# Cookie liegt auf api.creative-radar.de (SameSite=Lax) und wird vom
+# Browser nur mitgeschickt, wenn die Seite auf derselben Domain-Familie
+# (creative-radar.de) laeuft. Ueber die Alt-Domain
+# creative-radar.ki-sicherheit.jetzt (oder die rohe netlify.app-URL)
+# waere das Login kaputt — alte Lesezeichen landen darum per 301 auf
+# app.creative-radar.de. Host-scoped Rules matchen nur den exakten
+# Hostnamen: Deploy-Previews (deploy-preview-N--singular-unicorn-*.
+# netlify.app) sind eigene Hosts und bleiben unberuehrt. Reihenfolge:
+# VOR den Pfad-Rules unten — Netlify wertet Redirects von oben nach
+# unten aus.
+[[redirects]]
+  from = "https://creative-radar.ki-sicherheit.jetzt/*"
+  to = "https://app.creative-radar.de/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "https://singular-unicorn-bf4e79.netlify.app/*"
+  to = "https://app.creative-radar.de/:splat"
+  status = 301
+  force = true
+
 [[redirects]]
   from = "/api/*"
   to = "https://api.creative-radar.de/api/:splat"
