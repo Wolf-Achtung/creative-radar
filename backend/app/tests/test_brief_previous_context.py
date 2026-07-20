@@ -522,7 +522,12 @@ def test_schema_validation_failure_logs_distinct_event(db, monkeypatch, caplog):
         if r.levelname == "ERROR"
         and "insight-engine-schema-validation-failed" in r.getMessage()
     ]
-    assert len(schema_failed) == 1
+    # Cron-Run 16421771 (20.07.2026): Schema-Fehler werden jetzt wie
+    # Parse-Fehler innerhalb von MAX_RECALLS (2) neu angefragt — der Mock
+    # liefert jedes Mal denselben kaputten Body, also feuert das Event pro
+    # Versuch einmal (3 = 1 + MAX_RECALLS).
+    assert len(schema_failed) == 3
+    assert anthropic_mock.call_count == 3
     rec = schema_failed[0]
     assert rec.raw_response_length == len(bad_schema)
     assert "raw_response_first_500" in rec.__dict__

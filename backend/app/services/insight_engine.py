@@ -3783,7 +3783,11 @@ def _run_brief_llm(
                 else (
                     "citation-strict-unverified"
                     if citation_strict_failed and parsed is not None
-                    else "json-parse"
+                    else (
+                        "schema-validation"
+                        if schema_validation_failed
+                        else "json-parse"
+                    )
                 )
             )
             logger.warning(
@@ -3834,6 +3838,11 @@ def _run_brief_llm(
 
         parsed, parse_error, parse_path = _try_parse_llm_json(raw_text)
         citation_strict_failed = False
+        # Wie bei citation_strict_failed: Flag pro Versuch zuruecksetzen,
+        # damit die Terminal-Klassifikation nach der Schleife den Fehlermodus
+        # des LETZTEN Versuchs meldet (ein frueher Schema-Fehler darf einen
+        # spaeteren Parse-Fehler nicht als schema_validation_error tarnen).
+        schema_validation_failed = False
 
         if parsed is None:
             continue
@@ -3853,6 +3862,9 @@ def _run_brief_llm(
             logger.error(
                 "insight-engine-schema-validation-failed",
                 extra={
+                    "pair": log_subject,
+                    "attempt": attempt_n,
+                    "max_attempts": MAX_RECALLS,
                     "error_message": schema_error_detail,
                     "raw_response_length": len(cleaned_for_log),
                     "raw_response_first_500": cleaned_for_log[:500],
@@ -3861,7 +3873,11 @@ def _run_brief_llm(
             raw_for_response = raw_text
             schema_validation_failed = True
             llm_output = None
-            break
+            # Cron-Run 16421771 (20.07.2026, lionsgate): Schema-Fehler sind
+            # genauso nicht-deterministisch wie Parse-Fehler (derselbe Prompt
+            # validiert im naechsten Anlauf oft sauber) — deshalb innerhalb
+            # von MAX_RECALLS neu anfragen statt sofort terminal aufzugeben.
+            continue
 
         citation_ok = citation_validate(llm_output) if citation_validate else True
         if strict_citations and not citation_ok:
