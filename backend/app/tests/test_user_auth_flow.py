@@ -223,7 +223,12 @@ def test_login_success_sets_cookie_and_me(client, db, sent_mails):
     assert USER_SESSION_COOKIE in client.cookies
 
     me = client.get("/api/auth/me").json()
-    assert me == {"authenticated": True, "auth_enabled": True, "email": "wolf@example.com"}
+    assert me == {
+        "authenticated": True,
+        "auth_enabled": True,
+        "email": "wolf@example.com",
+        "can_view_usage": False,
+    }
 
     with Session(db) as session:
         user = session.exec(select(AppUser).where(AppUser.email == "wolf@example.com")).first()
@@ -394,6 +399,54 @@ def test_usage_export_html_and_csv(client, db, sent_mails):
     assert "zeitpunkt;email;aktion" in body
     assert "wolf@example.com" in body
     assert "landing_view" in body
+
+
+def test_usage_access_per_user_flag(client, db, sent_mails, monkeypatch):
+    """Monitoring-Freischaltung pro Person (Wolf 2026-07-20): mit
+    aktivierter Admin-Auth kommen nur Admin-Session ODER Login-User mit
+    can_view_usage an die Nutzungs-Endpoints — normale User nicht."""
+    monkeypatch.setattr(settings, "admin_auth_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "admin_session_secret", "admin-secret", raising=False)
+
+    # Normaler User ohne Flag: Login ok, Nutzungs-Auswertung 401.
+    _add_user(db, "wolf@example.com")
+    _login(client, db, sent_mails, "wolf@example.com")
+    assert client.get("/api/admin/usage").status_code == 401
+    assert client.get("/api/admin/usage/export.html").status_code == 401
+
+    # Flag setzen -> Zugriff auf Auswertung, Exporte und Drill-down …
+    with Session(db) as session:
+        user = session.exec(select(AppUser).where(AppUser.email == "wolf@example.com")).first()
+        user.can_view_usage = True
+        session.add(user)
+        session.commit()
+    assert client.get("/api/admin/usage").status_code == 200
+    assert client.get("/api/admin/usage/export.html").status_code == 200
+    events = client.get("/api/admin/usage/user-events?email=wolf@example.com").json()
+    assert any(e["action"] == "login" for e in events["events"])
+
+    # … aber NICHT auf die uebrigen Admin-Endpoints (User-Verwaltung).
+    assert client.get("/api/admin/users").status_code == 401
+
+    # /me traegt den Flag fuer den Frontend-Link.
+    assert client.get("/api/auth/me").json()["can_view_usage"] is True
+
+    # Flag entziehen wirkt sofort, trotz gueltigem Cookie.
+    with Session(db) as session:
+        user = session.exec(select(AppUser).where(AppUser.email == "wolf@example.com")).first()
+        user.can_view_usage = False
+        session.add(user)
+        session.commit()
+    assert client.get("/api/admin/usage").status_code == 401
+
+
+def test_usage_access_admin_session(client, db, monkeypatch):
+    monkeypatch.setattr(settings, "admin_auth_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "admin_session_secret", "admin-secret", raising=False)
+    token, _ = create_session_token("admin-secret", ttl_seconds=60)
+    client.cookies.set("cr_admin_session", token)
+    assert client.get("/api/admin/usage").status_code == 200
+    assert client.get("/api/admin/users").status_code == 200
 
 
 # ---------- Admin-User-Verwaltung -------------------------------------------

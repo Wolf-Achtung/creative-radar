@@ -24,15 +24,16 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.admin_session import require_admin_session
+from app.admin_session import require_admin_session, verify_session_token
 from app.config import settings
 from app.database import get_session
 from app.models import AppUser, UsageEvent
 from app.models.entities import utc_now
+from app.user_session import USER_SESSION_COOKIE, verify_user_session_token
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,57 @@ router = APIRouter(
     prefix="/api/admin",
     tags=["admin-users"],
     dependencies=[Depends(require_admin_session)],
+)
+
+
+def require_usage_access(
+    session: Session = Depends(get_session),
+    cr_admin_session: str | None = Cookie(default=None),
+    cr_user_session: str | None = Cookie(default=None),
+) -> None:
+    """Zugriffs-Check fuer die Nutzungs-Auswertung (Wolf-Festlegung
+    2026-07-20): zusaetzlich zur Voll-Admin-Session duerfen einzelne,
+    im Admin-Bereich freigeschaltete Login-User (``can_view_usage``)
+    die Auswertung sehen — NUR die; alle uebrigen Admin-Endpoints
+    bleiben bei ``require_admin_session``.
+
+    Pruef-Reihenfolge:
+    1. ``admin_auth_enabled=False`` -> No-Op (dieselbe dev-Konvention
+       wie require_admin_session).
+    2. Gueltige Admin-Session -> durch.
+    3. Gueltige User-Session UND User aktiv UND ``can_view_usage`` ->
+       durch. Der Flag wird pro Request live aus der DB gelesen —
+       Entzug wirkt sofort, trotz 30-Tage-Cookie.
+    4. Sonst 401.
+    """
+    if not settings.admin_auth_enabled:
+        return None
+    if (
+        cr_admin_session
+        and settings.admin_session_secret
+        and verify_session_token(cr_admin_session, settings.admin_session_secret)
+    ):
+        return None
+    if cr_user_session and settings.user_session_secret:
+        email = verify_user_session_token(cr_user_session, settings.user_session_secret)
+        if email:
+            user = session.exec(
+                select(AppUser).where(AppUser.email == email.strip().lower())
+            ).first()
+            if user is not None and user.active and user.can_view_usage:
+                return None
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Keine Berechtigung für die Nutzungs-Auswertung.",
+    )
+
+
+# Eigener Router fuer die Nutzungs-Endpoints: gleicher /api/admin-Prefix,
+# aber require_usage_access statt require_admin_session (siehe oben).
+usage_router = APIRouter(
+    prefix="/api/admin",
+    tags=["admin-usage"],
+    dependencies=[Depends(require_usage_access)],
 )
 
 
@@ -51,6 +103,7 @@ class UserCreateRequest(BaseModel):
 class UserPatchRequest(BaseModel):
     active: bool | None = None
     display_name: str | None = None
+    can_view_usage: bool | None = None
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -65,6 +118,7 @@ def _user_dict(user: AppUser) -> dict:
         "email": user.email,
         "display_name": user.display_name,
         "active": user.active,
+        "can_view_usage": user.can_view_usage,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
     }
@@ -107,10 +161,15 @@ def patch_user(user_id: UUID, payload: UserPatchRequest, session: Session = Depe
         user.active = payload.active
     if payload.display_name is not None:
         user.display_name = payload.display_name.strip() or None
+    if payload.can_view_usage is not None:
+        user.can_view_usage = payload.can_view_usage
     session.add(user)
     session.commit()
     session.refresh(user)
-    logger.info("admin.users patched email=%s active=%s", user.email, user.active)
+    logger.info(
+        "admin.users patched email=%s active=%s can_view_usage=%s",
+        user.email, user.active, user.can_view_usage,
+    )
     return _user_dict(user)
 
 
@@ -144,7 +203,7 @@ def _aggregate_usage(session: Session, days: int) -> dict:
     for event in events:
         created = _as_utc(event.created_at)
         stats = per_user.setdefault(
-            event.email, {"events": 0, "logins": 0, "last_active": None, "actions": {}}
+            event.email, {"events": 0, "logins": 0, "last_active": None, "actions": {}, "briefs": {}}
         )
         stats["events"] += 1
         stats["actions"][event.action] = stats["actions"].get(event.action, 0) + 1
@@ -157,12 +216,16 @@ def _aggregate_usage(session: Session, days: int) -> dict:
             pair = (event.context or {}).get("pair")
             if pair:
                 brief_counts[pair] = brief_counts.get(pair, 0) + 1
+                stats["briefs"][pair] = stats["briefs"].get(pair, 0) + 1
 
     users = session.exec(select(AppUser).order_by(AppUser.email)).all()  # type: ignore[arg-type]
     known_emails = {user.email for user in users}
     user_rows = []
     for user in users:
-        stats = per_user.get(user.email, {"events": 0, "logins": 0, "last_active": None, "actions": {}})
+        stats = per_user.get(
+            user.email,
+            {"events": 0, "logins": 0, "last_active": None, "actions": {}, "briefs": {}},
+        )
         user_rows.append(
             {
                 **_user_dict(user),
@@ -170,6 +233,7 @@ def _aggregate_usage(session: Session, days: int) -> dict:
                 "logins": stats["logins"],
                 "last_active": stats["last_active"].isoformat() if stats["last_active"] else None,
                 "actions": stats["actions"],
+                "briefs": stats["briefs"],
             }
         )
     # Events geloeschter User (E-Mail nicht mehr in app_user) tauchen als
@@ -184,12 +248,14 @@ def _aggregate_usage(session: Session, days: int) -> dict:
                 "email": email,
                 "display_name": None,
                 "active": False,
+                "can_view_usage": False,
                 "created_at": None,
                 "last_login_at": None,
                 "events": stats["events"],
                 "logins": stats["logins"],
                 "last_active": stats["last_active"].isoformat() if stats["last_active"] else None,
                 "actions": stats["actions"],
+                "briefs": stats["briefs"],
                 "deleted": True,
             }
         )
@@ -209,7 +275,7 @@ def _aggregate_usage(session: Session, days: int) -> dict:
     }
 
 
-@router.get("/usage")
+@usage_router.get("/usage")
 def usage_summary(
     days: int = Query(default=30, ge=1, le=365),
     session: Session = Depends(get_session),
@@ -256,7 +322,41 @@ def _fmt_local(iso_or_dt) -> str:
     return local.strftime("%d.%m.%Y %H:%M")
 
 
-@router.get("/usage/export.html")
+@usage_router.get("/usage/user-events")
+def usage_user_events(
+    email: str = Query(..., max_length=255),
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=200, ge=1, le=1000),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Drill-down pro Nutzer: chronologische Event-Liste (neueste zuerst)
+    fuer die aufklappbare Detail-Zeile in der Nutzungs-Ansicht."""
+    normalized = (email or "").strip().lower()
+    cutoff = utc_now() - timedelta(days=days)
+    events = session.exec(
+        select(UsageEvent)
+        .where(UsageEvent.email == normalized)
+        .where(UsageEvent.created_at >= cutoff)
+        .order_by(UsageEvent.created_at.desc())  # type: ignore[attr-defined]
+        .limit(limit)
+    ).all()
+    return {
+        "email": normalized,
+        "days": days,
+        "events": [
+            {
+                "created_at": _fmt_local(event.created_at),
+                "action": event.action,
+                "action_label": _ACTION_LABELS.get(event.action, event.action),
+                "pair": (event.context or {}).get("pair"),
+                "context": event.context or {},
+            }
+            for event in events
+        ],
+    }
+
+
+@usage_router.get("/usage/export.html")
 def usage_export_html(
     days: int = Query(default=30, ge=1, le=365),
     session: Session = Depends(get_session),
@@ -300,6 +400,31 @@ def usage_export_html(
         for action in data["actions"]
     ) or "<tr><td colspan='2'>Keine Ereignisse im Zeitraum.</td></tr>"
 
+    # Drill-down je Nutzer (Wolf-Festlegung 2026-07-20): pro Nutzer mit
+    # Aktivitaet ein eigener Abschnitt — Aktions-Aufschluesselung plus
+    # die geoeffneten Studio-Briefs. Die vollstaendige Event-Liste bleibt
+    # dem CSV vorbehalten (der Bericht soll lesbar bleiben).
+    detail_sections = []
+    for user in data["users"]:
+        if not user["events"]:
+            continue
+        name = esc(user["display_name"] or user["email"])
+        action_detail = "".join(
+            f"<tr><td>{esc(_ACTION_LABELS.get(action, action))}</td><td class='num'>{count}</td></tr>"
+            for action, count in sorted(user["actions"].items(), key=lambda item: -item[1])
+        )
+        briefs = ", ".join(
+            f"{esc(pair)} ({count}×)"
+            for pair, count in sorted(user["briefs"].items(), key=lambda item: -item[1])
+        ) or "—"
+        detail_sections.append(
+            f"<h3>{name}</h3>"
+            f"<p class='muted'>{esc(user['email'])} · zuletzt aktiv {esc(_fmt_local(user['last_active']))}</p>"
+            f"<table><thead><tr><th>Aktion</th><th>Anzahl</th></tr></thead><tbody>{action_detail}</tbody></table>"
+            f"<p>Geöffnete Studio-Briefs: {briefs}</p>"
+        )
+    user_details = "\n".join(detail_sections) or "<p>Keine Aktivität im Zeitraum.</p>"
+
     html_doc = f"""<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -309,6 +434,7 @@ def usage_export_html(
   body {{ font-family: 'Helvetica Neue', Arial, sans-serif; color: #1d2330; margin: 40px auto; max-width: 860px; padding: 0 20px; }}
   h1 {{ font-size: 1.6em; margin-bottom: 0.2em; }}
   h2 {{ font-size: 1.15em; margin-top: 2em; border-bottom: 2px solid #1f4d4d; padding-bottom: 4px; }}
+  h3 {{ font-size: 1em; margin: 1.6em 0 0.2em; }}
   .meta {{ color: #6f675b; margin-bottom: 1.5em; }}
   table {{ border-collapse: collapse; width: 100%; margin-top: 0.75em; }}
   th, td {{ text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd4c6; vertical-align: top; font-size: 0.95em; }}
@@ -348,6 +474,9 @@ def usage_export_html(
 </tbody>
 </table>
 
+<h2>Details je Nutzer</h2>
+{user_details}
+
 <footer>Creative Radar — Social-Media-Wochenanalyse für die Filmbranche.
 Dieser Bericht enthält personenbezogene Nutzungsdaten und ist nur für interne Verantwortliche bestimmt.</footer>
 </body>
@@ -361,7 +490,7 @@ Dieser Bericht enthält personenbezogene Nutzungsdaten und ist nur für interne 
     )
 
 
-@router.get("/usage/export.csv")
+@usage_router.get("/usage/export.csv")
 def usage_export_csv(
     days: int = Query(default=30, ge=1, le=365),
     session: Session = Depends(get_session),

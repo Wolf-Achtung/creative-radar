@@ -2217,3 +2217,18 @@ a:hover { text-decoration: underline; }
   margin: 0;
   font-size: 0.95em;
 }
+
+/* ---- Nutzungs-Drill-down + User-Bar-Link (2026-07-20) ---- */
+.usage-user-row { cursor: pointer; }
+.usage-user-row:hover td { background: #f6f2ea; }
+.usage-detail-row > td { background: #faf7f0; padding: 10px 14px; }
+.usage-detail-table { margin: 0; }
+.user-bar__link {
+  color: #5e564a;
+  font-size: 12px;
+  border: 1px solid #cfc7b8;
+  border-radius: 8px;
+  padding: 4px 12px;
+  text-decoration: none;
+}
+.user-bar__link:hover { background: #e9e3d7; color: #1d2330; }

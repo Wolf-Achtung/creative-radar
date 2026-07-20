@@ -95,7 +95,7 @@ export function LoginPage({ onLoginSuccess }) {
     setBusy(true); setError('');
     try {
       const result = await endpoints.authLogin(email.trim().toLowerCase(), trimmed);
-      onLoginSuccess(result?.email || email.trim().toLowerCase());
+      onLoginSuccess(result?.email || email.trim().toLowerCase(), Boolean(result?.can_view_usage));
     } catch (err) {
       setError(friendlyLoginError(err));
       setCode('');
@@ -181,9 +181,13 @@ export function LoginPage({ onLoginSuccess }) {
   );
 }
 
-function UserBar({ email, onLogout }) {
+function UserBar({ email, canViewUsage, onLogout }) {
   return (
     <div className="user-bar">
+      {/* Monitoring-Freischaltung (2026-07-20): einzeln freigeschaltete
+          Nutzer (app_user.can_view_usage) sehen hier den Einstieg zur
+          Nutzungs-Auswertung — fuer alle anderen existiert der Link nicht. */}
+      {canViewUsage && <a className="user-bar__link" href="/nutzung">Nutzung</a>}
       <span className="user-bar__email" title={email}>Angemeldet als {email}</span>
       <button type="button" className="user-bar__logout" onClick={onLogout}>Abmelden</button>
     </div>
@@ -194,6 +198,7 @@ export default function AuthGate({ children }) {
   // 'checking' | 'unauthenticated' | 'authenticated'
   const [status, setStatus] = useState('checking');
   const [email, setEmail] = useState(null);
+  const [canViewUsage, setCanViewUsage] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,6 +206,7 @@ export default function AuthGate({ children }) {
       .then((result) => {
         if (cancelled) return;
         setEmail(result?.email || null);
+        setCanViewUsage(Boolean(result?.can_view_usage));
         setStatus(result?.authenticated ? 'authenticated' : 'unauthenticated');
       })
       .catch((err) => {
@@ -220,6 +226,7 @@ export default function AuthGate({ children }) {
       // Unkritisch — der naechste /me-Check klaert den Zustand.
     }
     setEmail(null);
+    setCanViewUsage(false);
     setStatus('unauthenticated');
   }
 
@@ -242,8 +249,9 @@ export default function AuthGate({ children }) {
   if (status === 'unauthenticated') {
     return (
       <LoginPage
-        onLoginSuccess={(loggedInEmail) => {
+        onLoginSuccess={(loggedInEmail, loggedInCanViewUsage) => {
           setEmail(loggedInEmail);
+          setCanViewUsage(Boolean(loggedInCanViewUsage));
           setStatus('authenticated');
         }}
       />
@@ -254,7 +262,7 @@ export default function AuthGate({ children }) {
     <>
       {/* email ist null wenn auth_enabled=false (Rollout/lokal) —
           dann keine Leiste, die Seite sieht aus wie bisher. */}
-      {email && <UserBar email={email} onLogout={handleLogout} />}
+      {email && <UserBar email={email} canViewUsage={canViewUsage} onLogout={handleLogout} />}
       {children}
     </>
   );

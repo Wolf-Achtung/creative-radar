@@ -215,6 +215,8 @@ export const endpoints = {
   // CSV = Roh-Events fuer eigene Auswertungen in Excel.
   adminUsageExportHtml: (days = 30) => download(`/api/admin/usage/export.html?days=${days}`, 'creative-radar-nutzung.html'),
   adminUsageExportCsv: (days = 30) => download(`/api/admin/usage/export.csv?days=${days}`, 'creative-radar-nutzung.csv'),
+  // Drill-down pro Nutzer (aufklappbare Zeile in der Nutzungs-Ansicht).
+  adminUsageUserEvents: (email, days = 30) => api(`/api/admin/usage/user-events?email=${encodeURIComponent(email)}&days=${days}`),
 
   // "Jetzt komplett aktualisieren" (Admin-Button): löst den vollen Cron-Lauf
   // on-demand aus. Default targetWeek='completed' + force=true → gerade

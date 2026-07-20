@@ -696,6 +696,16 @@ class AppUser(SQLModel, table=True):
     email: str = Field(unique=True, index=True, max_length=255)
     display_name: Optional[str] = Field(default=None, max_length=120)
     active: bool = True
+    # Monitoring-Freischaltung pro Person (Wolf-Festlegung 2026-07-20):
+    # User mit diesem Flag sehen nach dem normalen E-Mail-Code-Login
+    # zusaetzlich die Nutzungs-Auswertung (/nutzung, Export-Downloads) —
+    # NUR die; alle uebrigen Admin-Funktionen bleiben der Passwort-
+    # Session vorbehalten. Kein geteiltes Zweit-Passwort: Zugang ist
+    # individuell entziehbar und nachvollziehbar.
+    can_view_usage: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean(), nullable=False, server_default=sa.false()),
+    )
     created_at: datetime = Field(default_factory=utc_now)
     last_login_at: Optional[datetime] = None
 

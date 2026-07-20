@@ -286,7 +286,14 @@ def login(
     )
     log_usage(email, "login", {})
     logger.info("auth.login success email=%s", _mask(email))
-    return {"ok": True, "email": email, "expires_unix": expires_unix}
+    return {
+        "ok": True,
+        "email": email,
+        "expires_unix": expires_unix,
+        # Monitoring-Freischaltung — Frontend zeigt damit direkt nach dem
+        # Login den "Nutzung"-Link, ohne /me nachzufragen.
+        "can_view_usage": bool(user.can_view_usage),
+    }
 
 
 @router.post("/logout")
@@ -310,12 +317,22 @@ def me(request: Request, db: Session = Depends(get_session)) -> dict:
     ``auth_enabled=false`` (Rollout-Phase / lokales Dev) gilt als
     eingeloggt (Konvention der Admin-Session)."""
     if not settings.user_auth_enabled:
-        return {"authenticated": True, "auth_enabled": False, "email": None}
+        return {"authenticated": True, "auth_enabled": False, "email": None, "can_view_usage": False}
     secret = settings.user_session_secret
     token = request.cookies.get(USER_SESSION_COOKIE)
     email: Optional[str] = verify_user_session_token(token, secret) if (token and secret) else None
+    can_view_usage = False
     if email:
         user = db.exec(select(AppUser).where(AppUser.email == email.strip().lower())).first()
         if user is None or not user.active:
             email = None
-    return {"authenticated": bool(email), "auth_enabled": True, "email": email}
+        else:
+            # Monitoring-Freischaltung (Wolf 2026-07-20): steuert im
+            # Frontend den "Nutzung"-Link in der User-Leiste.
+            can_view_usage = bool(user.can_view_usage)
+    return {
+        "authenticated": bool(email),
+        "auth_enabled": True,
+        "email": email,
+        "can_view_usage": can_view_usage,
+    }
