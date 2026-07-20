@@ -7,6 +7,7 @@ import AdminPage from './AdminPage';
 import AuthGate from './AuthGate';
 import GuidePage from './GuidePage';
 import LegalPage from './LegalPage';
+import UsagePage from './UsagePage';
 import { SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
 import { SiteFooter } from './components/SiteFooter';
 import {
@@ -44,6 +45,16 @@ function Router() {
     return (
       <AuthGate>
         <GuidePage />
+      </AuthGate>
+    );
+  }
+  // Nutzungs-Auswertung fuer einzeln freigeschaltete User (2026-07-20).
+  // Das Gate prueft nur "eingeloggt"; ob der User die Auswertung sehen
+  // darf, erzwingt das Backend pro Request (require_usage_access).
+  if (path === '/nutzung' || path === '/nutzung/') {
+    return (
+      <AuthGate>
+        <UsagePage />
       </AuthGate>
     );
   }

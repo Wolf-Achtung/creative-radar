@@ -61,6 +61,15 @@ export function UsersPanel() {
     });
   }
 
+  async function toggleUsageAccess(user) {
+    await run(async () => {
+      await endpoints.adminPatchUser(user.id, { can_view_usage: !user.can_view_usage });
+      setMessage(user.can_view_usage
+        ? `${user.email} sieht die Nutzungs-Auswertung nicht mehr.`
+        : `${user.email} kann jetzt die Nutzungs-Auswertung unter /nutzung einsehen.`);
+    });
+  }
+
   async function toggleActive(user) {
     await run(async () => {
       await endpoints.adminPatchUser(user.id, { active: !user.active });
@@ -100,6 +109,7 @@ export function UsersPanel() {
                   <th>E-Mail</th>
                   <th>Name</th>
                   <th>Status</th>
+                  <th>Monitoring</th>
                   <th>Letzter Login</th>
                   <th>Zuletzt aktiv</th>
                   <th>Aktionen (30 T.)</th>
@@ -114,6 +124,21 @@ export function UsersPanel() {
                       <td>{user.email}</td>
                       <td>{user.display_name || '—'}</td>
                       <td>{user.active ? 'aktiv' : 'gesperrt'}</td>
+                      <td>
+                        {/* Monitoring-Freischaltung pro Person (2026-07-20):
+                            User mit Haken sehen nach dem normalen Login
+                            zusaetzlich /nutzung (nur die Auswertung, keine
+                            weiteren Admin-Funktionen). */}
+                        <label style={{ whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(user.can_view_usage)}
+                            disabled={busy}
+                            onChange={() => toggleUsageAccess(user)}
+                          />
+                          {' '}Nutzung
+                        </label>
+                      </td>
                       <td>{user.last_login_at ? formatDateTime(user.last_login_at) : '—'}</td>
                       <td>{usage.last_active ? formatDateTime(usage.last_active) : '—'}</td>
                       <td>{usage.events ?? 0}</td>
