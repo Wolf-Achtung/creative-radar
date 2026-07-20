@@ -166,6 +166,49 @@ class Settings(BaseSettings):
     # ohne Code-Deploy erfordert.
     rate_limit_enabled: bool = True
 
+    # Sprint User-Login 2026-07 — E-Mail+Code-Login fuer ~15 bekannte
+    # Nutzer (Team/Kunden), Flow identisch zum Referenzprojekt
+    # api-ki-backend-neu (6-stelliger Code, 10 Min. gueltig, Einmal-
+    # Nutzung; Rate-Limits 10x Code-Anfordern / 5x Login pro 5 Min.).
+    #
+    # ``user_auth_enabled``: Master-Schalter (Rollout-Muster wie
+    # admin_auth_enabled: Backend deployen, Frontend deployen, ENVs
+    # setzen, dann flippen). Solange False, bleibt die gesamte Website
+    # oeffentlich wie bisher.
+    # ``user_session_secret``: HMAC-Schluessel fuer die Session-Token-
+    # Signatur (eigener Wert, NICHT admin_session_secret wiederverwenden
+    # — getrennte Rotation). Wolf setzt: ``openssl rand -hex 32``.
+    # ``user_session_ttl_seconds``: Default 30 Tage — die Nutzer oeffnen
+    # Wochen-Briefs, ein woechentlicher Re-Login waere reine Reibung.
+    # Bewusste Abweichung von der 1h-JWT-TTL der Referenz ("Angemeldet
+    # bleiben" ist hier der eingebaute Normalfall statt einer Checkbox).
+    # ``login_code_ttl_seconds``: 600 = 10 Minuten, identisch Referenz.
+    user_auth_enabled: bool = False
+    user_session_secret: str | None = None
+    user_session_ttl_seconds: int = 30 * 24 * 3600
+    login_code_ttl_seconds: int = 600
+    auth_rate_window_sec: int = 300
+    auth_rate_max_request_code: int = 10
+    auth_rate_max_login: int = 5
+
+    # E-Mail-Versand fuer Login-Codes. Provider-Weiche wie im Referenz-
+    # projekt: "resend" (Default; braucht RESEND_API_KEY + MAIL_FROM mit
+    # in Resend verifizierter Absender-Domain) oder "smtp" (klassisch,
+    # braucht SMTP_HOST/SMTP_USER/SMTP_PASSWORD/MAIL_FROM).
+    # ``disable_emails=True`` ist der Kill-Switch fuer Tests/lokale Devs
+    # — Versand wird geloggt statt ausgefuehrt.
+    email_provider: str = "resend"
+    resend_api_key: str | None = None
+    mail_from: str | None = None
+    mail_from_name: str = "Creative Radar"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_starttls: bool = True
+    mail_timeout_seconds: float = 30.0
+    disable_emails: bool = False
+
     image_proxy_allowed_hosts: str = (
         "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
     )

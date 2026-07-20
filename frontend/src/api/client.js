@@ -166,6 +166,24 @@ export const endpoints = {
   adminLogout: () => api('/api/admin/logout', { method: 'POST' }),
   adminMe: () => api('/api/admin/me'),
 
+  // Sprint User-Login 2026-07: E-Mail+Code-Login fuer die gesamte
+  // Website (Flow identisch zum Schwesterprojekt: 6-stelliger Code,
+  // 10 Min. gueltig). Login setzt ein 30-Tage-HttpOnly-Cookie
+  // (cr_user_session); /me antwortet IMMER 200 mit {authenticated,
+  // email, auth_enabled} — bei auth_enabled=false (Rollout/lokal) gilt
+  // "eingeloggt", das Gate bleibt unsichtbar.
+  authRequestCode: (email) => api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email }) }),
+  authLogin: (email, code) => api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, code }) }),
+  authLogout: () => api('/api/auth/logout', { method: 'POST' }),
+  authMe: () => api('/api/auth/me'),
+
+  // User-Verwaltung + Nutzungs-Auswertung (Admin-Session-geschuetzt).
+  adminUsers: () => api('/api/admin/users'),
+  adminCreateUser: (payload) => api('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
+  adminPatchUser: (id, payload) => api(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminDeleteUser: (id) => api(`/api/admin/users/${id}`, { method: 'DELETE' }),
+  adminUsage: (days = 30) => api(`/api/admin/usage?days=${days}`),
+
   // "Jetzt komplett aktualisieren" (Admin-Button): löst den vollen Cron-Lauf
   // on-demand aus. Default targetWeek='completed' + force=true → gerade
   // abgeschlossene KW mit Force-Overwrite (identisch zum wöchentlichen

@@ -2125,3 +2125,38 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   color: #6f675b;
 }
+
+/* ---- Sprint User-Login 2026-07: eingeloggter Zustand ---- */
+/* Schmale Leiste oberhalb des Heros auf allen Gate-Seiten (Startseite,
+   Wochen-Briefs): wer ist angemeldet + Abmelden. Bewusst dezent —
+   sichtbar, aber ohne dem Hero die Buehne zu nehmen. */
+.user-bar {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 10px 24px 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #5e564a;
+}
+.user-bar__email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 70%;
+}
+.user-bar__logout {
+  background: none;
+  border: 1px solid #cfc7b8;
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #5e564a;
+  cursor: pointer;
+}
+.user-bar__logout:hover {
+  background: #e9e3d7;
+  color: #1d2330;
+}

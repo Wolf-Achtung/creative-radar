@@ -72,3 +72,32 @@ def rate_limit(bucket: str, *, max_calls: int, window_seconds: float):
             calls.append(now)
 
     return _dependency
+
+
+def hit(bucket: str, key: str, *, max_calls: int, window_seconds: float) -> None:
+    """Programmatische Variante von ``rate_limit`` fuer Nicht-IP-Keys.
+
+    Sprint User-Login 2026-07: die Auth-Endpoints limitieren zusaetzlich
+    pro E-MAIL (Referenz-Muster api-ki-backend-neu: 10x Code-Anfordern /
+    5x Login pro 5 Min. und Adresse) — ein Angreifer mit rotierenden IPs
+    soll eine einzelne Adresse weder mit Code-Mails fluten noch den
+    6-stelligen Code durchraten koennen. Gleicher Store, gleicher
+    Kill-Switch, gleiche 429-Antwort wie die IP-Dependency; der Key
+    landet als eigener Namensraum neben den IP-Keys im selben Bucket-Dict.
+    """
+    if not settings.rate_limit_enabled:
+        return
+    bucket_key = (bucket, key)
+    now = time.monotonic()
+    with _lock:
+        calls = _buckets[bucket_key]
+        while calls and now - calls[0] > window_seconds:
+            calls.popleft()
+        if len(calls) >= max_calls:
+            retry_after = max(1, int(window_seconds - (now - calls[0])))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests, please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        calls.append(now)

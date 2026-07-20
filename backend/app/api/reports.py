@@ -1,8 +1,10 @@
 from datetime import date, timedelta
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlmodel import Session, select
 from app.database import get_session
+from app.services.usage_log import log_usage
+from app.user_session import request_user_email
 from app.models.entities import WeeklyReport, Asset
 from app.schemas.dto import (
     GenerateWeeklyReportRequest,
@@ -49,10 +51,12 @@ def latest_report(session: Session = Depends(get_session)):
 
 
 @router.get("/latest/download.html")
-def latest_report_download_html(session: Session = Depends(get_session)):
+def latest_report_download_html(request: Request, session: Session = Depends(get_session)):
     report = session.exec(select(WeeklyReport).order_by(WeeklyReport.generated_at.desc())).first()
     if not report:
         raise HTTPException(status_code=404, detail="No report found")
+    # Sprint User-Login 2026-07: Report-Download gezaehlt (No-Op ohne User).
+    log_usage(request_user_email(request), "report_download", {"format": "html"})
     return Response(
         content=report.html_content or "",
         media_type="text/html; charset=utf-8",
@@ -61,10 +65,12 @@ def latest_report_download_html(session: Session = Depends(get_session)):
 
 
 @router.get("/latest/download.md")
-def latest_report_download_markdown(session: Session = Depends(get_session)):
+def latest_report_download_markdown(request: Request, session: Session = Depends(get_session)):
     report = session.exec(select(WeeklyReport).order_by(WeeklyReport.generated_at.desc())).first()
     if not report:
         raise HTTPException(status_code=404, detail="No report found")
+    # Sprint User-Login 2026-07: Report-Download gezaehlt (No-Op ohne User).
+    log_usage(request_user_email(request), "report_download", {"format": "md"})
     report_type = "weekly_overview"
     selected_asset_ids: list[UUID] = []
     if report.trend_summary_de and report.trend_summary_de.startswith("["):

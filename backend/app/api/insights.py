@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session, select
 
 from app.database import get_session
+from app.services.usage_log import log_usage
+from app.user_session import request_user_email
 
 logger = logging.getLogger(__name__)
 from app.models.entities import (
@@ -137,7 +139,12 @@ def _handles_for_pair(pair_def: dict) -> list[str]:
 
 
 @pairs_router.get("/pairs", response_model=PairsResponse)
-def pairs(session: Session = Depends(get_session)) -> PairsResponse:
+def pairs(request: Request, session: Session = Depends(get_session)) -> PairsResponse:
+    # Sprint User-Login 2026-07: /api/pairs ist der eine Call, den jede
+    # Startseiten-Ansicht macht — als ``landing_view`` der Proxy fuer
+    # "Startseite geoeffnet". No-Op ohne eingeloggten User (Auth aus,
+    # Admin-Session, Rollout-Phase).
+    log_usage(request_user_email(request), "landing_view", {})
     """List enabled pairs with Frontend-ready metadata.
 
     Drives the landing-page card grid. Returns only ``enabled=True`` pairs
@@ -374,6 +381,16 @@ def weekly(
             status_code=404,
             detail=f"Unbekannter Pair-Key: {pair!r}. Verfügbar: {_enabled_pair_keys()}",
         )
+    # Sprint User-Login 2026-07: „Brief <pair> geoeffnet" — nach der
+    # Pair-Validierung, vor dem Cache-/LLM-Pfad (Cache-Hit und frische
+    # Generierung sind aus Nutzersicht dieselbe Ansicht). dry_run ist
+    # Quality-Gate-Tooling, kein Nutzer-View — nicht zaehlen.
+    if not dry_run:
+        log_usage(
+            request_user_email(request),
+            "brief_view",
+            {"pair": pair, "window_days": window_days},
+        )
     pair_def = PAIRS[pair]
     if not pair_def.get("enabled", True):
         # 503 statt 404, weil der Pair existiert (Frontend kann ein Label
@@ -540,6 +557,7 @@ _TITLE_POSTS_SORTS = {
 
 @router.get("/title/{title_id}/posts", response_model=TitlePostsResponse)
 def title_posts(
+    request: Request,
     title_id: UUID,
     sort: str = Query("engagement", description="Sortierung pro Plattform: engagement|views|likes"),
     session: Session = Depends(get_session),
@@ -561,6 +579,12 @@ def title_posts(
     serverseitig berechneten ``engagement_rate``.
     """
     title = session.get(Title, title_id)
+    # Sprint User-Login 2026-07: Film-Detailseite geoeffnet.
+    log_usage(
+        request_user_email(request),
+        "title_view",
+        {"title_id": str(title_id), "title": title.title_original if title else None},
+    )
     sort_key = _TITLE_POSTS_SORTS.get(sort, _TITLE_POSTS_SORTS["engagement"])
 
     rows = session.exec(
@@ -691,6 +715,7 @@ def market_timeline(
 
 @router.post("/forecast", response_model=ForecastResponse)
 def public_forecast(
+    request: Request,
     pair: str = Query(..., description="Pair-Key, z.B. 'warnerbros'"),
     weeks: int | None = Query(
         None, ge=1,
@@ -719,6 +744,8 @@ def public_forecast(
             status_code=404,
             detail=f"Unbekannter Pair-Key: {pair!r}. Verfügbar: {_enabled_pair_keys()}",
         )
+    # Sprint User-Login 2026-07: ER-Prognose abgerufen.
+    log_usage(request_user_email(request), "forecast_view", {"pair": pair})
     result = generate_er_forecast(
         session, pair, PAIRS[pair], weeks=weeks, apply_gate=True
     )
