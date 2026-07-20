@@ -4,6 +4,7 @@ import { endpoints } from './api/client';
 import InsightWeekly from './InsightWeekly';
 import RoundupBlock from './RoundupBlock';
 import AdminPage from './AdminPage';
+import AuthGate from './AuthGate';
 import LegalPage from './LegalPage';
 import { SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
 import { SiteFooter } from './components/SiteFooter';
@@ -22,8 +23,16 @@ import './styles.css';
 function Router() {
   const path = (typeof window !== 'undefined' ? window.location.pathname : '') || '';
   const weeklyMatch = path.match(/^\/insights\/weekly\/([\w.-]+)\/?$/);
+  // Sprint User-Login 2026-07: Startseite + Wochen-Briefs stehen
+  // komplett hinter dem E-Mail+Code-Login (AuthGate). Ausserhalb des
+  // Gates bleiben nur die Rechtsseiten (muessen ohne Login erreichbar
+  // sein) und /admin (eigene Passwort-Session, kein Doppel-Login).
   if (weeklyMatch) {
-    return <InsightWeekly pair={weeklyMatch[1]} />;
+    return (
+      <AuthGate>
+        <InsightWeekly pair={weeklyMatch[1]} />
+      </AuthGate>
+    );
   }
   if (path === '/admin' || path === '/admin/') {
     return <AdminPage />;
@@ -35,7 +44,11 @@ function Router() {
   if (path === '/datenschutz' || path === '/datenschutz/') {
     return <LegalPage page="datenschutz" />;
   }
-  return <App />;
+  return (
+    <AuthGate>
+      <App />
+    </AuthGate>
+  );
 }
 
 // Sprint 28.05.2026 (Admin-Sektion): die neue, schmale Startseite.

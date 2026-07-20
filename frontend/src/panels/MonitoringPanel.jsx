@@ -18,6 +18,17 @@ import { Section } from '../components/Section';
 // jedem Admin-Seitenaufruf), eigener Fehlerzustand statt globalem
 // error/message-State, damit ein Ladefehler hier nicht die restliche
 // Admin-UI blockiert.
+// Sprint User-Login 2026-07: sprechende Labels fuer die Action-Slugs
+// des usage_event-Logs (Backend: services/usage_log.py-Aufrufer).
+const USAGE_ACTION_LABELS = {
+  login: 'Anmeldung',
+  landing_view: 'Startseite geöffnet',
+  brief_view: 'Studio-Brief geöffnet',
+  title_view: 'Film-Detailseite geöffnet',
+  forecast_view: 'ER-Prognose abgerufen',
+  report_download: 'Report heruntergeladen',
+};
+
 const BUDGET_CARDS = [
   { key: 'apify', label: 'Apify (Scraping)', fetcher: 'apifyBudgetStatus' },
   { key: 'anthropic', label: 'Anthropic (Briefs, Vision-Fallback)', fetcher: 'anthropicBudgetStatus' },
@@ -54,6 +65,10 @@ export function MonitoringPanel() {
   const [costSummary, setCostSummary] = useState(null);
   const [cronRuns, setCronRuns] = useState(null);
   const [breakouts, setBreakouts] = useState(null);
+  // Sprint User-Login 2026-07 — Nutzungs-Auswertung (wer war wann
+  // zuletzt aktiv, meistgenutzte Aktionen/Studios). Quelle:
+  // GET /api/admin/usage, gespeist aus dem usage_event-Log.
+  const [usage, setUsage] = useState(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'done' | 'error'
   // UX-Audit Befund 13 (2026-07-14): der Panel lud nur einmal beim Öffnen
   // des Tabs; der globale "Aktualisieren"-Button im Footer erreicht diesen
@@ -68,7 +83,8 @@ export function MonitoringPanel() {
       endpoints.costSummary({ groupBy: 'provider' }).catch(() => null),
       endpoints.cronRuns(10).catch(() => null),
       endpoints.breakouts({ limit: 15 }).catch(() => null),
-    ]).then(([budgetResults, cost, runs, breakoutFeed]) => {
+      endpoints.adminUsage(30).catch(() => null),
+    ]).then(([budgetResults, cost, runs, breakoutFeed, usageSummary]) => {
       if (cancelled) return;
       const byKey = {};
       BUDGET_CARDS.forEach((c, i) => { byKey[c.key] = budgetResults[i]; });
@@ -76,6 +92,7 @@ export function MonitoringPanel() {
       setCostSummary(cost);
       setCronRuns(Array.isArray(runs) ? runs : []);
       setBreakouts(breakoutFeed?.entries ?? []);
+      setUsage(usageSummary);
       setStatus('done');
     }).catch(() => { if (!cancelled) setStatus('error'); });
     return () => { cancelled = true; };
@@ -156,6 +173,76 @@ export function MonitoringPanel() {
               ))}
             </tbody>
           </table>
+        )}
+      </Section>
+
+      <Section title="Nutzung" kicker="Wer nutzt was — letzte 30 Tage">
+        {status === 'loading' && <p className="muted small">Lädt …</p>}
+        {status === 'done' && !usage && (
+          <p className="muted small">Nutzungsdaten momentan nicht verfügbar.</p>
+        )}
+        {status === 'done' && usage && (
+          <>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              {formatNumber(usage.events_total)} Ereignisse von eingeloggten Nutzern.
+              Gezählt wird nur Nutzung hinter dem Login — Admin-Zugriffe fließen nicht ein.
+            </p>
+            {usage.users && usage.users.length > 0 && (
+              <table className="ops-cost-table">
+                <thead>
+                  <tr><th>Nutzer</th><th>Status</th><th>Zuletzt aktiv</th><th>Logins</th><th>Brief-Ansichten</th><th>Ereignisse</th></tr>
+                </thead>
+                <tbody>
+                  {usage.users.map((u) => (
+                    <tr key={u.email}>
+                      <td>{u.display_name ? `${u.display_name} (${u.email})` : u.email}</td>
+                      <td>{u.deleted ? 'entfernt' : u.active ? 'aktiv' : 'gesperrt'}</td>
+                      <td>{u.last_active ? formatDateTime(u.last_active) : (u.last_login_at ? `Login: ${formatDateTime(u.last_login_at)}` : '—')}</td>
+                      <td>{formatNumber(u.logins || 0)}</td>
+                      <td>{formatNumber(u.actions?.brief_view || 0)}</td>
+                      <td>{formatNumber(u.events || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {usage.top_briefs && usage.top_briefs.length > 0 && (
+              <>
+                <h4 style={{ marginBottom: '0.5rem' }}>Meistgeöffnete Studio-Briefs</h4>
+                <table className="ops-cost-table">
+                  <thead>
+                    <tr><th>Studio (Pair)</th><th>Ansichten</th></tr>
+                  </thead>
+                  <tbody>
+                    {usage.top_briefs.map((b) => (
+                      <tr key={b.pair}>
+                        <td>{b.pair}</td>
+                        <td>{formatNumber(b.count)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+            {usage.actions && usage.actions.length > 0 && (
+              <>
+                <h4 style={{ marginBottom: '0.5rem' }}>Aktionen gesamt</h4>
+                <table className="ops-cost-table">
+                  <thead>
+                    <tr><th>Aktion</th><th>Anzahl</th></tr>
+                  </thead>
+                  <tbody>
+                    {usage.actions.map((a) => (
+                      <tr key={a.action}>
+                        <td>{USAGE_ACTION_LABELS[a.action] || a.action}</td>
+                        <td>{formatNumber(a.count)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </>
         )}
       </Section>
 

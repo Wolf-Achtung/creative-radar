@@ -9,7 +9,8 @@ from pathlib import Path
 from app.config import settings
 from app.database import create_db_and_tables
 from app.auth import auth_middleware
-from app.api import health, channels, titles, posts, assets, reports, monitor, insights, proxy, admin, cron, thumbnails
+from app.user_session import user_auth_middleware
+from app.api import health, channels, titles, posts, assets, reports, monitor, insights, proxy, admin, admin_users, cron, thumbnails, user_auth
 from app.services.cron_scheduler import run_scheduler_loop
 
 # Configure the root logger to stream INFO+ to stdout. Without this, Python's
@@ -32,6 +33,14 @@ app = FastAPI(title="Creative Radar API", version="1.0.0")
 # Order: register auth_middleware FIRST so CORSMiddleware (added second) sits
 # outermost and handles preflight before auth runs. Starlette executes
 # middleware in reverse-add order on the request side.
+#
+# Sprint User-Login 2026-07: user_auth_middleware wird VOR auth_middleware
+# registriert und liegt damit INNERHALB der Bearer-Schicht — Reihenfolge
+# auf dem Request-Pfad: CORS -> Bearer (richtiges Frontend?) -> User-
+# Session (welcher freigeschaltete Nutzer?) -> Route. Master-Schalter
+# USER_AUTH_ENABLED (Default aus, staged Rollout wie bei den anderen
+# beiden Auth-Schichten).
+app.middleware("http")(user_auth_middleware)
 app.middleware("http")(auth_middleware)
 
 app.add_middleware(
@@ -122,5 +131,7 @@ app.include_router(insights.roundups_router)
 app.include_router(proxy.router)
 app.include_router(admin.router)
 app.include_router(admin.login_router)
+app.include_router(admin_users.router)
+app.include_router(user_auth.router)
 app.include_router(cron.router)
 app.include_router(thumbnails.router)

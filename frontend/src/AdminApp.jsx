@@ -6,8 +6,12 @@ import { MonitoringPanel } from './panels/MonitoringPanel';
 import { ReportsPanel } from './panels/ReportsPanel';
 import { ReviewPanel } from './panels/ReviewPanel';
 import { SourcesPanel } from './panels/SourcesPanel';
+import { UsersPanel } from './panels/UsersPanel';
 
-const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'Quellen', 'Monitoring'];
+// Sprint User-Login 2026-07: fuenfter Tab "Nutzer" — Verwaltung der
+// Login-Allowlist (siehe UsersPanel.jsx); die Nutzungs-Auswertung
+// dazu lebt im Monitoring-Tab.
+const NAV_ITEMS = ['Report erstellen', 'Treffer prüfen', 'Quellen', 'Nutzer', 'Monitoring'];
 
 // Sprint 28.05.2026 (Admin-Sektion): die Tools-Logik aus dem bisherigen
 // App() in eine eigene AdminApp-Komponente herausgezogen + exportiert.
@@ -512,6 +516,7 @@ export function AdminApp({ onLogout }) {
           lastCronRun={lastCronRun}
         />
       )}
+      {activeTab === 'Nutzer' && <UsersPanel />}
       {activeTab === 'Monitoring' && <MonitoringPanel />}
 
       <footer className="footer-status">

@@ -676,6 +676,80 @@ class DesignerWeeklyBriefing(SQLModel, table=True):
     output_tokens: Optional[int] = None
 
 
+class AppUser(SQLModel, table=True):
+    """User-Allowlist fuer das E-Mail+Code-Login (Sprint User-Login 2026-07).
+
+    ~15 bekannte Nutzer (Team/Kunden). Bewusst KEIN Passwort-Feld — der
+    Login laeuft ausschliesslich ueber Einmal-Codes per E-Mail (Muster
+    aus dem Referenzprojekt api-ki-backend-neu, dort Code-Whitelist im
+    Quellcode; hier als DB-Tabelle, damit Wolf User ueber den
+    Admin-Bereich pflegen kann statt zu deployen).
+
+    ``email`` ist der Identity-Key (lowercase-normalisiert beim Anlegen
+    und bei jedem Lookup). ``active=False`` sperrt den User sofort: die
+    User-Session-Middleware prueft den Flag pro Request, ein noch
+    gueltiges Session-Cookie hilft einem deaktivierten User nicht.
+    """
+    __tablename__ = "app_user"
+    __table_args__ = _CR_TABLE_ARGS
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    email: str = Field(unique=True, index=True, max_length=255)
+    display_name: Optional[str] = Field(default=None, max_length=120)
+    active: bool = True
+    created_at: datetime = Field(default_factory=utc_now)
+    last_login_at: Optional[datetime] = None
+
+
+class LoginCode(SQLModel, table=True):
+    """Einmal-Login-Code (E-Mail-Versand). Flow-Parameter identisch zum
+    Referenzprojekt: 6 Ziffern, 10 Minuten gueltig, Einmal-Nutzung.
+
+    Abweichung zur Referenz (dort Redis/In-Memory, Klartext): der Code
+    liegt hier NUR als SHA-256-Hash in der DB (Defense-in-Depth bei
+    DB-Leak/Backup-Zugriff) und ueberlebt einen Railway-Restart.
+    ``attempts`` zaehlt Fehlversuche pro Code — nach
+    ``LOGIN_CODE_MAX_ATTEMPTS`` (5) ist der Code verbrannt, auch wenn
+    er noch nicht abgelaufen ist (gegen Code-Raten trotz IP-Rotation).
+    Pro request-code wird genau eine Row angelegt und alle aelteren
+    offenen Rows der E-Mail geloescht (latest-code-wins).
+    """
+    __tablename__ = "login_code"
+    __table_args__ = _CR_TABLE_ARGS
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    email: str = Field(index=True, max_length=255)
+    code_hash: str = Field(max_length=64)
+    expires_at: datetime
+    used_at: Optional[datetime] = None
+    attempts: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class UsageEvent(SQLModel, table=True):
+    """Leichtgewichtiges Nutzungs-Event-Log: User x Aktion x Zeitpunkt.
+
+    Sprint User-Login 2026-07 — Grundlage der "wer hat was genutzt"-
+    Auswertung im Monitoring-Tab. Geschrieben nur, wenn die User-Session-
+    Middleware eine eingeloggte E-Mail an den Request gehaengt hat
+    (``request.state.user_email``); Admin-Zugriffe ueber die
+    Passwort-Session erzeugen KEINE Events (Wolfs eigene Klicks wuerden
+    die Team-Statistik verfaelschen).
+
+    ``action`` ist ein kurzer Slug (``login``, ``brief_view``,
+    ``title_view``, ``forecast_view``, ``landing_view``,
+    ``report_download``); ``context`` traegt die Detail-Dimension
+    (z. B. ``{"pair": "lionsgate", "iso_week": 29}``). Kein FK auf
+    ``app_user`` — Events sollen die Loeschung eines Users ueberleben
+    (Audit-Charakter), Join laeuft ueber die E-Mail.
+    """
+    __tablename__ = "usage_event"
+    __table_args__ = _CR_TABLE_ARGS
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    email: str = Field(index=True, max_length=255)
+    action: str = Field(index=True, max_length=64)
+    context: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class TitleInsightReport(SQLModel, table=True):
     """Persisted title brief — one row per (title_id, iso_year, iso_week).
 
