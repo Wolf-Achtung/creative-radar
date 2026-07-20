@@ -3142,6 +3142,74 @@ def test_quoted_non_json_string_passed_through_clean_type_error():
                for e in exc.value.errors())
 
 
+# ---------------------------------------------------------------------------
+# Cron-Run 16421771 (20.07.2026) — lionsgate KW29. Sechs stringifizierte
+# Felder (trends, actions, ganz_konkret, konkurrenz, tonalitaet,
+# fuer_motion_designer) enthielten in String-WERTEN unescaped gerade
+# Anfuehrungszeichen aus zitierten Captions (Muster: deutsches „…" gefolgt
+# vom geraden ``"``, z.B. ``wie „sorry in advance." als Hook``). json.loads
+# brach mit ``Expecting ',' delimiter`` ab, die Repair-Schleife gab auf →
+# schema_validation_error, Brief uebersprungen. Der neue Fallback
+# ``_escape_unescaped_inner_quotes`` escaped Inhalts-Quotes (naechstes
+# Nicht-Whitespace-Zeichen ist NICHT strukturell ``,}]:``) und parst erneut.
+
+
+def test_unescaped_inner_quotes_from_run_16421771_are_repaired(caplog):
+    """Lionsgate-KW29-Muster: stringifizierte Felder mit unescaped geraden
+    Quotes in Werten werden per Quote-Fallback repariert und validieren;
+    der Fallback loggt eine WARNING mit Feldname."""
+    raw_trends = (
+        '[{"name": "Gefühlsbetonte Fan-Clips ziehen", '
+        '"evidence": "Top-Post nutzt „sorry in advance." als Hook und gewinnt", '
+        '"implication_for_creation": "früher emotionaler Payoff"}]'
+    )
+    raw_konkurrenz = (
+        '{"was_alle_machen": "Alle zitieren „big swing." im Caption-Stil", '
+        '"format_trend": "vertikal"}'
+    )
+    # Beleg, dass das Muster ohne Fallback wirklich kippt (Log-Evidenz
+    # "Expecting ',' delimiter" aus Run 16421771):
+    with pytest.raises(json.JSONDecodeError, match="delimiter"):
+        json.loads(raw_trends)
+
+    body = _brief_body(trends=raw_trends, konkurrenz=raw_konkurrenz)
+    with caplog.at_level(logging.WARNING, logger="app.schemas.insights"):
+        report = LLMReport.model_validate(body, context=_NO_LAGE)
+
+    assert report.trends[0].evidence == (
+        'Top-Post nutzt „sorry in advance." als Hook und gewinnt'
+    )
+    assert report.konkurrenz.was_alle_machen == (
+        'Alle zitieren „big swing." im Caption-Stil'
+    )
+    fallback_logs = [
+        r.message for r in caplog.records
+        if "insight-schema-json-repair-quote-fallback" in r.message
+    ]
+    assert any("trends" in m for m in fallback_logs)
+    assert any("konkurrenz" in m for m in fallback_logs)
+
+
+def test_ambiguous_content_quote_before_comma_still_clean_type_error(caplog):
+    """Grenzfall, den die Heuristik bewusst NICHT loest: eine Inhalts-Quote
+    direkt vor ``,`` sieht aus wie ein String-Abschluss. Der reparierte
+    String parst weiterhin nicht → Original wird durchgereicht, Pydantic
+    meldet den echten list_type-Fehler, die repair-failed-WARNING bleibt."""
+    raw = (
+        '[{"name": "Zitat wie „sofort", danach mehr Text", '
+        '"evidence": "e", "implication_for_creation": "i"}]'
+    )
+    with caplog.at_level(logging.WARNING, logger="app.schemas.insights"):
+        with pytest.raises(ValidationError) as exc:
+            LLMReport.model_validate(_brief_body(trends=raw), context=_NO_LAGE)
+    assert any(e["loc"] == ("trends",) and e["type"] == "list_type"
+               for e in exc.value.errors())
+    assert any(
+        "insight-schema-json-repair-failed" in r.message and "trends" in r.message
+        for r in caplog.records
+    )
+
+
 def test_aggregate_pair_paramountplus_uk_only_on_ig_tt_not_yt():
     """paramountplus voll-Pair-Garantie: TT + IG haben alle drei Märkte,
     YT hat keinen UK-Channel. aggregate_pair liefert eine

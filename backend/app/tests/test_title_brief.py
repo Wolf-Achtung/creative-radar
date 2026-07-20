@@ -180,6 +180,54 @@ def test_generate_title_brief_truncation_no_partial(monkeypatch):
     assert report.llm_output is None  # no silent partial
 
 
+# --------------------------------------------------------------------------
+# Cron-Run 16421771 (20.07.2026, lionsgate) — Schema-Validierungsfehler sind
+# genauso nicht-deterministisch wie JSON-Parse-Fehler (derselbe Prompt
+# validiert im naechsten Anlauf oft sauber). Vorher brach ``_run_brief_llm``
+# beim ersten schema_validation_error terminal ab; jetzt wird innerhalb von
+# MAX_RECALLS (2) neu angefragt. Getestet ueber den Title-Brief-Pfad, der
+# denselben geteilten Kernel nutzt.
+# --------------------------------------------------------------------------
+
+
+def test_schema_validation_failure_retries_and_recovers(monkeypatch):
+    """Versuch 1 liefert einen Body, der die Schema-Validierung reisst
+    (Pflichtfelder fehlen), Versuch 2 einen validen → der Kernel fragt neu
+    an und der Brief kommt durch (vorher: terminaler Abbruch nach 1 Call)."""
+    agg = _make_agg()
+    monkeypatch.setattr(tb, "aggregate_title", lambda *a, **k: agg)
+    monkeypatch.setattr(tb, "is_anthropic_configured", lambda: True)
+    monkeypatch.setattr(engine_module, "record_anthropic_call", MagicMock())
+    bad = {"headline": "h", "tldr": "t"}  # plattform_vergleich/data_caveats fehlen
+    llm = MagicMock(side_effect=[_fake_msg(bad), _fake_msg(_valid_body())])
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", llm)
+
+    report = tb.generate_title_brief(None, "Mortal Kombat")
+
+    assert report is not None
+    assert report.llm_output is not None
+    assert report.llm_output.headline == "Mortal Kombat zieht auf IG US"
+    assert llm.call_count == 2
+
+
+def test_schema_validation_failure_exhausts_recalls_then_gives_up(monkeypatch):
+    """Alle drei Versuche (1 + MAX_RECALLS) reissen die Schema-Validierung →
+    llm_output bleibt None (kein Persist-Kandidat), genau 3 LLM-Calls."""
+    agg = _make_agg()
+    monkeypatch.setattr(tb, "aggregate_title", lambda *a, **k: agg)
+    monkeypatch.setattr(tb, "is_anthropic_configured", lambda: True)
+    monkeypatch.setattr(engine_module, "record_anthropic_call", MagicMock())
+    bad = {"headline": "h", "tldr": "t"}
+    llm = MagicMock(side_effect=[_fake_msg(bad), _fake_msg(bad), _fake_msg(bad)])
+    monkeypatch.setattr(engine_module, "messages_create_strict_json", llm)
+
+    report = tb.generate_title_brief(None, "Mortal Kombat")
+
+    assert report is not None
+    assert report.llm_output is None
+    assert llm.call_count == 3
+
+
 def test_soft_citation_does_not_block(monkeypatch):
     agg = _make_agg()
     monkeypatch.setattr(tb, "aggregate_title", lambda *a, **k: agg)

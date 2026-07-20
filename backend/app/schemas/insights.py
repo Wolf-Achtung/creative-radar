@@ -643,6 +643,54 @@ class VergleichbarerPost(BaseModel):
     relevanz_grund: Optional[str] = None
 
 
+def _escape_unescaped_inner_quotes(text: str) -> str:
+    """Cron-Run 16421771 (20.07.2026, lionsgate KW29): Opus lieferte sechs
+    stringifizierte JSON-Felder, deren String-WERTE gerade Anfuehrungszeichen
+    aus zitierten Captions enthielten — unescaped (z.B. ``wie „sorry in
+    advance." zeigen``). ``json.loads`` bricht dort mit ``Expecting ','
+    delimiter`` ab, die Repair-Schleife scheiterte, der Brief kippte mit
+    schema_validation_error.
+
+    Best-Effort-Reparatur per Zeichen-Walk: innerhalb eines JSON-Strings ist
+    ein ``"`` nur dann ein plausibler String-ABSCHLUSS, wenn das naechste
+    Nicht-Whitespace-Zeichen strukturell ist (``,`` ``}`` ``]`` ``:`` oder
+    Textende). Jedes andere ``"`` ist Inhalt und wird zu ``\\"`` escaped.
+    Ambige Faelle (Inhalts-Quote direkt vor ``,``) bleiben unrepariert —
+    dann scheitert der erneute ``json.loads`` und der Aufrufer faellt auf
+    den bisherigen Pfad zurueck (Original durchreichen, WARNING loggen).
+    Bereits escapte ``\\"`` und andere ``\\x``-Sequenzen bleiben unberuehrt."""
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    n = len(text)
+    for i, ch in enumerate(text):
+        if not in_string:
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+            continue
+        if escaped:
+            escaped = False
+            out.append(ch)
+            continue
+        if ch == "\\":
+            escaped = True
+            out.append(ch)
+            continue
+        if ch == '"':
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j >= n or text[j] in ",}]:":
+                in_string = False
+                out.append(ch)
+            else:
+                out.append('\\"')
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
 class LLMReport(BaseModel):
     """Strategist-facing narrative produced by Opus 4.7.
 
@@ -760,19 +808,40 @@ class LLMReport(BaseModel):
                 try:
                     decoded = json.loads(stripped)
                 except (ValueError, TypeError) as exc:
-                    # Diagnose 2026-07-13: vorher wurde diese Exception
-                    # kommentarlos verschluckt, sodass ein Netflix-Brief
-                    # mit schema_validation_error auf ganz_konkret/
-                    # konkurrenz keinerlei Hinweis hinterliess, WARUM die
-                    # Reparatur scheiterte (nur "input_type=str" von
-                    # Pydantic, ohne die eigentliche json.loads-Ursache).
-                    # Snippet hart auf 300 Zeichen gekappt, damit ein
-                    # pathologisch langes Feld den Log nicht flutet.
+                    # Cron-Run 16421771 (20.07.2026, lionsgate): unescaped
+                    # gerade Quotes in String-Werten (zitierte Captions) —
+                    # zweiter Versuch auf der quote-reparierten Variante,
+                    # bevor aufgegeben wird. Ergibt die Reparatur wieder nur
+                    # einen str (Doppel-Encoding-Grenzfall), gilt sie als
+                    # gescheitert — konservativ, das beobachtete Muster ist
+                    # einfach-encodiert.
+                    quote_repaired = _escape_unescaped_inner_quotes(stripped)
+                    decoded = None
+                    if quote_repaired != stripped:
+                        try:
+                            decoded = json.loads(quote_repaired)
+                        except (ValueError, TypeError):
+                            decoded = None
+                    if decoded is None or isinstance(decoded, str):
+                        # Diagnose 2026-07-13: vorher wurde diese Exception
+                        # kommentarlos verschluckt, sodass ein Netflix-Brief
+                        # mit schema_validation_error auf ganz_konkret/
+                        # konkurrenz keinerlei Hinweis hinterliess, WARUM die
+                        # Reparatur scheiterte (nur "input_type=str" von
+                        # Pydantic, ohne die eigentliche json.loads-Ursache).
+                        # Snippet hart auf 300 Zeichen gekappt, damit ein
+                        # pathologisch langes Feld den Log nicht flutet.
+                        logger.warning(
+                            "insight-schema-json-repair-failed field=%s error=%s snippet=%r",
+                            field, exc, stripped[:300],
+                        )
+                        break  # kein valides JSON → letzten Stand nicht uebernehmen
                     logger.warning(
-                        "insight-schema-json-repair-failed field=%s error=%s snippet=%r",
-                        field, exc, stripped[:300],
+                        "insight-schema-json-repair-quote-fallback field=%s error=%s",
+                        field, exc,
                     )
-                    break  # kein valides JSON → letzten Stand nicht uebernehmen
+                    parsed = decoded
+                    break  # Container via Quote-Reparatur erreicht → fertig
                 parsed = decoded
                 if not isinstance(decoded, str):
                     break  # Container erreicht → fertig
