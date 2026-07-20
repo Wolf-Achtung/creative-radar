@@ -69,6 +69,33 @@ export async function api(path, options = {}) {
   return parseJsonResponse(response);
 }
 
+// Datei-Download fuer geschuetzte Endpoints (2026-07-20, Nutzungs-
+// Export). Ein einfacher <a href> wuerde am Bearer-Header scheitern
+// (Link-Klicks koennen keine Authorization mitschicken) — daher fetch
+// mit Bearer+Cookie, Blob, und programmatischer Download-Klick. Den
+// Dateinamen liefert das Backend via Content-Disposition.
+export async function download(path, fallbackName) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    headers: { ...authHeaders() },
+  });
+  if (!response.ok) {
+    throw new Error((await response.text()) || `API error ${response.status}`);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/);
+  const name = (match && match[1]) || fallbackName;
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function upload(path, formData) {
   const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
@@ -183,6 +210,11 @@ export const endpoints = {
   adminPatchUser: (id, payload) => api(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   adminDeleteUser: (id) => api(`/api/admin/users/${id}`, { method: 'DELETE' }),
   adminUsage: (days = 30) => api(`/api/admin/usage?days=${days}`),
+  // Nutzungs-Bericht als weitergebbares Dokument (Wolf 2026-07-20):
+  // HTML = formatierter Bericht (per Browser-Druck auch als PDF),
+  // CSV = Roh-Events fuer eigene Auswertungen in Excel.
+  adminUsageExportHtml: (days = 30) => download(`/api/admin/usage/export.html?days=${days}`, 'creative-radar-nutzung.html'),
+  adminUsageExportCsv: (days = 30) => download(`/api/admin/usage/export.csv?days=${days}`, 'creative-radar-nutzung.csv'),
 
   // "Jetzt komplett aktualisieren" (Admin-Button): löst den vollen Cron-Lauf
   // on-demand aus. Default targetWeek='completed' + force=true → gerade

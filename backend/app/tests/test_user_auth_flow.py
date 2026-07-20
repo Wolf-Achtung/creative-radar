@@ -374,6 +374,28 @@ def test_usage_summary_endpoint(client, db, sent_mails):
     assert {a["action"] for a in summary["actions"]} >= {"login", "landing_view"}
 
 
+def test_usage_export_html_and_csv(client, db, sent_mails):
+    _add_user(db, "wolf@example.com")
+    _login(client, db, sent_mails, "wolf@example.com")
+    client.get("/api/pairs")
+
+    html_response = client.get("/api/admin/usage/export.html?days=30")
+    assert html_response.status_code == 200
+    assert "text/html" in html_response.headers["content-type"]
+    assert "attachment" in html_response.headers["content-disposition"]
+    assert "Nutzungsbericht" in html_response.text
+    assert "wolf@example.com" in html_response.text
+
+    csv_response = client.get("/api/admin/usage/export.csv?days=30")
+    assert csv_response.status_code == 200
+    assert "text/csv" in csv_response.headers["content-type"]
+    assert "attachment" in csv_response.headers["content-disposition"]
+    body = csv_response.text
+    assert "zeitpunkt;email;aktion" in body
+    assert "wolf@example.com" in body
+    assert "landing_view" in body
+
+
 # ---------- Admin-User-Verwaltung -------------------------------------------
 
 

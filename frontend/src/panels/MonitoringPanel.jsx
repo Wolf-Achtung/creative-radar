@@ -69,6 +69,20 @@ export function MonitoringPanel() {
   // zuletzt aktiv, meistgenutzte Aktionen/Studios). Quelle:
   // GET /api/admin/usage, gespeist aus dem usage_event-Log.
   const [usage, setUsage] = useState(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState('');
+
+  async function runExport(fn) {
+    setExportBusy(true);
+    setExportError('');
+    try {
+      await fn();
+    } catch (err) {
+      setExportError(err?.message || String(err));
+    } finally {
+      setExportBusy(false);
+    }
+  }
   const [status, setStatus] = useState('loading'); // 'loading' | 'done' | 'error'
   // UX-Audit Befund 13 (2026-07-14): der Panel lud nur einmal beim Öffnen
   // des Tabs; der globale "Aktualisieren"-Button im Footer erreicht diesen
@@ -187,6 +201,29 @@ export function MonitoringPanel() {
               {formatNumber(usage.events_total)} Ereignisse von eingeloggten Nutzern.
               Gezählt wird nur Nutzung hinter dem Login — Admin-Zugriffe fließen nicht ein.
             </p>
+            {/* Weitergebbarer Bericht (Wolf 2026-07-20): HTML-Dokument für
+                Verantwortliche ohne Admin-Zugang (per Browser-Druck auch
+                als PDF), CSV für eigene Excel-Auswertungen. */}
+            <div className="section-actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={exportBusy}
+                onClick={() => runExport(() => endpoints.adminUsageExportHtml(30))}
+              >
+                Bericht herunterladen (HTML)
+              </button>
+              {' '}
+              <button
+                type="button"
+                className="secondary"
+                disabled={exportBusy}
+                onClick={() => runExport(() => endpoints.adminUsageExportCsv(30))}
+              >
+                Rohdaten (CSV)
+              </button>
+            </div>
+            {exportError && <p className="error">{exportError}</p>}
             {usage.users && usage.users.length > 0 && (
               <table className="ops-cost-table">
                 <thead>
