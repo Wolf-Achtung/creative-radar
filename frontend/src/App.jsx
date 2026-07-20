@@ -5,6 +5,7 @@ import InsightWeekly from './InsightWeekly';
 import RoundupBlock from './RoundupBlock';
 import AdminPage from './AdminPage';
 import AuthGate from './AuthGate';
+import GuidePage from './GuidePage';
 import LegalPage from './LegalPage';
 import { SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
 import { SiteFooter } from './components/SiteFooter';
@@ -36,6 +37,15 @@ function Router() {
   }
   if (path === '/admin' || path === '/admin/') {
     return <AdminPage />;
+  }
+  // Anleitung fuer neue Nutzer (2026-07-20) — hinter dem Gate wie die
+  // Inhalte, auf die sie verweist.
+  if (path === '/anleitung' || path === '/anleitung/') {
+    return (
+      <AuthGate>
+        <GuidePage />
+      </AuthGate>
+    );
   }
   // UX-Audit Befund 1 (2026-07-14): Rechtsseiten als eigene Routen.
   if (path === '/impressum' || path === '/impressum/') {
@@ -91,12 +101,19 @@ function App() {
           <p className="eyebrow">Creative Intelligence Workspace</p>
           <h1>Creative Radar</h1>
           <p>Social-Media-Wochenanalyse für die Filmbranche — DE, US, UK.</p>
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.9em' }}>
+            <a href="/anleitung" style={{ color: '#ffa294' }}>Neu hier? → Zur Anleitung</a>
+          </p>
         </div>
       </header>
 
       <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '0 0 12px 12px', marginTop: 0 }}>
         <p style={{ color: '#ffa294', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>Die Woche im Rückblick</p>
-        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.5rem' }}>Die großen Studios<SectionHelpHint sectionKey="landingStudios" /></h2>
+        {/* UX-Nachschliff 2026-07-20 (Wolf): der Unterschied zur Roundup-
+            Sektion (ein Studio pro Kachel vs. viele Player gebündelt)
+            steht jetzt IMMER sichtbar in Überschrift + Einordnungszeile,
+            nicht nur im aufklappbaren Hilfetext. */}
+        <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.5rem' }}>Die großen Studios — einzeln im Blick<SectionHelpHint sectionKey="landingStudios" /></h2>
         <SectionHelpPanel sectionKey="landingStudios" onDark />
         {/* Sprint 28.05.2026 (Kachel-Klick-Signal): Lead-Zeile traegt
             jetzt den Drei-Maerkte-Hinweis UND das Klick-Signal — zusammen
@@ -105,7 +122,7 @@ function App() {
             (NICHT in-place aufklappen wie die Roundup-Kacheln). */}
         {pairs && pairs.length > 0 && (
           <p className="pair-section-default" style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
-            Jedes Studio im Drei-Märkte-Vergleich DE · US · UK — zum Öffnen anklicken.
+            Jede Kachel ist <strong>ein einzelnes Studio</strong> im Drei-Märkte-Vergleich DE · US · UK — anklicken öffnet den eigenen Wochenbrief.
           </p>
         )}
         {pairs === null && (

@@ -173,10 +173,10 @@ export const SECTION_HELP = {
   // ---- Landing (/) ------------------------------------------------------
   landingStudios: {
     de: {
-      title: 'Die großen Studios',
-      short: 'Eine Kachel pro Studio im Drei-Märkte-Vergleich DE, US, UK — Kernaussage, Postzahl, Stand, Link zum Brief.',
+      title: 'Die großen Studios — einzeln im Blick',
+      short: 'Eine Kachel = ein einzelnes Studio im Drei-Märkte-Vergleich DE, US, UK — mit eigenem Wochenbrief.',
       long:
-        'Jede Kachel steht für ein Studio im direkten Drei-Märkte-Vergleich: Deutschland (DE), USA (US) und Großbritannien (UK) — der Wochenbrief stellt die Social-Media-Aktivität desselben Studios in diesen drei Märkten nebeneinander. Die Kachel zeigt die Headline der Woche, die Zahl der ausgewerteten Posts und wann zuletzt aktualisiert wurde. Ein Klick führt in den vollständigen Wochenbrief des Studios. Nutzbar als Einstieg, um zu sehen, bei welchem Studio diese Woche etwas Auffälliges los ist, bevor du in die Details gehst. Bitte beachten: Die Kachel ist nur die Kurzfassung — die Belege stehen im Brief dahinter.',
+        'Jede Kachel steht für genau EIN Studio, das wir einzeln beobachten — im direkten Drei-Märkte-Vergleich Deutschland (DE), USA (US) und Großbritannien (UK). Der Wochenbrief stellt die Social-Media-Aktivität desselben Studios in diesen drei Märkten nebeneinander. Die Kachel zeigt die Headline der Woche, die Zahl der ausgewerteten Posts und wann zuletzt aktualisiert wurde; ein Klick führt in den vollständigen Wochenbrief. Anders als die Sammel-Kacheln der Sektion „Verleiher & Independents" weiter unten geht es hier also um einzelne Studios, nicht um gebündelte Segmente. Bitte beachten: Die Kachel ist nur die Kurzfassung — die Belege stehen im Brief dahinter.',
     },
     en: {
       title: 'The major studios (brief tiles)',
@@ -186,10 +186,10 @@ export const SECTION_HELP = {
   },
   landingRoundups: {
     de: {
-      title: 'Verleiher & Independents',
-      short: 'Wochenüberblick pro Segment — Verleiher und Independents, nach Markt.',
+      title: 'Verleiher & Independents — das Feld im Überblick',
+      short: 'Sammel-Überblick pro Segment (DE, US, UK) — viele kleinere Player pro Kachel, nicht einzelne Anbieter.',
       long:
-        'Anders als die großen Studios werden Verleiher und Independents nicht einzeln, sondern pro Segment zusammengefasst (US/DE/UK, jeweils Major/Independent/Verleih). Jede Kachel klappt auf und zeigt die Fokus-Titel des Segments. Nutzbar, um die Bewegung jenseits der großen Studios im Blick zu behalten — wo kleinere Player diese Woche auffielen. Bitte beachten: Ein Segment bündelt viele Kanäle — der Überblick zeigt die Linie, nicht jeden einzelnen Titel.',
+        'Anders als die Studio-Kacheln oben (ein Studio pro Kachel, eigener Wochenbrief) werden Verleiher und Independents hier nicht einzeln, sondern pro Segment zusammengefasst — DE, US und UK, jeweils Verleiher/Major und Independent. Jede Kachel klappt direkt auf der Seite auf und zeigt die Fokus-Titel des Segments. Nutzbar, um die Bewegung jenseits der großen Studios im Blick zu behalten — wo kleinere Player diese Woche auffielen. Bitte beachten: Ein Segment bündelt viele Kanäle — der Überblick zeigt die Linie, nicht jeden einzelnen Titel.',
     },
     en: {
       title: 'Distributors & independents (roundups)',

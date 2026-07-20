@@ -1,20 +1,22 @@
 import React from 'react';
 
 // UX-Audit Befunde 1+8 (2026-07-14) — globaler Footer als "Sicherheitsnetz"
-// auf allen öffentlichen Seiten: Impressum + Datenschutz (Pflichtangaben
-// für eine öffentlich erreichbare DE-Site, §5 DDG / DSGVO) plus ein
-// dezenter Utility-Link zum Admin-Login, der vorher nur per URL-Eingabe
-// erreichbar war. Die Inhalte der Rechtsseiten liefert Wolf nach —
-// LegalPage.jsx trägt bis dahin einen klar markierten Platzhalter.
+// auf allen Seiten: Impressum + Datenschutz (Pflichtangaben für eine
+// DE-Site, §5 DDG / DSGVO) plus die Nutzer-Anleitung.
+//
+// 2026-07-20 (Wolf): der "Admin"-Link ist bewusst wieder raus — er lud
+// die ~15 normalen Login-Nutzer zum Rumprobieren am Passwort-Formular
+// ein, ohne ihnen etwas zu bieten. Der Admin-Bereich bleibt unter
+// /admin direkt erreichbar (Bookmark), er wird nur nicht mehr beworben.
 export function SiteFooter() {
   return (
     <footer className="site-footer">
-      <nav aria-label="Rechtliches und Verwaltung">
+      <nav aria-label="Rechtliches und Hilfe">
         <a href="/impressum">Impressum</a>
         <span aria-hidden="true">·</span>
         <a href="/datenschutz">Datenschutz</a>
         <span aria-hidden="true">·</span>
-        <a href="/admin">Admin</a>
+        <a href="/anleitung">Anleitung</a>
       </nav>
       <p className="site-footer-copy">Creative Radar — Social-Media-Wochenanalyse für die Filmbranche.</p>
     </footer>
