@@ -105,7 +105,7 @@ function App() {
             (NICHT in-place aufklappen wie die Roundup-Kacheln). */}
         {pairs && pairs.length > 0 && (
           <p className="pair-section-default" style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
-            Jedes Studio im Drei-Märkte-Vergleich — zum Öffnen anklicken.
+            Jedes Studio im Drei-Märkte-Vergleich DE · US · UK — zum Öffnen anklicken.
           </p>
         )}
         {pairs === null && (

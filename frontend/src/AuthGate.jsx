@@ -113,10 +113,10 @@ export function LoginPage({ onLoginSuccess }) {
           <p>Zugang für freigeschaltete Nutzer: E-Mail eingeben, Code aus der E-Mail bestätigen.</p>
         </div>
       </header>
-      <section className="card" style={{ maxWidth: '460px', margin: '2rem auto' }}>
+      <section className="card login-card">
         {step === 'email' && (
-          <form onSubmit={requestCode}>
-            <label style={{ display: 'block', marginBottom: '1rem' }}>
+          <form className="login-form" onSubmit={requestCode}>
+            <label>
               E-Mail-Adresse
               <input
                 type="email"
@@ -125,24 +125,26 @@ export function LoginPage({ onLoginSuccess }) {
                 autoFocus
                 autoComplete="email"
                 placeholder="name@firma.de"
-                style={{ marginTop: '0.5rem' }}
               />
             </label>
-            {error && <p className="error" style={{ marginBottom: '1rem' }}>{error}</p>}
-            <button type="submit" className="primary" disabled={busy || !email.trim()}>
-              {busy ? 'Sende Code …' : 'Anmeldecode anfordern'}
-            </button>
+            {error && <p className="error">{error}</p>}
+            <div className="login-actions">
+              <button type="submit" className="primary" disabled={busy || !email.trim()}>
+                {busy ? 'Sende Code …' : 'Anmeldecode anfordern'}
+              </button>
+            </div>
           </form>
         )}
         {step === 'code' && (
-          <form onSubmit={submitCode}>
+          <form className="login-form" onSubmit={submitCode}>
             <p style={{ marginTop: 0 }}>
               Code geschickt an <strong>{email.trim().toLowerCase()}</strong>.
             </p>
-            {notice && <p className="info" style={{ marginBottom: '1rem' }}>{notice}</p>}
-            <label style={{ display: 'block', marginBottom: '1rem' }}>
+            {notice && <p className="info">{notice}</p>}
+            <label>
               6-stelliger Code
               <input
+                className="login-code-input"
                 type="text"
                 inputMode="numeric"
                 autoComplete="one-time-code"
@@ -152,18 +154,16 @@ export function LoginPage({ onLoginSuccess }) {
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                 autoFocus
                 placeholder="123456"
-                style={{ marginTop: '0.5rem', letterSpacing: '0.3em', fontSize: '1.2em' }}
               />
             </label>
-            {error && <p className="error" style={{ marginBottom: '1rem' }}>{error}</p>}
-            <div className="section-actions">
+            {error && <p className="error">{error}</p>}
+            <div className="login-actions">
               <button type="submit" className="primary" disabled={busy || code.trim().length < 6}>
                 {busy ? 'Prüfe …' : 'Anmelden'}
               </button>
               <button
                 type="button"
                 className="secondary"
-                style={{ marginLeft: '0.75rem' }}
                 disabled={busy}
                 onClick={() => { setStep('email'); setCode(''); setNotice(''); setError(''); }}
               >
@@ -172,7 +172,7 @@ export function LoginPage({ onLoginSuccess }) {
             </div>
           </form>
         )}
-        <p className="muted" style={{ marginTop: '1.5rem', fontSize: '0.85em' }}>
+        <p className="muted login-hint">
           Der Code ist 10 Minuten gültig. Kein Zugang? Bitte beim Creative-Radar-Team melden.
         </p>
       </section>
