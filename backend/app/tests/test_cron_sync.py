@@ -441,6 +441,11 @@ def test_cron_run_always_emits_rematch_summary(client_with_auth, db):
             "auto_matched": 0,
             "candidates_created": 0,
             "still_unmatched": 0,
+            # Soft-Deadline (Cron-Run 16421771): Teilabbruch-Felder sind
+            # immer praesent, damit Dashboard-/Audit-Logik nicht gegen
+            # fehlende Keys verteidigen muss.
+            "partial": False,
+            "remaining": 0,
         }
 
 
