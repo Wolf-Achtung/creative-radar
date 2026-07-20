@@ -26,11 +26,15 @@ import { SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
 // werden im DE+US+UK-Pair-Brief abgedeckt. Backend-ENV CRON_ROUNDUP_SEGMENTS
 // muss in Railway entsprechend gesetzt sein, sonst rendert die Kachel als
 // leerer Stand.
+// Wolf-Festlegung 2026-07-20: DE zuerst (Heimatmarkt der Nutzer), Labels
+// der DE-Kacheln im Plural. Die ``key``-Werte sind die Backend-Enum-Werte
+// (ChannelSegment) und bleiben unveraendert — nur Anzeige-Reihenfolge
+// und -Beschriftung sind hier Frontend-Sache.
 const DISPLAY_SEGMENTS = [
+  { key: 'de_verleih',      label: 'DE Verleiher' },
+  { key: 'de_independent',  label: 'DE Independents' },
   { key: 'us_major',        label: 'US Major' },
   { key: 'us_independent',  label: 'US Independent' },
-  { key: 'de_verleih',      label: 'DE Verleih' },
-  { key: 'de_independent',  label: 'DE Independent' },
   { key: 'uk_major',        label: 'UK Major' },
   { key: 'uk_independent',  label: 'UK Independent' },
 ];

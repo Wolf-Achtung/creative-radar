@@ -93,6 +93,92 @@ logger = logging.getLogger(__name__)
 # - ``reason``: required when ``enabled=False``. Surfaced to the Frontend
 #   as the disable-explanation. May be None when ``enabled=True``.
 PAIRS: dict[str, dict[str, Any]] = {
+    # Die Dict-Reihenfolge IST die Kachel-Reihenfolge auf der Startseite
+    # (GET /api/pairs liefert Insertion-Order, siehe test_api_pairs).
+    # Wolf-Festlegung 2026-07-20: Disney an erster Stelle.
+    "disney": {
+        "display_name": "Disney",
+        "markets": ["DE", "US", "UK"],
+        "label": "disney DE+US+UK",
+        "platforms": {
+            "tiktok": [
+                # Sprint 10d: US-Seite ist Multi-Channel-Pool (Cinema-Sub-Brands).
+                # Disney verteilt Theatrical-Marketing über @disneystudios,
+                # @marvelstudios, @pixar, @starwars und @20thcentury — wenn ein
+                # Channel Catalog postet, postet ein anderer ggf. Trailer.
+                # _aggregate_platform bündelt alle US-Posts in einen Pool.
+                {"handle": "disneystudios", "market": "US"},
+                {"handle": "marvelstudios", "market": "US"},
+                {"handle": "pixar", "market": "US"},
+                {"handle": "starwars", "market": "US"},
+                {"handle": "20thcentury", "market": "US"},
+                {"handle": "disneyde", "market": "DE"},
+                # Sprint UK-B1: TT-UK ist single-handle @disneyuk (Phase A
+                # hat MarvelUK/StarWarsUK auf TT noch nicht angelegt — IG/YT
+                # haben den 3-Pool, TT bleibt erstmal single).
+                {"handle": "disneyuk", "market": "UK"},
+            ],
+            "instagram": [
+                # IG-Casing für 20th Century weicht von TT ab: "20thcenturystudios".
+                {"handle": "disneystudios", "market": "US"},
+                {"handle": "marvelstudios", "market": "US"},
+                {"handle": "pixar", "market": "US"},
+                {"handle": "starwars", "market": "US"},
+                {"handle": "20thcenturystudios", "market": "US"},
+                # IG-DE handle differs from TikTok (``disneyde``) — Disney runs
+                # ``disneydeutschland`` on Instagram.
+                {"handle": "disneydeutschland", "market": "DE"},
+                # Sprint UK-B1: UK-Pool analog US (Master + Sub-Brands).
+                # Sprint 2026-05-12: @starwarsuk via
+                # sprint_disney_uk_subbrand_gap_2026_05_12 nachgezogen
+                # (108k Follower, IG-only — kein TT-Pendant, YT-Pool hat
+                # StarWarsUK schon). Disney IG-UK = @disneyuk +
+                # @disneystudiosuk + @marvel_uk + @starwarsuk.
+                # (Underscore in marvel_uk ist der echte DB-Handle aus Phase A).
+                {"handle": "disneyuk", "market": "UK"},
+                {"handle": "disneystudiosuk", "market": "UK"},
+                {"handle": "marvel_uk", "market": "UK"},
+                {"handle": "starwarsuk", "market": "UK"},
+            ],
+            # Sprint 10j: US-Seite ist Multi-Channel-Pool analog TT/IG.
+            # Marvel-Trailer landen auf @marvel, Pixar-Promos auf @pixar,
+            # Lucasfilm-Content auf @StarWars, 20th-Century-Releases auf
+            # @20thCenturyStudios — alle vier sub-brand YT-Channels gehören
+            # zusammen mit @WaltDisneyStudios in den US-Pool.
+            # DE-Seite bleibt single-market (kein DE-Cinema-Marketing-Account).
+            # _find_channels nutzt lowercase-handle-match, daher case-mix
+            # (StarWars/20thCenturyStudios) verträglich mit der DB-Form.
+            "youtube": [
+                {"handle": "WaltDisneyStudios", "market": "US"},
+                {"handle": "marvel", "market": "US"},
+                {"handle": "pixar", "market": "US"},
+                {"handle": "StarWars", "market": "US"},
+                {"handle": "20thCenturyStudios", "market": "US"},
+                # Sprint UK-B1: YT-UK-Pool analog US (Master + 2 Sub-Brands).
+                # Pixar-UK / 20thCentury-UK gibt es in Phase A nicht — Lücke
+                # ist akzeptabel, Sub-Brands sind UK-seitig weniger aktiv.
+                {"handle": "DisneyUK", "market": "UK"},
+                {"handle": "MarvelUK", "market": "UK"},
+                {"handle": "StarWarsUK", "market": "UK"},
+            ],
+        },
+        "platform": "tiktok",
+        # Sprint 10d: legacy ``channels`` mirror tracks platforms["tiktok"]
+        # (the first platform). Multi-channel-aware so the
+        # ``test_pairs_backwards_compat_mirror_first_platform`` invariant
+        # and the ``_platforms_dict_for`` fallback both hold.
+        "channels": [
+            {"handle": "disneystudios", "market": "US"},
+            {"handle": "marvelstudios", "market": "US"},
+            {"handle": "pixar", "market": "US"},
+            {"handle": "starwars", "market": "US"},
+            {"handle": "20thcentury", "market": "US"},
+            {"handle": "disneyde", "market": "DE"},
+            {"handle": "disneyuk", "market": "UK"},
+        ],
+        "enabled": True,
+        "reason": None,
+    },
     "warnerbros": {
         "display_name": "Warner Bros",
         "markets": ["DE", "US", "UK"],
@@ -224,89 +310,6 @@ PAIRS: dict[str, dict[str, Any]] = {
             {"handle": "amazonmgmstudios", "market": "US"},
             {"handle": "primevideode", "market": "DE"},
             {"handle": "primevideouk", "market": "UK"},
-        ],
-        "enabled": True,
-        "reason": None,
-    },
-    "disney": {
-        "display_name": "Disney",
-        "markets": ["DE", "US", "UK"],
-        "label": "disney DE+US+UK",
-        "platforms": {
-            "tiktok": [
-                # Sprint 10d: US-Seite ist Multi-Channel-Pool (Cinema-Sub-Brands).
-                # Disney verteilt Theatrical-Marketing über @disneystudios,
-                # @marvelstudios, @pixar, @starwars und @20thcentury — wenn ein
-                # Channel Catalog postet, postet ein anderer ggf. Trailer.
-                # _aggregate_platform bündelt alle US-Posts in einen Pool.
-                {"handle": "disneystudios", "market": "US"},
-                {"handle": "marvelstudios", "market": "US"},
-                {"handle": "pixar", "market": "US"},
-                {"handle": "starwars", "market": "US"},
-                {"handle": "20thcentury", "market": "US"},
-                {"handle": "disneyde", "market": "DE"},
-                # Sprint UK-B1: TT-UK ist single-handle @disneyuk (Phase A
-                # hat MarvelUK/StarWarsUK auf TT noch nicht angelegt — IG/YT
-                # haben den 3-Pool, TT bleibt erstmal single).
-                {"handle": "disneyuk", "market": "UK"},
-            ],
-            "instagram": [
-                # IG-Casing für 20th Century weicht von TT ab: "20thcenturystudios".
-                {"handle": "disneystudios", "market": "US"},
-                {"handle": "marvelstudios", "market": "US"},
-                {"handle": "pixar", "market": "US"},
-                {"handle": "starwars", "market": "US"},
-                {"handle": "20thcenturystudios", "market": "US"},
-                # IG-DE handle differs from TikTok (``disneyde``) — Disney runs
-                # ``disneydeutschland`` on Instagram.
-                {"handle": "disneydeutschland", "market": "DE"},
-                # Sprint UK-B1: UK-Pool analog US (Master + Sub-Brands).
-                # Sprint 2026-05-12: @starwarsuk via
-                # sprint_disney_uk_subbrand_gap_2026_05_12 nachgezogen
-                # (108k Follower, IG-only — kein TT-Pendant, YT-Pool hat
-                # StarWarsUK schon). Disney IG-UK = @disneyuk +
-                # @disneystudiosuk + @marvel_uk + @starwarsuk.
-                # (Underscore in marvel_uk ist der echte DB-Handle aus Phase A).
-                {"handle": "disneyuk", "market": "UK"},
-                {"handle": "disneystudiosuk", "market": "UK"},
-                {"handle": "marvel_uk", "market": "UK"},
-                {"handle": "starwarsuk", "market": "UK"},
-            ],
-            # Sprint 10j: US-Seite ist Multi-Channel-Pool analog TT/IG.
-            # Marvel-Trailer landen auf @marvel, Pixar-Promos auf @pixar,
-            # Lucasfilm-Content auf @StarWars, 20th-Century-Releases auf
-            # @20thCenturyStudios — alle vier sub-brand YT-Channels gehören
-            # zusammen mit @WaltDisneyStudios in den US-Pool.
-            # DE-Seite bleibt single-market (kein DE-Cinema-Marketing-Account).
-            # _find_channels nutzt lowercase-handle-match, daher case-mix
-            # (StarWars/20thCenturyStudios) verträglich mit der DB-Form.
-            "youtube": [
-                {"handle": "WaltDisneyStudios", "market": "US"},
-                {"handle": "marvel", "market": "US"},
-                {"handle": "pixar", "market": "US"},
-                {"handle": "StarWars", "market": "US"},
-                {"handle": "20thCenturyStudios", "market": "US"},
-                # Sprint UK-B1: YT-UK-Pool analog US (Master + 2 Sub-Brands).
-                # Pixar-UK / 20thCentury-UK gibt es in Phase A nicht — Lücke
-                # ist akzeptabel, Sub-Brands sind UK-seitig weniger aktiv.
-                {"handle": "DisneyUK", "market": "UK"},
-                {"handle": "MarvelUK", "market": "UK"},
-                {"handle": "StarWarsUK", "market": "UK"},
-            ],
-        },
-        "platform": "tiktok",
-        # Sprint 10d: legacy ``channels`` mirror tracks platforms["tiktok"]
-        # (the first platform). Multi-channel-aware so the
-        # ``test_pairs_backwards_compat_mirror_first_platform`` invariant
-        # and the ``_platforms_dict_for`` fallback both hold.
-        "channels": [
-            {"handle": "disneystudios", "market": "US"},
-            {"handle": "marvelstudios", "market": "US"},
-            {"handle": "pixar", "market": "US"},
-            {"handle": "starwars", "market": "US"},
-            {"handle": "20thcentury", "market": "US"},
-            {"handle": "disneyde", "market": "DE"},
-            {"handle": "disneyuk", "market": "UK"},
         ],
         "enabled": True,
         "reason": None,

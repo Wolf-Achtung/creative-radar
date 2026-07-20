@@ -174,9 +174,9 @@ export const SECTION_HELP = {
   landingStudios: {
     de: {
       title: 'Die großen Studios',
-      short: 'Eine Kachel pro Studio — Kernaussage, Postzahl, Stand, Link zum Brief.',
+      short: 'Eine Kachel pro Studio im Drei-Märkte-Vergleich DE, US, UK — Kernaussage, Postzahl, Stand, Link zum Brief.',
       long:
-        'Jede Kachel steht für ein Studio und zeigt die Headline der Woche, die Zahl der ausgewerteten Posts und wann zuletzt aktualisiert wurde. Ein Klick führt in den vollständigen Wochenbrief des Studios. Nutzbar als Einstieg, um zu sehen, bei welchem Studio diese Woche etwas Auffälliges los ist, bevor du in die Details gehst. Bitte beachten: Die Kachel ist nur die Kurzfassung — die Belege stehen im Brief dahinter.',
+        'Jede Kachel steht für ein Studio im direkten Drei-Märkte-Vergleich: Deutschland (DE), USA (US) und Großbritannien (UK) — der Wochenbrief stellt die Social-Media-Aktivität desselben Studios in diesen drei Märkten nebeneinander. Die Kachel zeigt die Headline der Woche, die Zahl der ausgewerteten Posts und wann zuletzt aktualisiert wurde. Ein Klick führt in den vollständigen Wochenbrief des Studios. Nutzbar als Einstieg, um zu sehen, bei welchem Studio diese Woche etwas Auffälliges los ist, bevor du in die Details gehst. Bitte beachten: Die Kachel ist nur die Kurzfassung — die Belege stehen im Brief dahinter.',
     },
     en: {
       title: 'The major studios (brief tiles)',

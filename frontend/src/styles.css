@@ -2160,3 +2160,44 @@ a:hover { text-decoration: underline; }
   background: #e9e3d7;
   color: #1d2330;
 }
+
+/* ---- Login-Seite (UI-Feinschliff 2026-07-20) ---- */
+/* Vorher stand das Label inline neben dem Feld (gequetscht, Feld ohne
+   Breite). Jetzt: Label als Block ueber dem Feld, Feld volle Breite,
+   Buttons in einer Reihe mit Abstand — gleiche Formsprache wie
+   .form-grid im Admin. */
+.login-card {
+  max-width: 460px;
+  margin: 2.5rem auto;
+  padding: 28px;
+}
+.login-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+.login-form input {
+  width: 100%;
+  font-weight: 400;
+}
+.login-form .login-code-input {
+  letter-spacing: 0.3em;
+  font-size: 1.2em;
+  text-align: center;
+}
+.login-form .error,
+.login-form .info {
+  margin: 0 0 14px;
+}
+.login-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+.login-hint {
+  margin: 20px 0 0;
+  font-size: 0.85em;
+}
