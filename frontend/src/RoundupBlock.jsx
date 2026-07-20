@@ -43,7 +43,10 @@ function formatActivity(roundup) {
   if (!roundup) return '';
   const channels = roundup.channels_with_posts;
   const posts = roundup.total_posts;
-  return `${channels} aktive Channels · ${posts} Posts`;
+  // "Sammel-Überblick" als Verhaltens-Signal auf der Kachel selbst
+  // (UX-Nachschliff 2026-07-20): unterscheidet die Segment-Kacheln von
+  // den Studio-Kacheln oben, die zu einem Einzel-Brief navigieren.
+  return `Sammel-Überblick · ${channels} Channels · ${posts} Posts`;
 }
 
 function TitleCard({ entry }) {
@@ -219,8 +222,15 @@ export default function RoundupBlock() {
         marginBottom: '0.5rem',
         fontWeight: 600,
       }}>Die Woche im Rückblick</p>
-      <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Verleiher &amp; Independents<SectionHelpHint sectionKey="landingRoundups" /></h2>
+      {/* UX-Nachschliff 2026-07-20 (Wolf): Gegenstück zur Studio-Sektion —
+          Überschrift + immer sichtbare Einordnungszeile machen den
+          Unterschied klar (viele Player gebündelt vs. ein Studio pro
+          Kachel oben). */}
+      <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>Verleiher &amp; Independents — das Feld im Überblick<SectionHelpHint sectionKey="landingRoundups" /></h2>
       <SectionHelpPanel sectionKey="landingRoundups" onDark />
+      <p style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
+        Das Feld hinter den großen Studios, gebündelt: jede Kachel fasst <strong>viele kleinere Player</strong> eines Segments zusammen (DE, US, UK) — die Linie der Woche, nicht einzelne Anbieter.
+      </p>
 
       {roundups === null && (
         <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>Lade Roundups …</p>

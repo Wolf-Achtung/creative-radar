@@ -2201,3 +2201,19 @@ a:hover { text-decoration: underline; }
   margin: 20px 0 0;
   font-size: 0.85em;
 }
+
+/* ---- Anleitung (/anleitung, 2026-07-20) ---- */
+.guide-steps {
+  margin: 0 0 16px;
+  padding-left: 22px;
+  display: grid;
+  gap: 8px;
+}
+.guide-example {
+  background: #f3efe6;
+  border-left: 3px solid #e46d5b;
+  border-radius: 0 10px 10px 0;
+  padding: 12px 14px;
+  margin: 0;
+  font-size: 0.95em;
+}
