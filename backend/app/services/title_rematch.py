@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -24,13 +25,21 @@ class RematchSummary:
     auto_matched: int = 0
     candidates_created: int = 0
     still_unmatched: int = 0
+    # Soft-Deadline (Cron-Run 16421771, 20.07.2026): ``partial=True`` heisst,
+    # das Zeitbudget lief ab, bevor alle Assets geprueft waren — ``remaining``
+    # zaehlt die diesmal nicht mehr erreichten Assets (naechster Lauf
+    # versucht sie erneut). ``checked`` zaehlt nur tatsaechlich verarbeitete.
+    partial: bool = False
+    remaining: int = 0
 
-    def to_dict(self) -> dict[str, int]:
+    def to_dict(self) -> dict[str, int | bool]:
         return {
             "checked": self.checked,
             "auto_matched": self.auto_matched,
             "candidates_created": self.candidates_created,
             "still_unmatched": self.still_unmatched,
+            "partial": self.partial,
+            "remaining": self.remaining,
         }
 
 
@@ -51,11 +60,31 @@ def _build_match_fields(asset: Asset, post: Post | None) -> dict[str, str | list
     }
 
 
-def rematch_unassigned_assets(session: Session, *, commit_batch_size: int = 50) -> RematchSummary:
+def rematch_unassigned_assets(
+    session: Session,
+    *,
+    commit_batch_size: int = 50,
+    time_budget_seconds: float | None = None,
+) -> RematchSummary:
+    """Re-matcht alle Assets ohne Title-Zuordnung gegen den Whitelist-Katalog.
+
+    Soft-Deadline (Cron-Run 16421771, 20.07.2026): der Katalog ist auf ~29k
+    Titel gewachsen und der unmatched-Bestand waechst woechentlich — die
+    Stage lief in ihr hartes ``asyncio.wait_for``-Timeout (1800s), das den
+    ``to_thread``-Worker nicht abbrechen kann. Der Zombie-Thread lief dann
+    parallel zur Brief-Stage auf DERSELBEN Session weiter (Sessions sind
+    nicht threadsafe). ``time_budget_seconds`` (gemessen ab Funktionsstart,
+    inkl. Bundle-/Index-Aufbau) laesst die Schleife stattdessen SELBST
+    sauber abbrechen: Teilstand wird committet, ``partial``/``remaining``
+    landen in der Summary, der Rest ist beim naechsten Lauf dran (Assets
+    werden newest-first verarbeitet — die aktuelle Woche zuerst).
+    ``None`` = unbegrenzt (manueller Pfad ``POST /api/titles/rematch-assets``
+    bleibt unveraendert)."""
+    started = time.monotonic()
     assets = session.exec(
         select(Asset).where(Asset.title_id == None).order_by(Asset.created_at.desc())  # noqa: E711
     ).all()
-    summary = RematchSummary(checked=len(assets))
+    summary = RematchSummary()
 
     # Sprint 10g: load the active-title bundle and the normalized lookup index
     # exactly once per batch. Previously, find_best_title_match rebuilt both
@@ -88,7 +117,15 @@ def rematch_unassigned_assets(session: Session, *, commit_batch_size: int = 50) 
         }
 
     pending_commit = 0
-    for asset in assets:
+    for index, asset in enumerate(assets):
+        if (
+            time_budget_seconds is not None
+            and time.monotonic() - started >= time_budget_seconds
+        ):
+            summary.partial = True
+            summary.remaining = len(assets) - index
+            break
+        summary.checked += 1
         post = posts_by_id.get(asset.post_id) if asset.post_id else None
         caption = post.caption if post else ""
         match_fields = _build_match_fields(asset, post)

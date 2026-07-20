@@ -597,19 +597,29 @@ async def _run_rematch_after_sync(session: Session) -> dict:
     wichtiger sind als ein vollstaendiger Rematch-Durchlauf in derselben
     Woche (unmatched Assets werden beim naechsten Lauf erneut versucht).
 
-    Bekannte Grenze (wie beim Total-Timeout-Wrapper): ``wait_for`` kann den
-    darunterliegenden ``asyncio.to_thread``-Aufruf nicht wirklich abbrechen —
-    der Thread laeuft im Hintergrund weiter (inkl. seiner Batch-Commits alle
-    50 Assets), bis ``rematch_unassigned_assets`` selbst zurueckkehrt. Bei
-    einem Redeploy waehrend dieses Zombie-Zustands wird der Thread mit dem
-    Container beendet.
+    Soft-Deadline (Cron-Run 16421771, 20.07.2026): der 20.07.-Lauf traf das
+    harte 1800s-Limit erneut (Katalog ~29k Titel, wachsender unmatched-
+    Bestand). ``wait_for`` kann den ``asyncio.to_thread``-Worker nicht
+    abbrechen — der Zombie-Thread lief frueher parallel zur Brief-Stage auf
+    DERSELBEN Session weiter (Sessions sind nicht threadsafe). Deshalb
+    bekommt ``rematch_unassigned_assets`` jetzt ein Zeitbudget 120s unter
+    dem Stage-Limit und bricht SELBST sauber ab: Teilstand committet,
+    ``partial``/``remaining`` in der Summary, Rest beim naechsten Lauf.
+    Das harte ``wait_for`` bleibt als Havarie-Backstop bestehen (greift nur
+    noch, wenn ein EINZELNER Asset-Durchlauf >120s haengt).
     """
     timeout_s = _rematch_stage_timeout_seconds()
+    # 120s Marge: genug fuer den letzten Batch-Commit + Rueckkehr, bevor der
+    # harte Backstop feuert. ``max(1, …)`` haelt Mini-Timeouts (Tests) sinnvoll.
+    soft_budget_s = max(1.0, timeout_s - 120.0)
     started = time.monotonic()
     logger.info("rematch.start")
     try:
         summary = await asyncio.wait_for(
-            asyncio.to_thread(rematch_unassigned_assets, session), timeout=timeout_s
+            asyncio.to_thread(
+                rematch_unassigned_assets, session, time_budget_seconds=soft_budget_s
+            ),
+            timeout=timeout_s,
         )
     except asyncio.TimeoutError:
         elapsed = round(time.monotonic() - started, 1)
@@ -626,8 +636,15 @@ async def _run_rematch_after_sync(session: Session) -> dict:
         logger.exception("auto-rematch after cron sync failed")
         return {"error": str(exc)[:500], "duration_seconds": elapsed}
     elapsed = round(time.monotonic() - started, 1)
-    logger.info("rematch.complete duration_seconds=%s", elapsed)
-    return {**summary.to_dict(), "duration_seconds": elapsed}
+    summary_dict = summary.to_dict()
+    if summary_dict.get("partial"):
+        logger.warning(
+            "rematch.partial duration_seconds=%s checked=%s remaining=%s",
+            elapsed, summary_dict.get("checked"), summary_dict.get("remaining"),
+        )
+    else:
+        logger.info("rematch.complete duration_seconds=%s", elapsed)
+    return {**summary_dict, "duration_seconds": elapsed}
 
 
 def _truncate_head_tail(text: str, *, head: int = 2000, tail: int = 2000) -> str:

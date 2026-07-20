@@ -258,6 +258,106 @@ def test_rematch_reads_vision_description_field():
         assert refreshed.title_id == title.id
 
 
+def test_rematch_zero_budget_breaks_immediately_partial():
+    """Soft-Deadline (Cron-Run 16421771): mit aufgebrauchtem Budget bricht
+    die Schleife VOR dem ersten Asset ab — nichts verarbeitet, ``partial``
+    gesetzt, ``remaining`` = kompletter Bestand, keine Zuweisungen."""
+    with _session() as session:
+        title = Title(title_original="Euphoria", active=True)
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(title)
+        session.add(channel)
+        session.commit()
+        session.refresh(channel)
+
+        for i in range(3):
+            post = Post(channel_id=channel.id, post_url=f"https://example.com/zb-{i}",
+                        caption="Official Trailer: Euphoria")
+            session.add(post)
+            session.commit()
+            session.refresh(post)
+            session.add(Asset(post_id=post.id, title_id=None, ai_summary_de="Euphoria trailer"))
+            session.commit()
+
+        summary = rematch_unassigned_assets(session, time_budget_seconds=0)
+
+        assert summary.partial is True
+        assert summary.checked == 0
+        assert summary.remaining == 3
+        assert summary.auto_matched == 0
+        unassigned = session.exec(select(Asset).where(Asset.title_id == None)).all()  # noqa: E711
+        assert len(unassigned) == 3
+
+
+def test_rematch_budget_midway_commits_partial_progress(monkeypatch):
+    """Soft-Deadline mitten im Lauf: Fake-Uhr laesst das Budget nach 2 von 4
+    Assets ablaufen. Die 2 verarbeiteten Auto-Matches sind COMMITTET (der
+    Flush nach der Schleife greift auch im Partial-Fall), die 2 restlichen
+    bleiben unzugeordnet und werden als ``remaining`` gemeldet."""
+    with _session() as session:
+        title = Title(title_original="Euphoria", active=True)
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(title)
+        session.add(channel)
+        session.commit()
+        session.refresh(channel)
+
+        for i in range(4):
+            post = Post(channel_id=channel.id, post_url=f"https://example.com/mb-{i}",
+                        caption="Official Trailer: Euphoria")
+            session.add(post)
+            session.commit()
+            session.refresh(post)
+            session.add(Asset(post_id=post.id, title_id=None, ai_summary_de="Euphoria trailer"))
+            session.commit()
+
+        # Fake-Uhr: Start 0, dann pro Budget-Check +1 — bei Budget 2.5 passieren
+        # die Checks bei 1 und 2, der Check bei 3 bricht ab (2 Assets verarbeitet).
+        # Nur das ``time``-Attribut IM Modul-Namespace patchen (SimpleNamespace),
+        # nicht das globale stdlib-``time`` — sonst wuerden fremde
+        # ``monotonic``-Aufrufer die Ticks mitverbrauchen.
+        from types import SimpleNamespace
+
+        ticks = iter(range(100))
+        monkeypatch.setattr(
+            title_rematch_module, "time",
+            SimpleNamespace(monotonic=lambda: float(next(ticks))),
+        )
+
+        summary = rematch_unassigned_assets(session, time_budget_seconds=2.5)
+
+        assert summary.partial is True
+        assert summary.checked == 2
+        assert summary.remaining == 2
+        assert summary.auto_matched == 2
+        assigned = session.exec(select(Asset).where(Asset.title_id != None)).all()  # noqa: E711
+        assert len(assigned) == 2
+
+
+def test_rematch_without_budget_reports_not_partial():
+    """Default-Pfad (kein Budget, z.B. manueller /api/titles/rematch-assets):
+    ``partial`` bleibt False, ``remaining`` 0 — Verhalten unveraendert."""
+    with _session() as session:
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(channel)
+        session.commit()
+        session.refresh(channel)
+
+        post = Post(channel_id=channel.id, post_url="https://example.com/nb-1",
+                    caption="just some random caption")
+        session.add(post)
+        session.commit()
+        session.refresh(post)
+        session.add(Asset(post_id=post.id, title_id=None, ai_summary_de="generic"))
+        session.commit()
+
+        summary = rematch_unassigned_assets(session)
+
+        assert summary.partial is False
+        assert summary.remaining == 0
+        assert summary.checked == 1
+
+
 def test_rematch_large_batch_is_fast_and_correct():
     """Perf regression guard (post-#280): a large catalog + many unmatched assets
     must finish quickly. The candidate path re-runs the matcher per asset; without
