@@ -71,7 +71,19 @@ function UserDetailRow({ email, days }) {
   );
 }
 
-export function UsageSection({ reloadKey = 0, days = 30 }) {
+// Zeitraum-Auswahl (Wolf 21.07.: "Übersicht über alle Nutzer und ihr
+// Tun pro Woche und/oder Monat"). Bis 90 Tage zeigt die Matrix
+// Kalenderwochen-Spalten, bei 12 Monaten Monats-Spalten — die Wahl
+// steuert Ansicht UND die beiden Export-Downloads.
+const PERIOD_OPTIONS = [
+  { days: 7, label: '7 Tage' },
+  { days: 30, label: '30 Tage' },
+  { days: 90, label: '90 Tage' },
+  { days: 365, label: '12 Monate' },
+];
+
+export function UsageSection({ reloadKey = 0, initialDays = 30 }) {
+  const [days, setDays] = useState(initialDays);
   const [usage, setUsage] = useState(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'done' | 'error'
   const [error, setError] = useState('');
@@ -108,12 +120,34 @@ export function UsageSection({ reloadKey = 0, days = 30 }) {
     }
   }
 
-  if (status === 'loading') return <p className="muted small">Lädt …</p>;
-  if (status === 'error') return <p className="error">{error}</p>;
+  const periodSelector = (
+    <div className="usage-period-toggle" role="group" aria-label="Zeitraum">
+      {PERIOD_OPTIONS.map((option) => (
+        <button
+          key={option.days}
+          type="button"
+          className={days === option.days ? 'active' : ''}
+          onClick={() => setDays(option.days)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (status === 'loading') return <>{periodSelector}<p className="muted small">Lädt …</p></>;
+  if (status === 'error') return <>{periodSelector}<p className="error">{error}</p></>;
   if (!usage) return <p className="muted small">Nutzungsdaten momentan nicht verfügbar.</p>;
+
+  // Matrix-Achse: bis 120 Tage Kalenderwochen, darueber Monate (spiegelt
+  // die Logik des HTML-Berichts im Backend).
+  const useMonths = days > 120;
+  const axis = (useMonths ? usage.month_axis : usage.week_axis) || [];
+  const bucketField = useMonths ? 'months' : 'weeks';
 
   return (
     <>
+      {periodSelector}
       <p className="muted small" style={{ marginTop: 0 }}>
         {formatNumber(usage.events_total)} Ereignisse von eingeloggten Nutzern in den letzten {usage.days} Tagen.
         Gezählt wird nur Nutzung hinter dem Login — Admin-Zugriffe fließen nicht ein.
@@ -172,6 +206,37 @@ export function UsageSection({ reloadKey = 0, days = 30 }) {
             ))}
           </tbody>
         </table>
+      )}
+      {usage.users && usage.users.length > 0 && axis.length > 0 && (
+        <>
+          <h4 style={{ marginBottom: '0.5rem' }}>
+            {useMonths ? 'Aktivität pro Monat' : 'Aktivität pro Kalenderwoche'}
+          </h4>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="ops-cost-table usage-matrix-table">
+              <thead>
+                <tr>
+                  <th>Nutzer</th>
+                  {axis.map((col) => <th key={col.key} className="num">{col.label}</th>)}
+                  <th className="num">Σ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usage.users.map((user) => (
+                  <tr key={`matrix-${user.email}`}>
+                    <td>{user.display_name || user.email}</td>
+                    {axis.map((col) => (
+                      <td key={col.key} className="num">
+                        {(user[bucketField] && user[bucketField][col.key]) || '·'}
+                      </td>
+                    ))}
+                    <td className="num"><strong>{formatNumber(user.events || 0)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
       {usage.top_briefs && usage.top_briefs.length > 0 && (
         <>

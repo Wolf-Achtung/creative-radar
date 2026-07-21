@@ -2232,3 +2232,28 @@ a:hover { text-decoration: underline; }
   text-decoration: none;
 }
 .user-bar__link:hover { background: #e9e3d7; color: #1d2330; }
+
+/* ---- Nutzungs-Auswertung: Zeitraum-Wahl + Zeit-Matrix (2026-07-21) ---- */
+.usage-period-toggle {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 12px;
+  flex-wrap: wrap;
+}
+.usage-period-toggle button {
+  background: #f8f5ee;
+  border: 1px solid #e6ded1;
+  font-size: 13px;
+  padding: 6px 12px;
+}
+.usage-period-toggle button.active {
+  background: #1d2330;
+  color: #fff;
+  border-color: #1d2330;
+}
+.usage-matrix-table th.num,
+.usage-matrix-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
