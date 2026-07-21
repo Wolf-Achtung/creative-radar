@@ -49,6 +49,7 @@ from app.services.insight_engine import (
     MARKETS_DISPLAY_ORDER,
     PAIRS,
     _platforms_dict_for,
+    compute_breakout_feed,
     generate_and_persist_report,
     generate_weekly_report,
     last_completed_iso_week_anchor,
@@ -444,6 +445,26 @@ def weekly(
 
 
 # ---------- Segment-Roundup-Read (Master-Plan-Schritt-3b) -----------------
+
+
+@pairs_router.get("/breakouts")
+def public_breakouts(
+    request: Request,
+    limit: int = Query(10, ge=1, le=50),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Breakout-Feed fuer die Startseite (Wolf 21.07.: "kein Geheimnis,
+    fuer jeden User interessant"). Dieselbe rein lesende Berechnung wie
+    der Admin-Endpoint (``/api/admin/breakouts``, Platin 4) mit festen,
+    konservativen Defaults: 30-Tage-Fenster, >= 2x Kanal-Schnitt. Kein
+    LLM-Call, keine Budget-Auswirkung. Liegt NICHT auf der Public-
+    Whitelist — Bearer + User-Login gelten wie fuer alle Inhalts-Routen.
+    """
+    log_usage(request_user_email(request), "breakouts_view", {})
+    entries = compute_breakout_feed(
+        session, window_days=30, limit=limit, min_multiplier=2.0,
+    )
+    return {"count": len(entries), "entries": entries}
 
 
 @roundups_router.get("/roundups/latest", response_model=SegmentRoundupListResponse)

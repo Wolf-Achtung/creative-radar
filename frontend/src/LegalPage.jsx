@@ -95,7 +95,7 @@ const LEGAL_CONTENT = {
         heading: 'Zugang und Anmeldung (Login per E-Mail-Code)',
         paragraphs: [
           'Creative Radar ist ein geschlossener Bereich für einen festen Nutzerkreis. Für die Anmeldung verarbeiten wir Ihre E-Mail-Adresse, die zuvor vom Betreiber für den Zugang freigeschaltet wurde. Beim Login senden wir Ihnen einen einmalig verwendbaren, 10 Minuten gültigen Zahlencode per E-Mail; der Code wird in unserer Datenbank ausschließlich in verschlüsselter Form (Hash) gespeichert.',
-          'Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Bereitstellung des vereinbarten Zugangs). Für den Versand der Code-E-Mails nutzen wir den Dienst Resend (Resend, Inc.) mit Verarbeitung in der EU-Region (Irland).',
+          'Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Bereitstellung des vereinbarten Zugangs). Für den Versand der Code-E-Mails nutzen wir einen spezialisierten E-Mail-Versanddienstleister als Auftragsverarbeiter; die Verarbeitung erfolgt auf Servern in der EU.',
         ],
       },
       {
@@ -118,9 +118,14 @@ const LEGAL_CONTENT = {
         ],
       },
       {
+        // Bewusst KATEGORIEN statt Firmennamen (Wolf 21.07.): Art. 13
+        // Abs. 1 lit. e DSGVO erlaubt "Empfaenger ODER Kategorien von
+        // Empfaengern" — die konkreten Dienstleister werden auf eine
+        // Auskunftsanfrage nach Art. 15 hin benannt (EuGH C-154/21),
+        // muessen aber nicht oeffentlich ausgeschildert sein.
         heading: 'Hosting und Infrastruktur',
         paragraphs: [
-          'Die Website wird über Netlify, Inc. ausgeliefert (Web-Hosting). Anwendungsserver und Datenbank laufen bei Railway Corp. Beim Aufruf der Website verarbeiten diese Dienstleister technisch bedingt Verbindungsdaten (u. a. IP-Adresse, Zeitpunkt, abgerufene Ressource) in Server-Logs. Mit den Dienstleistern bestehen Auftragsverarbeitungsverträge; soweit eine Verarbeitung außerhalb der EU stattfindet, erfolgt sie auf Grundlage der EU-Standardvertragsklauseln bzw. des EU-US Data Privacy Framework.',
+          'Die Website wird über einen spezialisierten Web-Hosting-Dienstleister ausgeliefert; Anwendungsserver und Datenbank betreiben wir bei einem Cloud-Infrastruktur-Anbieter. Beim Aufruf der Website verarbeiten diese Dienstleister als Auftragsverarbeiter technisch bedingt Verbindungsdaten (u. a. IP-Adresse, Zeitpunkt, abgerufene Ressource) in Server-Logs. Mit allen Dienstleistern bestehen Auftragsverarbeitungsverträge; soweit eine Verarbeitung außerhalb der EU stattfindet, erfolgt sie auf Grundlage der EU-Standardvertragsklauseln bzw. des EU-US Data Privacy Framework. Auskunft über die konkret eingesetzten Dienstleister erteilen wir auf Anfrage über die im Impressum genannte Kontaktadresse.',
         ],
       },
       {

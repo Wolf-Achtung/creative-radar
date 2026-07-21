@@ -137,6 +137,10 @@ export const endpoints = {
   runApifyMonitor: (payload) => api('/api/monitor/apify-instagram', { method: 'POST', body: JSON.stringify(payload) }),
   runTikTokMonitor: (payload) => api('/api/monitor/apify-tiktok', { method: 'POST', body: JSON.stringify(payload) }),
   pairs: () => api('/api/pairs'),
+  // Breakouts fuer die Startseite (Wolf 21.07.) — gleiche Berechnung wie
+  // der Admin-Feed, aber hinter dem normalen User-Login statt der
+  // Admin-Session. Rein lesend.
+  breakoutsPublic: ({ limit = 10 } = {}) => api(`/api/breakouts?limit=${limit}`),
   // Latest Segment-Roundup pro Segment. Public, kein Auth-Token noetig
   // (Backend-Whitelist analog /api/pairs). Treibt den Roundup-Block auf
   // der Landing-Page (Master-Plan-Schritt-3b, 26.05.).

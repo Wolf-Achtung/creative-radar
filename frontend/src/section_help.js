@@ -184,6 +184,20 @@ export const SECTION_HELP = {
       long: '[TODO long — The major studios (brief tiles)]',
     },
   },
+  landingBreakouts: {
+    de: {
+      title: 'Breakouts — was gerade explodiert',
+      short: 'Posts, die mindestens 2x so stark laufen wie der Schnitt ihres Kanals — über alle Studios.',
+      long:
+        'Jeder Kanal hat einen typischen Durchschnitt an Aufrufen und Interaktionen. Ein Breakout ist ein Post, der diesen eigenen Kanal-Schnitt um mindestens das Doppelte übertrifft — also nicht einfach „viele Views hat" (große Kanäle haben immer viele), sondern für seinen Kanal ungewöhnlich stark läuft. Die Liste sammelt solche Ausreisser der letzten 30 Tage über alle beobachteten Studios und Märkte, sortiert nach Auffälligkeit (Stärke des Ausschlags, jüngere Posts zuerst). Nutzbar als schnellster Einstieg: Was funktioniert gerade außergewöhnlich gut — und lohnt einen Blick ins Original? Bitte beachten: Ein Breakout sagt, DASS etwas heraussticht, nicht warum — die Einordnung liefert der Wochenbrief des jeweiligen Studios.',
+    },
+    en: {
+      title: 'Breakouts (posts beating their channel average)',
+      short: '[TODO short — Breakouts]',
+      long: '[TODO long — Breakouts]',
+    },
+  },
+
   landingRoundups: {
     de: {
       title: 'Verleiher & Independents — das Feld im Überblick',
@@ -256,6 +270,7 @@ export const SECTION_HELP_ORDER = [
   'pairPlatformDetails',
   'pairMethodology',
   'landingStudios',
+  'landingBreakouts',
   'landingRoundups',
   'adminReports',
   'adminReview',

@@ -5,6 +5,7 @@ import InsightWeekly from './InsightWeekly';
 import RoundupBlock from './RoundupBlock';
 import AdminPage from './AdminPage';
 import AuthGate from './AuthGate';
+import BreakoutsBlock from './BreakoutsBlock';
 import GuidePage from './GuidePage';
 import LegalPage from './LegalPage';
 import UsagePage from './UsagePage';
@@ -218,6 +219,11 @@ function App() {
           </div>
         )}
       </section>
+
+      {/* Breakouts zwischen Studios und Roundups (Wolf 21.07.): der
+          schnellste "was ist gerade los?"-Einstieg direkt nach den
+          Studio-Kacheln. */}
+      <BreakoutsBlock />
 
       <RoundupBlock />
       <SiteFooter />

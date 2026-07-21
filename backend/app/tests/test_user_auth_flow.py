@@ -510,3 +510,18 @@ def test_usage_export_html_contains_matrix(client, db, sent_mails):
     yearly = client.get("/api/admin/usage/export.html?days=365")
     assert yearly.status_code == 200
     assert "Aktivität pro Monat" in yearly.text
+
+
+def test_public_breakouts_behind_login(client, db, sent_mails):
+    """Startseiten-Breakouts (Wolf 21.07.): ohne Login 401, mit Login 200
+    (leere DB -> leere Liste) + Usage-Event."""
+    assert client.get("/api/breakouts").status_code == 401
+    _add_user(db, "wolf@example.com")
+    _login(client, db, sent_mails, "wolf@example.com")
+    response = client.get("/api/breakouts")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entries"] == []
+    with Session(db) as session:
+        actions = [e.action for e in session.exec(select(UsageEvent)).all()]
+    assert "breakouts_view" in actions
