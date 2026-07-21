@@ -155,7 +155,10 @@ export function MonitoringPanel() {
                     </a>
                   </td>
                   <td className="ops-breakouts-multiplier">{formatMultiplier(b.multiplier)}</td>
-                  <td>{formatNumber(b.views)}</td>
+                  {/* "—" statt 0, wenn die Plattform fuer das Post-Format
+                      keine Aufruf-Zahl liefert (Vielfaches basiert auf
+                      Interaktionen, nicht Aufrufen). */}
+                  <td>{b.views ? formatNumber(b.views) : '—'}</td>
                 </tr>
               ))}
             </tbody>
