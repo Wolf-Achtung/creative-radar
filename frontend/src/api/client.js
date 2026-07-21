@@ -123,6 +123,9 @@ export const endpoints = {
 
   syncTmdbTitles: (payload) => api('/api/titles/sync/tmdb', { method: 'POST', body: JSON.stringify(payload) }),
   rematchAssets: () => api('/api/titles/rematch-assets', { method: 'POST' }),
+  // Kandidaten-Autopilot (2026-07-20): bestätigt offene Titel-Vorschläge
+  // mit eindeutigem Exakt-Treffer in der Whitelist, schließt Karteileichen.
+  candidatesAutopilot: () => api('/api/titles/candidates/autopilot', { method: 'POST' }),
   titleSyncRuns: () => api('/api/titles/sync/runs'),
   titleWhitelistStats: () => api('/api/titles/stats/whitelist'),
   titleCandidates: () => api('/api/titles/candidates'),

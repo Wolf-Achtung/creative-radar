@@ -300,6 +300,23 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // Kandidaten-Autopilot (2026-07-20): Backlog-Abbau on demand — dieselbe
+  // Logik läuft wöchentlich im Cron nach dem Rematch.
+  async function runCandidateAutopilot() {
+    await run(async () => {
+      const result = await endpoints.candidatesAutopilot();
+      await load();
+      setMessage(
+        `Autopilot: ${result.auto_assigned} Vorschläge automatisch bestätigt, `
+        + `${result.resolved_already_assigned} bereits zugeordnete geschlossen, `
+        + `${result.ignored_stale} alte schwache Vorschläge aussortiert. `
+        + `Offen bleiben: ${result.skipped_no_exact_match} ohne Exakt-Treffer, `
+        + `${result.skipped_low_confidence} unter der Sicherheits-Schwelle, `
+        + `${result.skipped_ambiguous} mehrdeutig.`
+      );
+    });
+  }
+
   // "Jetzt komplett aktualisieren": triggert den vollen Cron-Lauf (gerade
   // abgeschlossene KW + Force) und pollt dann GET /cron/runs, bis der
   // BackgroundTask fertig ist. Kein globales ``busy`` (sperrt sonst 5 Min die
@@ -510,6 +527,7 @@ export function AdminApp({ onLogout }) {
           titleCandidates={titleCandidates}
           onSyncTitleSources={syncTitleSources}
           onRematchAssets={rematchAssets}
+          onCandidateAutopilot={runCandidateAutopilot}
           onFullSync={triggerFullSync}
           cronBusy={cronBusy}
           cronMessage={cronMessage}

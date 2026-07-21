@@ -13,6 +13,7 @@ from app.schemas.dto import (
     TitleSyncRequest,
 )
 from app.admin_session import require_admin_session
+from app.services.candidate_autopilot import run_candidate_autopilot
 from app.services.seeds import seed_titles
 from app.services.title_candidates import create_candidate_from_asset
 from app.services.title_rematch import rematch_unassigned_assets
@@ -165,4 +166,16 @@ def whitelist_stats(session: Session = Depends(get_session)):
 @router.post("/rematch-assets")
 def rematch_assets(session: Session = Depends(get_session)):
     summary = rematch_unassigned_assets(session)
+    return summary.to_dict()
+
+
+@router.post("/candidates/autopilot")
+def run_candidates_autopilot(session: Session = Depends(get_session)):
+    """Kandidaten-Autopilot on-demand (Sprint Review-Automatisierung
+    2026-07-20): bestaetigt offene Titel-Vorschlaege mit eindeutigem
+    Exakt-Treffer in der Whitelist und schliesst Karteileichen — dieselbe
+    Logik, die im woechentlichen Cron nach dem Rematch laeuft. Der
+    Admin-Button dafuer lebt in "Quellen" neben dem Rematch; gedacht
+    v. a. fuer den initialen Abbau des Alt-Backlogs."""
+    summary = run_candidate_autopilot(session)
     return summary.to_dict()

@@ -283,6 +283,20 @@ class Settings(BaseSettings):
     openai_hard_cap_pct: float = 1.00
     openai_budget_enforced: bool = True
 
+    # Sprint Review-Automatisierung 2026-07-20 — Kandidaten-Autopilot
+    # (services/candidate_autopilot.py). Bestaetigt offene Titel-Vorschlaege
+    # automatisch, wenn der vorgeschlagene Titel EXAKT und EINDEUTIG in der
+    # Titel-Whitelist steht und die Matcher-Confidence >= min_confidence
+    # ist (der 0.95-Auto-Match des Matchers bleibt unberuehrt — der
+    # Autopilot deckt die 0.85-0.95-Luecke mit der zusaetzlichen
+    # Exakt-Treffer-Bedingung ab). Alte schwache Kandidaten (aelter als
+    # stale_days UND Confidence < stale_max_confidence) werden reversibel
+    # auf IGNORED gesetzt. Kill-Switch + Schwellen via Railway-ENV.
+    candidate_autopilot_enabled: bool = True
+    candidate_autopilot_min_confidence: float = 0.85
+    candidate_autopilot_stale_days: int = 28
+    candidate_autopilot_stale_max_confidence: float = 0.5
+
     # Sprint 28.05.2026 (Evidenz-Block / Quellen-Attribution) —
     # Stufenmodell B→A fuer den Citation-Validator im Pair-Brief-Pfad.
     # Default ``False`` (Phase 1, Soft-Mode): das LLM ist im

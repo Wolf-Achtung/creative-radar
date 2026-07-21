@@ -63,6 +63,7 @@ from app.services.segment_roundup import (
     generate_and_persist_roundup,
     parse_cron_roundup_segments,
 )
+from app.services.candidate_autopilot import run_candidate_autopilot
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.title_sync import sync_titles_from_tmdb
 from app.services.visual_analysis import analyze_asset_visual
@@ -1563,6 +1564,22 @@ async def _run_cron_sync_background_impl(
             # ENABLE_TITLE_SYNC_IN_CRON (Default true); eigener try/except.
             summary["title_sync"] = await _run_title_sync_after_scrape(session)
             summary["rematch"] = await _run_rematch_after_sync(session)
+            # Sprint Review-Automatisierung 2026-07-20 — Kandidaten-Autopilot
+            # direkt NACH dem Rematch (frische Titel sind dann in der
+            # Whitelist): bestaetigt Exakt-Treffer-Vorschlaege automatisch
+            # und schliesst Karteileichen. Best-effort wie der Rematch —
+            # ein Fehler hier kippt den Lauf nicht.
+            if settings.candidate_autopilot_enabled:
+                try:
+                    autopilot = await asyncio.to_thread(
+                        run_candidate_autopilot, session
+                    )
+                    summary["candidate_autopilot"] = autopilot.to_dict()
+                except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster rematch
+                    logger.exception("candidate-autopilot stage failed")
+                    summary["candidate_autopilot"] = {"error": str(exc)[:500]}
+            else:
+                summary["candidate_autopilot"] = {"skipped": True, "reason": "disabled"}
             # Cadence-Sprint 2026-05-17 — Brief-Generation für die gerade
             # abgeschlossene ISO-Woche. Vor diesem Sprint hat der Sonntag-Cron
             # nur Scrape gemacht; Briefs entstanden ausschließlich lazy beim
