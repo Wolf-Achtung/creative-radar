@@ -228,6 +228,7 @@ def test_login_success_sets_cookie_and_me(client, db, sent_mails):
         "auth_enabled": True,
         "email": "wolf@example.com",
         "can_view_usage": False,
+        "is_admin": False,
     }
 
     with Session(db) as session:
@@ -525,3 +526,40 @@ def test_public_breakouts_behind_login(client, db, sent_mails):
     with Session(db) as session:
         actions = [e.action for e in session.exec(select(UsageEvent)).all()]
     assert "breakouts_view" in actions
+
+
+def test_admin_user_email_gets_admin_access(client, db, sent_mails, monkeypatch):
+    """Admin-per-User-Login (Wolf 21.07.): E-Mails aus ADMIN_USER_EMAILS
+    erreichen den Admin-Bereich nach dem normalen Code-Login; andere
+    Login-User bleiben draussen; Sperren entzieht die Rechte sofort."""
+    monkeypatch.setattr(settings, "admin_auth_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "admin_session_secret", "admin-secret", raising=False)
+    monkeypatch.setattr(settings, "admin_user_emails", "Wolf@Trailerhaus.de", raising=False)
+    _add_user(db, "wolf@trailerhaus.de")
+    _add_user(db, "kollege@example.com")
+
+    # Ohne Login: geschuetzt.
+    assert client.get("/api/admin/users").status_code == 401
+
+    # Normaler Login-User ohne Admin-Eintrag: weiterhin 401.
+    _login(client, db, sent_mails, "kollege@example.com")
+    assert client.get("/api/admin/users").status_code == 401
+    client.post("/api/auth/logout")
+    client.cookies.delete(USER_SESSION_COOKIE)
+
+    # Admin-User: voller Zugriff + /admin/me + Frontend-Flags.
+    login_result = _login(client, db, sent_mails, "wolf@trailerhaus.de")
+    assert login_result["is_admin"] is True
+    assert client.get("/api/admin/users").status_code == 200
+    admin_me = client.get("/api/admin/me").json()
+    assert admin_me["authenticated"] is True
+    assert admin_me["via"] == "user"
+    assert client.get("/api/auth/me").json()["is_admin"] is True
+
+    # Sperren wirkt sofort, trotz gueltigem Cookie.
+    with Session(db) as session:
+        user = session.exec(select(AppUser).where(AppUser.email == "wolf@trailerhaus.de")).first()
+        user.active = False
+        session.add(user)
+        session.commit()
+    assert client.get("/api/admin/users").status_code == 401

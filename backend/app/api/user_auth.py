@@ -293,6 +293,9 @@ def login(
         # Monitoring-Freischaltung — Frontend zeigt damit direkt nach dem
         # Login den "Nutzung"-Link, ohne /me nachzufragen.
         "can_view_usage": bool(user.can_view_usage),
+        # Admin-per-User-Login (Sprint 2026-07-21): steuert den
+        # "Admin"-Link in der User-Leiste.
+        "is_admin": email in settings.admin_user_email_set,
     }
 
 
@@ -317,7 +320,7 @@ def me(request: Request, db: Session = Depends(get_session)) -> dict:
     ``auth_enabled=false`` (Rollout-Phase / lokales Dev) gilt als
     eingeloggt (Konvention der Admin-Session)."""
     if not settings.user_auth_enabled:
-        return {"authenticated": True, "auth_enabled": False, "email": None, "can_view_usage": False}
+        return {"authenticated": True, "auth_enabled": False, "email": None, "can_view_usage": False, "is_admin": False}
     secret = settings.user_session_secret
     token = request.cookies.get(USER_SESSION_COOKIE)
     email: Optional[str] = verify_user_session_token(token, secret) if (token and secret) else None
@@ -335,4 +338,5 @@ def me(request: Request, db: Session = Depends(get_session)) -> dict:
         "auth_enabled": True,
         "email": email,
         "can_view_usage": can_view_usage,
+        "is_admin": bool(email) and email in settings.admin_user_email_set,
     }

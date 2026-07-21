@@ -38,6 +38,7 @@ from app.admin_session import (
     ADMIN_SESSION_COOKIE,
     create_session_token,
     require_admin_session,
+    user_session_is_admin,
     verify_admin_password,
     verify_session_token,
 )
@@ -1213,6 +1214,7 @@ def admin_logout(response: Response) -> dict:
 @login_router.get("/me")
 def admin_me(
     cr_admin_session: str | None = Cookie(default=None),
+    cr_user_session: str | None = Cookie(default=None),
 ) -> dict:
     """Lightweight "bin ich noch eingeloggt?"-Check. Frontend ruft das
     beim Page-Load, um zu entscheiden, ob Login-Formular oder
@@ -1231,11 +1233,18 @@ def admin_me(
     """
     if not settings.admin_auth_enabled:
         return {"authenticated": True, "auth_enabled": False}
+    # Sprint 2026-07-21: E-Mail-Login-User aus ADMIN_USER_EMAILS gelten
+    # als eingeloggt — /admin rendert fuer sie direkt die Werkzeuge,
+    # ohne Passwort-Formular.
+    if user_session_is_admin(cr_user_session):
+        return {"authenticated": True, "auth_enabled": True, "via": "user"}
     secret = settings.admin_session_secret
     if not secret:
         return {"authenticated": False, "auth_enabled": True}
     authenticated = bool(
         cr_admin_session and verify_session_token(cr_admin_session, secret)
     )
+    # "via" nur im User-Admin-Fall oben — der Passwort-Pfad behaelt die
+    # bisherige Antwort-Form (bestehende Tests/Clients vergleichen exakt).
     return {"authenticated": authenticated, "auth_enabled": True}
 

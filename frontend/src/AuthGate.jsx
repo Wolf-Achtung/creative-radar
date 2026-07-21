@@ -95,7 +95,11 @@ export function LoginPage({ onLoginSuccess }) {
     setBusy(true); setError('');
     try {
       const result = await endpoints.authLogin(email.trim().toLowerCase(), trimmed);
-      onLoginSuccess(result?.email || email.trim().toLowerCase(), Boolean(result?.can_view_usage));
+      onLoginSuccess(
+        result?.email || email.trim().toLowerCase(),
+        Boolean(result?.can_view_usage),
+        Boolean(result?.is_admin),
+      );
     } catch (err) {
       setError(friendlyLoginError(err));
       setCode('');
@@ -181,9 +185,13 @@ export function LoginPage({ onLoginSuccess }) {
   );
 }
 
-function UserBar({ email, canViewUsage, onLogout }) {
+function UserBar({ email, canViewUsage, isAdmin, onLogout }) {
   return (
     <div className="user-bar">
+      {/* Admin-per-User-Login (2026-07-21): E-Mails aus ADMIN_USER_EMAILS
+          sehen hier den direkten Einstieg in den Admin-Bereich — /admin
+          rendert fuer sie die Werkzeuge ohne Passwort-Formular. */}
+      {isAdmin && <a className="user-bar__link" href="/admin">Admin</a>}
       {/* Monitoring-Freischaltung (2026-07-20): einzeln freigeschaltete
           Nutzer (app_user.can_view_usage) sehen hier den Einstieg zur
           Nutzungs-Auswertung — fuer alle anderen existiert der Link nicht. */}
@@ -199,6 +207,7 @@ export default function AuthGate({ children }) {
   const [status, setStatus] = useState('checking');
   const [email, setEmail] = useState(null);
   const [canViewUsage, setCanViewUsage] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,6 +216,7 @@ export default function AuthGate({ children }) {
         if (cancelled) return;
         setEmail(result?.email || null);
         setCanViewUsage(Boolean(result?.can_view_usage));
+        setIsAdmin(Boolean(result?.is_admin));
         setStatus(result?.authenticated ? 'authenticated' : 'unauthenticated');
       })
       .catch((err) => {
@@ -227,6 +237,7 @@ export default function AuthGate({ children }) {
     }
     setEmail(null);
     setCanViewUsage(false);
+    setIsAdmin(false);
     setStatus('unauthenticated');
   }
 
@@ -249,9 +260,10 @@ export default function AuthGate({ children }) {
   if (status === 'unauthenticated') {
     return (
       <LoginPage
-        onLoginSuccess={(loggedInEmail, loggedInCanViewUsage) => {
+        onLoginSuccess={(loggedInEmail, loggedInCanViewUsage, loggedInIsAdmin) => {
           setEmail(loggedInEmail);
           setCanViewUsage(Boolean(loggedInCanViewUsage));
+          setIsAdmin(Boolean(loggedInIsAdmin));
           setStatus('authenticated');
         }}
       />
@@ -262,7 +274,7 @@ export default function AuthGate({ children }) {
     <>
       {/* email ist null wenn auth_enabled=false (Rollout/lokal) —
           dann keine Leiste, die Seite sieht aus wie bisher. */}
-      {email && <UserBar email={email} canViewUsage={canViewUsage} onLogout={handleLogout} />}
+      {email && <UserBar email={email} canViewUsage={canViewUsage} isAdmin={isAdmin} onLogout={handleLogout} />}
       {children}
     </>
   );
