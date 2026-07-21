@@ -475,3 +475,38 @@ def test_admin_users_crud_roundtrip(client, db):
 
     assert client.delete(f"/api/admin/users/{body['id']}").json() == {"ok": True}
     assert client.get("/api/admin/users").json() == []
+
+
+def test_usage_summary_contains_period_axes(client, db, sent_mails):
+    """Zeit-Matrix (Wolf 21.07.): Aggregation liefert lueckenlose Wochen-/
+    Monats-Achsen plus per-User-Buckets; die Events des frischen Logins
+    landen in der aktuellen Kalenderwoche und im aktuellen Monat."""
+    _add_user(db, "wolf@example.com")
+    _login(client, db, sent_mails, "wolf@example.com")
+    client.get("/api/pairs")
+
+    summary = client.get("/api/admin/usage?days=30").json()
+    assert len(summary["week_axis"]) >= 4  # ~5 ISO-Wochen in 30 Tagen
+    assert len(summary["month_axis"]) >= 1
+    assert all("key" in col and "label" in col for col in summary["week_axis"])
+
+    row = next(u for u in summary["users"] if u["email"] == "wolf@example.com")
+    current_week_key = summary["week_axis"][-1]["key"]
+    current_month_key = summary["month_axis"][-1]["key"]
+    assert row["weeks"].get(current_week_key, 0) >= 2  # login + landing_view
+    assert row["months"].get(current_month_key, 0) >= 2
+
+
+def test_usage_export_html_contains_matrix(client, db, sent_mails):
+    _add_user(db, "wolf@example.com")
+    _login(client, db, sent_mails, "wolf@example.com")
+    client.get("/api/pairs")
+
+    weekly = client.get("/api/admin/usage/export.html?days=30")
+    assert weekly.status_code == 200
+    assert "Aktivität pro Kalenderwoche" in weekly.text
+    assert "KW " in weekly.text
+
+    yearly = client.get("/api/admin/usage/export.html?days=365")
+    assert yearly.status_code == 200
+    assert "Aktivität pro Monat" in yearly.text

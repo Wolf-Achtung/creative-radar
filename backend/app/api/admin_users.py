@@ -188,23 +188,73 @@ def delete_user(user_id: UUID, session: Session = Depends(get_session)) -> dict:
     return {"ok": True}
 
 
+def _period_axes(cutoff: datetime, now: datetime) -> tuple[list[dict], list[dict]]:
+    """Lueckenlose Wochen- und Monats-Achsen zwischen ``cutoff`` und
+    ``now`` (Report-Zeitzone) — Wochen ohne Nutzung erscheinen als
+    0-Spalte statt still zu fehlen ("wer nutzt es NICHT" sichtbar).
+
+    Wochen-Keys: ``2026-W29`` (ISO-Kalender), Label ``KW 29/26``.
+    Monats-Keys: ``2026-07``, Label ``Jul 26``.
+    """
+    tz = ZoneInfo(settings.report_timezone)
+    local_cutoff = cutoff.astimezone(tz)
+    local_now = now.astimezone(tz)
+
+    weeks: list[dict] = []
+    seen_weeks: set[str] = set()
+    cursor = local_cutoff
+    while cursor <= local_now + timedelta(days=6):
+        iso = cursor.isocalendar()
+        key = f"{iso.year}-W{iso.week:02d}"
+        if key not in seen_weeks:
+            seen_weeks.add(key)
+            weeks.append({"key": key, "label": f"KW {iso.week}/{str(iso.year)[2:]}"})
+        cursor += timedelta(days=7)
+        if len(weeks) > 60:  # Schutz gegen Endlosschleife bei kaputten Uhren
+            break
+
+    _MONTH_LABELS = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+                     "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
+    months: list[dict] = []
+    year, month = local_cutoff.year, local_cutoff.month
+    while (year, month) <= (local_now.year, local_now.month):
+        months.append({
+            "key": f"{year}-{month:02d}",
+            "label": f"{_MONTH_LABELS[month - 1]} {str(year)[2:]}",
+        })
+        month += 1
+        if month > 12:
+            month, year = 1, year + 1
+        if len(months) > 24:
+            break
+
+    return weeks, months
+
+
 def _aggregate_usage(session: Session, days: int) -> dict:
     """Gemeinsamer Aggregations-Kern fuer die Monitoring-Ansicht
     (``GET /usage``) und die Export-Endpoints (HTML-Bericht, CSV) —
     eine Quelle, drei Darstellungen."""
-    cutoff = utc_now() - timedelta(days=days)
+    now = utc_now()
+    cutoff = now - timedelta(days=days)
     events = session.exec(
         select(UsageEvent).where(UsageEvent.created_at >= cutoff)
     ).all()
 
+    tz = ZoneInfo(settings.report_timezone)
     per_user: dict[str, dict] = {}
     action_counts: dict[str, int] = {}
     brief_counts: dict[str, int] = {}
+
+    def _fresh_stats() -> dict:
+        return {
+            "events": 0, "logins": 0, "last_active": None,
+            "actions": {}, "briefs": {}, "weeks": {}, "months": {},
+        }
+
     for event in events:
         created = _as_utc(event.created_at)
-        stats = per_user.setdefault(
-            event.email, {"events": 0, "logins": 0, "last_active": None, "actions": {}, "briefs": {}}
-        )
+        stats = per_user.setdefault(event.email, _fresh_stats())
         stats["events"] += 1
         stats["actions"][event.action] = stats["actions"].get(event.action, 0) + 1
         if event.action == "login":
@@ -217,15 +267,22 @@ def _aggregate_usage(session: Session, days: int) -> dict:
             if pair:
                 brief_counts[pair] = brief_counts.get(pair, 0) + 1
                 stats["briefs"][pair] = stats["briefs"].get(pair, 0) + 1
+        # Zeit-Raster (Wolf 21.07.: "Übersicht über alle Nutzer und ihr
+        # Tun pro Woche und/oder Monat") — Bucketing in der Report-
+        # Zeitzone, damit ein Sonntag-23-Uhr-Klick nicht in der falschen
+        # Woche landet.
+        local = created.astimezone(tz)
+        iso = local.isocalendar()
+        week_key = f"{iso.year}-W{iso.week:02d}"
+        month_key = f"{local.year}-{local.month:02d}"
+        stats["weeks"][week_key] = stats["weeks"].get(week_key, 0) + 1
+        stats["months"][month_key] = stats["months"].get(month_key, 0) + 1
 
     users = session.exec(select(AppUser).order_by(AppUser.email)).all()  # type: ignore[arg-type]
     known_emails = {user.email for user in users}
     user_rows = []
     for user in users:
-        stats = per_user.get(
-            user.email,
-            {"events": 0, "logins": 0, "last_active": None, "actions": {}, "briefs": {}},
-        )
+        stats = per_user.get(user.email, _fresh_stats())
         user_rows.append(
             {
                 **_user_dict(user),
@@ -234,6 +291,8 @@ def _aggregate_usage(session: Session, days: int) -> dict:
                 "last_active": stats["last_active"].isoformat() if stats["last_active"] else None,
                 "actions": stats["actions"],
                 "briefs": stats["briefs"],
+                "weeks": stats["weeks"],
+                "months": stats["months"],
             }
         )
     # Events geloeschter User (E-Mail nicht mehr in app_user) tauchen als
@@ -256,13 +315,18 @@ def _aggregate_usage(session: Session, days: int) -> dict:
                 "last_active": stats["last_active"].isoformat() if stats["last_active"] else None,
                 "actions": stats["actions"],
                 "briefs": stats["briefs"],
+                "weeks": stats["weeks"],
+                "months": stats["months"],
                 "deleted": True,
             }
         )
 
+    week_axis, month_axis = _period_axes(cutoff, now)
     return {
         "days": days,
         "events_total": len(events),
+        "week_axis": week_axis,
+        "month_axis": month_axis,
         "users": user_rows,
         "actions": [
             {"action": action, "count": count}
@@ -425,6 +489,36 @@ def usage_export_html(
         )
     user_details = "\n".join(detail_sections) or "<p>Keine Aktivität im Zeitraum.</p>"
 
+    # Zeit-Matrix (Wolf 21.07.): alle Nutzer x Kalenderwochen bzw. Monate.
+    # Bis ~4 Monate Fenster in Wochen-Spalten, darueber Monats-Spalten —
+    # sonst wird die Tabelle breiter als eine Druckseite.
+    use_months = days > 120
+    axis = data["month_axis"] if use_months else data["week_axis"]
+    bucket_field = "months" if use_months else "weeks"
+    matrix_heading = (
+        "Aktivität pro Monat" if use_months else "Aktivität pro Kalenderwoche"
+    )
+    matrix_head = "".join(f"<th class='num'>{esc(col['label'])}</th>" for col in axis)
+    matrix_rows = "\n".join(
+        "<tr>"
+        f"<td>{esc(user['display_name'] or user['email'])}</td>"
+        + "".join(
+            f"<td class='num'>{user[bucket_field].get(col['key']) or '·'}</td>"
+            for col in axis
+        )
+        + f"<td class='num'><strong>{user['events']}</strong></td>"
+        "</tr>"
+        for user in data["users"]
+    ) or f"<tr><td colspan='{len(axis) + 2}'>Keine Nutzer angelegt.</td></tr>"
+    matrix_table = (
+        f"<h2>{matrix_heading}</h2>"
+        "<p class='muted'>Ereignisse pro Nutzer und Zeitraum · „·“ = keine Nutzung.</p>"
+        "<div style='overflow-x:auto'><table>"
+        f"<thead><tr><th>Nutzer</th>{matrix_head}<th class='num'>Σ</th></tr></thead>"
+        f"<tbody>{matrix_rows}</tbody>"
+        "</table></div>"
+    )
+
     html_doc = f"""<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -457,6 +551,8 @@ def usage_export_html(
 {user_rows or "<tr><td colspan='6'>Keine Nutzer angelegt.</td></tr>"}
 </tbody>
 </table>
+
+{matrix_table}
 
 <h2>Meistgeöffnete Studio-Briefs</h2>
 <table>
