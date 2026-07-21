@@ -116,9 +116,42 @@ def verify_admin_password(presented: str) -> bool:
     return secrets.compare_digest(presented, expected)
 
 
+def user_session_is_admin(cr_user_session: Optional[str]) -> bool:
+    """True, wenn das User-Session-Cookie zu einem aktiven Login-User
+    gehoert, dessen E-Mail in ``ADMIN_USER_EMAILS`` steht (Sprint
+    2026-07-21: Wolf ist nach dem normalen E-Mail-Code-Login automatisch
+    Admin, ohne separates Passwort).
+
+    Live-DB-Check pro Aufruf — ein gesperrter User verliert die
+    Admin-Rechte sofort, trotz gueltigem 30-Tage-Cookie. Lazy Imports:
+    user_session importiert aus DIESEM Modul (Zirkularitaet), und die
+    Engine soll nicht beim Import jeder Token-Lib-Nutzung hochfahren.
+    """
+    if not cr_user_session or not settings.admin_user_email_set:
+        return False
+    if not settings.user_session_secret:
+        return False
+    from app.user_session import verify_user_session_token
+
+    email = verify_user_session_token(cr_user_session, settings.user_session_secret)
+    if not email or email.strip().lower() not in settings.admin_user_email_set:
+        return False
+    from sqlmodel import Session, select
+
+    from app.database import engine
+    from app.models import AppUser
+
+    with Session(engine) as db:
+        user = db.exec(
+            select(AppUser).where(AppUser.email == email.strip().lower())
+        ).first()
+    return user is not None and user.active
+
+
 def require_admin_session(
     request: Request,
     cr_admin_session: Optional[str] = Cookie(default=None),
+    cr_user_session: Optional[str] = Cookie(default=None),
 ) -> None:
     """FastAPI-Dependency: prueft das Session-Cookie. 401 wenn ungueltig,
     503 wenn der Server kein Session-Secret hat (fail-closed).
@@ -145,6 +178,11 @@ def require_admin_session(
     if not settings.admin_auth_enabled:
         return None
     if _path_is_public(request.url.path):
+        return None
+    # Sprint 2026-07-21: E-Mail-Login-User aus ADMIN_USER_EMAILS sind
+    # automatisch Admin — Pruefung VOR dem Secret-Check, damit der Pfad
+    # auch funktioniert, wenn nur das User-Login konfiguriert ist.
+    if user_session_is_admin(cr_user_session):
         return None
     secret = settings.admin_session_secret
     if not secret:

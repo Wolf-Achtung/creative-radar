@@ -31,6 +31,7 @@ Backend-Service (Railway):
 | `USER_SESSION_TTL_SECONDS` | Default 2592000 (30 Tage) | nein |
 | `LOGIN_CODE_TTL_SECONDS` | Default 600 (10 Minuten) | nein |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_STARTTLS` | nur bei `EMAIL_PROVIDER=smtp` | nein |
+| `ADMIN_USER_EMAILS` | komma-separierte E-Mails, die nach dem normalen Code-Login automatisch Voll-Admin sind (z. B. `wolf@trailerhaus.de`) — Passwort-Login unter `/admin` bleibt als Fallback | nein |
 | `DISABLE_EMAILS` | `true` = Kill-Switch (Code landet nur im Log) — nie in Production | nein |
 
 Resend-Setup (einmalig): Domain `creative-radar.de` in Resend anlegen,

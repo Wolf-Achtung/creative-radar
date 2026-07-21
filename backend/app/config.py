@@ -160,6 +160,17 @@ class Settings(BaseSettings):
     admin_session_ttl_seconds: int = 8 * 3600
     admin_auth_enabled: bool = False
 
+    # Sprint 2026-07-21 (Wolf): Login-User, die automatisch Voll-Admin
+    # sind — komma-separierte E-Mail-Liste (Railway-ENV
+    # ADMIN_USER_EMAILS=wolf@trailerhaus.de). Wer hier steht und per
+    # E-Mail-Code eingeloggt ist, erreicht den Admin-Bereich ohne das
+    # separate ADMIN_PASSWORD. Bewusst ENV statt DB-Flag: die Rechte
+    # lassen sich nicht ueber die Oberflaeche vergeben (kein
+    # Selbst-Eskalations-Pfad), Aenderung = ENV-Edit ohne Deploy.
+    # Das Passwort-Login unter /admin bleibt parallel bestehen
+    # (Fallback, falls das Mail-Login mal klemmt).
+    admin_user_emails: str = ""
+
     # Sicherheits-Audit 2026-07-01 — Kill-Switch fuer das In-Memory-Rate-
     # Limiting (app/services/rate_limit.py). Default an; auf false setzen,
     # falls ein Incident (z. B. False-Positives durch geteiltes NAT) das
@@ -348,6 +359,14 @@ class Settings(BaseSettings):
         if raw.strip() == "*":
             return ["*"]
         return [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+
+    @property
+    def admin_user_email_set(self) -> frozenset[str]:
+        return frozenset(
+            item.strip().lower()
+            for item in (self.admin_user_emails or "").split(",")
+            if item.strip()
+        )
 
     @property
     def image_proxy_host_suffixes(self) -> list[str]:
