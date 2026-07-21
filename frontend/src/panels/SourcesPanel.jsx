@@ -17,6 +17,7 @@ export function SourcesPanel({
   titleCandidates,
   onSyncTitleSources,
   onRematchAssets,
+  onCandidateAutopilot,
   onFullSync,
   cronBusy,
   cronMessage,
@@ -95,6 +96,11 @@ export function SourcesPanel({
         <div className="section-actions">
           <button className="primary" onClick={onSyncTitleSources} disabled={busy}>Titelquellen aktualisieren</button>
           <button className="secondary" onClick={onRematchAssets} disabled={busy}>Bestehende Treffer neu zuordnen</button>
+          {/* Kandidaten-Autopilot (2026-07-20): bestätigt offene Titel-
+              Vorschläge mit eindeutigem Exakt-Treffer automatisch und
+              schließt alte schwache Vorschläge — läuft auch wöchentlich
+              im Cron; der Button ist für den Backlog-Abbau on demand. */}
+          <button className="secondary" onClick={onCandidateAutopilot} disabled={busy}>Offene Vorschläge automatisch bestätigen</button>
         </div>
       </Section>
       <details className="card">
