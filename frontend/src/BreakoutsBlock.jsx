@@ -81,7 +81,11 @@ export default function BreakoutsBlock() {
                       </a>
                     </td>
                     <td className="breakouts-multiplier">{formatMultiplier(entry.multiplier)}</td>
-                    <td>{formatNumber(entry.views)}</td>
+                    {/* Manche Post-Formate (IG-Bildposts, YT-Community-
+                        Posts) liefern keine Aufruf-Zahl — "—" statt einer
+                        irreführenden 0. Das Vielfache basiert ohnehin auf
+                        Interaktionen, nicht auf Aufrufen. */}
+                    <td>{entry.views ? formatNumber(entry.views) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
