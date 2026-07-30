@@ -177,7 +177,7 @@ export function LoginPage({ onLoginSuccess }) {
           </form>
         )}
         <p className="muted login-hint">
-          Der Code ist 10 Minuten gültig. Kein Zugang? Bitte beim Creative-Radar-Team melden.
+          Der Code ist 10 Minuten gültig.
         </p>
       </section>
       <SiteFooter />
