@@ -8,6 +8,7 @@ import {
   formatNumber,
   formatPct1,
   formatUsdCents,
+  formatUsdMillicents,
 } from '../format';
 import { Section } from '../components/Section';
 import { UsageSection } from '../components/UsageSection';
@@ -106,10 +107,14 @@ export function MonitoringPanel() {
         </div>
       </Section>
 
-      <Section title="Kosten nach Provider" kicker="Letzte 30 Tage">
+      {/* Kicker war "Letzte 30 Tage" — falsch: cost-summary nimmt ohne
+          from_date/to_date den laufenden Kalendermonat (_default_window
+          in api/admin.py), genau wie die Budget-Karten darueber. Am
+          Monatsersten steht hier darum korrekterweise fast nichts. */}
+      <Section title="Kosten nach Provider" kicker="Kalendermonat, UTC">
         {status === 'loading' && <p className="muted small">Lädt …</p>}
         {status === 'done' && costSummary?.buckets && costSummary.buckets.length === 0 && (
-          <p className="muted small">Keine Kosten im Zeitraum.</p>
+          <p className="muted small">Noch keine Kosten in diesem Kalendermonat.</p>
         )}
         {status === 'done' && costSummary?.buckets && costSummary.buckets.length > 0 && (
           <table className="ops-cost-table">
@@ -121,13 +126,21 @@ export function MonitoringPanel() {
                 <tr key={b.key}>
                   <td>{b.key}</td>
                   <td>{formatNumber(b.count)}</td>
-                  <td>{formatUsdCents(b.cost_usd_cents)}</td>
+                  {/* Millicents statt Cents: OpenAI-Zeilen runden pro Call
+                      auf 0 ct und ergaben in der Summe faelschlich 0,00 $.
+                      ``??`` faengt aeltere Backend-Versionen ab, die das
+                      Feld noch nicht liefern. */}
+                  <td>{b.cost_usd_millicents != null
+                    ? formatUsdMillicents(b.cost_usd_millicents)
+                    : formatUsdCents(b.cost_usd_cents)}</td>
                 </tr>
               ))}
               <tr className="ops-cost-total">
                 <td>Gesamt</td>
                 <td>{formatNumber(costSummary.total_count)}</td>
-                <td>{formatUsdCents(costSummary.total_cost_usd_cents)}</td>
+                <td>{costSummary.total_cost_usd_millicents != null
+                  ? formatUsdMillicents(costSummary.total_cost_usd_millicents)
+                  : formatUsdCents(costSummary.total_cost_usd_cents)}</td>
               </tr>
             </tbody>
           </table>

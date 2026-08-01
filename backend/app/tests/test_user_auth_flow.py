@@ -551,6 +551,13 @@ def test_admin_user_email_gets_admin_access(client, db, sent_mails, monkeypatch)
     login_result = _login(client, db, sent_mails, "wolf@trailerhaus.de")
     assert login_result["is_admin"] is True
     assert client.get("/api/admin/users").status_code == 200
+    # Regression (Kosten-Audit 2026-08-01): require_usage_access kannte
+    # den Admin-per-E-Mail-Pfad nicht und schickte genau diesen User in
+    # "Keine Berechtigung fuer die Nutzungs-Auswertung" — obwohl jeder
+    # andere Admin-Endpoint offen war. can_view_usage ist hier bewusst
+    # NICHT gesetzt.
+    assert client.get("/api/admin/usage").status_code == 200
+    assert client.get("/api/admin/usage/export.html").status_code == 200
     admin_me = client.get("/api/admin/me").json()
     assert admin_me["authenticated"] is True
     assert admin_me["via"] == "user"
