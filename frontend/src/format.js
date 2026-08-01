@@ -194,6 +194,15 @@ export function formatUsdCents(cents) {
   catch (_) { return `$${(Number(cents) / 100).toFixed(2)}`; }
 }
 
+// Kosten-Audit 2026-08-01: Sub-Cent-Betraege (ein gpt-5.4-mini-Call
+// kostet ~0,13 ct) verschwinden in der Cent-Spalte auf 0. Millicents
+// sind der praezise Wert (1 Cent = 1000 Millicents); zwei Nachkomma-
+// stellen reichen, weil das Feld immer Monatssummen zeigt.
+export function formatUsdMillicents(millicents) {
+  if (millicents === null || millicents === undefined) return '—';
+  return formatUsdCents(Number(millicents) / 1000);
+}
+
 export function formatPct1(fraction) {
   if (fraction === null || fraction === undefined) return '—';
   return `${(Number(fraction) * 100).toFixed(1)}%`;

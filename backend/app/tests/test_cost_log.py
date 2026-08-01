@@ -620,7 +620,8 @@ def auth_off_client(monkeypatch: pytest.MonkeyPatch):
 
 
 def _seed_cost_log(session: Session, *, provider: str, operation: str,
-                   eur_cents: int, usd_cents: int, when: datetime) -> None:
+                   eur_cents: int, usd_cents: int, when: datetime,
+                   usd_millicents: int = 0) -> None:
     session.add(
         CostLog(
             id=uuid4(),
@@ -628,6 +629,7 @@ def _seed_cost_log(session: Session, *, provider: str, operation: str,
             provider=provider,
             operation=operation,
             cost_usd_cents=usd_cents,
+            cost_usd_millicents=usd_millicents,
             cost_eur_cents=eur_cents,
             cost_meta={},
         )
@@ -671,6 +673,38 @@ def test_cost_summary_aggregates_by_provider(auth_off_client) -> None:
     assert buckets_by_key["apify"]["count"] == 2
     assert buckets_by_key["apify"]["cost_eur_cents"] == 30
     assert buckets_by_key["openai"]["count"] == 1
+
+
+def test_cost_summary_reports_subcent_costs_in_millicents(auth_off_client) -> None:
+    """Kosten-Audit 2026-08-01: 1000 gpt-5.4-mini-Calls a 0,13 ct runden in
+    ``cost_usd_cents`` jeder fuer sich auf 0 — die Cent-Summe war deshalb
+    0,00 $, obwohl real 1,30 $ angefallen sind. Die Millicent-Summe muss
+    den Betrag zeigen."""
+    client, test_engine = auth_off_client
+    now = datetime.now(timezone.utc)
+    with Session(test_engine) as s:
+        for i in range(3):
+            _seed_cost_log(s, provider="openai", operation=f"vision_call_{i}",
+                           eur_cents=0, usd_cents=0, usd_millicents=130, when=now)
+
+    body = client.get("/api/admin/cost-summary").json()
+    assert body["total_cost_usd_cents"] == 0
+    assert body["total_cost_usd_millicents"] == 390
+    assert body["buckets"][0]["cost_usd_millicents"] == 390
+
+
+def test_cost_summary_falls_back_to_cents_for_legacy_rows(auth_off_client) -> None:
+    """Zeilen von vor der Millicent-Spalte haben dort den Migration-Default
+    0. Die duerfen nicht als 0,00 $ durchfallen, sondern muessen aus
+    ``cost_usd_cents`` hochgerechnet werden."""
+    client, test_engine = auth_off_client
+    now = datetime.now(timezone.utc)
+    with Session(test_engine) as s:
+        _seed_cost_log(s, provider="apify", operation="actor:foo",
+                       eur_cents=160, usd_cents=177, usd_millicents=0, when=now)
+
+    body = client.get("/api/admin/cost-summary").json()
+    assert body["total_cost_usd_millicents"] == 177_000
 
 
 def test_cost_summary_rejects_invalid_dates(auth_off_client) -> None:

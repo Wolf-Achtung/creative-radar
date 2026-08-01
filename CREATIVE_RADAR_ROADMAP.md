@@ -186,7 +186,7 @@ Das ist der **maximalistische Umfang**. Der Sprint-Plan in Abschnitt 5 zeigt ein
                  │  Externe Quellen                            │
                  │  Apify (IG, TT, optional Comments)          │
                  │  TMDb (Movies + TV) · IGDB (Games, P2)      │
-                 │  YouTube Data API (P2) · OpenAI · Perplexity│
+                 │  YouTube Data API (P2) · OpenAI · Anthropic │
                  └────────────────────┬────────────────────────┘
                                       │
                                       ▼
@@ -384,7 +384,7 @@ Wenn Variante B (eigene DB): keine Prefix nötig, aber `Title.tmdb_id` als UNIQU
 | **Apify** | Instagram + TikTok Scraping | Pflicht (für Auto-Modus); Manual-Import als Fallback | ja | Standard-Vertrag — **ToS-Implikationen für Drittseiten ungeklärt** (siehe 4.4) |
 | **TMDb** | Film-/Serien-Whitelist-Quelle | Pflicht für Auto-Whitelist | ja (Movies); TV-Sync fehlt (F1.7) | TMDb-Terms verlangen Attribution + non-commercial Default — siehe 4.4 |
 | **OpenAI** | Text-Klassifikation + Vision | Pflicht (sonst Stub-Mode) | ja | Standard-Anthropic/OpenAI-Terms |
-| **Perplexity** | Wochen-Marktkontext | Optional, **heute toter Pfad** (Diagnose §5.5) | nicht aktiv | Standard-Terms |
+| ~~Perplexity~~ | ~~Wochen-Marktkontext~~ | **Entfernt** im Kosten-Audit 2026-08-01 — toter Pfad ohne Aufrufer, 0 Calls | — | — |
 | **S3 / R2 / B2** | Persistentes Storage (F0.1) | Pflicht ab P0 | nein | TBD (Wolf-Entscheidung) |
 | **YouTube Data API** | Trailer-Channels (F2.1) | Optional (P2) | nein | Google API Terms |
 | **IGDB** | Game-Titel (F2.8) | Optional (P2) | nein | Twitch/IGDB-Terms |
@@ -402,7 +402,6 @@ Wenn Variante B (eigene DB): keine Prefix nötig, aber `Title.tmdb_id` als UNIQU
 | Apify Instagram Scraper | TBD — siehe apify.com/apify/instagram-scraper Pricing-Tab | Pay-per-result oder Pay-per-Compute-Unit (CU) |
 | Apify TikTok Scraper (`clockworks~tiktok-scraper`) | TBD — siehe apify.com/clockworks/tiktok-scraper Pricing-Tab | gleiche Logik |
 | OpenAI gpt-4o-mini Text + Vision | TBD — siehe openai.com/pricing | Vision-Calls werden nach Token-Volumen abgerechnet; pro Bild deutlich günstiger als gpt-4o |
-| Perplexity sonar-pro | TBD — siehe perplexity.ai/pricing | optional |
 | S3-kompatibles Storage (R2/B2) | TBD — siehe Anbieter-Pricing | Größenordnung ≪ andere Posten bei wenigen GB Bilder |
 | Sentry/Logflare | 0 € im Free-Tier voraussichtlich ausreichend | optional |
 

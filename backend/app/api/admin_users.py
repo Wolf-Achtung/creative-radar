@@ -28,7 +28,11 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, 
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.admin_session import require_admin_session, verify_session_token
+from app.admin_session import (
+    require_admin_session,
+    user_session_is_admin,
+    verify_session_token,
+)
 from app.config import settings
 from app.database import get_session
 from app.models import AppUser, UsageEvent
@@ -59,10 +63,18 @@ def require_usage_access(
     1. ``admin_auth_enabled=False`` -> No-Op (dieselbe dev-Konvention
        wie require_admin_session).
     2. Gueltige Admin-Session -> durch.
-    3. Gueltige User-Session UND User aktiv UND ``can_view_usage`` ->
+    3. User-Session einer ``ADMIN_USER_EMAILS``-Adresse -> durch.
+    4. Gueltige User-Session UND User aktiv UND ``can_view_usage`` ->
        durch. Der Flag wird pro Request live aus der DB gelesen —
        Entzug wirkt sofort, trotz 30-Tage-Cookie.
-    4. Sonst 401.
+    5. Sonst 401.
+
+    Schritt 3 kam mit dem Email-Login-Admin (2026-07-21) in
+    ``require_admin_session``, wurde hier aber vergessen: wer sich per
+    E-Mail-Code als Admin anmeldet, hat kein ``cr_admin_session``-Cookie
+    und lief in Schritt 4 — ohne gesetztes ``can_view_usage`` also in
+    den 401 "Keine Berechtigung fuer die Nutzungs-Auswertung", obwohl
+    jeder andere Admin-Endpoint offen war.
     """
     if not settings.admin_auth_enabled:
         return None
@@ -71,6 +83,8 @@ def require_usage_access(
         and settings.admin_session_secret
         and verify_session_token(cr_admin_session, settings.admin_session_secret)
     ):
+        return None
+    if user_session_is_admin(cr_user_session):
         return None
     if cr_user_session and settings.user_session_secret:
         email = verify_user_session_token(cr_user_session, settings.user_session_secret)

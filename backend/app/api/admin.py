@@ -151,6 +151,14 @@ def cost_summary(
     carries cost in EUR and USD cents plus the row count. EUR cents are
     snapshot-rate values from logging time, so adjusting
     ``settings.usd_to_eur_rate`` later does NOT retroactively change them.
+
+    ``cost_usd_millicents`` (Kosten-Audit 2026-08-01) ist die Zahl, die
+    Anzeigen benutzen sollen: ein einzelner gpt-5.4-mini-Call kostet
+    ~0,13 ct, rundet in ``cost_usd_cents`` also auf 0 — im Juli 2026
+    verschwanden so 3.781 OpenAI-Calls (5,02 USD) komplett aus der
+    Tabelle, waehrend die Budget-Karten daneben den korrekten Wert aus
+    ``compute_openai_monthly_spend`` zogen. ``cost_usd_cents`` bleibt
+    unveraendert im Response (Back-Compat fuer bestehende Konsumenten).
     """
     default_from, default_to = _default_window()
     start = _parse_iso_date(from_date, default_from)
@@ -167,9 +175,15 @@ def cost_summary(
     rows = list(session.exec(statement).all())
 
     buckets: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"count": 0, "cost_usd_cents": 0, "cost_eur_cents": 0}
+        lambda: {
+            "count": 0,
+            "cost_usd_cents": 0,
+            "cost_usd_millicents": 0,
+            "cost_eur_cents": 0,
+        }
     )
     total_usd = 0
+    total_usd_milli = 0
     total_eur = 0
 
     for row in rows:
@@ -179,10 +193,16 @@ def cost_summary(
             key = f"{row.provider}:{row.operation}"
         else:  # provider
             key = row.provider
+        # Zeilen von vor der Millicent-Spalte (Migration-Default 0) haben
+        # nur den Cent-Wert — ``or`` faellt genau fuer die zurueck, ohne
+        # neuere Sub-Cent-Zeilen (Cent 0, Millicent >0) zu ueberschreiben.
+        millicents = row.cost_usd_millicents or row.cost_usd_cents * 1000
         buckets[key]["count"] += 1
         buckets[key]["cost_usd_cents"] += row.cost_usd_cents
+        buckets[key]["cost_usd_millicents"] += millicents
         buckets[key]["cost_eur_cents"] += row.cost_eur_cents
         total_usd += row.cost_usd_cents
+        total_usd_milli += millicents
         total_eur += row.cost_eur_cents
 
     return {
@@ -191,6 +211,7 @@ def cost_summary(
         "group_by": group_by,
         "total_count": len(rows),
         "total_cost_usd_cents": total_usd,
+        "total_cost_usd_millicents": total_usd_milli,
         "total_cost_eur_cents": total_eur,
         "buckets": [
             {"key": key, **values}

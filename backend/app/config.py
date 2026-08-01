@@ -18,8 +18,13 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     # 2026-07-06: switched from gpt-4o-mini to gpt-5.4-mini on request.
     openai_model: str = "gpt-5.4-mini"
-    perplexity_api_key: str | None = None
-    perplexity_model: str = "sonar-pro"
+    # PERPLEXITY_API_KEY/_MODEL: entfernt im Kosten-Audit 2026-08-01.
+    # ``services/market_context.py`` war der einzige Nutzer und hatte seit
+    # der Diagnose 2026-05-08 keinen einzigen Aufrufer mehr — 0 Calls,
+    # 0 USD, keine costlog-Zeile. Die Railway-Variablen koennen weg.
+    # (Nicht betroffen: ``CandidateSource.PERPLEXITY`` und
+    # ``scripts/import_channels.py`` — das ist der manuelle CSV-Seed aus
+    # einer Perplexity-Recherche, kein API-Zugriff.)
     tmdb_api_key: str | None = None
     tmdb_read_access_token: str | None = None
     apify_api_token: str | None = None
