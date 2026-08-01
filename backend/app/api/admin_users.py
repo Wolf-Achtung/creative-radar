@@ -202,8 +202,19 @@ def _period_axes(cutoff: datetime, now: datetime) -> tuple[list[dict], list[dict
 
     weeks: list[dict] = []
     seen_weeks: set[str] = set()
-    cursor = local_cutoff
-    while cursor <= local_now + timedelta(days=6):
+    # Der Cursor wird auf den Montag-00:00 der Cutoff-Woche verankert und dann
+    # in 7-Tage-Schritten bis `local_now` gefuehrt. Das Verankern ersetzt den
+    # frueheren `+ timedelta(days=6)`-Ueberhang: der existierte, damit das
+    # 7-Tage-Stepping ab einem beliebig ausgerichteten `cutoff` die Woche von
+    # `local_now` nicht verpasst — haengte aber eine noch nicht begonnene Woche
+    # als letzte Spalte an, sobald `now + 6 Tage` in die naechste ISO-Woche fiel
+    # (an 5 von 7 Wochentagen, Mi–So). Ab einem Montag verankert trifft das
+    # Stepping jede ISO-Woche zwischen Cutoff und Jetzt genau einmal, und der
+    # letzte Eintrag ist immer die laufende Woche.
+    cursor = (local_cutoff - timedelta(days=local_cutoff.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0,
+    )
+    while cursor <= local_now:
         iso = cursor.isocalendar()
         key = f"{iso.year}-W{iso.week:02d}"
         if key not in seen_weeks:
