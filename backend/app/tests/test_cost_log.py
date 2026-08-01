@@ -470,6 +470,8 @@ def test_record_anthropic_call_bills_cache_tokens(
     assert row.cost_meta["cache_creation_5m"] == 4_000
     assert row.cost_meta["cache_creation_1h"] == 0
     assert row.cost_meta["prompt_tokens_total"] == 34_000
+    # Split kam aus usage.cache_creation und ging auf.
+    assert row.cost_meta["cache_split_source"] == "reported"
 
 
 def test_record_anthropic_call_cache_write_without_split_bills_1h(
@@ -500,6 +502,8 @@ def test_record_anthropic_call_cache_write_without_split_bills_1h(
     assert row.cost_usd_millicents == 12_000
     assert row.cost_meta["cache_creation_1h"] == 4_000
     assert row.cost_meta["cache_creation_5m"] == 0
+    # Die 4000 sind hier Preis-Basis, keine gemeldete 1h-TTL.
+    assert row.cost_meta["cache_split_source"] == "fallback"
 
 
 def test_record_anthropic_call_ignores_inconsistent_cache_split(
@@ -531,6 +535,7 @@ def test_record_anthropic_call_ignores_inconsistent_cache_split(
     row = session.exec(select(CostLog)).one()
     assert row.cost_usd_millicents == 12_000  # 4000 * 2.00, nicht der Split
     assert row.cost_meta["cache_creation_1h"] == 4_000
+    assert row.cost_meta["cache_split_source"] == "fallback"
 
 
 def test_record_anthropic_call_without_cache_fields_unchanged(
@@ -555,6 +560,8 @@ def test_record_anthropic_call_without_cache_fields_unchanged(
     assert row.cost_meta["cache_creation_input_tokens"] == 0
     assert row.cost_meta["cache_read_input_tokens"] == 0
     assert row.cost_meta["prompt_tokens_total"] == 10_000
+    # Kein Write → nichts zu splitten.
+    assert row.cost_meta["cache_split_source"] == "none"
 
 
 def test_record_anthropic_call_handles_unknown_model(

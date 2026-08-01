@@ -390,15 +390,27 @@ def record_anthropic_call(
             return None
         return five_m, one_h
 
+    # ``cache_split_source`` macht im Audit-Trail unterscheidbar, ob
+    # ``cache_creation_5m/1h`` gemeldete Werte sind oder nur die Preis-Basis
+    # des konservativen Pfads — sobald Caching live ist, waere das sonst nicht
+    # mehr rekonstruierbar. Zweitnutzen: greift ``fallback`` im Betrieb
+    # regelmaessig, ist das ein Signal (geaenderte Response-Form der API oder
+    # unbeabsichtigtes 1h-TTL).
     _split = _cache_creation_split()
-    if _split is not None:
+    if cache_creation_input_tokens == 0:
+        # Kein Write — es gibt schlicht nichts zu splitten.
+        cache_creation_5m, cache_creation_1h = 0, 0
+        cache_split_source = "none"
+    elif _split is not None:
         cache_creation_5m, cache_creation_1h = _split
+        cache_split_source = "reported"
     else:
         # Konservativ: ohne verlaesslichen Split den GESAMTEN Write-Anteil zum
         # teureren 1h-Satz rechnen, damit der Budget-Cap eher zu frueh als zu
         # spaet greift. Die beiden Werte in ``full_meta`` geben deshalb die
         # Preis-Basis wieder, nicht zwingend eine von der API gemeldete TTL.
         cache_creation_5m, cache_creation_1h = 0, cache_creation_input_tokens
+        cache_split_source = "fallback"
 
     billable_input_tokens = (
         input_tokens
@@ -424,6 +436,7 @@ def record_anthropic_call(
         "cache_read_input_tokens": cache_read_input_tokens,
         "cache_creation_5m": cache_creation_5m,
         "cache_creation_1h": cache_creation_1h,
+        "cache_split_source": cache_split_source,
         "prompt_tokens_total": (
             input_tokens + cache_creation_input_tokens + cache_read_input_tokens
         ),
