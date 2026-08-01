@@ -1,14 +1,21 @@
 """Misst die echte Token-Zahl der System-Prompts gegen das Cache-Minimum.
 
+OPTIONALES DIAGNOSE-WERKZEUG — laeuft in keiner Pipeline und ist keine
+Merge-Voraussetzung. Es liegt hier, weil die Frage "ist dieser Prompt
+ueberhaupt cachebar?" wiederkehrt, sobald ein Prompt gekuerzt oder ein
+Modell gewechselt wird.
+
 Hintergrund: Anthropic cacht einen Prefix erst ab einem modellabhaengigen
 Minimum — 1024 Token fuer Opus 4.8, 4096 fuer Haiku 4.5. Liegt der Prompt
 darunter, wird der Request ohne Caching verarbeitet: kein Fehler, keine
 Zusatzkosten, ``cache_creation_input_tokens`` bleibt schlicht 0.
 
-Zeichenbasierte Schaetzungen taugen an der Grenze nicht. Fuer Cutter-Weekly
-(~2.919 Zeichen) und Designer-Weekly (~3.081 Zeichen) liegt die Schaetzung
-bei 834-1.027 Token und damit exakt auf der 1024er-Kante — die Frage ist so
-nicht entscheidbar. Dieses Skript fragt deshalb den Token-Counting-Endpoint.
+Konkret offen sind Cutter-Weekly (~2.919 Zeichen) und Designer-Weekly
+(~3.081 Zeichen): die zeichenbasierte Schaetzung liegt bei 834-1.027 Token
+und damit exakt auf der 1024er-Kante. Bewusst nicht vorab gemessen — beide
+zusammen sind 6 Aufrufe und 0,29 USD in 30 Tagen (0,7 % der Ausgaben), und
+die ``[CACHE-USAGE]``-Logs beantworten die Frage nach dem ersten Cron-Lauf
+von selbst.
 
 ``tiktoken`` ist KEIN Ersatz: das ist OpenAIs Tokenizer und zaehlt Claude-
 Token systematisch falsch.

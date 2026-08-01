@@ -109,11 +109,10 @@ class Settings(BaseSettings):
     anthropic_opus_input_per_1k_usd: float = 0.005
     anthropic_opus_output_per_1k_usd: float = 0.025
 
-    # ``ANTHROPIC_PROMPT_CACHING``: Kill-Switch fuer die beiden Cache-
-    # Breakpoints in ``services/anthropic_client.py`` (System-Prompt +
-    # letzter User-Block). Default an. Auf ``false`` gesetzt geht exakt das
-    # vorherige Request-Format raus — ``system`` als String, User-Content als
-    # String, kein ``cache_control``.
+    # ``ANTHROPIC_PROMPT_CACHING``: Kill-Switch fuer den Cache-Breakpoint am
+    # Ende des System-Prompts in ``services/anthropic_client.py``. Default an.
+    # Auf ``false`` gesetzt geht exakt das vorherige Request-Format raus —
+    # ``system`` als String, kein ``cache_control``.
     anthropic_prompt_caching: bool = True
 
     # Diagnose-Folge 2026-07-06 — bis dahin gab es kein Alerting auf den

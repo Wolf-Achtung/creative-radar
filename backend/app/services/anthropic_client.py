@@ -128,17 +128,22 @@ def call_with_retry(
 # ---------- Prompt-Caching --------------------------------------------
 
 # Cache-Prefix-Reihenfolge der API ist ``tools -> system -> messages``.
-# Beide Breakpoints werden hier zentral gesetzt, damit die Call-Sites
-# unveraendert bleiben (Diagnose 2026-08-01):
+# Der Breakpoint wird hier zentral gesetzt, damit die Call-Sites unveraendert
+# bleiben (Diagnose 2026-08-01):
 #
-#   BP1  Ende des System-Prompts. Deckt den grossen statischen Anteil ab
-#        (Pair-Brief ~13k Token, Roundup ~6.7k, Title-Brief ~5.6k).
-#   BP2  Letzter User-Content-Block. NICHT optional: ``call_with_json_retry``
-#        feuert bei einem Parse-Recall den kompletten Prompt inklusive
-#        Pair-Payload erneut — ohne BP2 wird die Payload je Recall voll
-#        bezahlt. Breakpoints sind kostenlos, das Limit liegt bei 4.
+#   Ende des System-Prompts. Deckt den grossen statischen Anteil ab
+#   (Pair-Brief ~13k Token, Roundup ~6.7k, Title-Brief ~5.6k).
 #
-# Bewusst NICHT gemacht: ein zusaetzlicher Split am Ende von ``BRIEF_VOICE``.
+# Bewusst NICHT gesetzt: ein zweiter Breakpoint auf dem letzten User-Block.
+# Er wuerde die Payload ueber Parse-Recalls hinweg cachen, rechnet sich bei
+# der gemessenen Last aber nicht. 30 Tage costlog: weekly_brief kam auf 39
+# Aufrufe bei 9 Pairs x 4 Laeufen, also ~8 % Retry-Rate. Die Schwelle liegt
+# bei ~22 % Read-Anteil (1.25x Write gegen 0.1x Read bei 1.0x Baseline) —
+# bei ~117k Token Payload je Call stuenden ~5,30 USD/30d Write-Aufschlag
+# nur ~1,60 USD Retry-Ersparnis gegenueber. Steigt die Retry-Rate deutlich
+# oder faellt die Payload, lohnt eine Neubewertung.
+#
+# Ebenfalls bewusst NICHT gemacht: ein Split am Ende von ``BRIEF_VOICE``.
 # ``tools`` rendert vor ``system``, und die Call-Sites haben unterschiedliche
 # tools-Zustaende (Pair-Brief und Title-Brief je ein eigenes Schema, Roundup/
 # Cutter/Designer gar keins) — die Prefixe divergieren also bereits an
@@ -163,30 +168,6 @@ def _cacheable_system(system: str) -> Any:
     if not _prompt_caching_enabled() or not (system or "").strip():
         return system
     return [{"type": "text", "text": system, "cache_control": _CACHE_CONTROL}]
-
-
-def _cacheable_user_messages(user_message: str) -> list[dict[str, Any]]:
-    """Ein User-Turn mit Breakpoint auf dem letzten Content-Block.
-
-    Ohne Caching bleibt der Content der schlichte String — byte-identisch
-    zum bisherigen Request-Format. Ist die Nachricht leer, entsteht kein
-    Content-Block, auf den ein Marker gehoeren koennte; dann bleibt es
-    ebenfalls beim String.
-    """
-    if not _prompt_caching_enabled() or not (user_message or "").strip():
-        return [{"role": "user", "content": user_message}]
-    return [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": user_message,
-                    "cache_control": _CACHE_CONTROL,
-                }
-            ],
-        }
-    ]
 
 
 # ---------- High-level call shapes ------------------------------------
@@ -217,7 +198,7 @@ def messages_create_text(
             model=model,
             max_tokens=max_tokens,
             system=_cacheable_system(system),
-            messages=_cacheable_user_messages(user_message),
+            messages=[{"role": "user", "content": user_message}],
         )
 
     return call_with_retry(_do)
@@ -266,7 +247,7 @@ def messages_create_strict_json(
             model=model,
             max_tokens=max_tokens,
             system=_cacheable_system(system),
-            messages=_cacheable_user_messages(user_message),
+            messages=[{"role": "user", "content": user_message}],
             tools=[
                 {
                     "name": tool_name,

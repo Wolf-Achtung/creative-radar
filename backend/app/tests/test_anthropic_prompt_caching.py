@@ -1,9 +1,17 @@
-"""Request-Body-Assertions fuer die zentralen Cache-Breakpoints.
+"""Request-Body-Assertions fuer den zentralen Cache-Breakpoint.
 
-Die Breakpoints sitzen in ``services/anthropic_client.py`` in den beiden
+Der Breakpoint sitzt in ``services/anthropic_client.py`` in den beiden
 Wrappern ``messages_create_text`` (deckt Roundup, Cutter-Weekly,
 Designer-Weekly ueber ``call_with_json_retry``) und
-``messages_create_strict_json`` (deckt Pair-Brief und Title-Brief).
+``messages_create_strict_json`` (deckt Pair-Brief und Title-Brief), jeweils
+am Ende des System-Prompts.
+
+Genau EIN Marker je Request ist die Vorgabe. Ein zweiter Breakpoint auf dem
+letzten User-Block wurde nach Auswertung von 30 Tagen costlog verworfen: bei
+~8 % Retry-Rate gegen eine Rentabilitaetsschwelle von ~22 % Read-Anteil waere
+der Write-Aufschlag auf die ~117k-Token-Payload teurer als die eingesparten
+Retries. Die Tests fixieren das, damit der Marker nicht versehentlich
+zurueckkommt.
 
 Getestet wird der tatsaechlich an die API gehende Request-Body, nicht das
 Wrapper-Interface — genau dort entscheidet sich, ob der Prefix cachebar ist.
@@ -73,26 +81,34 @@ def captured_body(monkeypatch: pytest.MonkeyPatch):
     return _run
 
 
-# ---------- Flag AN: genau zwei Breakpoints ----------
+# ---------- Flag AN: genau ein Breakpoint ----------
 
 
 @pytest.mark.parametrize("strict", [False, True])
-def test_two_breakpoints_when_enabled(captured_body, strict: bool) -> None:
-    """BP1 am Ende des System-Prompts, BP2 auf dem letzten User-Block."""
+def test_single_breakpoint_when_enabled(captured_body, strict: bool) -> None:
+    """Genau ein Marker, am Ende des System-Prompts."""
     body = captured_body(caching=True, strict=strict)
 
-    assert _count_cache_markers(body) == 2
+    assert _count_cache_markers(body) == 1
 
-    # BP1 — system ist eine Block-Liste, Marker auf dem letzten Block.
+    # system ist eine Block-Liste, Marker auf dem letzten Block.
     assert isinstance(body["system"], list)
     assert body["system"][-1]["cache_control"] == {"type": "ephemeral"}
     assert body["system"][-1]["text"] == "SYSTEM-PROMPT"
 
-    # BP2 — User-Content ist eine Block-Liste, Marker auf dem letzten Block.
-    content = body["messages"][0]["content"]
-    assert isinstance(content, list)
-    assert content[-1]["cache_control"] == {"type": "ephemeral"}
-    assert content[-1]["text"] == "USER-PAYLOAD"
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_user_message_carries_no_marker(captured_body, strict: bool) -> None:
+    """Der User-Block bleibt der schlichte String — kein zweiter Breakpoint.
+
+    Regression gegen ein versehentliches Wiedereinfuehren von BP2: bei der
+    gemessenen Retry-Rate waere der Write-Aufschlag auf die Payload teurer
+    als die eingesparten Retries.
+    """
+    body = captured_body(caching=True, strict=strict)
+
+    assert body["messages"] == [{"role": "user", "content": "USER-PAYLOAD"}]
+    assert _count_cache_markers(body["messages"]) == 0
 
 
 # ---------- Flag AUS: exakt das vorherige Format ----------
@@ -112,23 +128,14 @@ def test_no_breakpoints_when_disabled(captured_body, strict: bool) -> None:
 # ---------- Guards ----------
 
 
-def test_empty_system_yields_only_user_breakpoint(captured_body) -> None:
-    """Leere Textbloecke sind nicht cachebar — BP1 entfaellt, BP2 bleibt."""
+def test_empty_system_yields_no_breakpoint(captured_body) -> None:
+    """Leere Textbloecke sind nicht cachebar — der Marker entfaellt, der
+    Prompt geht unveraendert als String raus. Kein Fehler."""
     body = captured_body(caching=True, system="   ")
 
-    assert _count_cache_markers(body) == 1
+    assert _count_cache_markers(body) == 0
     assert body["system"] == "   "  # unveraendert durchgereicht
-    assert body["messages"][0]["content"][-1]["cache_control"] == {"type": "ephemeral"}
-
-
-def test_empty_user_message_yields_only_system_breakpoint(captured_body) -> None:
-    """Ohne User-Content-Block gibt es nichts, worauf BP2 gehoeren koennte —
-    kein Fehler, der Marker entfaellt einfach."""
-    body = captured_body(caching=True, user_message="")
-
-    assert _count_cache_markers(body) == 1
-    assert body["system"][-1]["cache_control"] == {"type": "ephemeral"}
-    assert body["messages"] == [{"role": "user", "content": ""}]
+    assert body["messages"] == [{"role": "user", "content": "USER-PAYLOAD"}]
 
 
 # ---------- tools/tool_choice bleiben unangetastet ----------
