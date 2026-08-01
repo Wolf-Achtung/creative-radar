@@ -125,6 +125,51 @@ def call_with_retry(
             raise AnthropicAPIError(str(exc)) from exc
 
 
+# ---------- Prompt-Caching --------------------------------------------
+
+# Cache-Prefix-Reihenfolge der API ist ``tools -> system -> messages``.
+# Der Breakpoint wird hier zentral gesetzt, damit die Call-Sites unveraendert
+# bleiben (Diagnose 2026-08-01):
+#
+#   Ende des System-Prompts. Deckt den grossen statischen Anteil ab
+#   (Pair-Brief ~13k Token, Roundup ~6.7k, Title-Brief ~5.6k).
+#
+# Bewusst NICHT gesetzt: ein zweiter Breakpoint auf dem letzten User-Block.
+# Er wuerde die Payload ueber Parse-Recalls hinweg cachen, rechnet sich bei
+# der gemessenen Last aber nicht. 30 Tage costlog: weekly_brief kam auf 39
+# Aufrufe bei 9 Pairs x 4 Laeufen, also ~8 % Retry-Rate. Die Schwelle liegt
+# bei ~22 % Read-Anteil (1.25x Write gegen 0.1x Read bei 1.0x Baseline) —
+# bei ~117k Token Payload je Call stuenden ~5,30 USD/30d Write-Aufschlag
+# nur ~1,60 USD Retry-Ersparnis gegenueber. Steigt die Retry-Rate deutlich
+# oder faellt die Payload, lohnt eine Neubewertung.
+#
+# Ebenfalls bewusst NICHT gemacht: ein Split am Ende von ``BRIEF_VOICE``.
+# ``tools`` rendert vor ``system``, und die Call-Sites haben unterschiedliche
+# tools-Zustaende (Pair-Brief und Title-Brief je ein eigenes Schema, Roundup/
+# Cutter/Designer gar keins) — die Prefixe divergieren also bereits an
+# Position 0, Cross-Call-Site-Sharing ist damit ohnehin ausgeschlossen.
+#
+# TTL: 5 Minuten (Default). Die Calls laufen sequenziell mit Abstaenden
+# darunter, und jede Nutzung frischt den Eintrag kostenlos auf.
+_CACHE_CONTROL: dict[str, str] = {"type": "ephemeral"}
+
+
+def _prompt_caching_enabled() -> bool:
+    return bool(getattr(settings, "anthropic_prompt_caching", True))
+
+
+def _cacheable_system(system: str) -> Any:
+    """``system`` als Content-Block-Liste mit Breakpoint am Ende.
+
+    Faellt auf den unveraenderten String zurueck, wenn Caching aus ist oder
+    der Prompt leer/whitespace-only waere — leere Textbloecke sind nicht
+    cachebar.
+    """
+    if not _prompt_caching_enabled() or not (system or "").strip():
+        return system
+    return [{"type": "text", "text": system, "cache_control": _CACHE_CONTROL}]
+
+
 # ---------- High-level call shapes ------------------------------------
 
 
@@ -152,7 +197,7 @@ def messages_create_text(
         return client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            system=system,
+            system=_cacheable_system(system),
             messages=[{"role": "user", "content": user_message}],
         )
 
@@ -201,7 +246,7 @@ def messages_create_strict_json(
         return client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            system=system,
+            system=_cacheable_system(system),
             messages=[{"role": "user", "content": user_message}],
             tools=[
                 {
