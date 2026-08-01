@@ -282,6 +282,31 @@ def record_anthropic_call(
     input_tokens = _get("input_tokens", "prompt_tokens")
     output_tokens = _get("output_tokens", "completion_tokens")
 
+    # Prompt-Caching-Diagnose (reines Logging, keine Kosten-/Bucket-Logik):
+    # ``record_anthropic_call`` laeuft an JEDER Anthropic-Call-Site, also ist
+    # das die eine Stelle, an der sich Cache-Wirksamkeit ohne Signatur-
+    # Aenderung beobachten laesst. ``operation`` ist das Call-Site-Label.
+    # cache_read_input_tokens=0 ueber wiederholte Calls mit identischem
+    # Prefix => Cache greift nicht (heute: kein cache_control gesetzt, also
+    # erwartungsgemaess durchgaengig 0).
+    cache_creation_input_tokens = _get(
+        "cache_creation_input_tokens", "cache_creation_tokens"
+    )
+    cache_read_input_tokens = _get("cache_read_input_tokens", "cache_read_tokens")
+    logger.info(
+        "anthropic-cache-usage",
+        extra={
+            "call_site": operation,
+            "model": model,
+            "input_tokens": input_tokens,
+            "cache_creation_input_tokens": cache_creation_input_tokens,
+            "cache_read_input_tokens": cache_read_input_tokens,
+            "prompt_tokens_total": (
+                input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+            ),
+        },
+    )
+
     model_lc = (model or "").lower()
     if model_lc.startswith("claude-haiku"):
         in_rate = settings.anthropic_haiku_input_per_1k_usd or 0.0
