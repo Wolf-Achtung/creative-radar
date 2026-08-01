@@ -424,6 +424,139 @@ def test_record_anthropic_call_opus_pricing(
     assert row.cost_meta["pair_key"] == "disney"
 
 
+def test_record_anthropic_call_bills_cache_tokens(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cache-Token muessen in die Input-Kosten eingehen.
+
+    Vorher rechnete ``input_usd`` nur mit ``input_tokens`` — bei aktivem
+    Prompt-Caching zaehlt das aber nur die Token NACH dem letzten
+    Breakpoint. Der gecachte Anteil (Write + Read) fiel komplett aus der
+    Rechnung, die Kosten wurden unterschaetzt und der Monats-Cap griff zu
+    spaet. Gleiches ``input_tokens`` wie im Opus-Test oben, aber zusaetzlich
+    Cache-Verkehr → die Gesamtkosten muessen hoeher liegen.
+    """
+    monkeypatch.setattr(settings, "anthropic_opus_input_per_1k_usd", 0.015, raising=False)
+    monkeypatch.setattr(settings, "anthropic_opus_output_per_1k_usd", 0.075, raising=False)
+
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_anthropic_call(
+            usage={
+                "input_tokens": 10_000,
+                "output_tokens": 2_000,
+                "cache_creation_input_tokens": 4_000,
+                "cache_read_input_tokens": 20_000,
+                "cache_creation": {
+                    "ephemeral_5m_input_tokens": 4_000,
+                    "ephemeral_1h_input_tokens": 0,
+                },
+            },
+            model="claude-opus-4-8",
+            operation="weekly_brief",
+        )
+
+    row = session.exec(select(CostLog)).one()
+    # billable input = 10000 + 4000*1.25 + 0*2.00 + 20000*0.10 = 17000
+    # input_usd      = 17000/1000 * 0.015 = 0.255
+    # output_usd     = 2000/1000  * 0.075 = 0.150
+    # total          = 0.405 USD = 40500 millicents (40 cents)
+    assert row.cost_usd_millicents == 40_500
+    assert row.cost_usd_cents == 40
+    # Ohne den Fix waeren es 30_000 millicents gewesen (nur input_tokens).
+    assert row.cost_usd_millicents > 30_000
+    assert row.cost_meta["cache_creation_input_tokens"] == 4_000
+    assert row.cost_meta["cache_read_input_tokens"] == 20_000
+    assert row.cost_meta["cache_creation_5m"] == 4_000
+    assert row.cost_meta["cache_creation_1h"] == 0
+    assert row.cost_meta["prompt_tokens_total"] == 34_000
+
+
+def test_record_anthropic_call_cache_write_without_split_bills_1h(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fehlt der 5m/1h-Split, wird der gesamte Write-Anteil zum teureren
+    1h-Satz gerechnet — bewusst konservativ, damit der Budget-Cap eher zu
+    frueh als zu spaet greift."""
+    monkeypatch.setattr(settings, "anthropic_opus_input_per_1k_usd", 0.015, raising=False)
+    monkeypatch.setattr(settings, "anthropic_opus_output_per_1k_usd", 0.0, raising=False)
+
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_anthropic_call(
+            usage={
+                "input_tokens": 0,
+                "output_tokens": 0,
+                # kein ``cache_creation``-Split vorhanden
+                "cache_creation_input_tokens": 4_000,
+                "cache_read_input_tokens": 0,
+            },
+            model="claude-opus-4-8",
+            operation="weekly_brief",
+        )
+
+    row = session.exec(select(CostLog)).one()
+    # 4000 * 2.00 / 1000 * 0.015 = 0.12 USD = 12000 millicents
+    assert row.cost_usd_millicents == 12_000
+    assert row.cost_meta["cache_creation_1h"] == 4_000
+    assert row.cost_meta["cache_creation_5m"] == 0
+
+
+def test_record_anthropic_call_ignores_inconsistent_cache_split(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Passt die Summe des Splits nicht zu ``cache_creation_input_tokens``,
+    ist der Split nicht vertrauenswuerdig → ebenfalls konservativ 1h."""
+    monkeypatch.setattr(settings, "anthropic_opus_input_per_1k_usd", 0.015, raising=False)
+    monkeypatch.setattr(settings, "anthropic_opus_output_per_1k_usd", 0.0, raising=False)
+
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_anthropic_call(
+            usage={
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_creation_input_tokens": 4_000,
+                "cache_read_input_tokens": 0,
+                # 1000 + 1000 != 4000 → verworfen
+                "cache_creation": {
+                    "ephemeral_5m_input_tokens": 1_000,
+                    "ephemeral_1h_input_tokens": 1_000,
+                },
+            },
+            model="claude-opus-4-8",
+            operation="weekly_brief",
+        )
+
+    row = session.exec(select(CostLog)).one()
+    assert row.cost_usd_millicents == 12_000  # 4000 * 2.00, nicht der Split
+    assert row.cost_meta["cache_creation_1h"] == 4_000
+
+
+def test_record_anthropic_call_without_cache_fields_unchanged(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: ``usage`` ohne Cache-Felder muss exakt dasselbe Ergebnis
+    liefern wie vor dem Cache-Fix (Opus-Referenzwert: 30_000 millicents)."""
+    monkeypatch.setattr(settings, "anthropic_opus_input_per_1k_usd", 0.015, raising=False)
+    monkeypatch.setattr(settings, "anthropic_opus_output_per_1k_usd", 0.075, raising=False)
+
+    test_engine = session.get_bind()
+    with patch.object(cost_log_module, "engine", test_engine):
+        cost_log_module.record_anthropic_call(
+            usage={"input_tokens": 10_000, "output_tokens": 2_000},
+            model="claude-opus-4-8",
+            operation="weekly_brief",
+        )
+
+    row = session.exec(select(CostLog)).one()
+    assert row.cost_usd_millicents == 30_000
+    assert row.cost_usd_cents == 30
+    assert row.cost_meta["cache_creation_input_tokens"] == 0
+    assert row.cost_meta["cache_read_input_tokens"] == 0
+    assert row.cost_meta["prompt_tokens_total"] == 10_000
+
+
 def test_record_anthropic_call_handles_unknown_model(
     session: Session,
 ) -> None:

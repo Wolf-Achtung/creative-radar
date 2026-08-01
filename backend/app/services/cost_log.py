@@ -254,7 +254,14 @@ def record_anthropic_call(
     in tests). The Anthropic SDK has reported the *final*
     input_tokens (already including image-conversion tokens for vision
     calls) since mid-2024, so there is no separate image-token
-    pricing — input_tokens is the truth.
+    pricing.
+
+    ``input_tokens`` allein ist aber NICHT der volle Input: bei aktivem
+    Prompt-Caching zaehlt es nur die Token nach dem letzten Cache-
+    Breakpoint. Die Input-Kosten werden deshalb aus drei Toepfen gebildet
+    (regulaer 1.00x, 5m-Cache-Write 1.25x, 1h-Cache-Write 2.00x,
+    Cache-Read 0.10x auf ``in_rate``); ohne verlaesslichen 5m/1h-Split
+    zaehlt der gesamte Write-Anteil konservativ zum 1h-Satz.
 
     Provider routing into three cost-summary buckets (Wolf-spec):
     - operation starting with ``vision_`` -> ``anthropic_sonnet_vision``
@@ -334,7 +341,72 @@ def record_anthropic_call(
     else:
         provider = bucket_family
 
-    input_usd = (input_tokens / 1000.0) * in_rate
+    # --- Cache-aware Input-Kosten ----------------------------------------
+    # Bei aktivem Prompt-Caching zaehlt ``input_tokens`` nur noch die Token
+    # NACH dem letzten Cache-Breakpoint; der gecachte Anteil steckt in
+    # ``cache_creation_input_tokens`` (Write) bzw. ``cache_read_input_tokens``
+    # (Read). Wer nur ``input_tokens`` abrechnet, unterschaetzt die Kosten —
+    # und ANTHROPIC_MONTHLY_BUDGET_USD greift entsprechend zu spaet.
+    #
+    # Multiplikatoren auf ``in_rate`` (Anthropic-Preisdoku), bewusst aus der
+    # vorhandenen Rate abgeleitet statt als neue settings-Keys:
+    #   regulaerer Input 1.00 | 5m-Write 1.25 | 1h-Write 2.00 | Read 0.10
+    def _cache_creation_split() -> tuple[int, int] | None:
+        """``(5m, 1h)``-Split aus ``usage.cache_creation``.
+
+        ``None``, wenn der Split fehlt, nicht lesbar ist oder seine Summe
+        nicht zu ``cache_creation_input_tokens`` passt — der Aufrufer faellt
+        dann auf den teureren 1h-Satz zurueck.
+        """
+        container: Any = None
+        if usage is not None:
+            if hasattr(usage, "cache_creation"):
+                container = getattr(usage, "cache_creation")
+            elif isinstance(usage, dict):
+                container = usage.get("cache_creation")
+        if container is None:
+            return None
+
+        def _field(name: str) -> int | None:
+            value = None
+            if hasattr(container, name):
+                value = getattr(container, name)
+            elif isinstance(container, dict) and name in container:
+                value = container[name]
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        five_m = _field("ephemeral_5m_input_tokens")
+        one_h = _field("ephemeral_1h_input_tokens")
+        if five_m is None and one_h is None:
+            return None
+        five_m, one_h = five_m or 0, one_h or 0
+        if five_m + one_h != cache_creation_input_tokens:
+            # Split passt nicht zur Gesamtsumme → nicht vertrauenswuerdig.
+            return None
+        return five_m, one_h
+
+    _split = _cache_creation_split()
+    if _split is not None:
+        cache_creation_5m, cache_creation_1h = _split
+    else:
+        # Konservativ: ohne verlaesslichen Split den GESAMTEN Write-Anteil zum
+        # teureren 1h-Satz rechnen, damit der Budget-Cap eher zu frueh als zu
+        # spaet greift. Die beiden Werte in ``full_meta`` geben deshalb die
+        # Preis-Basis wieder, nicht zwingend eine von der API gemeldete TTL.
+        cache_creation_5m, cache_creation_1h = 0, cache_creation_input_tokens
+
+    billable_input_tokens = (
+        input_tokens
+        + cache_creation_5m * 1.25
+        + cache_creation_1h * 2.00
+        + cache_read_input_tokens * 0.10
+    )
+    input_usd = (billable_input_tokens / 1000.0) * in_rate
     output_usd = (output_tokens / 1000.0) * out_rate
     total_usd = input_usd + output_usd
     # Same precision-loss reasoning as record_openai_call: Haiku calls
@@ -348,6 +420,13 @@ def record_anthropic_call(
         "model": model,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
+        "cache_read_input_tokens": cache_read_input_tokens,
+        "cache_creation_5m": cache_creation_5m,
+        "cache_creation_1h": cache_creation_1h,
+        "prompt_tokens_total": (
+            input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+        ),
         "cost_usd_millicents": usd_millicents,
         **(meta or {}),
     }
