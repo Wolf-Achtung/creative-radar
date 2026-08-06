@@ -2271,3 +2271,26 @@ a:hover { text-decoration: underline; }
 .breakouts-table tbody tr:last-child td { border-bottom: none; }
 .breakouts-caption a { color: #1d2330; }
 .breakouts-multiplier { color: #b03d2e; font-weight: 700; white-space: nowrap; }
+
+/* Umgebungs-Banner (Staging-Briefing 2026-08-06): unuebersehbare
+   Kennung fuer Staging/Dev, Prod rendert das Element gar nicht. */
+.env-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding: 6px 16px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.env-banner-staging {
+  background: #facc15;
+  color: #1f2937;
+  border-bottom: 2px solid #ca8a04;
+}
+.env-banner-dev {
+  background: #e5e7eb;
+  color: #374151;
+  border-bottom: 2px solid #9ca3af;
+}

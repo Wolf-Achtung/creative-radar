@@ -44,7 +44,17 @@ _TRIGGER_MINUTE_WINDOW = 5  # 03:00-03:04 UTC — five 60s-ticks of margin
 
 
 def is_scheduler_enabled() -> bool:
-    return os.environ.get("ENABLE_INTERNAL_CRON_SCHEDULER", "true").lower() == "true"
+    """Explizites ENV gewinnt immer; ohne ENV ist der Scheduler nur in
+    Production an (Staging-Briefing 2026-08-06): ein Staging-/Dev-Backend
+    mit gespiegelten Prod-Variablen wuerde sonst montags von allein echte
+    Apify-/LLM-Laeufe starten. Late import von settings, damit das Modul
+    weiter ohne DB-Konfiguration importierbar bleibt (Test-Pfad)."""
+    raw = os.environ.get("ENABLE_INTERNAL_CRON_SCHEDULER")
+    if raw is not None:
+        return raw.lower() == "true"
+    from app.config import settings  # noqa: PLC0415
+
+    return settings.app_env == "production"
 
 
 def week_start_utc(now: datetime) -> datetime:

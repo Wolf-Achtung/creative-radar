@@ -1,0 +1,91 @@
+# Lokale Entwicklungsumgebung (Staging-Briefing 2026-08-06, Abschnitt 2).
+#
+# Ein Befehl zieht Postgres + Backend hoch:
+#
+#     docker compose up
+#
+# Danach (siehe README "Lokal starten in drei Befehlen"):
+#
+#     docker compose exec backend python -m scripts.seed_dev
+#     cd frontend && npm install && npm run dev
+#
+# Das Frontend laeuft bewusst NICHT im Compose — Vite-HMR ist nativ auf dem
+# Mac schneller und npm-Caches bleiben lokal. `frontend/.env.development`
+# zeigt auf http://localhost:8000.
+#
+# Kein einziges echtes Secret noetig: MOCK_EXTERNAL_APIS=true laesst
+# Apify/YouTube/OpenAI/Anthropic gegen Fixtures laufen, DISABLE_EMAILS=true
+# verschluckt Login-Mails (der Code steht im Backend-Log), der interne
+# Cron-Scheduler ist aus. Die Umgebung funktioniert komplett offline.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cr
+      POSTGRES_PASSWORD: cr
+      POSTGRES_DB: creative_radar
+    ports:
+      - "5432:5432"
+    volumes:
+      - cr_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cr -d creative_radar"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  backend:
+    build: ./backend
+    # Dev-Override des Prod-CMD (start.sh): Schema sicherstellen (Alembic
+    # legt seine version-Tabelle IM creative_radar-Schema an, das Schema
+    # muss also vor `upgrade head` existieren — auf Railway existierte es
+    # historisch schon), dann Migrationen, dann uvicorn mit Hot-Reload.
+    command: >
+      sh -c "python -c 'from app.database import _ensure_cr_schema; _ensure_cr_schema()'
+      && alembic upgrade head
+      && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql://cr:cr@db:5432/creative_radar
+      # Kostenpflichtige Dienste -> Fixtures (services/mock_fixtures.py).
+      MOCK_EXTERNAL_APIS: "true"
+      # Login-Codes landen im Log statt im Postfach.
+      DISABLE_EMAILS: "true"
+      # Kein woechentlicher Auto-Lauf auf der Dev-Maschine.
+      ENABLE_INTERNAL_CRON_SCHEDULER: "false"
+      # Vite-Dev-Server.
+      CORS_ORIGINS: http://localhost:5173
+      FRONTEND_URL: http://localhost:5173
+      BACKEND_URL: http://localhost:8000
+      # Login lokal nutzbar: Auth an, Sessions signiert mit Dev-Secrets
+      # (nur lokal — Staging/Prod haben eigene, echte Secrets).
+      USER_AUTH_ENABLED: "true"
+      USER_SESSION_SECRET: dev-only-user-session-secret
+      ADMIN_AUTH_ENABLED: "true"
+      ADMIN_SESSION_SECRET: dev-only-admin-session-secret
+      ADMIN_USER_EMAILS: dev@example.com
+    ports:
+      - "8000:8000"
+    volumes:
+      # Hot-Reload: der Code liegt als Mount ueber der Image-Kopie.
+      - ./backend/app:/app/app
+      - ./backend/scripts:/app/scripts
+      - ./backend/migrations:/app/migrations
+      # Screenshots/Thumbnails (STORAGE_BACKEND=local Default).
+      - cr_storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # DB-Einsicht im Browser: http://localhost:8080
+  # (System: PostgreSQL, Server: db, User/Passwort: cr/cr, DB: creative_radar)
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+volumes:
+  cr_pgdata:
+  cr_storage:

@@ -18,6 +18,24 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     # 2026-07-06: switched from gpt-4o-mini to gpt-5.4-mini on request.
     openai_model: str = "gpt-5.4-mini"
+    # STAGING_EXPECTED_DB_HOST (Staging-Briefing 2026-08-06): Whitelist-
+    # Boot-Check. Bei APP_ENV=staging MUSS dieser Wert gesetzt sein und
+    # im aufgeloesten DATABASE_URL vorkommen, sonst verweigert der Boot
+    # (app/database.py::_guard_staging_database). Verhindert die
+    # schlimmste Verwechslung: ein Staging-Service, der versehentlich
+    # mit der Prod-DB-URL konfiguriert wurde. Whitelist statt Blacklist,
+    # damit auch "Variable vergessen" auffaellt statt durchzurutschen.
+    staging_expected_db_host: str | None = None
+
+    # MOCK_EXTERNAL_APIS (Staging-Briefing 2026-08-06): die drei Scrape-
+    # Connectors (Apify IG/TT, YouTube) liefern deterministische Fixtures
+    # aus services/mock_fixtures.py statt echter HTTP-Calls, und ihre
+    # is_*_configured()-Gates melden True ohne Token. Fuer lokale Dev
+    # (docker-compose) und Cloud-Staging — Prod laesst den Default stehen.
+    # LLM-Dienste (OpenAI/Anthropic) sind bewusst nicht erfasst: ohne Key
+    # degradieren deren Call-Sites sauber, Briefs kommen aus seed_dev.
+    mock_external_apis: bool = False
+
     # PERPLEXITY_API_KEY/_MODEL: entfernt im Kosten-Audit 2026-08-01.
     # ``services/market_context.py`` war der einzige Nutzer und hatte seit
     # der Diagnose 2026-05-08 keinen einzigen Aufrufer mehr — 0 Calls,
