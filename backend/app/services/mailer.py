@@ -49,6 +49,13 @@ async def send_mail(to: str, subject: str, text: str, html: Optional[str] = None
     """
     if settings.disable_emails:
         logger.info("mailer.disabled skipping email to=%s subject=%s", _mask(to), subject)
+        # Dev/Staging-Rettungsleine (Staging-Briefing 2026-08-06): ohne
+        # Mail-Provider waere der Login-Code unerreichbar — ausserhalb von
+        # production landet der Mail-Text (inkl. Code) deshalb im Log.
+        # In production bleibt der Kill-Switch ein reiner Kill-Switch:
+        # Klartext-Codes gehoeren nicht in Prod-Logs (Drittanbieter-Sinks).
+        if settings.app_env != "production":
+            logger.info("mailer.disabled.body to=%s text=%s", _mask(to), text)
         return
 
     provider = (settings.email_provider or "resend").strip().lower()

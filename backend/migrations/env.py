@@ -16,7 +16,20 @@ config = context.config
 config.set_main_option("sqlalchemy.url", resolve_database_url())
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False (Kosten-Audit/Staging-Nachtrag
+    # 2026-08-06): Python's fileConfig() default disables jeden Logger,
+    # der zum Aufrufzeitpunkt schon existiert und NICHT in alembic.ini
+    # gelistet ist (nur root/sqlalchemy/alembic sind dort gelistet) —
+    # dauerhaft fuer den Rest des Prozesses (Logger.disabled=True kann
+    # caplog nicht rueckgaengig machen, da es nur .level anfasst).
+    # Betrifft nur In-Process-Aufrufe (alembic.command.upgrade(...) aus
+    # Python heraus, wie es die test_migration_*.py-Tests tun) — die
+    # Produktion ruft Alembic immer als eigenen CLI-Prozess auf
+    # (railway.json preDeployCommand), frischer Interpreter, nicht
+    # betroffen. Ohne den Fix schweigt z. B. app.services.mailer in
+    # jedem Test, der alphabetisch nach einer test_migration_*.py-Datei
+    # laeuft, sobald der Test caplog benutzt — reines Bestell-Gluecksspiel.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = SQLModel.metadata
 

@@ -186,3 +186,64 @@ def test_seed_dev_is_idempotent(seed_session: Session) -> None:
     seeded_urls = {p.post_url for p in seed_session.exec(select(Post)).all()}
     cited = parsed.trends[0].cited_post_ids
     assert cited and set(cited) <= seeded_urls
+
+
+# ---------- Mailer: Login-Code im Log ausserhalb production ------------
+
+
+def test_disabled_mailer_logs_body_outside_production(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    from app.services.mailer import send_mail
+
+    monkeypatch.setattr(settings, "disable_emails", True, raising=False)
+    monkeypatch.setattr(settings, "app_env", "development", raising=False)
+    with caplog.at_level("INFO", logger="app.services.mailer"):
+        asyncio.run(send_mail("dev@example.com", "Login-Code", "Dein Code: 123456"))
+    assert any("Dein Code: 123456" in r.message for r in caplog.records)
+
+
+def test_disabled_mailer_never_logs_body_in_production(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    from app.services.mailer import send_mail
+
+    monkeypatch.setattr(settings, "disable_emails", True, raising=False)
+    monkeypatch.setattr(settings, "app_env", "production", raising=False)
+    with caplog.at_level("INFO", logger="app.services.mailer"):
+        asyncio.run(send_mail("wolf@example.com", "Login-Code", "Dein Code: 654321"))
+    assert not any("654321" in r.message for r in caplog.records)
+
+
+# ---------- DB-Bootstrap (Railway preDeployCommand) --------------------
+
+
+def test_db_bootstrap_creates_and_stamps_fresh_db(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Frische DB: create_all + stamp head statt upgrade head (die
+    Migrationskette ist auf leerem Postgres nicht lauffaehig — siehe
+    scripts/db_bootstrap.py). Zweiter Lauf nimmt den upgrade-Pfad."""
+    from alembic import command as alembic_command
+    from sqlalchemy import inspect as sa_inspect
+
+    from scripts import db_bootstrap
+
+    db_file = tmp_path / "bootstrap.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    monkeypatch.setattr(db_bootstrap, "engine", engine, raising=False)
+    monkeypatch.setattr(db_bootstrap, "DATABASE_URL", f"sqlite:///{db_file}", raising=False)
+    monkeypatch.setattr(db_bootstrap, "_ensure_cr_schema", lambda: None, raising=False)
+
+    calls: list[str] = []
+    monkeypatch.setattr(alembic_command, "stamp", lambda cfg, rev: calls.append(f"stamp:{rev}"))
+    monkeypatch.setattr(alembic_command, "upgrade", lambda cfg, rev: calls.append(f"upgrade:{rev}"))
+
+    db_bootstrap.main()
+    assert calls == ["stamp:head"]
+    # Tabellen sind da — sonst haette der Bootstrap nichts erzeugt.
+    assert "channel" in sa_inspect(engine).get_table_names()
+
+    # Alembic verwaltet die DB jetzt -> zweiter Lauf muss upgraden.
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+    db_bootstrap.main()
+    assert calls == ["stamp:head", "upgrade:head"]
