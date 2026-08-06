@@ -112,24 +112,39 @@ kostenpflichtiger Baustein und nicht Teil dieser Inventur.
 
 ## 5. Backfill-Kostenschätzung (`post_analyzer` auf die 6.703 unklassifizierten Posts)
 
-Modelle laut `app/config.py`: Haiku (`claude-haiku-4-5-20251001`) für format/tone,
-Sonnet (`claude-sonnet-5`) für purpose/lifecycle — ein Call pro Modell pro Post.
+> **Korrektur 06.08.2026 (nachträglich).** Die erste Fassung dieses Abschnitts nannte
+> ~$20 und hatte dabei den **Sonnet-Vision-Call übersehen**, den `analyze_post` als
+> Schritt 2 ausführt. Es sind drei Modellaufrufe pro Post, nicht zwei — und der
+> Vision-Call ist der teuerste davon. Die korrigierten Zahlen stehen unten.
 
-Gemessene Prompt-Länge (System + few-shots + Caption-Template, ohne Caption-Inhalt):
+`analyze_post` macht pro Post bis zu drei Aufrufe. Modelle laut `app/config.py`:
+Sonnet (`claude-sonnet-5`) für Vision und purpose/lifecycle, Haiku
+(`claude-haiku-4-5-20251001`) für format/tone.
 
-| Call | Input (~Token) | Output (~Token, geschätzt) |
-|---|---:|---:|
-| Haiku (format/tone) | ~455 | ~40 |
-| Sonnet (purpose/lifecycle) | ~537 | ~40 |
+| Call | Input (~Token) | Output (~Token) | Kosten |
+|---|---:|---:|---:|
+| Sonnet Vision (Bildbeschreibung) | ~1.770 | ~130 | **~$0,0073** |
+| Sonnet (purpose/lifecycle) | ~537 | ~40 | ~$0,0022 |
+| Haiku (format/tone) | ~455 | ~40 | ~$0,0007 |
 
-Bei den konfigurierten Preisen ($0.001/$0.005 pro 1k Haiku, $0.003/$0.015 pro 1k
-Sonnet):
+Der Vision-Call allein ist **~72 % der Kosten pro Post** — ein Bild schlägt mit
+~1,6k Input-Token zu Buche, ein Caption-Prompt mit ~0,5k.
 
-- Kosten pro Post: **~$0.0029** (Haiku ~$0.00066 + Sonnet ~$0.00221)
-- 6.703 Posts: **~$19,20** (~€17,70 bei aktuellem Kurs)
-- mit 15 % Puffer für Retry-bei-Invalid-JSON: **~$22**
+### Zwei Varianten
 
-**Größenordnung: unter $25 einmalig.** Kein limitierender Faktor für die Entscheidung.
+| Variante | pro Post | 6.703 Posts | liefert |
+|---|---:|---:|---|
+| **Text-only** (`skip_vision`) | ~$0,0029 | **~$19** | format, tone, purpose, lifecycle_stage |
+| Vollständig (mit Vision) | ~$0,0101 | ~$56–68 | zusätzlich `vision_description` |
+
+**Empfehlung: text-only.** Der Konsument, dem heute die Abdeckung fehlt — der
+Empfehlungs-Baustein im `insight_engine` — liest ausschließlich
+`analysis['format']` und `analysis['lifecycle_stage']`. `vision_description` wird
+von ihm nie gelesen. Die drei Viertel Mehrkosten kaufen also nichts, was der
+aktuelle Engpass braucht.
+
+Umgesetzt als `analyze_post(..., skip_vision=True)`; der Default bleibt `False`,
+damit der manuelle Admin-Endpunkt unverändert die volle Pipeline fährt.
 
 ## 6. Fazit
 
@@ -137,17 +152,55 @@ Sonnet):
 |---|---|---|
 | Videoposts mit Dauer + Reichweite | ≈5.800 | trägt Schritt 2 |
 | TikTok-Musikdaten | 2.335 / 2.335 | trägt, ohne neue Erfassung |
-| Format/Tone/Purpose/Lifecycle-Taxonomie | existiert, läuft, aber nur 12 % Abdeckung | Backfill (~$20) + Cron-Anbindung nötig |
+| Format/Tone/Purpose/Lifecycle-Taxonomie | existiert, läuft, aber nur 12 % Abdeckung | Cron-Anbindung (umgesetzt, s. Abschnitt 7) |
 | Bildanalyse (asset_type) | 76 % brauchbar, 1.005 reparierbare Fehlabrufe | mittelfristig verbessern |
 | Hook-Typ / Schnittfrequenz | nicht erhoben | eigener Baustein, kostenpflichtig, außerhalb Stufe 1 |
 
 **Empfehlung:** Stufe 1 auf der vorhandenen `Post.analysis`-Taxonomie aufsetzen statt
-neu zu entwerfen. Nächste Schritte vor Schritt 2 (Muster-Aggregation):
+neu zu entwerfen. Offen bleibt der Termin mit dem Trailerhaus-Team — als
+**Validierung** der bestehenden Format/Tone-Taxonomie, nicht als Neuentwicklung, und
+mit der Hook-Typ-Lücke (Abschnitt 4) als explizitem Agenda-Punkt, damit dort keine
+Taxonomie für ein Signal entsteht, das wir aktuell nicht erheben können.
 
-1. Backfill der 6.703 unklassifizierten Posts über `post_analyzer` (~$20, einmalig).
-2. `post_analyzer` in den Wochen-Cron einhängen, damit neue Posts automatisch
-   klassifiziert werden (aktuell nur manuell über den Admin-Endpunkt erreichbar).
-3. Termin mit dem Trailerhaus-Team als **Validierung** der bestehenden
-   Format/Tone-Taxonomie ansetzen, nicht als Neuentwicklung — mit der Hook-Typ-Lücke
-   (Abschnitt 4) als expliziten Agenda-Punkt, damit dort keine Taxonomie für ein
-   Signal entsteht, das wir aktuell nicht erheben können.
+## 7. Umsetzung: Cron-Anbindung statt Einmal-Backfill
+
+Die naheliegende Lösung wäre ein einmaliger Backfill-Lauf gewesen. Dagegen sprachen
+zwei Dinge:
+
+- Ein Skript dafür **existierte bereits** (`scripts/backfill_post_analyzer.py`, mit
+  Dry-Run, Pair-Filter und Resume-Sicherheit). Es wurde nur nie flächendeckend
+  ausgeführt, weil es eine Railway-Shell verlangt — in einem Browser-Workflow eine
+  echte Hürde. Ein zweites Skript hätte dasselbe Problem gehabt.
+- Ein Einmal-Lauf löst das Problem einmal. Ohne Automatisierung wäre die Abdeckung
+  Woche für Woche wieder abgesunken.
+
+Deshalb ist der Analyzer jetzt eine reguläre Stage im Wochen-Cron
+(`_run_post_analysis_backlog` in `app/api/cron.py`), gebaut nach dem Muster der
+beiden bestehenden Vision-Stages daneben.
+
+**Auswahl: newest-first.** Der Empfehlungs-Baustein aggregiert ein 7-Tage-Fenster.
+Oldest-first hätte den Cap auf 90 Tage alte Zeilen verbraucht, während die aktuelle
+Woche unklassifiziert bleibt — das Feature wäre trotz laufendem Backfill weiter
+ausgehungert. Newest-first klassifiziert die laufende Woche im ersten Lauf; der
+Alt-Bestand zieht mit dem Rest des Caps nach.
+
+**Kostenbremsen, dreifach:**
+
+| Bremse | Wirkung |
+|---|---|
+| `cron_post_analysis_max_posts_per_run` (800) | ~$2,30 pro Lauf, ~$10/Monat |
+| `cron_post_analysis_skip_vision` (true) | text-only, spart ~72 % pro Post |
+| `anthropic_monthly_budget_usd` (bestehend) | Pre-Flight bricht den Lauf vorher ab |
+
+Bei ~600 neuen Posts pro Woche geht der laufende Zufluss in einem Lauf durch, und
+es bleibt Kapazität für den Alt-Bestand. Beide Werte sind Railway-ENV-Variablen;
+`cron_post_analysis_max_posts_per_run=0` schaltet die Stage ab.
+
+**Fehlerverhalten:** Ein einzelner fehlgeschlagener Post erhöht einen Zähler und der
+Lauf geht weiter. Ein Anthropic-Auth-Fehler stoppt die Stage sofort — er würde sich
+für jeden Folge-Post identisch wiederholen und den Cap sinnlos verbrauchen. Fehlt der
+Anthropic-Key ganz (Staging), wird die Stage sauber übersprungen statt zu scheitern.
+Das Ergebnis landet unter `summary["post_analysis"]` im CronRun.
+
+Für gezielte Nachläufe steht das bestehende Skript weiterhin bereit, jetzt zusätzlich
+mit `--skip-vision`.

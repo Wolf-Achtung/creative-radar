@@ -462,3 +462,42 @@ def test_post_without_image_skips_vision_only(session: Session):
     assert result.calls["sonnet_vision"] == 0
     asset_row = session.exec(select(Asset).where(Asset.post_id == post.id)).first()
     assert asset_row is None
+
+
+def test_skip_vision_runs_classifiers_only(session: Session):
+    """``skip_vision=True`` laesst den Vision-Call aus, auch wenn ein
+    Bild im raw_payload steckt. Die vier PostAnalysis-Felder kommen aus
+    der Caption und muessen unveraendert entstehen; nur die Asset-Zeile
+    mit ``vision_description`` faellt weg.
+
+    Das ist der Pfad, den die Cron-Stage nutzt: der Vision-Call ist ~72 %
+    der Kosten pro Post, liefert aber nichts, was der
+    Empfehlungs-Baustein im insight_engine liest.
+    """
+    ch = _make_channel(session, platform="youtube")
+    post = _make_post(session, ch, raw_payload=YOUTUBE_PAYLOAD)
+
+    with patch.object(post_analyzer, "messages_create_vision") as vision_mock, \
+         patch.object(post_analyzer, "messages_create_text",
+                      side_effect=[
+                          _fake_message('{"format":"trailer","tone":"suspenseful","confidence":0.9}'),
+                          _fake_message('{"purpose":"release_week","lifecycle_stage":"launch","confidence":0.8}'),
+                      ]):
+        result = post_analyzer.analyze_post(session, post, skip_vision=True)
+    session.commit()
+
+    vision_mock.assert_not_called()
+    assert result.status == "analyzed"
+    assert result.calls == {"haiku": 1, "sonnet": 1, "sonnet_vision": 0}
+    assert result.asset_created is False
+
+    # Die vier Klassifikationsfelder sind vollstaendig — das ist der Punkt.
+    session.refresh(post)
+    assert post.analysis["format"] == "trailer"
+    assert post.analysis["tone"] == "suspenseful"
+    assert post.analysis["purpose"] == "release_week"
+    assert post.analysis["lifecycle_stage"] == "launch"
+    assert post.last_analyzed_at is not None
+
+    # Keine Asset-Zeile, weil der Vision-Pfad uebersprungen wurde.
+    assert session.exec(select(Asset).where(Asset.post_id == post.id)).first() is None
