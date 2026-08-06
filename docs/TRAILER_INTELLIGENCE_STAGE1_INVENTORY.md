@@ -273,21 +273,59 @@ und kann rechnerisch kaum darüber liegen. Das Signal erscheint dann gespiegelt:
 „Trailer over", sondern „alles andere under". Wer nur auf `verdict == "over"` schaut,
 übersieht diesen Fall — **immer beide Richtungen einer Dimension zusammen lesen.**
 
-### Offener Punkt: Musik-Feldstruktur nicht verifiziert
+### Musik-Feldstruktur — verifiziert am 06.08.2026
 
-Die Extraktion liest `raw_payload['_creative_radar_music']['musicOriginal']`. Dieses
-Feld ist Apify-seitig nicht vertraglich zugesichert; die Extraktion behandelt bool,
-String und Fehlen defensiv und liefert im Zweifel `unknown` statt zu raten. Ob das
-Feld in den echten Daten so heißt, ließ sich ohne Produktionszugriff nicht prüfen.
-Gegenprobe:
+Die Extraktion liest `raw_payload['_creative_radar_music']['musicOriginal']`. Das Feld
+ist Apify-seitig nicht vertraglich zugesichert, deshalb behandelt der Extraktor bool,
+String und Fehlen defensiv und liefert im Zweifel `unknown` statt zu raten.
+
+**Gegenprobe in der Produktions-DB bestanden.** Das Feld existiert und ist über alle
+TikTok-Posts der letzten 90 Tage gefüllt:
+
+| `musicOriginal` | Posts | Anteil |
+|---|---:|---:|
+| `true` → `original_sound` | 2.103 | 90 % |
+| `false` → `licensed_track` | 232 | 10 % |
+
+Roh-Blob zur Bestätigung der Struktur:
+
+```json
+{"musicName":"original sound","musicAuthor":"Warner Bros.","musicOriginal":true,"playUrl":"…"}
+{"musicName":"Mozart Minuet with violin(815356)","musicAuthor":"松本一策","musicOriginal":false,"playUrl":"…"}
+```
+
+Keine Anpassung nötig — `music_kind` arbeitet wie gebaut. Dass 90 % auf Original-Sound
+laufen, ist selbst ein Befund: die Dimension trennt eine kleine Minderheit ab, was die
+Zellen für `licensed_track` schneller unter die Mindest-Stichprobe drücken kann.
+
+Die verwendeten Queries, falls die Struktur später erneut zu prüfen ist:
+
+```sql
+SELECT raw_payload -> '_creative_radar_music' ->> 'musicOriginal' AS music_original,
+       count(*) AS posts
+FROM creative_radar.post
+WHERE platform = 'tiktok'
+  AND detected_at > now() - interval '90 days'
+GROUP BY 1
+ORDER BY 2 DESC;
+```
+
+Der Roh-Blob, falls die erste Query irgendwann leere Werte liefert:
 
 ```sql
 SELECT raw_payload -> '_creative_radar_music' AS musik
 FROM creative_radar.post
-WHERE platform = 'tiktok' AND raw_payload -> '_creative_radar_music' <> 'null'::jsonb
-LIMIT 3;
+WHERE platform = 'tiktok'
+  AND (raw_payload -> '_creative_radar_music')::text NOT IN ('null', '{}')
+LIMIT 2;
 ```
 
-Liefert das etwas anderes als einen `musicOriginal`-Schlüssel, landet alles in
-`music_kind = "unknown"` — sichtbar, aber nutzlos. Dann ist der Extraktor
-anzupassen.
+**Warum der Cast auf `::text`:** `raw_payload` ist über `sa.JSON()` als Postgres-Typ
+`json` angelegt, nicht `jsonb`. `json` hat keinen Gleichheitsoperator — ein
+`... <> 'null'::jsonb` scheitert mit `operator does not exist: json <> jsonb`. Der
+Vergleich muss deshalb über die Textdarstellung laufen (oder via `raw_payload::jsonb`,
+was aber bei jeder Zeile neu parst).
+
+Sollte Apify die Feldstruktur später ändern, landet alles in `music_kind = "unknown"` —
+sichtbar, aber nutzlos. Anzupassen wäre dann
+`app/services/trailer_patterns.py::_extract_music_kind`.
