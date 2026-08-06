@@ -100,14 +100,27 @@ async def on_startup():
     # zeigen. Ein Log-Eintrag beim Start macht das ab jetzt in jedem
     # Railway-Log-Sichtbarkeitsfenster sofort sichtbar, ohne dass jemand
     # manuell die ENV-Liste ziehen muss.
+    # app_env/mock_external_apis/cron_scheduler stehen bewusst VORNE
+    # (Staging-Setup 2026-08-06): beim ersten Staging-Deploy war APP_ENV
+    # unbemerkt auf "production" geblieben — der Boot-Check war damit ein
+    # No-Op und der Wochen-Cron lief an. Beides war nur indirekt am
+    # "cron_scheduler.started" erkennbar. Diese Zeile beantwortet
+    # "in welcher Umgebung laeuft dieser Container eigentlich?" auf einen
+    # Blick, ohne die ENV-Liste zu ziehen.
+    from app.services.cron_scheduler import is_scheduler_enabled  # noqa: PLC0415
+
     logger.info(
-        "startup.resolved_config openai_model=%s anthropic_sonnet_model=%s "
-        "auth_enabled=%s admin_auth_enabled=%s storage_backend=%s",
+        "startup.resolved_config app_env=%s mock_external_apis=%s "
+        "cron_scheduler=%s storage_backend=%s openai_model=%s "
+        "anthropic_sonnet_model=%s auth_enabled=%s admin_auth_enabled=%s",
+        settings.app_env,
+        settings.mock_external_apis,
+        "on" if is_scheduler_enabled() else "off",
+        settings.storage_backend,
         settings.openai_model,
         settings.anthropic_sonnet_model,
         settings.auth_enabled,
         settings.admin_auth_enabled,
-        settings.storage_backend,
     )
     # Incident 2026-07-13: der bisherige alleinige Trigger (GitHub Actions
     # Schedule) feuerte woechentlich 1,5-4,5h zu spaet. Der Loop unten laeuft

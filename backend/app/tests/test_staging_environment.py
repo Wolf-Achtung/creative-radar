@@ -272,3 +272,31 @@ def test_seed_on_deploy_is_opt_in_and_prod_safe(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(settings, "app_env", "staging", raising=False)
     db_bootstrap._maybe_seed()
     assert called == ["seeded"]
+
+
+def test_seed_on_deploy_runs_on_upgrade_path_too(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression (Staging-Setup 2026-08-06): der Seed hing anfangs nur am
+    Frisch-Pfad. Beim echten Setup entstanden die Tabellen bei einem Deploy
+    OHNE gesetzte Variable — danach war der Seed unerreichbar. Er muss auf
+    beiden Pfaden laufen."""
+    from alembic import command as alembic_command
+
+    from scripts import db_bootstrap, seed_dev
+
+    db_file = tmp_path / "upgrade.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+
+    monkeypatch.setattr(db_bootstrap, "engine", engine, raising=False)
+    monkeypatch.setattr(db_bootstrap, "DATABASE_URL", f"sqlite:///{db_file}", raising=False)
+    monkeypatch.setattr(db_bootstrap, "_ensure_cr_schema", lambda: None, raising=False)
+    monkeypatch.setattr(alembic_command, "upgrade", lambda cfg, rev: None)
+
+    called: list[str] = []
+    monkeypatch.setattr(seed_dev, "main", lambda: called.append("seeded"))
+    monkeypatch.setenv("SEED_DEV_ON_DEPLOY", "true")
+    monkeypatch.setattr(settings, "app_env", "staging", raising=False)
+
+    db_bootstrap.main()
+    assert called == ["seeded"]

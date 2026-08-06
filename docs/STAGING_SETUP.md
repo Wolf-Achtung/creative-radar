@@ -114,7 +114,18 @@ dem Staging-Deploy Mock-Modus und Boot-Check.
 | `BACKEND_URL` | `https://api-staging.creative-radar.de` | |
 | `API_TOKEN` + Session-Secrets (`ADMIN_SESSION_SECRET`, `USER_SESSION_SECRET`) | **neu würfeln** (`openssl rand -hex 32`) | Staging-Tokens dürfen nie Prod-Zugriff geben |
 | `ADMIN_USER_EMAILS` | wie Prod (wolf@trailerhaus.de) | |
-| S3-Variablen | weglassen (`STORAGE_BACKEND=local`) oder eigener Staging-Bucket | keine geteilte Ressource |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_REGION`, `STORAGE_BACKEND` | **alle sechs löschen** → Fallback ist `local` | ⚠️ Das Duplikat bringt die **Prod**-Bucket-Zugangsdaten mit. Bleiben sie stehen, schreibt Staging Screenshots und Thumbnails in den Produktions-Bucket — genau die geteilte Ressource, die es nicht geben darf. Prüfbar im Deploy-Log: `storage_backend=s3` ist falsch, `storage_backend=local` richtig. Alternative: eigener Staging-Bucket. |
+| `TMDB_API_KEY`, `TMDB_READ_ACCESS_TOKEN` | löschen | Prod-Secrets; Title-Sync wird in Staging nicht gebraucht |
+
+**Kontrolle nach dem Deploy:** Die erste Log-Zeile des Backends nennt die
+aufgelöste Konfiguration:
+
+```
+startup.resolved_config app_env=staging mock_external_apis=True cron_scheduler=off storage_backend=local …
+```
+
+Steht dort `app_env=production`, `cron_scheduler=on` oder
+`storage_backend=s3`, ist eine der obigen Variablen nicht angekommen.
 
 5. **Custom Domain:** Backend-Service (staging) → Settings → Networking →
    Custom Domain → `api-staging.creative-radar.de`. Railway zeigt den
@@ -166,11 +177,15 @@ Der Bootstrap legt die Tabellen an und ruft anschließend `seed_dev` auf —
 im Deploy-Log steht `SEED_DEV_ON_DEPLOY gesetzt -> seed_dev (…)` und die
 Ergebniszeile mit den erzeugten Zahlen.
 
-Danach kann die Variable stehen bleiben oder weg: der Seed hängt am
-Bootstrap-Pfad für **frische** DBs, ein normaler Folge-Deploy kippt die
-Daten also nicht um. Zwei Sperren gegen Unfälle: die Variable muss
-explizit gesetzt sein, und `seed_dev` verweigert bei `APP_ENV=production`
-grundsätzlich den Dienst.
+Der Seed läuft, **solange die Variable gesetzt ist** — also bei jedem
+Deploy. Da er idempotent ist (zweiter Lauf resettet statt zu duplizieren),
+heißt das: die Staging-DB wird bei jedem Deploy auf den Seed-Stand
+zurückgesetzt. Wenn du in Staging Daten von Hand anlegst (z. B. Login-User)
+und behalten willst, **nimm die Variable nach dem ersten Befüllen wieder
+raus**.
+
+Zwei Sperren gegen Unfälle: die Variable muss explizit gesetzt sein, und
+`seed_dev` verweigert bei `APP_ENV=production` grundsätzlich den Dienst.
 
 ### Variante B — Railway CLI (falls lokal vorhanden)
 

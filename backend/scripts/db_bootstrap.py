@@ -70,17 +70,17 @@ def main() -> None:
         print("db_bootstrap: alembic_version vorhanden -> upgrade head")
         command.upgrade(config, "head")
         print("db_bootstrap: upgrade head fertig")
-        return
+    else:
+        # Frische DB: die Migrationskette ist auf leerem Postgres nicht
+        # lauffaehig (siehe Modul-Docstring) — Tabellen aus der ORM-Metadata
+        # erzeugen und Alembic auf HEAD stempeln.
+        print("db_bootstrap: leere DB erkannt -> create_all + stamp head")
+        from sqlmodel import SQLModel  # noqa: PLC0415
 
-    # Frische DB: die Migrationskette ist auf leerem Postgres nicht
-    # lauffaehig (siehe Modul-Docstring) — Tabellen aus der ORM-Metadata
-    # erzeugen und Alembic auf HEAD stempeln.
-    print("db_bootstrap: leere DB erkannt -> create_all + stamp head")
-    from sqlmodel import SQLModel  # noqa: PLC0415
+        SQLModel.metadata.create_all(engine)
+        command.stamp(config, "head")
+        print("db_bootstrap: bootstrap fertig")
 
-    SQLModel.metadata.create_all(engine)
-    command.stamp(config, "head")
-    print("db_bootstrap: bootstrap fertig")
     _maybe_seed()
 
 
@@ -92,11 +92,17 @@ def _maybe_seed() -> None:
     Staging-DB ist gefuellt. Danach kann sie wieder weg (der Seed ist
     ohnehin idempotent, ein erneuter Lauf resettet nur).
 
+    Laeuft auf BEIDEN Bootstrap-Pfaden (frische DB und upgrade). Anfangs
+    hing der Aufruf nur am Frisch-Pfad — das ging beim ersten Staging-Setup
+    schief: die Tabellen entstanden bei einem Deploy, bei dem die Variable
+    noch nicht gesetzt war, und danach war der Seed fuer immer unerreichbar.
+    Seeden ist ohnehin idempotent (zweiter Lauf resettet statt zu
+    duplizieren), also ist "immer wenn die Variable gesetzt ist" das
+    ehrlichere Verhalten. Wer nicht bei jedem Deploy resetten will, nimmt
+    die Variable nach dem Befuellen wieder raus.
+
     Zwei Sperren gegen Unfaelle: die Variable muss explizit gesetzt sein,
-    UND ``seed_dev`` verweigert selbst den Dienst bei
-    ``APP_ENV=production``. Der Aufruf haengt bewusst am Bootstrap-Pfad
-    fuer frische DBs — ein normaler Deploy auf eine bestehende Staging-DB
-    kippt die Daten also nicht ungefragt um.
+    UND ``seed_dev`` verweigert selbst den Dienst bei ``APP_ENV=production``.
     """
     raw = os.environ.get("SEED_DEV_ON_DEPLOY", "").strip().lower()
     if raw not in {"1", "true", "yes"}:
