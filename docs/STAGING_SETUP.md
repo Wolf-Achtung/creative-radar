@@ -38,9 +38,11 @@ Danach: Frontend auf http://localhost:5173, API auf http://localhost:8000,
 DB-Einsicht via Adminer auf http://localhost:8080 (Server `db`, User/Pass
 `cr`/`cr`). Login lokal: beliebige E-Mail als User anlegen? Nein — Dev-Login
 läuft über `dev@example.com` (ist als `ADMIN_USER_EMAILS` gesetzt); da
-`DISABLE_EMAILS=true`, steht der Login-Code im Backend-Log:
-`docker compose logs backend | grep code`. Vorher den User einmalig anlegen
-(Adminer, Tabelle `creative_radar.app_user`, oder via Admin-API).
+`DISABLE_EMAILS=true`, steht der Login-Code im Backend-Log (außerhalb von
+`APP_ENV=production` loggt der Mailer den Mail-Text mit):
+`docker compose logs backend | grep mailer.disabled.body`. Vorher den User
+einmalig anlegen (Adminer, Tabelle `creative_radar.app_user`, oder via
+Admin-API).
 
 Kein einziges echtes Secret nötig. Alles läuft offline.
 
