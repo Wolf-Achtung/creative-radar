@@ -2,6 +2,19 @@
 
 Online-first Monorepo für ein internes KI-gestütztes Creative Monitoring im Film-, Serien- und Game-Marketing.
 
+## Lokal starten in drei Befehlen
+
+Docker Desktop + Node 22 vorausgesetzt — läuft komplett offline, kein API-Key nötig
+(Mock-Modus, Details in [docs/STAGING_SETUP.md](docs/STAGING_SETUP.md)):
+
+```sh
+docker compose up -d                                    # Postgres 16 + Backend (Hot-Reload)
+docker compose exec backend python -m scripts.seed_dev  # synthetische Testdaten (idempotent)
+cd frontend && npm install && npm run dev               # Vite-Dev-Server auf :5173
+```
+
+API: http://localhost:8000 · Frontend: http://localhost:5173 · DB (Adminer): http://localhost:8080
+
 ## Projektlogik
 
 Creative Radar v1 dokumentiert relevante Social-Media-Treffer zu einer gepflegten Titel-/Franchise-Whitelist. Der MVP startet bewusst mit manuellem Post-Link-Import statt automatischem Instagram-Scraping.

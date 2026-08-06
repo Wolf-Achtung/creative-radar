@@ -48,7 +48,35 @@ def resolve_database_url() -> str:
     )
 
 
+def _guard_staging_database(url: str) -> None:
+    """Boot-Check (Staging-Briefing 2026-08-06): ein Backend mit
+    ``APP_ENV=staging`` darf nur gegen die dafuer vorgesehene DB booten.
+
+    Whitelist-Prinzip: ``STAGING_EXPECTED_DB_HOST`` muss gesetzt sein und
+    im aufgeloesten DATABASE_URL vorkommen. Faellt ABSICHTLICH in beiden
+    Fehlerfaellen um — fehlende Variable UND falscher Host — damit weder
+    eine kopierte Prod-URL noch eine vergessene Staging-Konfiguration
+    still durchbootet. Prod/Dev/Tests (APP_ENV != staging) sind No-Ops.
+    """
+    if settings.app_env != "staging":
+        return
+    expected = (settings.staging_expected_db_host or "").strip()
+    if not expected:
+        raise RuntimeError(
+            "APP_ENV=staging, aber STAGING_EXPECTED_DB_HOST ist nicht gesetzt. "
+            "Boot verweigert — die Variable muss den Host der Staging-Postgres "
+            "enthalten (Schutz gegen versehentliche Prod-DB-Verbindung)."
+        )
+    if expected not in url:
+        raise RuntimeError(
+            "APP_ENV=staging, aber DATABASE_URL zeigt nicht auf "
+            f"STAGING_EXPECTED_DB_HOST={expected!r}. Boot verweigert — das "
+            "ist mit hoher Wahrscheinlichkeit eine kopierte Prod-DB-URL."
+        )
+
+
 DATABASE_URL = resolve_database_url()
+_guard_staging_database(DATABASE_URL)
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
 

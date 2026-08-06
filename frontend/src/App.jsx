@@ -9,6 +9,7 @@ import BreakoutsBlock from './BreakoutsBlock';
 import GuidePage from './GuidePage';
 import LegalPage from './LegalPage';
 import UsagePage from './UsagePage';
+import { EnvironmentBanner } from './components/EnvironmentBanner';
 import { SectionHelpHint, SectionHelpPanel } from './components/HelpSystem';
 import { SiteFooter } from './components/SiteFooter';
 import {
@@ -231,4 +232,9 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')).render(<Router />);
+createRoot(document.getElementById('root')).render(
+  <>
+    <EnvironmentBanner />
+    <Router />
+  </>,
+);

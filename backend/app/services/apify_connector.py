@@ -136,10 +136,17 @@ async def _request_with_retry(
 
 
 def is_apify_configured() -> bool:
+    # Mock-Modus zaehlt als konfiguriert: die Cron-Stages gaten auf diese
+    # Checks, und im Mock-Modus sollen sie mit Fixtures durchlaufen statt
+    # zu skippen (Staging-Briefing 2026-08-06).
+    if settings.mock_external_apis:
+        return True
     return bool(settings.apify_api_token and settings.apify_instagram_actor_id)
 
 
 def is_tiktok_configured() -> bool:
+    if settings.mock_external_apis:
+        return True
     return bool(settings.apify_api_token and settings.apify_tiktok_actor_id)
 
 
@@ -269,6 +276,12 @@ async def run_public_channel_monitor(channel_urls: list[str], results_limit: int
     if not urls:
         return []
 
+    if settings.mock_external_apis:
+        from app.services.mock_fixtures import mock_instagram_items  # noqa: PLC0415
+
+        logger.info("apify-mock instagram urls=%d (MOCK_EXTERNAL_APIS)", len(urls))
+        return mock_instagram_items(urls, results_limit or settings.apify_results_limit_per_channel)
+
     actor_input = {
         "directUrls": urls,
         "resultsLimit": results_limit or settings.apify_results_limit_per_channel,
@@ -296,6 +309,13 @@ async def run_tiktok_profile_monitor(usernames: list[str], results_limit: int | 
         return []
 
     limit = results_limit or settings.apify_results_limit_per_channel
+
+    if settings.mock_external_apis:
+        from app.services.mock_fixtures import mock_tiktok_items  # noqa: PLC0415
+
+        logger.info("apify-mock tiktok usernames=%d (MOCK_EXTERNAL_APIS)", len(clean_usernames))
+        return mock_tiktok_items(clean_usernames, limit)
+
     actor_input_candidates = [
         {
             "profiles": clean_usernames,

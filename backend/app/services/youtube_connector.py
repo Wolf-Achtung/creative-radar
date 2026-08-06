@@ -23,6 +23,7 @@ those to HTTP responses (the admin sync endpoint maps to 401/429/404/503).
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
 from typing import Any
@@ -32,6 +33,7 @@ import httpx
 from app.config import settings
 from app.services.cost_log import record_youtube_api_call
 
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.googleapis.com/youtube/v3"
 DEFAULT_TIMEOUT = 12.0
@@ -63,6 +65,10 @@ class YouTubeNotFoundError(YouTubeAPIError):
 
 
 def is_youtube_configured() -> bool:
+    # Mock-Modus zaehlt als konfiguriert — die Cron-Stage gated hierauf
+    # und soll mit Fixtures durchlaufen (Staging-Briefing 2026-08-06).
+    if settings.mock_external_apis:
+        return True
     return bool(settings.youtube_api_key)
 
 
@@ -269,6 +275,12 @@ def fetch_channel_videos(
     if not is_youtube_configured():
         raise YouTubeAuthError("YOUTUBE_API_KEY is not configured")
     limit = results_limit or settings.youtube_results_limit_per_channel
+
+    if settings.mock_external_apis:
+        from app.services.mock_fixtures import mock_youtube_channel_videos  # noqa: PLC0415
+
+        logger.info("youtube-mock handle=%s (MOCK_EXTERNAL_APIS)", handle_or_id)
+        return mock_youtube_channel_videos(handle_or_id, limit)
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         channel = _resolve_channel(client, handle_or_id, channel_id_hint=channel_id_hint)
         uploads = (
