@@ -57,7 +57,11 @@ Rückweg: `USER_AUTH_ENABLED=false` genügt — kein Code-Rollback nötig.
 - `/api/health*` (Probes), `/api/auth/*` (Login-Flow selbst)
 - `/api/img`, `/api/thumbnails`, `/storage` (Bild-Subresourcen, `<img src>`-
   Limitierung — wie bei den bestehenden Auth-Schichten)
-- `/docs`, `/redoc`, `/openapi.json` (wie bisher, Pilot-Entscheidung)
+- `/docs`, `/redoc`, `/openapi.json` — **nur noch bei `DOCS_PUBLIC=true`**
+  (Staging/lokal). Die Pilot-Entscheidung wurde am 06.08.2026 zurückgenommen:
+  in Production liegt die API-Beschreibung hinter dem Bearer-Token. Auf der
+  User-Session-Schicht bleiben die Pfade offen — wer den Token hat, braucht
+  für die Doku kein Login-Cookie.
 - `/api/admin/*` hat weiter die eigene Passwort-Session; eine gültige
   Admin-Session darf zusätzlich alle Daten-Endpoints nutzen (kein
   Doppel-Login in der Admin-UI). Admin-Zugriffe erzeugen KEINE

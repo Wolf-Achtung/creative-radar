@@ -154,6 +154,21 @@ class Settings(BaseSettings):
     auth_enabled: bool = False
     api_token: str | None = None
 
+    # Staging-Abnahme 2026-08-06: ``/docs``, ``/redoc`` und ``/openapi.json``
+    # standen seit Phase 4 auf der Public-Whitelist ("stays open in pilot").
+    # Im Staging-Log war zu sehen, dass Scanner-Bots das binnen Minuten nach
+    # der Zertifikatsausstellung abgreifen — /openapi.json war die einzige
+    # 200er-Antwort in einer Flut von 401ern. Das ist keine Luecke (die
+    # Endpunkte selbst bleiben token-geschuetzt), aber eine vollstaendige
+    # Landkarte der API fuer jeden Fremden. Die Pilotphase ist vorbei.
+    #
+    # Default zu: in Production liefert /openapi.json ab jetzt 401. Auf
+    # Staging/lokal ``DOCS_PUBLIC=true`` setzen — nur so ist die Swagger-UI
+    # im Browser nutzbar, weil sie ihr Schema per fetch() ohne Header laedt.
+    # Mit Bearer-Token bleibt /openapi.json in JEDER Umgebung erreichbar
+    # (curl -H "Authorization: Bearer ..."), es geht also nichts verloren.
+    docs_public: bool = False
+
     # Sprint Security 16.06.2026 — dedizierter, eng gescopter Cron-Token.
     # Wird AUSSCHLIESSLICH auf ``/api/admin/cron/sync-all`` akzeptiert
     # (Least-Privilege: kann nur den Wochen-Sync ausloesen). Zweck:

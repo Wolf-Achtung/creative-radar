@@ -20,8 +20,9 @@ Public paths (always pass through, regardless of auth flag):
   limitation). Read-only mount, files written only by the storage adapter.
 - ``/api/reports/latest/download.html`` and ``download.md`` — clicked via
   ``<a href download>``, same Authorization-header limitation.
-- ``/docs``, ``/redoc``, ``/openapi.json`` — FastAPI's own documentation
-  surface stays open in pilot.
+- ``/docs``, ``/redoc``, ``/openapi.json`` — ONLY when ``DOCS_PUBLIC=true``
+  (Staging/lokal). Default off: in production the whole API description is
+  behind the bearer token. See ``DOCS_PATH_PREFIXES`` below.
 
 OPTIONS requests pass through unconditionally so the CORS preflight can
 complete without a token (browsers strip the Authorization header from
@@ -56,6 +57,14 @@ PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     # Daten, alles andere → 404.
     "/api/thumbnails",
     "/storage",
+)
+
+# Staging-Abnahme 2026-08-06: frueher Teil von PUBLIC_PATH_PREFIXES, jetzt
+# an ``settings.docs_public`` gekoppelt (Default aus). Getrennte Konstante
+# statt einer Verzweigung beim Modul-Import, damit der Schalter zur
+# Laufzeit gilt — Tests und ein ENV-Flip ohne Neustart aendern das
+# Verhalten sofort, so wie bei ``auth_enabled`` auch.
+DOCS_PATH_PREFIXES: tuple[str, ...] = (
     "/docs",
     "/redoc",
     "/openapi.json",
@@ -84,7 +93,10 @@ PUBLIC_PATH_EXACT: frozenset[str] = frozenset(
 def _path_is_public(path: str) -> bool:
     if path in PUBLIC_PATH_EXACT:
         return True
-    for prefix in PUBLIC_PATH_PREFIXES:
+    prefixes = PUBLIC_PATH_PREFIXES
+    if settings.docs_public:
+        prefixes = prefixes + DOCS_PATH_PREFIXES
+    for prefix in prefixes:
         # Either an exact match (``/api/health`` itself) or a sub-path
         # (``/api/health/db``). Plain ``startswith(prefix)`` would also let
         # ``/api/healthbeat`` slip through, hence the slash boundary.

@@ -8,9 +8,10 @@ Coverage:
 - auth_enabled=True with malformed Authorization (no 'Bearer ' prefix): 401
 - auth_enabled=True with API_TOKEN unset: 503 (fail closed)
 - public-path whitelist still 200 even with auth_enabled=True and no token:
-  /api/health, /api/health/db, /api/img, /storage/<file>, /docs,
-  /openapi.json, /api/reports/latest/download.html,
-  /api/reports/latest/download.md
+  /api/health, /api/health/db, /api/img, /storage/<file>,
+  /api/reports/latest/download.html, /api/reports/latest/download.md
+- /docs, /redoc, /openapi.json: token-gated by default, open only with
+  DOCS_PUBLIC=true (Staging/lokal)
 - OPTIONS preflight passes through (CORS handler should answer)
 - Layout-probe: PUBLIC_PATH_PREFIXES references match real route prefixes
 """
@@ -184,14 +185,36 @@ def test_storage_mount_public_when_auth_enabled(
     assert response.status_code != 403
 
 
-def test_docs_endpoint_public_when_auth_enabled(
+def test_docs_endpoint_public_when_docs_public_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Staging/lokal (DOCS_PUBLIC=true): Swagger-UI ohne Token nutzbar."""
     monkeypatch.setattr(settings, "auth_enabled", True, raising=False)
     monkeypatch.setattr(settings, "api_token", "valid-token", raising=False)
+    monkeypatch.setattr(settings, "docs_public", True, raising=False)
 
     response = client.get("/openapi.json")
     assert response.status_code == 200
+
+
+def test_docs_endpoint_requires_token_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Staging-Abnahme 2026-08-06: /openapi.json war die EINZIGE 200er-Antwort
+    in einer Flut von Scanner-401ern — die komplette API-Beschreibung lag
+    offen. Default ist jetzt zu; mit Token kommt man weiterhin ran."""
+    monkeypatch.setattr(settings, "auth_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "api_token", "valid-token", raising=False)
+    monkeypatch.setattr(settings, "docs_public", False, raising=False)
+
+    assert client.get("/openapi.json").status_code == 401
+    assert client.get("/docs").status_code == 401
+    assert client.get("/redoc").status_code == 401
+
+    with_token = client.get(
+        "/openapi.json", headers={"Authorization": "Bearer valid-token"}
+    )
+    assert with_token.status_code == 200
 
 
 def test_options_preflight_passes_through(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,6 +252,16 @@ def test_path_is_public_prefix_match() -> None:
     assert _path_is_public("/api/img?url=foo") is False  # query string isn't part of path
     assert _path_is_public("/storage") is True
     assert _path_is_public("/storage/evidence/abc.jpg") is True
+
+
+def test_docs_paths_follow_docs_public_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Der Schalter wirkt zur Laufzeit, nicht beim Modul-Import."""
+    monkeypatch.setattr(settings, "docs_public", False, raising=False)
+    assert _path_is_public("/docs") is False
+    assert _path_is_public("/redoc") is False
+    assert _path_is_public("/openapi.json") is False
+
+    monkeypatch.setattr(settings, "docs_public", True, raising=False)
     assert _path_is_public("/docs") is True
     assert _path_is_public("/redoc") is True
     assert _path_is_public("/openapi.json") is True
@@ -280,10 +313,6 @@ def test_public_path_prefixes_match_real_route_prefixes() -> None:
     registered_prefixes = {p.rstrip("/") for p in registered_paths if p}
 
     for prefix in PUBLIC_PATH_PREFIXES:
-        # docs/redoc/openapi are FastAPI built-ins — they live on the app,
-        # not on a router we registered. Skip the assertion for those.
-        if prefix in ("/docs", "/redoc", "/openapi.json"):
-            continue
         # At least one registered path must start with this prefix.
         match = any(
             rp == prefix or rp.startswith(prefix + "/")
