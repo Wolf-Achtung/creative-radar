@@ -198,7 +198,7 @@ def test_disabled_mailer_logs_body_outside_production(
 
     monkeypatch.setattr(settings, "disable_emails", True, raising=False)
     monkeypatch.setattr(settings, "app_env", "development", raising=False)
-    with caplog.at_level("INFO"):
+    with caplog.at_level("INFO", logger="app.services.mailer"):
         asyncio.run(send_mail("dev@example.com", "Login-Code", "Dein Code: 123456"))
     assert any("Dein Code: 123456" in r.message for r in caplog.records)
 
@@ -210,6 +210,6 @@ def test_disabled_mailer_never_logs_body_in_production(
 
     monkeypatch.setattr(settings, "disable_emails", True, raising=False)
     monkeypatch.setattr(settings, "app_env", "production", raising=False)
-    with caplog.at_level("INFO"):
+    with caplog.at_level("INFO", logger="app.services.mailer"):
         asyncio.run(send_mail("wolf@example.com", "Login-Code", "Dein Code: 654321"))
     assert not any("654321" in r.message for r in caplog.records)
