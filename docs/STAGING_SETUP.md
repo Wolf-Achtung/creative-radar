@@ -19,7 +19,22 @@ Seed).
 
 ---
 
-## 1. Lokale Entwicklungsumgebung (Mac) — „drei Befehle"
+## 0. Zwei Wege — such dir einen aus
+
+**Reiner Browser-Workflow (Wolfs Weg).** Abschnitt 1 komplett überspringen.
+Cloud-Staging ist dann die einzige Testumgebung: Änderungen gehen per PR
+nach `staging`, Railway und Netlify deployen automatisch, Testdaten kommen
+per `SEED_DEV_ON_DEPLOY` (Abschnitt 6, Variante A). Kein Docker, kein
+Terminal, kein Secret auf dem Mac.
+
+**Mit lokaler Umgebung.** Schnellere Iteration (Sekunden statt Deploy-
+Minuten) und offline nutzbar — sinnvoll für alle, die selbst Code
+schreiben. Abschnitt 1.
+
+Beide Wege nutzen dieselben Bausteine (`db_bootstrap`, `seed_dev`,
+Mock-Modus); die lokale Umgebung ist ein Angebot, keine Voraussetzung.
+
+## 1. Lokale Entwicklungsumgebung (Mac) — „drei Befehle" (optional)
 
 Voraussetzungen: Docker Desktop, Node 22, das Repo.
 
@@ -88,8 +103,8 @@ dem Staging-Deploy Mock-Modus und Boot-Check.
 | Variable | Wert in Staging | Warum |
 |---|---|---|
 | `APP_ENV` | `staging` | aktiviert den Boot-Check |
-| `STAGING_EXPECTED_DB_HOST` | Host der neuen Staging-Postgres (aus deren `DATABASE_URL`, z. B. `postgres-xyz.railway.internal`) | Boot verweigert sonst — Schutz gegen kopierte Prod-DB-URL |
-| `DATABASE_URL` | Reference auf die **Staging**-Postgres | nie die Prod-DB |
+| `DATABASE_URL` | `${{postgres-creative-radar.DATABASE_URL}}` — eine **Service-Referenz**, kein getippter String | Railway löst Referenzen *innerhalb des Environments* auf: im `staging`-Environment kann das strukturell nicht auf die Prod-DB zeigen. Das ist der eigentliche Schutz. |
+| `STAGING_EXPECTED_DB_HOST` | Der reine **Host** — Wert von `RAILWAY_PRIVATE_DOMAIN` der Staging-Postgres (Postgres-Service → Variables), typisch `postgres-creative-radar.railway.internal`. Kein `postgresql://...`, kein Port, kein Passwort. | Zweites Netz: fängt eine von Hand eingetragene fremde URL ab. **Grenze, ehrlich benannt:** die privaten Domains heißen in `production` und `staging` gleich (Railway trennt sie per Environment) — eine kopierte Prod-**Private**-URL würde der Check also durchlassen. Er greift bei kopierten *öffentlichen* URLs (`*.proxy.rlwy.net`) und bei falschen Service-Namen. |
 | `MOCK_EXTERNAL_APIS` | `true` | Scrape läuft gegen Fixtures, 0 € |
 | `ENABLE_INTERNAL_CRON_SCHEDULER` | weglassen oder `false` | ohne ENV ist der Scheduler außerhalb production automatisch aus; explizit `false` schadet nicht |
 | `APIFY_API_TOKEN`, `YOUTUBE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `TMDB_API_KEY` | **löschen / leer** | kein Prod-Secret in Staging (DoD 3); Mock/Degradation übernimmt |
@@ -99,7 +114,18 @@ dem Staging-Deploy Mock-Modus und Boot-Check.
 | `BACKEND_URL` | `https://api-staging.creative-radar.de` | |
 | `API_TOKEN` + Session-Secrets (`ADMIN_SESSION_SECRET`, `USER_SESSION_SECRET`) | **neu würfeln** (`openssl rand -hex 32`) | Staging-Tokens dürfen nie Prod-Zugriff geben |
 | `ADMIN_USER_EMAILS` | wie Prod (wolf@trailerhaus.de) | |
-| S3-Variablen | weglassen (`STORAGE_BACKEND=local`) oder eigener Staging-Bucket | keine geteilte Ressource |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_REGION`, `STORAGE_BACKEND` | **alle sechs löschen** → Fallback ist `local` | ⚠️ Das Duplikat bringt die **Prod**-Bucket-Zugangsdaten mit. Bleiben sie stehen, schreibt Staging Screenshots und Thumbnails in den Produktions-Bucket — genau die geteilte Ressource, die es nicht geben darf. Prüfbar im Deploy-Log: `storage_backend=s3` ist falsch, `storage_backend=local` richtig. Alternative: eigener Staging-Bucket. |
+| `TMDB_API_KEY`, `TMDB_READ_ACCESS_TOKEN` | löschen | Prod-Secrets; Title-Sync wird in Staging nicht gebraucht |
+
+**Kontrolle nach dem Deploy:** Die erste Log-Zeile des Backends nennt die
+aufgelöste Konfiguration:
+
+```
+startup.resolved_config app_env=staging mock_external_apis=True cron_scheduler=off storage_backend=local …
+```
+
+Steht dort `app_env=production`, `cron_scheduler=on` oder
+`storage_backend=s3`, ist eine der obigen Variablen nicht angekommen.
 
 5. **Custom Domain:** Backend-Service (staging) → Settings → Networking →
    Custom Domain → `api-staging.creative-radar.de`. Railway zeigt den
@@ -138,14 +164,36 @@ Zwei CNAMEs, gleiche Übung wie damals bei `api.creative-radar.de`:
 
 ## 6. Staging-DB befüllen
 
-Einmalig nach dem ersten Deploy (Railway CLI, im staging-Environment):
+### Variante A — reiner Browser, kein Terminal (empfohlen)
+
+Im Backend-Service (staging) → Variables **eine** Variable ergänzen:
+
+```
+SEED_DEV_ON_DEPLOY=true
+```
+
+Optional dazu `SEED_DEV_PAIRS=disney,netflix` (Default). Dann **Redeploy**.
+Der Bootstrap legt die Tabellen an und ruft anschließend `seed_dev` auf —
+im Deploy-Log steht `SEED_DEV_ON_DEPLOY gesetzt -> seed_dev (…)` und die
+Ergebniszeile mit den erzeugten Zahlen.
+
+Der Seed läuft, **solange die Variable gesetzt ist** — also bei jedem
+Deploy. Da er idempotent ist (zweiter Lauf resettet statt zu duplizieren),
+heißt das: die Staging-DB wird bei jedem Deploy auf den Seed-Stand
+zurückgesetzt. Wenn du in Staging Daten von Hand anlegst (z. B. Login-User)
+und behalten willst, **nimm die Variable nach dem ersten Befüllen wieder
+raus**.
+
+Zwei Sperren gegen Unfälle: die Variable muss explizit gesetzt sein, und
+`seed_dev` verweigert bei `APP_ENV=production` grundsätzlich den Dienst.
+
+### Variante B — Railway CLI (falls lokal vorhanden)
 
 ```sh
 railway run --environment staging python -m scripts.seed_dev
 ```
 
-Alternativ einen Cron-freien One-off-Deploy nutzen. Das Skript verweigert
-bei `APP_ENV=production` — versehentlich gegen Prod laufen geht nicht.
+Auch hier greift die Production-Sperre.
 
 ## 7. Abnahme-Checkliste (DoD aus dem Briefing)
 
