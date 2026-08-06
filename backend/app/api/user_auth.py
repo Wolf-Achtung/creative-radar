@@ -30,6 +30,7 @@ import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
@@ -166,6 +167,13 @@ async def request_code(
     db.commit()
 
     minutes = max(1, ttl // 60)
+    # Staging-Abnahme 2026-08-06: die Absender-Domain im Fusstext war hart
+    # auf "app.creative-radar.de" verdrahtet. In Staging stand damit die
+    # PRODUKTIVE Domain in einer Mail, deren Code nur fuer staging gilt —
+    # genau die Verwechslung, die die Testumgebung vermeiden soll.
+    # ``frontend_url`` ist pro Umgebung gesetzt; in Production ergibt das
+    # denselben Text wie bisher.
+    login_host = urlparse(settings.frontend_url).netloc or settings.frontend_url
     text = (
         "Ihr persönlicher Anmeldecode für Creative Radar lautet:\n\n"
         f"{code}\n\n"
@@ -174,7 +182,7 @@ async def request_code(
         "Kein Code angekommen?\n"
         "• Spam- oder Junk-Ordner prüfen\n"
         "• Code einfach erneut anfordern\n\n"
-        "Diese E-Mail gehört zum Login von Creative Radar (app.creative-radar.de).\n"
+        f"Diese E-Mail gehört zum Login von Creative Radar ({login_host}).\n"
         "Es handelt sich nicht um Werbung.\n\n"
         "– Creative Radar\n"
     )

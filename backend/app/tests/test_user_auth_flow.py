@@ -190,6 +190,23 @@ def test_request_code_sends_mail_and_stores_hash(client, db, sent_mails):
     assert rows[0].used_at is None
 
 
+def test_request_code_mail_names_the_current_environment(
+    client, db, sent_mails, monkeypatch
+):
+    """Staging-Abnahme 2026-08-06: der Fusstext nannte hart
+    ``app.creative-radar.de`` — in Staging stand damit die PRODUKTIVE Domain
+    in einer Mail, deren Code nur fuer staging gilt."""
+    monkeypatch.setattr(
+        settings, "frontend_url", "https://staging.creative-radar.de", raising=False
+    )
+    _add_user(db, "wolf@example.com")
+    client.post("/api/auth/request-code", json={"email": "wolf@example.com"})
+
+    body = sent_mails[-1]["text"]
+    assert "staging.creative-radar.de" in body
+    assert "app.creative-radar.de" not in body
+
+
 def test_request_code_latest_code_wins(client, db, sent_mails):
     _add_user(db, "wolf@example.com")
     client.post("/api/auth/request-code", json={"email": "wolf@example.com"})

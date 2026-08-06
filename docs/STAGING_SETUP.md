@@ -118,6 +118,7 @@ dem Staging-Deploy Mock-Modus und Boot-Check.
 | `BACKEND_URL` | `https://api-staging.creative-radar.de` | |
 | `API_TOKEN` + Session-Secrets (`ADMIN_SESSION_SECRET`, `USER_SESSION_SECRET`) | **neu würfeln** (`openssl rand -hex 32`) | Staging-Tokens dürfen nie Prod-Zugriff geben |
 | `ADMIN_USER_EMAILS` | wie Prod (wolf@trailerhaus.de) | |
+| `DOCS_PUBLIC` | `true` | Swagger-UI unter `/docs` ohne Token nutzbar. In Production **nicht setzen** — dort ist die API-Beschreibung seit dem 06.08.2026 token-pflichtig. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_REGION`, `STORAGE_BACKEND` | **alle sechs löschen** → Fallback ist `local` | ⚠️ Das Duplikat bringt die **Prod**-Bucket-Zugangsdaten mit. Bleiben sie stehen, schreibt Staging Screenshots und Thumbnails in den Produktions-Bucket — genau die geteilte Ressource, die es nicht geben darf. Prüfbar im Deploy-Log: `storage_backend=s3` ist falsch, `storage_backend=local` richtig. Alternative: eigener Staging-Bucket. |
 | `TMDB_API_KEY`, `TMDB_READ_ACCESS_TOKEN` | löschen | Prod-Secrets; Title-Sync wird in Staging nicht gebraucht |
 
