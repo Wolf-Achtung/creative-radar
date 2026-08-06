@@ -36,13 +36,12 @@ services:
 
   backend:
     build: ./backend
-    # Dev-Override des Prod-CMD (start.sh): Schema sicherstellen (Alembic
-    # legt seine version-Tabelle IM creative_radar-Schema an, das Schema
-    # muss also vor `upgrade head` existieren — auf Railway existierte es
-    # historisch schon), dann Migrationen, dann uvicorn mit Hot-Reload.
+    # Dev-Override des Prod-CMD (start.sh): derselbe DB-Bootstrap wie auf
+    # Railway (scripts/db_bootstrap.py — Schema anlegen, dann je nach
+    # DB-Zustand upgrade head oder create_all+stamp), danach uvicorn mit
+    # Hot-Reload. Ein Mechanismus fuer lokal, Staging und Prod.
     command: >
-      sh -c "python -c 'from app.database import _ensure_cr_schema; _ensure_cr_schema()'
-      && alembic upgrade head
+      sh -c "python -m scripts.db_bootstrap
       && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
     environment:
       APP_ENV: development
