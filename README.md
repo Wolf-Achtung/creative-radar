@@ -8,7 +8,7 @@ Docker Desktop + Node 22 vorausgesetzt — läuft komplett offline, kein API-Key
 (Mock-Modus, Details in [docs/STAGING_SETUP.md](docs/STAGING_SETUP.md)):
 
 ```sh
-docker compose up -d                                    # Postgres 16 + Backend (Hot-Reload)
+docker compose up -d                                    # Postgres 18 + Backend (Hot-Reload)
 docker compose exec backend python -m scripts.seed_dev  # synthetische Testdaten (idempotent)
 cd frontend && npm install && npm run dev               # Vite-Dev-Server auf :5173
 ```
