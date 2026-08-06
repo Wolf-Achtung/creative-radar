@@ -149,9 +149,3 @@ app.include_router(admin_users.usage_router)
 app.include_router(user_auth.router)
 app.include_router(cron.router)
 app.include_router(thumbnails.router)
-
-# ---- FEUERPROBE 06.08.2026 — absichtlicher Syntaxfehler ----
-# Diese Zeile gehoert NICHT in den Code. Sie ist Teil der einmaligen
-# Rollback-Uebung aus docs/STAGING_ABNAHME_CHECKLISTE.md, Block 6, und
-# wird unmittelbar danach per Revert entfernt.
-SYNTAXFEHLER_FEUERPROBE(((
