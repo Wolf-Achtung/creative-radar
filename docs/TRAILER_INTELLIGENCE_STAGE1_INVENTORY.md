@@ -217,3 +217,77 @@ Das Ergebnis landet unter `summary["post_analysis"]` im CronRun.
 
 Für gezielte Nachläufe steht das bestehende Skript weiterhin bereit, jetzt zusätzlich
 mit `--skip-vision`.
+
+## 8. Schritt 2: Muster-Aggregation
+
+`app/services/trailer_patterns.py`, abrufbar über
+`GET /api/admin/trailer-patterns?window_days=90&market=DE`. Rein lesend, kein
+Modell-Aufruf, kein Budget-Effekt.
+
+**Abgrenzung zum bestehenden Empfehlungs-Baustein** — der bleibt unverändert, er
+beantwortet eine andere Frage:
+
+| | Empfehlungs-Baustein | Muster-Aggregation |
+|---|---|---|
+| Zuschnitt | ein Pair (Studio DE+US) | ganzer Bestand, optional je Markt |
+| Fenster | 7 Tage | 90 Tage (parametrisierbar) |
+| Zweck | „diese Woche auffällig" | stabiles Strukturmuster |
+| Baseline | Median des Pairs | Median des **Kanals** |
+
+**Kanal-Normierung** ist der methodische Kern und behebt den Vorbehalt aus
+Abschnitt 2. Statt Roh-Reichweiten zu mitteln (was Kanalgröße misst, nicht
+Kreativ-Wirkung), bekommt jeder Post einen Lift:
+
+```
+lift = activation_rate(post) / median(activation_rate aller Posts desselben Kanals)
+```
+
+Ein Lift von 2,0 heißt „doppelt so gut wie dieser Kanal üblicherweise abschneidet" —
+vergleichbar zwischen Netflix und einem kleinen Kanal.
+
+**Fünf Dimensionen:** `format`, `tone`, `lifecycle_stage`, `duration_bucket`,
+`music_kind`. Die letzte wertet erstmals die TikTok-Musikdaten aus (Abschnitt 1,
+100 % Abdeckung) — Original-Sound vs. lizensierter Track.
+
+**Ehrlichkeits-Regeln**, übernommen vom Empfehlungs-Baustein plus zwei neue:
+
+1. Mindest-Stichprobe 5 Posts je Zelle
+2. **Mindest-Kanalzahl 3 je Zelle** (neu) — korpusweit könnte sonst ein einzelner
+   Vielposter im Alleingang ein „Muster" erzeugen
+3. Effektstärke > 1,5× (over) bzw. < 0,5× (under)
+4. Konfidenz ≥ 0,7 — aber **nur für modell-erzeugte Dimensionen** (neu).
+   `duration_bucket` und `music_kind` sind gemessen, nicht klassifiziert; sie durch
+   den Konfidenz-Filter zu schicken würde bei 12 % Abdeckung sieben Achtel
+   brauchbarer Daten wegwerfen, ohne die Qualität zu erhöhen
+5. Kanäle mit < 4 Posts im Fenster liefern keine belastbare Baseline und werden
+   übersprungen
+
+Zellen, die eine Schwelle reißen, werden mit `verdict="insufficient"` und Begründung
+ausgegeben statt weggefiltert — eine dünne Datenlage ist ein Befund.
+
+### Interpretationsfalle beim Lesen
+
+Der Lift misst gegen den Median des Kanals, also gegen dessen **eigenen Output-Mix**.
+Macht ein Format die Mehrheit der Posts eines Kanals aus, bestimmt es den Median mit
+und kann rechnerisch kaum darüber liegen. Das Signal erscheint dann gespiegelt: nicht
+„Trailer over", sondern „alles andere under". Wer nur auf `verdict == "over"` schaut,
+übersieht diesen Fall — **immer beide Richtungen einer Dimension zusammen lesen.**
+
+### Offener Punkt: Musik-Feldstruktur nicht verifiziert
+
+Die Extraktion liest `raw_payload['_creative_radar_music']['musicOriginal']`. Dieses
+Feld ist Apify-seitig nicht vertraglich zugesichert; die Extraktion behandelt bool,
+String und Fehlen defensiv und liefert im Zweifel `unknown` statt zu raten. Ob das
+Feld in den echten Daten so heißt, ließ sich ohne Produktionszugriff nicht prüfen.
+Gegenprobe:
+
+```sql
+SELECT raw_payload -> '_creative_radar_music' AS musik
+FROM creative_radar.post
+WHERE platform = 'tiktok' AND raw_payload -> '_creative_radar_music' <> 'null'::jsonb
+LIMIT 3;
+```
+
+Liefert das etwas anderes als einen `musicOriginal`-Schlüssel, landet alles in
+`music_kind = "unknown"` — sichtbar, aber nutzlos. Dann ist der Extraktor
+anzupassen.
