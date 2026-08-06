@@ -282,12 +282,32 @@ Feld in den echten Daten so heißt, ließ sich ohne Produktionszugriff nicht pr�
 Gegenprobe:
 
 ```sql
-SELECT raw_payload -> '_creative_radar_music' AS musik
+SELECT raw_payload -> '_creative_radar_music' ->> 'musicOriginal' AS music_original,
+       count(*) AS posts
 FROM creative_radar.post
-WHERE platform = 'tiktok' AND raw_payload -> '_creative_radar_music' <> 'null'::jsonb
-LIMIT 3;
+WHERE platform = 'tiktok'
+  AND detected_at > now() - interval '90 days'
+GROUP BY 1
+ORDER BY 2 DESC;
 ```
 
-Liefert das etwas anderes als einen `musicOriginal`-Schlüssel, landet alles in
-`music_kind = "unknown"` — sichtbar, aber nutzlos. Dann ist der Extraktor
-anzupassen.
+Erwartung: zwei Zeilen, `true` und `false`. Kommt nur eine Zeile mit leerem Wert
+zurück, heißt das Feld anders — dann zeigt der Roh-Blob, wie:
+
+```sql
+SELECT raw_payload -> '_creative_radar_music' AS musik
+FROM creative_radar.post
+WHERE platform = 'tiktok'
+  AND (raw_payload -> '_creative_radar_music')::text NOT IN ('null', '{}')
+LIMIT 2;
+```
+
+**Warum der Cast auf `::text`:** `raw_payload` ist über `sa.JSON()` als Postgres-Typ
+`json` angelegt, nicht `jsonb`. `json` hat keinen Gleichheitsoperator — ein
+`... <> 'null'::jsonb` scheitert mit `operator does not exist: json <> jsonb`. Der
+Vergleich muss deshalb über die Textdarstellung laufen (oder via `raw_payload::jsonb`,
+was aber bei jeder Zeile neu parst).
+
+Liefert die Gegenprobe etwas anderes als einen `musicOriginal`-Schlüssel, landet alles
+in `music_kind = "unknown"` — sichtbar, aber nutzlos. Dann ist der Extraktor in
+`app/services/trailer_patterns.py::_extract_music_kind` anzupassen.
