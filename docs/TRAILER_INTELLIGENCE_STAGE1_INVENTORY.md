@@ -193,8 +193,21 @@ Alt-Bestand zieht mit dem Rest des Caps nach.
 | `anthropic_monthly_budget_usd` (bestehend) | Pre-Flight bricht den Lauf vorher ab |
 
 Bei ~600 neuen Posts pro Woche geht der laufende Zufluss in einem Lauf durch, und
-es bleibt Kapazität für den Alt-Bestand. Beide Werte sind Railway-ENV-Variablen;
-`cron_post_analysis_max_posts_per_run=0` schaltet die Stage ab.
+es bleibt Kapazität für den Alt-Bestand.
+
+### Railway-Variablen
+
+Die Defaults sind bewusst so gewählt, dass **nichts gesetzt werden muss** — die Stage
+läuft nach dem Deploy von allein. Zum Nachjustieren (Backend-Service → Variables,
+Namen in Großschreibung, Pydantic-Settings mappt sie auf die Attribute oben):
+
+| Variable | Default | Wann ändern |
+|---|---|---|
+| `CRON_POST_ANALYSIS_MAX_POSTS_PER_RUN` | `800` | Höher, um den Alt-Bestand schneller abzubauen (jede +100 ≈ +$0,29/Lauf). `0` schaltet die Stage ab. |
+| `CRON_POST_ANALYSIS_SKIP_VISION` | `true` | Auf `false`, wenn `vision_description` flächendeckend gebraucht wird — verdreifacht die Kosten dieser Stage. |
+
+Kontrolle nach dem ersten Lauf: `GET /api/admin/cron/runs` → `summary.post_analysis`
+zeigt `selected`, `analyzed`, `errors` und `estimated_cost_usd`.
 
 **Fehlerverhalten:** Ein einzelner fehlgeschlagener Post erhöht einen Zähler und der
 Lauf geht weiter. Ein Anthropic-Auth-Fehler stoppt die Stage sofort — er würde sich
