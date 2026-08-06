@@ -247,3 +247,28 @@ def test_db_bootstrap_creates_and_stamps_fresh_db(tmp_path, monkeypatch: pytest.
         conn.exec_driver_sql("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
     db_bootstrap.main()
     assert calls == ["stamp:head", "upgrade:head"]
+
+
+def test_seed_on_deploy_is_opt_in_and_prod_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SEED_DEV_ON_DEPLOY: nur bei explizit gesetzter Variable, und in
+    production niemals (der Browser-Workflow soll Prod nicht anfassen)."""
+    from scripts import db_bootstrap
+
+    from scripts import seed_dev
+
+    called: list[str] = []
+    monkeypatch.setattr(seed_dev, "main", lambda: called.append("seeded"))
+
+    monkeypatch.delenv("SEED_DEV_ON_DEPLOY", raising=False)
+    monkeypatch.setattr(settings, "app_env", "staging", raising=False)
+    db_bootstrap._maybe_seed()
+    assert called == []  # ohne Variable: nichts
+
+    monkeypatch.setenv("SEED_DEV_ON_DEPLOY", "true")
+    monkeypatch.setattr(settings, "app_env", "production", raising=False)
+    db_bootstrap._maybe_seed()
+    assert called == []  # production: ignoriert
+
+    monkeypatch.setattr(settings, "app_env", "staging", raising=False)
+    db_bootstrap._maybe_seed()
+    assert called == ["seeded"]

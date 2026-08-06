@@ -19,7 +19,22 @@ Seed).
 
 ---
 
-## 1. Lokale Entwicklungsumgebung (Mac) — „drei Befehle"
+## 0. Zwei Wege — such dir einen aus
+
+**Reiner Browser-Workflow (Wolfs Weg).** Abschnitt 1 komplett überspringen.
+Cloud-Staging ist dann die einzige Testumgebung: Änderungen gehen per PR
+nach `staging`, Railway und Netlify deployen automatisch, Testdaten kommen
+per `SEED_DEV_ON_DEPLOY` (Abschnitt 6, Variante A). Kein Docker, kein
+Terminal, kein Secret auf dem Mac.
+
+**Mit lokaler Umgebung.** Schnellere Iteration (Sekunden statt Deploy-
+Minuten) und offline nutzbar — sinnvoll für alle, die selbst Code
+schreiben. Abschnitt 1.
+
+Beide Wege nutzen dieselben Bausteine (`db_bootstrap`, `seed_dev`,
+Mock-Modus); die lokale Umgebung ist ein Angebot, keine Voraussetzung.
+
+## 1. Lokale Entwicklungsumgebung (Mac) — „drei Befehle" (optional)
 
 Voraussetzungen: Docker Desktop, Node 22, das Repo.
 
@@ -88,8 +103,8 @@ dem Staging-Deploy Mock-Modus und Boot-Check.
 | Variable | Wert in Staging | Warum |
 |---|---|---|
 | `APP_ENV` | `staging` | aktiviert den Boot-Check |
-| `STAGING_EXPECTED_DB_HOST` | Host der neuen Staging-Postgres (aus deren `DATABASE_URL`, z. B. `postgres-xyz.railway.internal`) | Boot verweigert sonst — Schutz gegen kopierte Prod-DB-URL |
-| `DATABASE_URL` | Reference auf die **Staging**-Postgres | nie die Prod-DB |
+| `DATABASE_URL` | `${{postgres-creative-radar.DATABASE_URL}}` — eine **Service-Referenz**, kein getippter String | Railway löst Referenzen *innerhalb des Environments* auf: im `staging`-Environment kann das strukturell nicht auf die Prod-DB zeigen. Das ist der eigentliche Schutz. |
+| `STAGING_EXPECTED_DB_HOST` | Der reine **Host** — Wert von `RAILWAY_PRIVATE_DOMAIN` der Staging-Postgres (Postgres-Service → Variables), typisch `postgres-creative-radar.railway.internal`. Kein `postgresql://...`, kein Port, kein Passwort. | Zweites Netz: fängt eine von Hand eingetragene fremde URL ab. **Grenze, ehrlich benannt:** die privaten Domains heißen in `production` und `staging` gleich (Railway trennt sie per Environment) — eine kopierte Prod-**Private**-URL würde der Check also durchlassen. Er greift bei kopierten *öffentlichen* URLs (`*.proxy.rlwy.net`) und bei falschen Service-Namen. |
 | `MOCK_EXTERNAL_APIS` | `true` | Scrape läuft gegen Fixtures, 0 € |
 | `ENABLE_INTERNAL_CRON_SCHEDULER` | weglassen oder `false` | ohne ENV ist der Scheduler außerhalb production automatisch aus; explizit `false` schadet nicht |
 | `APIFY_API_TOKEN`, `YOUTUBE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `TMDB_API_KEY` | **löschen / leer** | kein Prod-Secret in Staging (DoD 3); Mock/Degradation übernimmt |
@@ -138,14 +153,32 @@ Zwei CNAMEs, gleiche Übung wie damals bei `api.creative-radar.de`:
 
 ## 6. Staging-DB befüllen
 
-Einmalig nach dem ersten Deploy (Railway CLI, im staging-Environment):
+### Variante A — reiner Browser, kein Terminal (empfohlen)
+
+Im Backend-Service (staging) → Variables **eine** Variable ergänzen:
+
+```
+SEED_DEV_ON_DEPLOY=true
+```
+
+Optional dazu `SEED_DEV_PAIRS=disney,netflix` (Default). Dann **Redeploy**.
+Der Bootstrap legt die Tabellen an und ruft anschließend `seed_dev` auf —
+im Deploy-Log steht `SEED_DEV_ON_DEPLOY gesetzt -> seed_dev (…)` und die
+Ergebniszeile mit den erzeugten Zahlen.
+
+Danach kann die Variable stehen bleiben oder weg: der Seed hängt am
+Bootstrap-Pfad für **frische** DBs, ein normaler Folge-Deploy kippt die
+Daten also nicht um. Zwei Sperren gegen Unfälle: die Variable muss
+explizit gesetzt sein, und `seed_dev` verweigert bei `APP_ENV=production`
+grundsätzlich den Dienst.
+
+### Variante B — Railway CLI (falls lokal vorhanden)
 
 ```sh
 railway run --environment staging python -m scripts.seed_dev
 ```
 
-Alternativ einen Cron-freien One-off-Deploy nutzen. Das Skript verweigert
-bei `APP_ENV=production` — versehentlich gegen Prod laufen geht nicht.
+Auch hier greift die Production-Sperre.
 
 ## 7. Abnahme-Checkliste (DoD aus dem Briefing)
 

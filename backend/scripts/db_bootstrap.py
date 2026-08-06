@@ -32,6 +32,7 @@ Deploy existiert ``alembic_version``.
 """
 from __future__ import annotations
 
+import os
 import sys
 
 from alembic import command
@@ -39,6 +40,7 @@ from alembic.config import Config
 from sqlalchemy import inspect
 
 import app.models  # noqa: F401  — Side-Effect: registriert alle Entities
+from app.config import settings
 from app.database import DATABASE_URL, _ensure_cr_schema, engine
 from app.models.entities import _resolve_table_schema
 
@@ -79,6 +81,36 @@ def main() -> None:
     SQLModel.metadata.create_all(engine)
     command.stamp(config, "head")
     print("db_bootstrap: bootstrap fertig")
+    _maybe_seed()
+
+
+def _maybe_seed() -> None:
+    """Optional: Testdaten direkt im Deploy erzeugen (SEED_DEV_ON_DEPLOY).
+
+    Fuer den reinen Browser-Workflow gedacht — ohne Railway-CLI und ohne
+    lokales Terminal setzt man die Variable einmal, deployt, und die
+    Staging-DB ist gefuellt. Danach kann sie wieder weg (der Seed ist
+    ohnehin idempotent, ein erneuter Lauf resettet nur).
+
+    Zwei Sperren gegen Unfaelle: die Variable muss explizit gesetzt sein,
+    UND ``seed_dev`` verweigert selbst den Dienst bei
+    ``APP_ENV=production``. Der Aufruf haengt bewusst am Bootstrap-Pfad
+    fuer frische DBs — ein normaler Deploy auf eine bestehende Staging-DB
+    kippt die Daten also nicht ungefragt um.
+    """
+    raw = os.environ.get("SEED_DEV_ON_DEPLOY", "").strip().lower()
+    if raw not in {"1", "true", "yes"}:
+        return
+    if settings.app_env == "production":
+        print("db_bootstrap: SEED_DEV_ON_DEPLOY in production ignoriert")
+        return
+
+    pairs = os.environ.get("SEED_DEV_PAIRS", "disney,netflix")
+    print(f"db_bootstrap: SEED_DEV_ON_DEPLOY gesetzt -> seed_dev (pairs={pairs})")
+    from scripts import seed_dev  # noqa: PLC0415
+
+    sys.argv = ["seed_dev", "--pairs", pairs]
+    seed_dev.main()
 
 
 if __name__ == "__main__":
