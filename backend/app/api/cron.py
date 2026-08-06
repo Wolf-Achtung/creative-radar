@@ -33,7 +33,13 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import engine, get_session
-from app.models.entities import Asset, CronRun, InsightReport as InsightReportRow, TitleSyncRun
+from app.models.entities import (
+    Asset,
+    CronRun,
+    InsightReport as InsightReportRow,
+    Post,
+    TitleSyncRun,
+)
 from app.services.apify_connector import (
     is_apify_configured,
     is_tiktok_configured,
@@ -92,6 +98,14 @@ _VISION_COST_USD_PER_CALL = 0.015
 
 _VISION_SUCCESS_STATUSES = frozenset({"analyzed", "done"})
 _VISION_FETCH_FAIL_STATUSES = frozenset({"fetch_failed", "no_source", "image_unreachable", "image_invalid"})
+
+# Approximate per-post cost of the text-only post-analysis path (one Haiku
+# call for format+tone, one Sonnet call for purpose+lifecycle_stage), used
+# for the cron summary line only. The authoritative per-call figures are
+# logged by record_anthropic_call from the real usage objects. Full pipeline
+# with the Sonnet vision call is ~$0.0101; see cron_post_analysis_skip_vision.
+_POST_ANALYSIS_COST_USD_PER_POST_TEXT = 0.0029
+_POST_ANALYSIS_COST_USD_PER_POST_FULL = 0.0101
 
 # Sprint 4.5 — bug 2: ``_run_apify_sync_for_platform_async`` returns its
 # counters under historical (Sprint-5.3.5-era) keys that differ from the
@@ -463,6 +477,119 @@ def _run_vision_backlog(
         **counters,
         "duration_seconds": duration_seconds,
         "estimated_cost_usd": estimated_cost_usd,
+    }
+
+
+def _run_post_analysis_backlog(
+    session: Session,
+    cap: int,
+    *,
+    skip_vision: bool,
+) -> dict:
+    """Trailer-Intelligence Stufe 1 — classify up to ``cap`` posts that have
+    no ``last_analyzed_at`` yet (format / tone / purpose / lifecycle_stage).
+
+    Selection is **newest first**, deliberately. The user-facing consumer is
+    the insight-engine recommendation builder, which aggregates over a 7-day
+    window inside a 30-day frame — it only ever reads recent posts. Draining
+    oldest-first would spend the whole per-run cap on 90-day-old rows while
+    the current week stays unclassified, so the feature would keep starving.
+    Newest-first classifies the current week in the first run; the historical
+    backlog drains with whatever cap is left over on subsequent runs.
+
+    Cost is bounded three ways: the per-run ``cap``, the text-only default
+    (``skip_vision``), and the pre-existing Anthropic monthly budget
+    pre-flight that aborts the whole cron run before this stage is reached.
+
+    Per-post failures are isolated exactly like the vision stages — a bad
+    post bumps a counter and the loop continues. An Anthropic auth error is
+    the one exception: it is non-recoverable and would repeat for every
+    remaining post, so the stage stops early and reports it.
+    """
+    if cap <= 0:
+        return {"enabled": False, "cap": cap}
+
+    try:
+        from app.services.anthropic_client import (
+            AnthropicAuthError,
+            is_anthropic_configured,
+        )
+        from app.services.post_analyzer import analyze_post
+    except ImportError as exc:  # noqa: BLE001 — SDK optional, mirror admin.py
+        logger.exception("post-analysis-import-failed")
+        return {"enabled": False, "reason": "analyzer_unavailable", "error": str(exc)[:200]}
+
+    if not is_anthropic_configured():
+        # Staging runs without an Anthropic key on purpose (MOCK_EXTERNAL_APIS);
+        # this is a normal skip, not an error.
+        return {"enabled": False, "reason": "anthropic_not_configured"}
+
+    started = time.monotonic()
+    stmt = (
+        select(Post)
+        .where(Post.last_analyzed_at.is_(None))
+        .order_by(Post.detected_at.desc())
+        .limit(cap)
+    )
+    posts = list(session.exec(stmt).all())
+
+    counters = {
+        "attempted": 0,
+        "analyzed": 0,
+        "errors": 0,
+        "assets_created": 0,
+    }
+    auth_failed = False
+    error_samples: list[str] = []
+
+    for post in posts:
+        counters["attempted"] += 1
+        try:
+            result = analyze_post(session, post, skip_vision=skip_vision)
+        except AnthropicAuthError as exc:
+            # Non-recoverable and would repeat for every remaining post —
+            # stop the stage instead of burning the cap on certain failures.
+            session.rollback()
+            logger.error("cron-post-analysis auth failed, stopping stage: %s", exc)
+            auth_failed = True
+            counters["attempted"] -= 1
+            break
+        except Exception as exc:  # noqa: BLE001 — per-post guard, mirrors vision
+            session.rollback()
+            logger.exception("cron-post-analysis failed for post %s", post.id)
+            counters["errors"] += 1
+            if len(error_samples) < 5:
+                error_samples.append(f"{post.id}:{type(exc).__name__}")
+            continue
+
+        if result.status == "analyzed":
+            counters["analyzed"] += 1
+            if result.asset_created:
+                counters["assets_created"] += 1
+            session.commit()
+        else:
+            # analyze_post returns status='error' without writing when a
+            # classifier failed twice — nothing staged, nothing to commit.
+            session.rollback()
+            counters["errors"] += 1
+            if len(error_samples) < 5 and result.errors:
+                error_samples.append(f"{post.id}:{result.errors[0][:80]}")
+
+    per_post = (
+        _POST_ANALYSIS_COST_USD_PER_POST_TEXT
+        if skip_vision
+        else _POST_ANALYSIS_COST_USD_PER_POST_FULL
+    )
+    return {
+        "enabled": True,
+        "cap": cap,
+        "skip_vision": skip_vision,
+        "selected": len(posts),
+        **counters,
+        "auth_failed": auth_failed,
+        "error_samples": error_samples,
+        "duration_seconds": round(time.monotonic() - started, 2),
+        "estimated_cost_usd": round(counters["attempted"] * per_post, 4),
     }
 
 
@@ -1559,6 +1686,24 @@ async def _run_cron_sync_background_impl(
                 summary["vision_backlog"] = await asyncio.to_thread(
                     _run_vision_backlog, session, backlog_cap, exclude_ids=created_asset_ids
                 )
+            # Trailer-Intelligence Stufe 1 — Post-Klassifikation (format /
+            # tone / purpose / lifecycle_stage) fuer alle Posts ohne
+            # ``last_analyzed_at``. Bis 08/2026 lief das ausschliesslich am
+            # manuellen Admin-Endpunkt, entsprechend duenn war die Abdeckung
+            # (12%). Gleiches to_thread-/Stage-Guard-Muster wie die
+            # Vision-Stages darueber; Cap + text-only bremsen die Kosten.
+            post_analysis_cap = settings.cron_post_analysis_max_posts_per_run
+            if post_analysis_cap > 0:
+                try:
+                    summary["post_analysis"] = await asyncio.to_thread(
+                        _run_post_analysis_backlog,
+                        session,
+                        post_analysis_cap,
+                        skip_vision=settings.cron_post_analysis_skip_vision,
+                    )
+                except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster rematch
+                    logger.exception("post-analysis stage failed")
+                    summary["post_analysis"] = {"error": str(exc)[:500]}
             # Title-Katalog-Sync (Movies + TV) VOR dem Rematch, damit frisch
             # gezogene Titel im selben Lauf gematcht werden. Hinter
             # ENABLE_TITLE_SYNC_IN_CRON (Default true); eigener try/except.

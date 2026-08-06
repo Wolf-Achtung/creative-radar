@@ -245,7 +245,7 @@ def _confirm_interactively() -> bool:
 
 def _apply_backfill(
     session: Session, channels_per_pair: dict[str, list],
-    *, skip_confirmation: bool,
+    *, skip_confirmation: bool, skip_vision: bool = False,
 ) -> dict[str, dict[str, int]]:
     """Geht alle ungaenderten Posts pro Pair durch.
 
@@ -254,6 +254,12 @@ def _apply_backfill(
     ``analyze_post`` ist die Workhorse-Funktion aus Sprint 5.3.1 — sie
     commited NICHT selbst. Wir committen pro Post hier, damit ein
     Crash-mid-Batch die bereits-fertigen Posts intakt laesst.
+
+    ``skip_vision=True`` laesst den Sonnet-Vision-Call aus. Der ist ~72 %
+    der Kosten pro Post (~$0,0073 von ~$0,0101), liefert aber nur
+    ``vision_description`` — die vier PostAnalysis-Felder kommen aus der
+    Caption. Wer den Backfill nur fuer die Cross-Tab-Coverage
+    (format / lifecycle_stage) braucht, spart damit rund zwei Drittel.
     """
     analyze_post, AnthropicAuthError, is_anthropic_configured = _import_analyzer()
 
@@ -299,7 +305,7 @@ def _apply_backfill(
         t0 = time.monotonic()
         for i, post in enumerate(posts, start=1):
             try:
-                result = analyze_post(session, post)
+                result = analyze_post(session, post, skip_vision=skip_vision)
             except AnthropicAuthError as exc:
                 # Auth ist nicht recoverable — wir brechen ab. Bereits
                 # erfolgreich analysierte Posts wurden via session.commit()
@@ -396,6 +402,14 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--pair", default=None,
         help="Eingrenzen auf einen einzelnen Pair-Key (z.B. warnerbros).",
     )
+    parser.add_argument(
+        "--skip-vision", action="store_true",
+        help=(
+            "Sonnet-Vision-Call auslassen (nur format/tone/purpose/"
+            "lifecycle_stage aus der Caption). Spart ~72%% der Kosten pro "
+            "Post; ``vision_description`` bleibt dann leer."
+        ),
+    )
     return parser
 
 
@@ -431,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
 
         stats = _apply_backfill(
             session, channels_per_pair, skip_confirmation=args.yes,
+            skip_vision=args.skip_vision,
         )
         return 0 if stats else 1
 

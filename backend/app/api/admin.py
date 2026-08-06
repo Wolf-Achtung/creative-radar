@@ -278,6 +278,51 @@ def breakouts(
     return {"count": len(entries), "min_multiplier": min_multiplier, "entries": entries}
 
 
+@router.get("/trailer-patterns")
+def trailer_patterns(
+    window_days: int = Query(90, ge=7, le=365),
+    market: str | None = Query(None),
+    min_sample: int = Query(5, ge=2, le=100),
+    min_channels: int = Query(3, ge=1, le=50),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Trailer-Intelligence Stufe 1, Schritt 2 — korpusweite Muster.
+
+    Rein lesend, kein Modell-Call, kein Budget-Effekt: beliebig oft
+    aufrufbar. Aggregiert ueber alle Kanaele (optional je ``market``),
+    welche Merkmale mit ueberdurchschnittlicher Reichweite einhergehen —
+    ``format``, ``tone``, ``lifecycle_stage``, ``duration_bucket`` und
+    ``music_kind``.
+
+    Anders als ``/breakouts`` (einzelne Ausreisser-Posts) und anders als
+    der Empfehlungs-Baustein im Wochen-Brief (ein Pair, 7 Tage) sucht
+    dieser Endpunkt nach dem *stabilen Strukturmuster* ueber ein langes
+    Fenster.
+
+    Jeder Post wird gegen den Median seines eigenen Kanals normiert, damit
+    Kanalgroesse das Ergebnis nicht diktiert. Zellen, die die
+    Ehrlichkeits-Schwellen reissen, werden mit ``verdict="insufficient"``
+    und einer Begruendung ausgegeben statt weggefiltert — eine duenne
+    Datenlage ist ein Befund, kein Grund zum Schweigen.
+
+    Beim Lesen beide Richtungen einer Dimension zusammen betrachten: ein
+    Format, das den Output eines Kanals dominiert, bestimmt dessen Median
+    mit und erscheint deshalb als ``neutral``, waehrend sich das Signal im
+    ``under`` der uebrigen Werte zeigt. Details im Modul-Docstring von
+    ``app/services/trailer_patterns.py``.
+    """
+    from app.services.trailer_patterns import compute_trailer_patterns
+
+    report = compute_trailer_patterns(
+        session,
+        window_days=window_days,
+        market=market,
+        min_sample=min_sample,
+        min_channels=min_channels,
+    )
+    return report.to_dict()
+
+
 # ---------- YouTube sync (Sprint 5.2.3) -------------------------------
 
 

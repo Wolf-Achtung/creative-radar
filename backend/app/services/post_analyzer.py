@@ -342,16 +342,33 @@ def _existing_vision_asset(session: Session, post_id: UUID, asset_url: str) -> O
     return session.exec(statement).first()
 
 
-def analyze_post(session: Session, post: Post) -> AnalyzePostResult:
+def analyze_post(
+    session: Session, post: Post, *, skip_vision: bool = False
+) -> AnalyzePostResult:
     """Run the full analysis pipeline for one post. Caller owns the
     Session and the loop; this function does NOT commit on its own —
     it stages changes and lets the caller commit per-post (so a crash
     halfway through a batch doesn't roll back already-completed
-    posts)."""
+    posts).
+
+    ``skip_vision=True`` drops step 2 (the Sonnet vision call) and runs
+    the two text classifiers only. The four PostAnalysis fields —
+    format / tone / purpose / lifecycle_stage — are derived from the
+    caption alone, so they are unaffected; only ``vision_description``
+    and the Asset upsert that carries it are skipped.
+
+    Why that matters: the vision call dominates the per-post cost
+    (~$0.0073 of ~$0.0101, i.e. ~72%) because the image alone is
+    ~1.6k input tokens. The downstream consumer that needs coverage
+    today — the insight-engine recommendation builder — reads only
+    ``analysis['format']`` and ``analysis['lifecycle_stage']``, never
+    ``vision_description``. So the cron backlog-drain runs text-only
+    while the manual admin endpoint keeps the full pipeline.
+    """
     result = AnalyzePostResult(post_id=post.id)
 
     # ---- Vision -------------------------------------------------------
-    asset_url = extract_asset_url(post)
+    asset_url = None if skip_vision else extract_asset_url(post)
     vision_description: Optional[str] = None
     if asset_url:
         existing = _existing_vision_asset(session, post.id, asset_url)

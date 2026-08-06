@@ -284,6 +284,32 @@ class Settings(BaseSettings):
     # created_asset_ids; deren Selektion/Cap bleibt unberührt.
     cron_vision_backlog_max_assets_per_run: int = 200
 
+    # Post-Analyse-Drain (Trailer-Intelligence Stufe 1) — pro Cron-Lauf bis
+    # zu N Posts ohne ``last_analyzed_at`` klassifizieren (format / tone /
+    # purpose / lifecycle_stage). Die Inventur vom 06.08.2026 fand nur 920
+    # von 7.623 Posts klassifiziert (12%), weil der Analyzer bis dahin
+    # ausschliesslich am manuellen Admin-Endpunkt hing. Leidtragender ist
+    # der Empfehlungs-Baustein im insight_engine: er verlangt >= 3 Posts je
+    # Cross-Tab-Wert und faellt bei 12% Abdeckung fuer die Dimensionen
+    # ``format`` und ``lifecycle_stage`` regelmaessig unter diese Schwelle.
+    #
+    # 800 * ~$0.0029 (text-only, s.u.) = ~$2.30/Lauf, woechentlich ~$10/Monat.
+    # Bewusst hoch genug, dass der laufende Zufluss (~600 neue Posts/Woche)
+    # in EINEM Lauf durchgeht und der Alt-Bestand trotzdem abgebaut wird.
+    # 0 deaktiviert die Stage. Zusaetzlich gedeckelt durch den bestehenden
+    # Anthropic-Monatsbudget-Pre-Flight (``anthropic_monthly_budget_usd``).
+    cron_post_analysis_max_posts_per_run: int = 800
+
+    # Text-only: den Sonnet-Vision-Call in der Cron-Stage ueberspringen.
+    # Der Vision-Call ist ~72% der Kosten pro Post (~$0.0073 von ~$0.0101),
+    # liefert aber nur ``vision_description`` — ein Feld, das der
+    # Empfehlungs-Baustein nicht liest. Die vier PostAnalysis-Felder kommen
+    # aus der Caption und sind unberuehrt. Auf ``false`` setzen, wenn die
+    # Vision-Beschreibungen spaeter flaechendeckend gebraucht werden; das
+    # verdreifacht die Kosten dieser Stage. Der manuelle Admin-Endpunkt
+    # laeuft unabhaengig davon weiter mit voller Pipeline.
+    cron_post_analysis_skip_vision: bool = True
+
     # Sprint F0.6 Hard-Cap-Vollausbau — Apify-Monatsbudget. Versicherung
     # gegen Spike-Anomalien (Faktor 10+), kein Optimierungs-Hebel.
     # Default $50 nach Apify-Pay-per-Event-Cost-Tracking-Fix (PR #116):

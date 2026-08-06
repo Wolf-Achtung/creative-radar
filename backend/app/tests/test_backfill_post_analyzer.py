@@ -116,7 +116,7 @@ def mock_analyzer(monkeypatch):
     minimalen Erfolgs-State produziert ohne echte API-Calls."""
     from app.services import post_analyzer as real_pa
 
-    def fake_analyze(session, post):
+    def fake_analyze(session, post, *, skip_vision=False):
         post.analysis = {"format": "clip", "tone": "energetic",
                          "purpose": "ongoing_promotion",
                          "lifecycle_stage": "post_launch", "confidence": 0.7}
@@ -197,7 +197,7 @@ def test_per_post_error_does_not_break_batch(db, monkeypatch):
     der Loop laeuft weiter."""
     call_state = {"count": 0}
 
-    def flaky_analyze(session, post):
+    def flaky_analyze(session, post, *, skip_vision=False):
         call_state["count"] += 1
         if call_state["count"] == 2:
             raise RuntimeError("simulated per-post crash")
@@ -238,7 +238,7 @@ def test_apply_auth_error_aborts_but_keeps_done_work(db, monkeypatch):
     class FakeAuthError(Exception):
         pass
 
-    def flaky_analyze(session, post):
+    def flaky_analyze(session, post, *, skip_vision=False):
         call_state["count"] += 1
         if call_state["count"] == 2:
             raise FakeAuthError("ANTHROPIC_API_KEY invalid")
@@ -292,7 +292,7 @@ def test_apply_auth_error_aborts_but_keeps_done_work(db, monkeypatch):
 def test_apply_aborts_when_anthropic_unconfigured(db, monkeypatch):
     """Wenn ``is_anthropic_configured()`` False ist, wird der Backfill
     nicht gestartet — wir wollen kein halbes Ergebnis."""
-    def fake_analyze(session, post):  # darf nie aufgerufen werden
+    def fake_analyze(session, post, *, skip_vision=False):  # darf nie aufgerufen werden
         raise AssertionError("analyze_post should not be called")
 
     class FakeAuthError(Exception):
