@@ -19,7 +19,12 @@
 # Cron-Scheduler ist aus. Die Umgebung funktioniert komplett offline.
 services:
   db:
-    image: postgres:16-alpine
+    # Gleiche Major-Version wie Railway (Staging-Postgres meldet
+    # "PostgreSQL 18.4", geprueft am 06.08.2026 via SELECT version()).
+    # Lokal absichtlich nicht neuer als Prod/Staging: ein Dump aus Railway
+    # laesst sich sonst nicht zurueckspielen, und Verhaltensunterschiede
+    # zwischen Major-Versionen faenden wir erst im Deploy.
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: cr
       POSTGRES_PASSWORD: cr

@@ -39,7 +39,7 @@ Mock-Modus); die lokale Umgebung ist ein Angebot, keine Voraussetzung.
 Voraussetzungen: Docker Desktop, Node 22, das Repo.
 
 ```sh
-# 1 — Postgres 16 + Backend (Hot-Reload, Mock-APIs, Migrationen laufen automatisch)
+# 1 — Postgres 18 + Backend (Hot-Reload, Mock-APIs, Migrationen laufen automatisch)
 docker compose up -d
 
 # 2 — Synthetische Testdaten (idempotent: zweiter Lauf resettet)
@@ -61,10 +61,14 @@ Admin-API).
 
 Kein einziges echtes Secret nötig. Alles läuft offline.
 
-**Postgres-Version:** compose nutzt `postgres:16-alpine`. Einmalig prüfen,
-dass Railway dieselbe Major-Version fährt: Railway → Postgres → Data →
-Query: `SELECT version();` — falls dort 17.x steht, in
-`docker-compose.yml` auf `postgres:17-alpine` wechseln.
+**Postgres-Version:** compose nutzt `postgres:18-alpine` — dieselbe
+Major-Version wie Railway (Staging-Postgres meldete am 06.08.2026
+`PostgreSQL 18.4`). Wenn Railway die Postgres-Version irgendwann anhebt,
+hier nachziehen; prüfen via Railway → Postgres → Data → Query:
+`SELECT version();`. Nach einem Versionswechsel muss das lokale Volume
+einmal weg, sonst startet Postgres mit „database files are incompatible
+with server" nicht: `docker compose down -v && docker compose up -d`
+(löscht die lokale Test-DB, `seed_dev` baut sie neu auf).
 
 ## 2. Branch-Modell
 
