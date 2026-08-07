@@ -431,3 +431,48 @@ def test_endpoint_returns_report(client, session: Session):
 def test_endpoint_rejects_out_of_range_window(client):
     assert client.get("/api/admin/langform?window_days=5").status_code == 422
     assert client.get("/api/admin/langform?min_posts_per_arm=1").status_code == 422
+
+
+def test_localized_advantage_is_not_the_same_as_explained(session: Session):
+    """Der Fall aus dem Produktionslauf vom 07.08.2026.
+
+    Langform gewinnt auf einer Plattform klar und auf der anderen gar
+    nicht. Das ist weder "die Plattform erklaert alles" noch "haelt
+    ueberall" — es sagt, wo der Hebel greift. Die binaere Fassung haette
+    daraus faelschlich Schwaeche gelesen.
+    """
+    for _ in range(3):
+        yt = _channel(session, platform="youtube")
+        _cohort(session, yt, duration=150, normal=20, breakouts=20)   # 50 %
+        _cohort(session, yt, duration=30, normal=54, breakouts=6)     # 10 %
+    for _ in range(3):
+        tt = _channel(session, platform="tiktok")
+        _cohort(session, tt, duration=150, normal=36, breakouts=4)    # 10 %
+        _cohort(session, tt, duration=30, normal=54, breakouts=6)     # 10 %
+
+    report = la.compute_langform_report(session, now=NOW)
+
+    assert _row(report.strata["platform"], "youtube").verdict == "advantage"
+    assert _row(report.strata["platform"], "tiktok").verdict == "none"
+
+    # Weder wegerklaert ...
+    assert "platform" not in report.explained_by
+    # ... noch universell — sondern lokalisiert.
+    assert "platform" in report.localized_in
+    assert any("wo der Hebel greift" in n for n in report.notes)
+    # Das Grobmass allein wuerde hier in die Irre fuehren.
+    assert 0 < report.survives_in < report.tested_strata
+
+
+def test_universal_advantage_is_not_reported_as_localized(session: Session):
+    """Gegenprobe: haelt der Vorsprung in jeder Schicht, darf die
+    Dimension nicht als lokalisiert erscheinen."""
+    for platform in ("youtube", "tiktok"):
+        for _ in range(3):
+            ch = _channel(session, platform=platform)
+            _cohort(session, ch, duration=150, normal=20, breakouts=20)
+            _cohort(session, ch, duration=30, normal=54, breakouts=6)
+
+    report = la.compute_langform_report(session, now=NOW)
+    assert report.localized_in == []
+    assert report.explained_by == []
