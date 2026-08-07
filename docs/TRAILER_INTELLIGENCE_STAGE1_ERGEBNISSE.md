@@ -772,3 +772,138 @@ Solange die Abdeckung nicht steigt, bleiben `format`, `tone` und `lifecycle_stag
 einem Achtel des Bestands sitzen — und genau diese drei Dimensionen tragen die
 Trailer-Fragestellung. `duration_bucket` und `music_kind` sind davon nicht betroffen,
 sie werden gemessen statt klassifiziert.
+
+## 13. Auflösung (07.08.2026, nachmittags) — die Posts ohne Views waren der Fehler
+
+Zwei Läufe zusammen haben den Rest der Auswertung geklärt: die korrigierte Query aus
+Abschnitt 8.5 und Query B aus Abschnitt 10.2. Ergebnis-Screenshots liegen unter
+`docs/screenshots/`.
+
+### 13.1 Die Plattform-Korrektur funktioniert — nachweisbar
+
+`music_kind` ist der sauberste denkbare Testfall, weil das Feld nur für TikTok-Posts
+existiert. Die korrigierte Query erkennt das und setzt `erwartet_pct` korrekt auf die
+TikTok-Quote:
+
+| Dimension | Wert | Posts | Plattformen | Treffer | erwartet | z |
+|---|---|---:|---|---:|---:|---:|
+| music_kind | original_sound | 2.065 | tiktok | 10,1 % | 10,1 % | **0,00** |
+| music_kind | licensed_track | 228 | tiktok | 9,6 % | 10,1 % | −0,24 |
+
+Gegen die alte Korpusquote von 20 % wäre `original_sound` mit z ≈ −11,2 ein
+katastrophaler Einbruch gewesen. Es ist exakt durchschnittlich.
+
+Ebenfalls gekippt: **„Humor ist der zuverlässigste Verlierer"** (Abschnitt 4d). 13,4 %
+gegen eine Erwartung von 14,3 % ergibt z ≈ −0,3. Der Befund war ein
+Plattform-Artefakt, kein Ton-Effekt.
+
+### 13.2 Aber: alle vier Dauer-Buckets kamen „über" heraus
+
+| Bucket | Posts | Treffer | erwartet | z |
+|---|---:|---:|---:|---:|
+| >60s | 1.507 | 28,3 % | 19,4 % | **+8,74** |
+| <15s | 687 | 23,7 % | 17,6 % | **+4,20** |
+| 15–30s | 1.415 | 22,5 % | 18,4 % | **+3,98** |
+| 30–60s | 1.675 | 21,3 % | 18,4 % | **+3,06** |
+
+Nach der Korrektur war das die *einzige* Dimension mit signifikanten Ausschlägen — und
+alle vier zeigten in dieselbe Richtung. Vier gleichgerichtete Ausschläge in einer
+Dimension sind kein Befund, sondern ein systematischer Fehler.
+
+### 13.3 Der Fehler saß im Nenner der Plattform-Quote
+
+Instagram im Fenster: 3.130 Posts, Trefferquote 28,6 %. Davon mit Dauer-Angabe: 2.125
+Posts, Trefferquote 42,1 %. Nachgerechnet:
+
+```
+3.130 × 28,6 %  =  895,2 Treffer   (alle Instagram-Posts)
+2.125 × 42,1 %  =  894,6 Treffer   (nur die mit Dauer)
+────────────────────────────────
+1.005 Posts ohne Dauer  →  0,6 Treffer, also null
+```
+
+**Die 1.005 Instagram-Posts ohne Dauer liefern exakt keinen einzigen Treffer.** Es sind
+Bilder und Karussells, für die Instagram keine Views ausliefert — dieselben 1.005, die
+in der Todo-Liste als „kaputte Bildabrufe" stehen.
+
+Ihre Aktivierung ist 0,0. Das sieht aus wie eine Messung, ist aber eine Leerstelle. Sie
+können per Konstruktion nie ein Treffer sein, saßen aber im Nenner der Plattform-Quote.
+Jede Zelle, die nur Posts mit Dauer enthält — also jeder Dauer-Bucket — lag dadurch
+automatisch über ihrer Erwartung.
+
+### 13.4 Query B misst den zweiten, größeren Teil des Schadens
+
+| Plattform | mit den 0,0-Posts | ohne sie | Differenz |
+|---|---:|---:|---:|
+| Instagram | 28,6 % | **15,1 %** | −13,5 pp |
+| YouTube | 15,9 % | 15,9 % | 0 |
+| TikTok | 10,1 % | 10,1 % | 0 |
+
+TikTok und YouTube haben keinen einzigen Post ohne Views — identische Zahlen in beiden
+Spalten. Der Effekt ist rein instagram-seitig, halbiert dort aber die Quote.
+
+Der Mechanismus ist der aus Abschnitt 10.2: die Null geht in den Kanal-Median ein und
+drückt ihn, wodurch die Lifts **aller übrigen** Posts desselben Kanals steigen. Die
+Verzerrung trifft also nicht die Posts ohne Views, sondern alle anderen.
+
+### 13.5 Korrektur im Code und was von der Plattform-Aussage übrig bleibt
+
+`trailer_patterns.py` schließt Posts ohne messbare Views jetzt aus — vor der
+Baseline-Berechnung, damit der Median sauber bleibt (`_has_measurable_views`). Die
+Notes melden, wie viele Posts je Plattform betroffen sind; eine stille Filterung wäre
+gegen die Ehrlichkeits-Regeln des Moduls.
+
+**Damit ist auch meine Darstellung aus Abschnitt 8 zu korrigieren.** Die dort genannten
+„Faktor vier" zwischen den Plattformen beruhten auf Instagrams 42,1 % — einer Zahl, die
+doppelt verzerrt war (nur Posts mit Dauer, und durch die 0,0-Posts aufgebläht). Die
+tatsächliche Spanne:
+
+| Plattform | bereinigte Trefferquote |
+|---|---:|
+| YouTube | 15,9 % |
+| Instagram | 15,1 % |
+| TikTok | 10,1 % |
+
+Faktor 1,6, nicht 4. Die Plattform-Korrektur bleibt richtig und notwendig — TikTok
+liegt belastbar unter den anderen beiden —, aber das Ausmaß war überzeichnet.
+
+### 13.6 Korrigierte Query A
+
+Die Fassung in Abschnitt 10.1 lief nicht: `column p.asset_type does not exist`. Mein
+Fehler — `asset_type` sitzt auf der `asset`-Tabelle, `post` hat `media_type`. Diese
+Fassung ist gegen ein lokales Postgres 16 geprüft:
+
+```sql
+SELECT c.platform,
+       COALESCE(p.media_type, '(kein media_type)') AS medien_typ,
+       count(*)                                                AS posts,
+       count(*) FILTER (WHERE p.visible_views IS NULL)         AS views_null,
+       count(*) FILTER (WHERE p.visible_views = 0)             AS views_null_wert,
+       count(*) FILTER (WHERE COALESCE(p.visible_views,0) > 0) AS views_vorhanden,
+       round(100.0 * count(*) FILTER (WHERE COALESCE(p.visible_views,0) = 0)
+             / count(*), 1)                                    AS ohne_views_pct
+FROM creative_radar.post p
+JOIN creative_radar.channel c ON c.id = p.channel_id
+WHERE p.detected_at > now() - interval '90 days'
+GROUP BY 1, 2
+ORDER BY 1, ohne_views_pct DESC, posts DESC;
+```
+
+Sie ist für die Rechnung nicht mehr nötig — der Ausschluss steht und wirkt unabhängig
+davon, warum die Views fehlen. Sie beantwortet aber die Anschlussfrage, ob sich der
+Instagram-Connector reparieren lässt oder ob Instagram für Bilder und Karussells
+schlicht keine Views liefert.
+
+### 13.7 Was daraus folgt
+
+1. Die Auswertung muss nach der Code-Korrektur **neu laufen**. Alle Zahlen in den
+   Abschnitten 3, 8 und 11 stammen aus der verzerrten Grundgesamtheit.
+2. Von den ursprünglich vier Befunden hält keiner: „lange Formate gewinnen"
+   (Abschnitt 8), „Musik ist ein Verlierer" und „Humor ist ein Verlierer"
+   (Abschnitt 13.1), und `behind_the_scenes` fällt mit z ≈ 1,6 unter die Schwelle.
+   Es bleibt vorerst **kein einziger belastbarer Befund** aus Format, Ton, Dauer oder
+   Musik.
+3. Das ist kein Rückschlag, sondern die Bestätigung der Ausgangs-Hypothese aus
+   Abschnitt 4g: die entscheidende Varianz sitzt nicht in diesen Metadaten, sondern in
+   der kreativen Ausführung — Hook, Schnitt, Bildsprache. Genau das, was die
+   Thumbnail-only-Pipeline nicht erhebt.
