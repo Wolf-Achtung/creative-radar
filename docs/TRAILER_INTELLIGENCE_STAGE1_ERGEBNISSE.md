@@ -736,6 +736,10 @@ Drei mögliche Ursachen, in absteigender Wahrscheinlichkeit:
 3. Sie läuft und setzt `last_analyzed_at`, liefert aber keine verwertbaren Formate —
    dann steigt `analysiert`, ohne dass `mit_format` mitwächst.
 
+> **Beantwortet am 07.08.2026 — siehe Abschnitt 14.** Keine der drei Ursachen war es.
+> Der Cron läuft wöchentlich montags, und der Merge kam drei Tage nach dem letzten
+> Lauf. Die Stage hatte schlicht noch keine Gelegenheit.
+
 Die folgenden Queries unterscheiden die drei Fälle. Read-only, gegen ein lokales
 Postgres 16 geprüft.
 
@@ -907,3 +911,154 @@ schlicht keine Views liefert.
    Abschnitt 4g: die entscheidende Varianz sitzt nicht in diesen Metadaten, sondern in
    der kreativen Ausführung — Hook, Schnitt, Bildsprache. Genau das, was die
    Thumbnail-only-Pipeline nicht erhebt.
+
+## 14. Die Cron-Stage lief nie — und warum das harmlos ist
+
+Die Queries C1–C3 aus Abschnitt 12 sind gelaufen. Ergebnis: alle drei möglichen
+Ursachen, die dort standen, treffen nicht zu.
+
+### 14.1 C1 — zehn Läufe, zehnmal `NULL`
+
+| | |
+|---|---|
+| Cron-Rhythmus | **wöchentlich, Montag 03:00 UTC** (`cron_scheduler.py`, `_TRIGGER_WEEKDAY = 0`) |
+| Letzter Lauf | Mo **03.08.2026**, 03:00:04, `completed` |
+| PR #331 gemergt | Do **06.08.2026**, 21:13 |
+
+Der Merge kam drei Tage **nach** dem letzten Wochenlauf. Deshalb steht in allen zehn
+protokollierten Läufen `NULL` bei `post_analysis` — keiner von ihnen kannte die Stage.
+Kein Fehler, keine fehlende Konfiguration, kein blockierendes Budget. Nächster Lauf:
+**Montag, 10.08.2026, 03:00 UTC.**
+
+Nachtrag zur Methodik: der Zeitplan steht im Code und war ohne Datenbankzugriff
+nachlesbar. Die Beobachtung in Abschnitt 12 war richtig, die dort formulierte
+Dringlichkeit nicht.
+
+### 14.2 C2 und C3 — der Bestand kommt aus zwei manuellen Läufen im Mai
+
+| | |
+|---|---:|
+| nie analysiert | 7.212 |
+| analysiert | 1.220 |
+| davon mit `format` | **1.220** |
+| zuletzt analysiert | 28.05.2026, 21:47 |
+
+| Tag | analysiert | davon mit Format |
+|---|---:|---:|
+| 28.05.2026 | 1.210 | 1.210 |
+| 03.05.2026 | 10 | 10 |
+
+`analysiert` und `mit_format` sind identisch — der Analyzer liefert für jeden Post, den
+er anfasst, auch ein Format. Die dritte Hypothese aus Abschnitt 12 („läuft, liefert
+aber keine Formate") ist damit ausgeschlossen.
+
+### 14.3 Eine Frist: 26. August
+
+Die 1.210 Posts vom 28.05. fallen am **26.08.2026** aus dem 90-Tage-Fenster. Passiert
+bis dahin nichts, sinkt die Klassifikations-Abdeckung nicht auf 12 %, sondern auf nahe
+null — dann sind `format`, `tone` und `lifecycle_stage` als Dimensionen unbrauchbar.
+
+Bei 800 Posts pro Lauf und einem Rhythmus von einer Woche braucht der Backlog von 7.212
+Posts **neun Wochen**, also bis Mitte Oktober. Das ist nach der Frist.
+
+**Empfehlung:** `CRON_POST_ANALYSIS_MAX_POSTS_PER_RUN` vor dem 10.08. auf **2500**
+setzen. Kosten bei ~$0,0029 pro Post text-only: rund **$7 pro Lauf**, drei Läufe für
+den ganzen Backlog, der erste noch vor der Frist.
+
+Bewusst nicht 8.000 in einem Rutsch: die reale Latenz pro Post ist unbekannt, und
+geschätzt wären das sechs bis sieben Stunden am Stück. Die Stage meldet
+`duration_seconds` in ihrer Zusammenfassung — nach dem ersten Lauf lässt sich der Wert
+mit einer echten Messung setzen statt mit einer Schätzung.
+
+### 14.4 Kontrolle nach dem 10.08.
+
+```sql
+SELECT started_at, status, summary_json -> 'post_analysis' AS post_analysis_stage
+FROM creative_radar.cron_run ORDER BY started_at DESC LIMIT 1;
+```
+
+Dort stehen dann `attempted`, `analyzed`, `errors` und `duration_seconds` — die vier
+Zahlen, die für die Cap-Entscheidung nötig sind.
+
+## 15. Query für die Neu-Erhebung nach der Views-Korrektur
+
+Ersetzt Abschnitt 8.5. Entspricht dem Stand nach PR #342: `visible_views > 0`,
+`format_class` als sechste Dimension, Erwartungswert je Plattform-Mischung. Gegen ein
+lokales Postgres 16 geprüft — mit Testdaten, bei denen der Views-Filter eine künstlich
+auf 18,2 % verdünnte Quote korrekt auf die echten 33,3 % zurückholt, während die
+unbelastete Plattform unverändert bleibt.
+
+```sql
+WITH scoped AS (
+  SELECT p.id, p.channel_id, c.platform, p.duration_seconds, p.analysis, p.raw_payload,
+         CASE WHEN c.platform='youtube' THEN (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0))::numeric/p.visible_views
+              ELSE (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0)+GREATEST(COALESCE(p.visible_bookmarks,0),0))::numeric/p.visible_views END AS activation
+  FROM creative_radar.post p JOIN creative_radar.channel c ON c.id=p.channel_id
+  WHERE p.detected_at > now() - interval '90 days'
+    AND COALESCE(p.visible_views, 0) > 0
+), baseline AS (
+  SELECT channel_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY activation) AS med
+  FROM scoped GROUP BY channel_id HAVING count(*) >= 4
+), lifted AS (
+  SELECT s.*, s.activation/b.med AS lift
+  FROM scoped s JOIN baseline b ON b.channel_id=s.channel_id WHERE b.med > 0
+), korpus AS (
+  SELECT count(*) FILTER (WHERE lift >= 2.0)::numeric / count(*) AS rate FROM lifted
+), plattform AS (
+  SELECT platform, count(*) FILTER (WHERE lift >= 2.0)::numeric / count(*) AS rate
+  FROM lifted GROUP BY platform HAVING count(*) >= 30
+), cells AS (
+  SELECT 'format_class' AS dimension,
+         CASE WHEN duration_seconds < 60 THEN '1_kurzform'
+              WHEN duration_seconds < 90 THEN '2_uebergang_60_90s'
+              ELSE '3_langform' END AS value, lift, channel_id, platform
+  FROM lifted WHERE duration_seconds IS NOT NULL
+
+  UNION ALL SELECT 'duration_bucket',
+         CASE WHEN duration_seconds<15 THEN '1_<15s' WHEN duration_seconds<30 THEN '2_15-30s'
+              WHEN duration_seconds<60 THEN '3_30-60s' ELSE '4_>60s' END, lift, channel_id, platform
+  FROM lifted WHERE duration_seconds IS NOT NULL
+
+  UNION ALL SELECT 'music_kind',
+         CASE WHEN raw_payload -> '_creative_radar_music' ->> 'musicOriginal' = 'true' THEN 'original_sound'
+              WHEN raw_payload -> '_creative_radar_music' ->> 'musicOriginal' = 'false' THEN 'licensed_track'
+              ELSE 'unknown' END, lift, channel_id, platform
+  FROM lifted WHERE (raw_payload -> '_creative_radar_music')::text NOT IN ('null', '{}')
+
+  UNION ALL SELECT 'format', analysis->>'format', lift, channel_id, platform FROM lifted
+  WHERE analysis->>'format' IS NOT NULL AND (analysis->>'confidence')::numeric >= 0.7
+
+  UNION ALL SELECT 'tone', analysis->>'tone', lift, channel_id, platform FROM lifted
+  WHERE analysis->>'tone' IS NOT NULL AND (analysis->>'confidence')::numeric >= 0.7
+
+  UNION ALL SELECT 'lifecycle_stage', analysis->>'lifecycle_stage', lift, channel_id, platform FROM lifted
+  WHERE analysis->>'lifecycle_stage' IS NOT NULL AND (analysis->>'confidence')::numeric >= 0.7
+), agg AS (
+  SELECT c.dimension, c.value,
+         count(*) AS posts, count(DISTINCT c.channel_id) AS kanaele,
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY c.lift) AS median_lift,
+         percentile_cont(0.9) WITHIN GROUP (ORDER BY c.lift) AS p90_lift,
+         count(*) FILTER (WHERE c.lift >= 2.0)::numeric / count(*) AS treffer,
+         avg(COALESCE(pl.rate, (SELECT rate FROM korpus))) AS erwartet,
+         string_agg(DISTINCT c.platform, '+' ORDER BY c.platform) AS plattformen
+  FROM cells c LEFT JOIN plattform pl ON pl.platform = c.platform
+  GROUP BY c.dimension, c.value
+  HAVING count(*) >= 5 AND count(DISTINCT c.channel_id) >= 3
+)
+SELECT dimension, value, posts, kanaele, plattformen,
+       round(median_lift::numeric, 2) AS median_lift,
+       round(100 * treffer, 1)  AS treffer_pct,
+       round(100 * erwartet, 1) AS erwartet_pct,
+       round(((treffer - erwartet)
+              / NULLIF(sqrt(erwartet * (1 - erwartet) / posts), 0))::numeric, 2) AS z,
+       round(p90_lift::numeric, 2) AS p90_lift
+FROM agg
+ORDER BY z DESC NULLS LAST;
+```
+
+**Zwei Kontrollen beim Lesen des Ergebnisses:**
+
+1. Die vier Dauer-Buckets dürfen nicht mehr alle gleichzeitig über ihrer Erwartung
+   liegen. Tun sie es doch, steckt ein zweiter Confound derselben Bauart drin.
+2. Die Plattform-Quoten sollten bei rund 15,9 % (YouTube), 15,1 % (Instagram) und
+   10,1 % (TikTok) landen — die bereinigten Werte aus Abschnitt 13.5.
