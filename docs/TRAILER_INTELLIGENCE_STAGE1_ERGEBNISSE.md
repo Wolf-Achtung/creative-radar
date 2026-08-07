@@ -1075,7 +1075,7 @@ unter `docs/screenshots/`.
 | Bucket | vorher (Abschnitt 13.2) | | nachher | |
 |---|---:|---:|---:|---:|
 | | Treffer | z | Treffer | z |
-| >60s | 28,3 % | **+8,74** | 15,2 % | ~+2 |
+| >60s | 28,3 % | **+8,74** | 15,2 % | +1,65 |
 | <15s | 23,7 % | **+4,20** | 14,0 % | +0,96 |
 | 15–30s | 22,5 % | **+3,98** | 12,3 % | −0,80 |
 | 30–60s | 21,3 % | **+3,06** | 11,7 % | −1,75 |
@@ -1096,34 +1096,37 @@ zu Unrecht ausgeschlossene zurückgeholt.
 
 ### 16.2 Der einzige Befund, der übrig bleibt: die Formatklasse
 
-| Klasse | Posts | Kanäle | Median-Lift | Treffer | erwartet |
-|---|---:|---:|---:|---:|---:|
-| `3_langform` (≥ 90 s) | 869 | 176 | 1,06 | **16,9 %** | ~13 % |
-| `2_uebergang` (60–89 s) | 758 | 153 | 0,99 | 13,3 % | ~13 % |
-| `1_kurzform` (< 60 s) | 3.980 | 180 | 1,00 | 12,3 % | 13,0 % |
+| Klasse | Posts | Kanäle | Median-Lift | Treffer | erwartet | z |
+|---|---:|---:|---:|---:|---:|---:|
+| `3_langform` (≥ 90 s) | 869 | 176 | 1,06 | **16,9 %** | 14,2 % | **+2,27** |
+| `2_uebergang` (60–89 s) | 758 | 153 | 0,99 | 13,3 % | 13,4 % | **−0,04** |
+| `1_kurzform` (< 60 s) | 3.980 | 180 | 1,00 | 12,3 % | 13,0 % | −1,25 |
 
 Ein sauberer monotoner Verlauf über 5.607 Posts und 180 Kanäle — und die einzige
 Struktur-Aussage, die alle drei Korrekturrunden überlebt hat.
 
 **Die Grauzone hat sich empirisch bestätigt.** Sie war eine Konstruktionsentscheidung
 mit dem Argument „ein 75-Sekunden-Stück kann ein kurzer Trailer oder ein langer Spot
-sein". Die Daten sagen jetzt: der 60–89-Sekunden-Bereich liegt mit 13,3 % gegen ~13 %
-Erwartung **exakt auf dem Durchschnitt** — er verhält sich weder wie Langform noch wie
-Kurzform.
+sein". Die Daten sagen jetzt: der 60–89-Sekunden-Bereich liegt mit 13,3 % gegen 13,4 %
+Erwartung bei **z = −0,04** — über 758 Posts und 153 Kanäle praktisch nicht von der
+Erwartung zu unterscheiden. Er verhält sich weder wie Langform noch wie Kurzform.
 
 Das erklärt auch, warum `3_langform` mit 16,9 % **besser abschneidet als der rohe
 `>60s`-Bucket mit 15,2 %**, obwohl `>60s` die Langformate enthält: die 758 Posts der
-Grauzone verwässern ihn. Wäre die Grauzone der Langform zugeschlagen worden, wäre der
-Befund auf den `>60s`-Wert zusammengeschrumpft.
+Grauzone verwässern ihn.
+
+**Und dieser Unterschied entscheidet über den Befund.** `>60s` kommt auf z = 1,65 und
+reißt die Schwelle damit *nicht*; `3_langform` kommt auf z = 2,27 und reißt sie. Der
+Befund existiert nur, weil bei 90 Sekunden geschnitten wurde statt bei 60.
 
 ### 16.3 Was sonst noch übrig bleibt: fast nichts
 
-Nur drei der 28 Zellen erreichen plausibel |z| ≥ 2: `behind_the_scenes`,
-`format_class 3_langform` und `duration_bucket >60s`. Alles ab Platz sechs liegt
-zwischen z = +0,96 und z = −1,75.
+**Genau zwei** der 28 Zellen erreichen |z| ≥ 2: `behind_the_scenes` (+2,35) und
+`format_class 3_langform` (+2,27). Die gesamte übrige Verteilung liegt zwischen
+z = +1,65 und z = −1,72.
 
-`behind_the_scenes` ist mit 28,1 % Trefferquote die auffälligste Einzelzelle, hat aber
-nur 32 Posts über 19 Kanäle. Bei 28 geprüften Zellen ist rund ein Zufallstreffer bei
+`behind_the_scenes` ist mit 28,1 % gegen 13,8 % Erwartung die auffälligste Einzelzelle,
+hat aber nur 32 Posts über 19 Kanäle. Bei 28 geprüften Zellen ist rund ein Zufallstreffer bei
 |z| ≥ 2 zu erwarten (siehe `_breakout_z`, Absatz „Bekannte Grenze") — und die kleinste
 der drei Zellen ist der wahrscheinlichste Kandidat dafür. Vorerst als Hypothese führen,
 nicht als Befund.
@@ -1134,9 +1137,11 @@ Bemerkenswert im Negativen:
   unauffällig bis schwach.** Das Signal sitzt in der *Dauerklasse*, nicht im
   Format-Label. Ein als „Trailer" klassifizierter Post läuft nicht besser; ein Post ab
   90 Sekunden schon.
-- **`music_kind` ist unverändert** (2.065 / 228 Posts, 10,1 % / 9,6 %). Erwartet, weil
-  TikTok keine Posts ohne Views hat — die Korrektur konnte dort nichts ändern. Eine
-  saubere Gegenprobe, dass sie nur dort gewirkt hat, wo sie sollte.
+- **`music_kind` ist unverändert** (2.065 / 228 Posts, 10,1 % / 9,6 %) und landet bei
+  z = +0,07 und z = −0,21 — die Erwartung ist mit 10,1 % auf die Nachkommastelle
+  getroffen. Erwartbar, weil TikTok keine Posts ohne Views hat und die Korrektur dort
+  nichts ändern konnte. Eine saubere Gegenprobe, dass sie nur dort gewirkt hat, wo sie
+  sollte.
 
 ### 16.4 Konsequenz
 
@@ -1148,3 +1153,48 @@ und der Bereich dazwischen ist genau das: der Bereich dazwischen.*
 Das ist zugleich das Fundament für Stufe 3: die Frage ist nicht mehr, *ob* Langform
 anders funktioniert, sondern *warum*. Und diese Antwort steckt in Hook, Schnitt und
 Aufbau — nicht in Metadaten.
+
+### 16.5 Vollständige z-Werte (Nachtrag, kompakte Query)
+
+Die `z`-Spalte war im ersten Durchlauf rechts abgeschnitten. Mit dem verkürzten
+`SELECT` (nur `dimension, value, posts, treffer_pct, erwartet_pct, z`) sind alle 28
+Zellen ablesbar. Die Werte oben sind entsprechend von Schätzungen auf Messwerte
+umgestellt.
+
+| # | Dimension | Wert | Posts | Treffer | erwartet | z |
+|---:|---|---|---:|---:|---:|---:|
+| 1 | format | `behind_the_scenes` | 32 | 28,1 % | 13,8 % | **+2,35** |
+| 2 | format_class | `3_langform` | 869 | 16,9 % | 14,2 % | **+2,27** |
+| 3 | duration_bucket | `>60s` | 1.627 | 15,2 % | 13,8 % | +1,65 |
+| 4 | tone | `edgy` | 6 | 33,3 % | 14,5 % | +1,31 |
+| 5 | tone | `inspirational` | 32 | 18,8 % | 12,8 % | +1,01 |
+| … | | | | | | |
+| 11 | tone | `energetic` | 270 | 13,7 % | 13,0 % | +0,34 |
+| 12 | music_kind | `original_sound` | 2.065 | 10,1 % | 10,1 % | +0,07 |
+| 13 | format_class | `2_uebergang_60_90s` | 758 | 13,3 % | 13,4 % | −0,04 |
+| 14 | tone | `informative` | 59 | 13,6 % | 14,4 % | −0,19 |
+| 15 | music_kind | `licensed_track` | 228 | 9,6 % | 10,1 % | −0,21 |
+| … | | | | | | |
+| 21 | lifecycle_stage | `launch` | 233 | 11,2 % | 13,1 % | −0,86 |
+| 22 | tone | `suspenseful` | 68 | 10,3 % | 14,5 % | −0,98 |
+| 23 | format | `interview` | 17 | 5,9 % | 14,8 % | −1,03 |
+| 24 | lifecycle_stage | `evergreen` | 133 | 9,8 % | 13,1 % | −1,14 |
+| 25 | format_class | `1_kurzform` | 3.980 | 12,3 % | 13,0 % | −1,25 |
+| 26 | format | `clip` | 166 | 9,6 % | 13,0 % | −1,29 |
+| 27 | tone | `humorous` | 140 | 8,6 % | 12,6 % | −1,42 |
+| 28 | duration_bucket | `30–60s` | 1.770 | 11,7 % | 13,1 % | −1,72 |
+
+Drei Beobachtungen, die erst mit den exakten Werten sichtbar werden:
+
+**`>60s` reißt die Schwelle nicht.** Mit z = 1,65 bleibt der rohe Dauer-Bucket
+*neutral*, während die saubere ≥ 90-Sekunden-Klasse mit z = 2,27 darüber liegt. Die
+Grauzone kostet den Befund — nicht nur Schärfe, sondern seine Existenz.
+
+**Die Grauzone trifft die Erwartung auf 0,1 Prozentpunkte.** 13,3 % gemessen gegen
+13,4 % erwartet, z = −0,04, über 758 Posts. Eine Zone, die als Konstruktions­entscheidung
+angelegt wurde, weil eine Zuordnung nicht zu rechtfertigen war, erweist sich als
+statistisch exakt neutral.
+
+**`music_kind` trifft sie ebenfalls punktgenau.** 10,1 % gegen 10,1 % erwartet,
+z = +0,07. Gegen die alte Korpusquote von 20 % wäre dasselbe z ≈ −11,2 gewesen. Besser
+lässt sich die Plattform-Korrektur nicht belegen.
