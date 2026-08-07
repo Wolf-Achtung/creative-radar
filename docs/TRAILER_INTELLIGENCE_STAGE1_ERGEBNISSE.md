@@ -642,3 +642,133 @@ Views selbst, sondern bei allen anderen Posts desselben Kanals.
   dieses Modul — die Änderung will sorgfältig gemacht werden.
 - Bestätigt er sich nicht, bleiben die Instagram-Zahlen wie sie sind, und die Ursache
   der hohen Quote ist eine offene Frage für die nächste Auswertung.
+
+## 11. Lauf vom 07.08.2026 — vollständige fünf Dimensionen
+
+Die Query aus Abschnitt 6 (korpusweite Basisquote), diesmal mit `lifecycle_stage` und
+`music_kind`, die beim ersten Lauf gefehlt hatten.
+
+Datenbasis: 7.358 Posts im Fenster, 6.374 mit Baseline, 154 von 203 Kanälen,
+Klassifikations-Abdeckung **12,2 %**. Basisquote 20,0 %.
+
+| Dimension | Wert | Posts | Kanäle | Median | Treffer | P90 |
+|---|---|---:|---:|---:|---:|---:|
+| tone | edgy | 6 | 6 | 1,42 | 33,3 % | 5,14 |
+| duration_bucket | >60s | 1.507 | 152 | 1,24 | 28,3 % | 3,95 |
+| tone | emotional | 33 | 23 | 1,32 | 27,3 % | 2,80 |
+| format | behind_the_scenes | 37 | 24 | 0,81 | 27,0 % | 3,02 |
+| lifecycle_stage | pre_launch | 121 | 51 | 1,10 | 25,6 % | 3,26 |
+| format | teaser | 29 | 21 | 1,07 | 24,1 % | 3,08 |
+| duration_bucket | <15s | 687 | 125 | 1,15 | 23,7 % | 3,15 |
+| tone | inspirational | 35 | 28 | 1,10 | 22,9 % | 3,04 |
+| duration_bucket | 15–30s | 1.415 | 146 | 1,08 | 22,5 % | 3,41 |
+| format | trailer | 37 | 22 | 1,33 | 21,6 % | 3,09 |
+| duration_bucket | 30–60s | 1.675 | 150 | 1,13 | 21,3 % | 3,07 |
+| tone | energetic | 291 | 76 | 1,04 | 18,6 % | 2,96 |
+| format | promo | 351 | 75 | 1,06 | 18,5 % | 2,96 |
+| lifecycle_stage | post_launch | 153 | 44 | 1,10 | 17,6 % | 2,39 |
+| tone | suspenseful | 75 | 36 | 1,00 | 17,3 % | 2,80 |
+| lifecycle_stage | launch | 245 | 56 | 1,02 | 17,1 % | 2,94 |
+| tone | informative | 61 | 31 | 0,98 | 16,4 % | 2,33 |
+| format | clip | 170 | 48 | 0,99 | 13,5 % | 2,17 |
+| tone | humorous | 142 | 48 | 1,03 | 13,4 % | 2,17 |
+| format | interview | 17 | 11 | 1,15 | 11,8 % | 1,93 |
+| lifecycle_stage | evergreen | 137 | 45 | 1,00 | 11,7 % | 2,14 |
+| music_kind | original_sound | 2.065 | 38 | 1,00 | 10,1 % | 2,01 |
+| music_kind | licensed_track | 228 | 28 | 0,96 | 9,6 % | 1,89 |
+| format | compilation | 13 | 7 | 1,19 | 7,7 % | 1,92 |
+| tone | neutral | 13 | 9 | 1,12 | 7,7 % | 1,90 |
+
+### 11.1 Musik bestätigt die Plattform-Korrektur an einem sauberen Fall
+
+`music_kind` stammt aus `raw_payload._creative_radar_music` und existiert damit
+**ausschließlich für TikTok-Posts** (2.065 + 228 = 2.293 von 2.335). Die Zelle hat also
+eine reine Plattform-Mischung — und TikToks eigene Basisquote ist 9,9 % (Abschnitt 8.1).
+
+| Referenz | `original_sound` (10,1 %, n=2.065) | Lesart |
+|---|---:|---|
+| Korpusquote 20,0 % | z ≈ **−11,2** | katastrophaler Einbruch |
+| TikTok-Quote 9,9 % | z ≈ **+0,3** | exakt durchschnittlich |
+
+Dieselbe Zahl, zwei völlig verschiedene Aussagen. `licensed_track` liegt mit 9,6 %
+(z ≈ −0,2 gegen TikTok) ebenfalls genau auf Plattform-Niveau.
+
+Der Befund aus Abschnitt 4f — „Musik liefert kein Signal" — bleibt damit richtig, aber
+aus dem umgekehrten Grund als gedacht: nicht weil beide Musikarten gleich schwach
+sind, sondern weil beide **normal** sind und der scheinbare Einbruch reine
+Plattform-Zusammensetzung war. Ein besserer Beleg für die Korrektur aus Abschnitt 8
+als jeder synthetische Testfall.
+
+### 11.2 Die Sortierung dieser Query ist irreführend
+
+`ORDER BY treffer_pct DESC` setzt `tone=edgy` mit **6 Posts** an die Spitze. Gegen die
+Korpusquote gerechnet ist das z ≈ 0,8 — reines Rauschen. Genau deshalb sortiert
+`trailer_patterns.py` nach `breakout_z` statt nach der Rohquote. Für den nächsten Lauf
+gehört die Query aus Abschnitt 8.5 verwendet, nicht diese.
+
+### 11.3 Was noch aussteht
+
+`lifecycle_stage` ist neu in der Auswertung und spannt von `pre_launch` 25,6 % bis
+`evergreen` 11,7 %. Ob davon nach der Plattform-Korrektur etwas übrigbleibt, sagt erst
+die Query aus Abschnitt 8.5 — die Klassen sind über alle drei Plattformen verteilt.
+
+## 12. Warnsignal: die Klassifikations-Abdeckung fällt
+
+| Datum | Posts mit Baseline | Abdeckung | klassifizierte Posts |
+|---|---:|---:|---:|
+| 06.08.2026 | 6.577 | 13,8 % | ≈ 908 |
+| 07.08.2026 | 6.374 | 12,2 % | ≈ 778 |
+
+Die Cron-Stage aus PR #331 klassifiziert bis zu 800 Posts pro Lauf. Ein einziger
+vollständiger Lauf müsste die Abdeckung um rund 12 Prozentpunkte anheben. Sie ist
+stattdessen um 1,6 Punkte gefallen.
+
+Ein Teil davon ist erklärbar: die per Backfill klassifizierten Posts sind die älteren,
+und die fallen als erste aus dem 90-Tage-Fenster. Aber das erklärt kein Ausbleiben von
+Zuwachs — nur eine Dämpfung.
+
+Drei mögliche Ursachen, in absteigender Wahrscheinlichkeit:
+
+1. Die Stage läuft nicht (Deploy nicht durch, oder das Anthropic-Budget-Preflight
+   bricht den Lauf vorher ab).
+2. Sie läuft, aber `is_anthropic_configured()` ist falsch — dann meldet sie sich mit
+   `{"enabled": false, "reason": "anthropic_not_configured"}` und tut nichts.
+3. Sie läuft und setzt `last_analyzed_at`, liefert aber keine verwertbaren Formate —
+   dann steigt `analysiert`, ohne dass `mit_format` mitwächst.
+
+Die folgenden Queries unterscheiden die drei Fälle. Read-only, gegen ein lokales
+Postgres 16 geprüft.
+
+```sql
+-- C1: Was hat die Stage in den letzten Läufen gemeldet?
+--     NULL = dieser Lauf kannte die Stage noch nicht (alter Deploy).
+SELECT started_at, status,
+       summary_json -> 'post_analysis' AS post_analysis_stage
+FROM creative_radar.cron_run
+ORDER BY started_at DESC
+LIMIT 10;
+```
+
+```sql
+-- C2: Backlog und die Lücke zwischen "analysiert" und "hat ein Format".
+SELECT count(*) FILTER (WHERE last_analyzed_at IS NULL)          AS nie_analysiert,
+       count(*) FILTER (WHERE last_analyzed_at IS NOT NULL)      AS analysiert,
+       count(*) FILTER (WHERE analysis ->> 'format' IS NOT NULL) AS mit_format,
+       max(last_analyzed_at)                                     AS zuletzt
+FROM creative_radar.post;
+```
+
+```sql
+-- C3: Verlauf — an welchen Tagen wurde tatsaechlich klassifiziert?
+SELECT last_analyzed_at::date AS tag,
+       count(*)                                                  AS analysiert,
+       count(*) FILTER (WHERE analysis ->> 'format' IS NOT NULL) AS davon_mit_format
+FROM creative_radar.post
+WHERE last_analyzed_at IS NOT NULL
+GROUP BY 1 ORDER BY 1 DESC LIMIT 14;
+```
+
+Solange die Abdeckung nicht steigt, bleiben `format`, `tone` und `lifecycle_stage` auf
+einem Achtel des Bestands sitzen — und genau diese drei Dimensionen tragen die
+Trailer-Fragestellung. `duration_bucket` und `music_kind` sind davon nicht betroffen,
+sie werden gemessen statt klassifiziert.
