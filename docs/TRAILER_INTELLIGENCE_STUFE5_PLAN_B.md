@@ -246,3 +246,114 @@ Merkmal (z. B. `music_entry_position` in `SCALE_FREE_FEATURES`) — bewusst getr
 Und wenn das Trailerhaus-Material dann kommt, ist es nicht entwertet, sondern
 aufgewertet: es trifft auf eine kalibrierte Werkzeugkette und einen bestehenden Befund,
 den es mit garantiert identischem Ausgangsmaterial bestätigen — oder korrigieren — kann.
+
+## 9. Messung vom 07.08.2026 — P1 bestätigt den Weg, die Werkzeuge sind gebaut
+
+### 9.1 Die wilden Paare existieren, und zwar reichlich
+
+| Plattform | Paare | Langform-Posts | Kurzform-Posts |
+|---|---:|---:|---:|
+| Instagram | 81 | 102 | 318 |
+| **YouTube** | **47** | 80 | 152 |
+| TikTok | 45 | 65 | 303 |
+
+**47 YouTube-Paare — mehr als das Doppelte der zwanzig, die der PoC braucht.** Selbst
+wenn die Überzählungs-Randnotiz aus Abschnitt 2.1 und die Sichtprüfung (Featurettes,
+eigenständige Kurzformate) die Liste deutlich ausdünnen, bleibt Luft. Der Weg trägt.
+
+Randbeobachtung: Instagram hat mit 81 Paaren die größte Auswahl — relevant, falls die
+Kontrollplattform-Entscheidung aus Abschnitt 4 je positiv ausfällt. Und TikToks
+Verhältnis (303 Kurzform-Posts auf 45 Paare) zeigt die Shorts-Logik in Reinform.
+
+### 9.2 Query P3 — die Arbeitsliste mit URLs
+
+P2 aggregiert und hat keine URLs; zum Annotieren braucht es sie. P3 wählt je Paar die
+**kürzeste Langform** (am ehesten der eigentliche Trailer statt eines Featurettes) und
+die **längste Kurzform** (der substanziellste Cutdown):
+
+```sql
+WITH post_titel AS (
+  SELECT DISTINCT p.id, p.channel_id, p.duration_seconds, p.post_url, a.title_id
+  FROM creative_radar.post p
+  JOIN creative_radar.asset a ON a.post_id = p.id
+  WHERE a.title_id IS NOT NULL
+    AND p.detected_at > now() - interval '90 days'
+    AND p.duration_seconds IS NOT NULL
+),
+paare AS (
+  SELECT pt.channel_id, pt.title_id
+  FROM post_titel pt
+  JOIN creative_radar.channel c ON c.id = pt.channel_id
+  WHERE c.platform = 'youtube'
+  GROUP BY 1, 2
+  HAVING count(*) FILTER (WHERE pt.duration_seconds >= 90) > 0
+     AND count(*) FILTER (WHERE pt.duration_seconds < 60) > 0
+),
+lang AS (
+  SELECT DISTINCT ON (channel_id, title_id)
+         channel_id, title_id, post_url, duration_seconds
+  FROM post_titel WHERE duration_seconds >= 90
+  ORDER BY channel_id, title_id, duration_seconds ASC
+),
+kurz AS (
+  SELECT DISTINCT ON (channel_id, title_id)
+         channel_id, title_id, post_url, duration_seconds
+  FROM post_titel WHERE duration_seconds < 60
+  ORDER BY channel_id, title_id, duration_seconds DESC
+)
+SELECT c.name AS kanal,
+       t.title_original AS titel,
+       round(l.duration_seconds) AS lang_s,
+       l.post_url                AS langform_url,
+       round(k.duration_seconds) AS kurz_s,
+       k.post_url                AS kurzform_url
+FROM paare
+JOIN lang l ON l.channel_id = paare.channel_id AND l.title_id = paare.title_id
+JOIN kurz k ON k.channel_id = paare.channel_id AND k.title_id = paare.title_id
+JOIN creative_radar.channel c ON c.id = paare.channel_id
+JOIN creative_radar.title t   ON t.id = paare.title_id
+ORDER BY 1, 2;
+```
+
+### 9.3 Die Werkzeuge aus Abschnitt 8, Zeilen 2–3, existieren jetzt
+
+| Werkzeug | Wo | Zweck |
+|---|---|---|
+| `tools/tap_annotator.html` | Browser, lokal | Tippen im IFrame-Player oder auf lokalen Dateien |
+| `backend/scripts/make_calibration_clips.py` | ffmpeg, lokal | Kalibrier-Clips mit bekannter Schnittliste |
+| `backend/scripts/evaluate_annotations.py` | Python, lokal | Kalibrier-Bericht und Paar-Vergleich |
+| `music_entry_position` | `video_features.py` | das angekündigte, nur menschlich setzbare Merkmal |
+
+Die drei methodischen Behauptungen aus Abschnitt 2.3 sind dabei zu Tests geworden
+(`test_annotation_eval.py`): konstante Latenz lässt die Einstellungslängen nachweislich
+unverändert, verpasste Schnitte ziehen die getippte ASL nachweislich nach oben
+(konservative Richtung), und Latenz-Mittel und -Streuung sind getrennte Messwerte.
+
+### 9.4 Ablauf für die Annotation — Schritt für Schritt
+
+1. **P3 laufen lassen**, Ergebnis als Liste sichern. Zwanzig Paare daraus reichen;
+   bei 47 darf großzügig aussortiert werden.
+2. **Einmalig kalibrieren** (braucht ffmpeg, `brew install ffmpeg`):
+   ```
+   cd backend
+   python scripts/make_calibration_clips.py --out kalibrierung --clips 3
+   cd .. && python3 -m http.server   # dann http://localhost:8000/tools/tap_annotator.html
+   ```
+   Im Annotator: Modus „Lokale Datei", Clip laden, Tempo 0,5×, bei jedem Farbwechsel
+   Leertaste. Exportieren, dann:
+   ```
+   cd backend && python scripts/evaluate_annotations.py calibrate \
+       --annotation ../IHRE_DATEI.json --truth kalibrierung/clip_01.wahrheit.json
+   ```
+   Sehenswert sind Trefferquote (sollte nahe 100 % liegen) und Latenz-Streuung.
+3. **Paare annotieren**: Modus „YouTube", URL aus der P3-Liste einsetzen. Je Video:
+   Kürzel, `pair_key` (gleicher Wert für beide Seiten eines Paars!), Klasse wählen,
+   die beiden Checkboxen ehrlich setzen. Leertaste je Schnitt, `M` beim Musikeinsatz,
+   `T` je Titelkarte, `W` beim ersten gesprochenen Wort. Export in einen
+   gemeinsamen Ordner.
+4. **Auswerten**:
+   ```
+   cd backend && python scripts/evaluate_annotations.py pairs --dir ../annotationen/
+   ```
+   Heraus kommt der Wilcoxon-Vergleich über alle skalenfreien Merkmale, getrennt nach
+   echten Cutdowns und eigenständigen Kurzformaten.

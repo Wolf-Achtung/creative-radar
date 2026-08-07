@@ -40,11 +40,13 @@ Kurzform auf `shot_count` vergleicht, misst die Dauer und nennt es Rhythmus.
 
 Das Modul trennt deshalb hart:
 
-**Skalenfrei — vergleichbar** (`SCALE_FREE_FEATURES`, 11 Merkmale):
+**Skalenfrei — vergleichbar** (`SCALE_FREE_FEATURES`, 12 Merkmale):
 `asl_seconds`, `median_shot_seconds`, `shot_length_cv`, `asl_first_third_ratio`,
 `asl_middle_third_ratio`, `asl_last_third_ratio`, `rhythm_ratio`,
 `longest_shot_position`, `longest_shot_ratio`, `loudness_rise_position`,
-`loudness_peak_position`
+`loudness_peak_position` — und seit Plan B `music_entry_position`, das
+**nur eine menschliche Annotation** setzen darf: ein Ohr unterscheidet Musik von
+Dialog, eine Lautheitskurve nicht. `extract_features` lässt es grundsätzlich leer.
 
 **Laufzeitabhängig — beschreiben, nicht vergleichen** (`DURATION_DEPENDENT_FEATURES`):
 `duration_seconds`, `shot_count`

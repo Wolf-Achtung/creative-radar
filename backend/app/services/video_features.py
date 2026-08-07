@@ -123,6 +123,11 @@ SCALE_FREE_FEATURES: frozenset[str] = frozenset(
         "longest_shot_ratio",
         "loudness_rise_position",
         "loudness_peak_position",
+        # Nur durch menschliche Annotation belegbar (Plan B): ein Ohr
+        # unterscheidet Musik von Dialog, eine Lautheitskurve nicht.
+        # Deshalb ein eigenes Merkmal neben loudness_rise_position —
+        # die Trennung von Messung und Interpretation bleibt.
+        "music_entry_position",
     }
 )
 
@@ -168,6 +173,11 @@ class VideoFeatures:
 
     loudness_rise_position: Optional[float] = None
     loudness_peak_position: Optional[float] = None
+
+    # Wird nie von extract_features gesetzt — nur eine menschliche
+    # Annotation (Tap-Along, Plan B) darf behaupten, dass hier Musik
+    # einsetzt. Befuellt via dataclasses.replace nach der Extraktion.
+    music_entry_position: Optional[float] = None
 
     notes: list[str] = field(default_factory=list)
 

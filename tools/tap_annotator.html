@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Tap-Along-Annotator — Creative Radar, Stufe 5 Plan B</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 960px;
+         margin: 1.5rem auto; padding: 0 1rem; line-height: 1.45; }
+  h1 { font-size: 1.3rem; }
+  fieldset { border: 1px solid #8884; border-radius: 8px; margin: .8rem 0; }
+  legend { font-weight: 600; padding: 0 .4rem; }
+  label { margin-right: 1rem; }
+  input[type=text] { width: 14rem; }
+  button { font-size: 1rem; padding: .35rem .9rem; margin: .15rem;
+           border-radius: 6px; cursor: pointer; }
+  #playerwrap { position: relative; width: 640px; max-width: 100%;
+                aspect-ratio: 16/9; background: #000; margin: .5rem 0; }
+  #playerwrap > * { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* Die Schutzscheibe: faengt Klicks ab, damit der IFrame nie den
+     Tastaturfokus bekommt — sonst gingen Leertaste & Co. an YouTube. */
+  #shield { z-index: 5; background: transparent; }
+  #status { font-variant-numeric: tabular-nums; }
+  #taps { font-family: ui-monospace, monospace; font-size: .85rem;
+          max-height: 8rem; overflow-y: auto; background: #8881;
+          padding: .4rem; border-radius: 6px; }
+  kbd { border: 1px solid #888; border-bottom-width: 2px; border-radius: 4px;
+        padding: 0 .35rem; font-size: .85rem; }
+  .hint { color: #888; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h1>Tap-Along-Annotator <span class="hint">Stufe 5, Plan B — Abschnitt 2.2</span></h1>
+
+<fieldset>
+  <legend>1&nbsp;·&nbsp;Video</legend>
+  <label>Modus:
+    <select id="mode">
+      <option value="youtube">YouTube (eingebetteter Player)</option>
+      <option value="datei">Lokale Datei (Kalibrier-Clips)</option>
+    </select>
+  </label>
+  <span id="ytinput">
+    <input type="text" id="ytid" placeholder="YouTube-URL oder Video-ID">
+    <button id="load">Laden</button>
+  </span>
+  <span id="fileinput" hidden>
+    <input type="file" id="file" accept="video/*">
+  </span>
+</fieldset>
+
+<fieldset>
+  <legend>2&nbsp;·&nbsp;Metadaten <span class="hint">(vor dem Tippen ausfüllen)</span></legend>
+  <label>Kürzel: <input type="text" id="annotator" style="width:5rem" placeholder="z.B. WH"></label>
+  <label>pair_key: <input type="text" id="pairkey" placeholder="titel-slug"></label>
+  <label>Klasse:
+    <select id="formatclass">
+      <option value="langform">Langform (≥ 90 s)</option>
+      <option value="kurzform">Kurzform (&lt; 60 s)</option>
+    </select>
+  </label>
+  <br>
+  <label><input type="checkbox" id="istrailer" checked> ist ein Trailer (kein Featurette/Interview)</label>
+  <label><input type="checkbox" id="istcutdown" checked> Kurzform ist erkennbar ein Cutdown (gleiche Szenen)</label>
+</fieldset>
+
+<div id="playerwrap">
+  <div id="ytplayer"></div>
+  <video id="video" hidden></video>
+  <div id="shield"></div>
+</div>
+
+<fieldset>
+  <legend>3&nbsp;·&nbsp;Steuern &amp; Tippen</legend>
+  <button id="playpause">Start / Pause</button>
+  <button id="back5">−5 s</button>
+  <label>Tempo:
+    <select id="rate">
+      <option value="0.25">0,25×</option>
+      <option value="0.5" selected>0,5×</option>
+      <option value="1">1×</option>
+    </select>
+  </label>
+  <span id="status">–</span>
+  <p>
+    <kbd>Leertaste</kbd> Schnitt &nbsp;
+    <kbd>M</kbd> Musikeinsatz &nbsp;
+    <kbd>T</kbd> Titelkarte &nbsp;
+    <kbd>W</kbd> erstes Wort &nbsp;
+    <kbd>U</kbd> letzten Schnitt löschen &nbsp;
+    <kbd>P</kbd> Start/Pause
+  </p>
+  <div id="taps">Noch keine Schnitte getippt.</div>
+</fieldset>
+
+<fieldset>
+  <legend>4&nbsp;·&nbsp;Export</legend>
+  <button id="export">JSON exportieren</button>
+  <button id="reset">Zurücksetzen</button>
+  <span class="hint">Dateiname: &lt;pair_key&gt;_&lt;klasse&gt;.json —
+    alle Exporte in einen Ordner, dann
+    <code>python scripts/evaluate_annotations.py pairs --dir ORDNER</code></span>
+</fieldset>
+
+<p class="hint">Zeitstempel sind Medienzeit (<code>getCurrentTime</code>) —
+bei 0,5× muss nichts zurückgerechnet werden, die Reaktionslatenz halbiert
+sich in Medienzeit sogar. YouTube läuft im offiziellen IFrame-Player;
+heruntergeladen wird nichts. Am besten über einen lokalen Server öffnen:
+<code>python3 -m http.server</code> im Ordner, dann
+<code>http://localhost:8000/tap_annotator.html</code>.</p>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+const state = {
+  mode: "youtube",
+  yt: null,          // YT.Player
+  ytReady: false,
+  taps: [],
+  musicEntry: null,
+  titleCards: [],
+  firstWord: null,
+  videoName: "",
+};
+
+// ---------- Zeitquelle: immer Medienzeit ----------
+function currentTime() {
+  if (state.mode === "youtube") {
+    return state.ytReady ? state.yt.getCurrentTime() : null;
+  }
+  const v = $("video");
+  return v.src ? v.currentTime : null;
+}
+function duration() {
+  if (state.mode === "youtube") {
+    return state.ytReady ? state.yt.getDuration() : null;
+  }
+  const v = $("video");
+  return v.src && isFinite(v.duration) ? v.duration : null;
+}
+function playing() {
+  if (state.mode === "youtube") {
+    return state.ytReady && state.yt.getPlayerState() === 1;
+  }
+  const v = $("video");
+  return v.src && !v.paused;
+}
+function togglePlay() {
+  if (state.mode === "youtube") {
+    if (!state.ytReady) return;
+    playing() ? state.yt.pauseVideo() : state.yt.playVideo();
+  } else {
+    const v = $("video");
+    if (!v.src) return;
+    v.paused ? v.play() : v.pause();
+  }
+}
+function seekBy(delta) {
+  const t = currentTime();
+  if (t === null) return;
+  if (state.mode === "youtube") state.yt.seekTo(Math.max(0, t + delta), true);
+  else $("video").currentTime = Math.max(0, t + delta);
+}
+function applyRate() {
+  const r = parseFloat($("rate").value);
+  if (state.mode === "youtube") { if (state.ytReady) state.yt.setPlaybackRate(r); }
+  else $("video").playbackRate = r;
+}
+
+// ---------- YouTube IFrame API ----------
+function parseYouTubeId(input) {
+  const s = input.trim();
+  const m = s.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/);
+  if (m) return m[1];
+  if (/^[\w-]{11}$/.test(s)) return s;
+  return null;
+}
+function loadYouTube() {
+  const id = parseYouTubeId($("ytid").value);
+  if (!id) { alert("Keine YouTube-ID erkennbar."); return; }
+  state.videoName = id;
+  const create = () => {
+    if (state.yt) { state.yt.loadVideoById(id); state.ytReady = true; return; }
+    state.yt = new YT.Player("ytplayer", {
+      videoId: id,
+      // disablekb: YouTube soll keine Tastatur sehen; controls aus,
+      // gesteuert wird über unsere Buttons (die Schutzscheibe blockt
+      // Klicks in den IFrame ohnehin).
+      playerVars: { disablekb: 1, controls: 0, rel: 0, modestbranding: 1 },
+      events: {
+        onReady: () => { state.ytReady = true; applyRate(); },
+        onPlaybackRateChange: () => {},
+      },
+    });
+  };
+  if (window.YT && window.YT.Player) create();
+  else {
+    window.onYouTubeIframeAPIReady = create;
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+  }
+}
+
+// ---------- Lokale Datei ----------
+function loadFile(file) {
+  const v = $("video");
+  v.src = URL.createObjectURL(file);
+  v.hidden = false;
+  state.videoName = file.name;
+  applyRate();
+}
+
+// ---------- Tippen ----------
+function fmt(t) { return t === null ? "–" : t.toFixed(2) + " s"; }
+function renderTaps() {
+  const parts = [];
+  parts.push(`Schnitte: ${state.taps.length}` +
+    (state.taps.length ? " → " + state.taps.map((t) => t.toFixed(2)).join(", ") : ""));
+  parts.push(`Musikeinsatz: ${fmt(state.musicEntry)} · ` +
+    `Titelkarten: ${state.titleCards.length} · erstes Wort: ${fmt(state.firstWord)}`);
+  $("taps").textContent = parts.join("\n");
+}
+function tapCut() {
+  const t = currentTime();
+  if (t === null || !playing()) return;
+  state.taps.push(t);
+  renderTaps();
+}
+function undoCut() { state.taps.pop(); renderTaps(); }
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
+  const key = ev.key.toLowerCase();
+  if (ev.code === "Space") { ev.preventDefault(); tapCut(); }
+  else if (key === "m") { state.musicEntry = currentTime(); renderTaps(); }
+  else if (key === "t") { const t = currentTime(); if (t !== null) state.titleCards.push(t); renderTaps(); }
+  else if (key === "w") { state.firstWord = currentTime(); renderTaps(); }
+  else if (key === "u") { undoCut(); }
+  else if (key === "p") { ev.preventDefault(); togglePlay(); }
+});
+
+// ---------- Export ----------
+function exportJson() {
+  const dur = duration();
+  if (!dur) { alert("Kein Video geladen oder Laufzeit unbekannt."); return; }
+  const pairKey = $("pairkey").value.trim();
+  const cls = $("formatclass").value;
+  if (!pairKey) { alert("pair_key fehlt — ohne ihn keine Paarung."); return; }
+  const data = {
+    schema: "tap-annotation/1",
+    mode: state.mode,
+    video: state.videoName,
+    annotator: $("annotator").value.trim() || null,
+    pair_key: pairKey,
+    format_class: cls,
+    playback_rate: parseFloat($("rate").value),
+    duration_seconds: Math.round(dur * 100) / 100,
+    taps: state.taps.map((t) => Math.round(t * 1000) / 1000),
+    music_entry: state.musicEntry,
+    title_cards: state.titleCards,
+    first_word: state.firstWord,
+    flags: {
+      ist_trailer: $("istrailer").checked,
+      ist_cutdown: $("istcutdown").checked,
+    },
+    exported_at: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${pairKey}_${cls}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function resetAll() {
+  state.taps = []; state.musicEntry = null; state.titleCards = [];
+  state.firstWord = null;
+  renderTaps();
+}
+
+// ---------- Verdrahtung ----------
+$("mode").addEventListener("change", () => {
+  state.mode = $("mode").value;
+  $("ytinput").hidden = state.mode !== "youtube";
+  $("fileinput").hidden = state.mode !== "datei";
+  $("video").hidden = state.mode !== "datei";
+});
+$("load").addEventListener("click", loadYouTube);
+$("file").addEventListener("change", (ev) => {
+  if (ev.target.files[0]) loadFile(ev.target.files[0]);
+});
+$("playpause").addEventListener("click", togglePlay);
+$("back5").addEventListener("click", () => seekBy(-5));
+$("rate").addEventListener("change", applyRate);
+$("export").addEventListener("click", exportJson);
+$("reset").addEventListener("click", () => {
+  if (state.taps.length === 0 || confirm("Alle Taps verwerfen?")) resetAll();
+});
+setInterval(() => {
+  const t = currentTime(), d = duration();
+  $("status").textContent =
+    t === null ? "kein Video geladen"
+    : `${t.toFixed(1)} / ${d ? d.toFixed(1) : "?"} s ` + (playing() ? "▶" : "⏸");
+}, 250);
+renderTaps();
+</script>
+</body>
+</html>

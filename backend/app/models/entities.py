@@ -846,6 +846,9 @@ class VideoFeature(SQLModel, table=True):
     rhythm_ratio: Optional[float] = None
     loudness_rise_position: Optional[float] = None
     loudness_peak_position: Optional[float] = None
+    # Nur menschlich annotierbar (Plan B, Tap-Along): ein Ohr
+    # unterscheidet Musik von Dialog, eine Lautheitskurve nicht.
+    music_entry_position: Optional[float] = None
 
     # Nachvollziehbarkeit
     tool: Optional[str] = Field(default=None, max_length=64)
