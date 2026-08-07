@@ -543,3 +543,102 @@ Antwort wäre immer „durchschnittlich".
 Gesichert durch `test_scoped_report_keeps_the_full_channel_baseline`: ein Kanal mit
 schwachem Kurzform-Grundrauschen und durchgehend doppelt so starker Langform muss auch
 im eingegrenzten Bericht Lift 2,0 und `verdict="over"` liefern.
+
+## 10. Nächste Diagnose: die fehlenden Instagram-Views
+
+Aus Abschnitt 8.4. Zwei Queries, beide gegen ein lokales Postgres 16 mit synthetischen
+Testfällen geprüft. Read-only, beliebig oft ausführbar.
+
+### 10.1 Query A — wo genau fehlen die Views?
+
+Entscheidet die eigentliche Frage: **Erfassungsproblem oder Plattform-Verhalten?**
+Wenn die Lücke sich auf `image` und `sidecar` (Karussells) konzentriert, liefert
+Instagram für diese Post-Typen schlicht keine Views — dann gehören sie aus der
+Aktivierungsrechnung heraus. Verteilt sie sich gleichmäßig über alle Asset-Typen,
+ist es ein Fehler im Connector.
+
+Die Query trennt außerdem `NULL` von `0`. Das ist kein Detail: `NULL` heißt „nicht
+erfasst", `0` heißt „erfasst und tatsächlich null" — und nur im ersten Fall ist die
+Behandlung als Aktivierung 0,0 falsch.
+
+```sql
+SELECT c.platform,
+       COALESCE(p.asset_type, '(kein asset_type)') AS asset_typ,
+       count(*) AS posts,
+       count(*) FILTER (WHERE p.visible_views IS NULL)  AS views_null,
+       count(*) FILTER (WHERE p.visible_views = 0)      AS views_null_wert,
+       count(*) FILTER (WHERE COALESCE(p.visible_views,0) > 0) AS views_vorhanden,
+       round(100.0 * count(*) FILTER (WHERE COALESCE(p.visible_views,0) = 0)
+             / count(*), 1) AS ohne_views_pct
+FROM creative_radar.post p
+JOIN creative_radar.channel c ON c.id = p.channel_id
+WHERE p.detected_at > now() - interval '90 days'
+GROUP BY 1, 2
+ORDER BY 1, ohne_views_pct DESC, posts DESC;
+```
+
+### 10.2 Query B — wie stark hängt die Trefferquote daran?
+
+Rechnet dieselbe Trefferquote zweimal nebeneinander: einmal wie heute (Posts ohne
+Views zählen mit Aktivierung 0,0), einmal ohne diese Posts — auch aus der
+Kanal-Baseline heraus.
+
+**Erwartung, falls die Hypothese stimmt:** die Instagram-Quote fällt von 42,1 % Richtung
+25 %, TikTok und YouTube bleiben praktisch unverändert. Bleibt Instagram oben, liegt es
+nicht an den fehlenden Views und die Ursache ist woanders zu suchen.
+
+```sql
+WITH alle AS (
+  SELECT p.id, p.channel_id, c.platform, p.visible_views,
+         CASE WHEN COALESCE(p.visible_views,0)=0 THEN 0::numeric
+              WHEN c.platform='youtube' THEN (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0))::numeric/p.visible_views
+              ELSE (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0)+GREATEST(COALESCE(p.visible_bookmarks,0),0))::numeric/p.visible_views END AS activation
+  FROM creative_radar.post p JOIN creative_radar.channel c ON c.id=p.channel_id
+  WHERE p.detected_at > now() - interval '90 days'
+), mit_views AS (
+  SELECT * FROM alle WHERE COALESCE(visible_views,0) > 0
+),
+base_ist AS (
+  SELECT channel_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY activation) AS med
+  FROM alle GROUP BY channel_id HAVING count(*) >= 4
+),
+base_ohne AS (
+  SELECT channel_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY activation) AS med
+  FROM mit_views GROUP BY channel_id HAVING count(*) >= 4
+),
+lift_ist AS (
+  SELECT a.platform, a.activation/b.med AS lift
+  FROM alle a JOIN base_ist b ON b.channel_id=a.channel_id WHERE b.med > 0
+),
+lift_ohne AS (
+  SELECT m.platform, m.activation/b.med AS lift
+  FROM mit_views m JOIN base_ohne b ON b.channel_id=m.channel_id WHERE b.med > 0
+)
+SELECT COALESCE(i.platform, o.platform) AS plattform,
+       i.posts AS ist_posts, i.quote AS ist_trefferquote_pct,
+       o.posts AS ohne_posts, o.quote AS ohne_trefferquote_pct
+FROM (SELECT platform, count(*) AS posts,
+             round(100.0*count(*) FILTER (WHERE lift >= 2.0)/count(*),1) AS quote
+      FROM lift_ist GROUP BY platform) i
+FULL OUTER JOIN
+     (SELECT platform, count(*) AS posts,
+             round(100.0*count(*) FILTER (WHERE lift >= 2.0)/count(*),1) AS quote
+      FROM lift_ohne GROUP BY platform) o
+  ON o.platform = i.platform
+ORDER BY 1;
+```
+
+**Der Mechanismus, den die Query sichtbar macht** (so im Testfall nachgebaut): ein Kanal
+mit 5 Posts à Aktivierung 0,10 und 5 Posts ohne Views hat einen Median von 0,05 statt
+0,10. Damit bekommen die fünf echten Posts rechnerisch Lift 2,0 und gelten als Treffer —
+Trefferquote 50 % statt 0 %. Die Verzerrung entsteht also nicht bei den Posts ohne
+Views selbst, sondern bei allen anderen Posts desselben Kanals.
+
+### 10.3 Danach
+
+- Bestätigt sich der Verdacht: `compute_activation_rate` bekommt eine Unterscheidung
+  zwischen „keine Views erfasst" (Post gehört nicht in die Rechnung) und „null Views"
+  (Aktivierung 0,0 ist korrekt). Das betrifft auch den Empfehlungs-Baustein, nicht nur
+  dieses Modul — die Änderung will sorgfältig gemacht werden.
+- Bestätigt er sich nicht, bleiben die Instagram-Zahlen wie sie sind, und die Ursache
+  der hohen Quote ist eine offene Frage für die nächste Auswertung.
