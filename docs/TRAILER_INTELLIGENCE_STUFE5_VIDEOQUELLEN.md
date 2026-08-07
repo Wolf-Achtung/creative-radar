@@ -159,3 +159,48 @@ Entscheidung.
 Solange sie offen ist, wäre es falsch, eine Download-Pipeline zu bauen. Vorbereitet
 werden kann alles, was quellenunabhängig ist: das Datenmodell für Video-Merkmale, die
 Shot-Detection-Auswertung und die Metrik, gegen die später verglichen wird.
+
+## 8. Messung vom 07.08.2026 — beide Queries bestätigt, ein Zusatzfund
+
+### 8.1 Kennungen sind lückenlos, wie erwartet
+
+| Plattform | Klasse | Posts | `external_id` | `post_url` | `raw_payload` |
+|---|---|---:|---:|---:|---:|
+| YouTube | Langform | 288 | 288 | 288 | 288 |
+| TikTok | Langform | 193 | 193 | 193 | 193 |
+| Instagram | Langform | 394 | **0** | 394 | 394 |
+
+Exakt das vorhergesagte Muster: YouTube und TikTok zu 100 % über `external_id`
+identifizierbar, Instagram zu 0 % — aber zu 100 % über `post_url`. Die Lücke aus
+Abschnitt 2 ist bestätigt, nicht überraschend, und weiterhin nicht blockierend.
+
+Randnotiz: Instagram hat mit 394 Langform-Posts sogar mehr als YouTube (288) — für
+Stufe 5 zunächst irrelevant, weil der Befund aus Stufe 3 auf YouTube sitzt, aber
+relevant, falls Instagram später als zweite Plattform geprüft wird.
+
+### 8.2 Zusatzfund: Instagram trägt eine direkte Video-URL
+
+Die Medien-Schlüssel-Suche hat mehr gefunden, als der Code allein vermuten ließ.
+Instagram liefert über Apify:
+
+| Schlüssel | Posts (von 394 Langform) | Bedeutung |
+|---|---:|---|
+| `videoUrl` | 394 (100 %) | direkte Videodatei-URL |
+| `videoViewCount` / `videoPlayCount` | 394 | Video-Statistiken |
+| `audioUrl` | 394 | separate Audiospur |
+
+TikTok liefert entsprechend `mediaUrls` (193/193) und `videoMeta` mit `downloadAddr`
+darin.
+
+**Das ändert Abschnitt 5 nicht**, weil der Befund weiterhin auf YouTube sitzt und
+YouTube keinen Stream über die Data API liefert. Es ist aber gut zu wissen: Für die
+zweite Plattform in einer möglichen Ausweitung (Instagram) läge das Material technisch
+näher als angenommen. Ob diese URLs zum Abrufzeitpunkt noch gültig sind — Apify-typisch
+sind CDN-Links befristet — ist damit noch nicht geklärt und wäre vor einer Nutzung zu
+prüfen.
+
+### 8.3 Bewertung bleibt unverändert
+
+Die Empfehlung aus Abschnitt 5 (eigenes Material des Trailerhauses für den PoC) steht.
+Dieser Fund ist eine Werkzeugkiste für später, keine Abkürzung für den YouTube-Befund
+aus Stufe 3 — der bleibt an die Rechtsfrage aus Abschnitt 5 gebunden.
