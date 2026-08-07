@@ -783,3 +783,72 @@ class TitleInsightReport(SQLModel, table=True):
     cost_usd_cents: Optional[int] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+
+
+class VideoFeature(SQLModel, table=True):
+    """Trailer-Intelligence Stufe 5 — Schnitt-Merkmale eines Videos.
+
+    Eine Zeile je ausgewertetem Video. Gefuellt aus
+    ``app.services.video_features.extract_features``; die Tabelle ist
+    reiner Speicher und enthaelt keine Logik.
+
+    Drei Entwurfsentscheidungen, die aus dem Stufe-5-Plan folgen und
+    sonst spaeter teuer nachzuruesten waeren:
+
+    ``post_id`` ist **optional**. Der empfohlene Machbarkeitsnachweis
+    laeuft auf eigenem Material des Trailerhauses (Vorstufe, Abschnitt
+    5a) — diese Videos haben keine Post-Zeile, weil sie nie gescraped
+    wurden. Eine Pflicht-Fremdschluessel haette genau den Weg
+    verbaut, der als erster gegangen werden soll.
+
+    ``pair_key`` traegt den gemeinsamen Titel eines Trailer-und-Cutdown-
+    Paares. Er ist der Grund, warum der gepaarte Test ueberhaupt moeglich
+    ist, und der ist auf denselben Daten um ein Vielfaches
+    trennschaerfer als der ungepaarte (gemessen: z = 3,40 gegen 0,32).
+    Ohne diese Spalte waere die Paarung nach dem Import nicht mehr
+    rekonstruierbar.
+
+    ``tool`` und ``tool_version`` halten fest, welche Shot-Erkennung die
+    Eingabe erzeugt hat. Verschiedene Detektoren schneiden verschieden
+    empfindlich; Zahlen aus zwei Werkzeugen ohne diese Angabe zu mischen
+    waere derselbe Fehler wie die Confounds aus Stufe 1.
+
+    Die ``Optional``-Felder sind nicht messbar gewesen (zu wenige
+    Einstellungen fuer eine Drittel-Aufteilung, keine Audiospur) — NULL
+    heisst hier nie null.
+    """
+    __tablename__ = "video_feature"
+    __table_args__ = _CR_TABLE_ARGS
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+
+    # Herkunft
+    post_id: Optional[UUID] = Field(
+        default=None, foreign_key=_fk("post.id"), index=True
+    )
+    source: str = Field(default="unknown", max_length=32, index=True)
+    external_ref: Optional[str] = Field(default=None, max_length=512)
+    pair_key: Optional[str] = Field(default=None, max_length=255, index=True)
+    format_class: str = Field(max_length=32, index=True)
+
+    # laufzeitabhaengig — beschreiben, nicht zwischen Klassen vergleichen
+    duration_seconds: float
+    shot_count: int
+
+    # skalenfrei — vergleichbar
+    asl_seconds: float
+    median_shot_seconds: float
+    shot_length_cv: float
+    longest_shot_position: float
+    longest_shot_ratio: float
+    asl_first_third_ratio: Optional[float] = None
+    asl_middle_third_ratio: Optional[float] = None
+    asl_last_third_ratio: Optional[float] = None
+    rhythm_ratio: Optional[float] = None
+    loudness_rise_position: Optional[float] = None
+    loudness_peak_position: Optional[float] = None
+
+    # Nachvollziehbarkeit
+    tool: Optional[str] = Field(default=None, max_length=64)
+    tool_version: Optional[str] = Field(default=None, max_length=32)
+    notes: list = Field(default_factory=list, sa_column=Column(JSON))
+    analyzed_at: datetime = Field(default_factory=utc_now, index=True)
