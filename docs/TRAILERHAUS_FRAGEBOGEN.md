@@ -1,9 +1,30 @@
 # Fragebogen Trailerhaus-Team — Trailer-Intelligence Stufe 1
 
-**Fassung 2.0** (aktuell). Ersetzt die erste Fassung nach Wolfs Feedback — siehe
+**Fassung 2.1** (aktuell). Ersetzt die erste Fassung nach Wolfs Feedback — siehe
 [Recherche](./TRAILERHAUS_FRAGEBOGEN_V2_RESEARCH.md) für die Begründung jeder
-Änderung. Die erste Fassung ist in der Git-Historie erhalten, aber nicht mehr in
+Änderung. Ältere Fassungen sind in der Git-Historie erhalten, aber nicht mehr in
 Gebrauch.
+
+## Änderungen in 2.1
+
+Drei Korrekturen nach dem zweiten Feedback-Durchgang:
+
+1. **Lang-/Kurzformat-Weiche im Anker (neue Frage A2).** Langformate (Haupttrailer,
+   Teaser, Promos ab ca. einer Minute) funktionieren anders und haben einen anderen
+   Aufbau als Kurzformate (TV- und Social-Spots, ca. 5–90 Sekunden). Die Weiche
+   macht auswertbar, auf welche Welt sich ein Antwortbogen bezieht.
+   Derselbe Punkt betrifft auch die eigene Datenanalyse: der Bestand mischt volle
+   YouTube-Trailer mit Social-Cutdowns, der Dauer-Befund ist teilweise ein
+   verkleideter Formatklassen-Vergleich — siehe Plattform-Confound in den
+   [Ergebnissen](./TRAILER_INTELLIGENCE_STAGE1_ERGEBNISSE.md), Abschnitt 5.
+2. **Jargon raus.** „15 Sekunden vertikal" heißt jetzt „kurzer Social-Spot von etwa
+   15 Sekunden im Handy-Hochformat (TikTok, Reels, Shorts)".
+3. **Erklärbox vor den Befunden.** Die Befragten haben keinen Zugang zu Creative
+   Radar und sehen die Post-Performance der Studio-Kanäle im Alltag nicht. Die Box
+   erklärt Datenbasis (öffentliche Studio-Kanäle, TikTok/Instagram/YouTube,
+   DE/US/UK, 90 Tage) und den Begriff „Trefferquote", und stellt klar: kein
+   Systemzugang nötig, gefragt ist nur der Abgleich mit dem Bauchgefühl aus der
+   Praxis.
 
 Ausfüllbare Fassung (im Browser, mit Kopier-Funktion für die Antworten):
 **https://claude.ai/code/artifact/2ee0587d-83f3-474a-83df-5946677192d0**
@@ -44,7 +65,7 @@ Unverändert gegenüber v1, drei Dinge:
 
 | Teil | Inhalt | Fragen |
 |---|---|---|
-| Ausgangspunkt | Ein Projekt festlegen (Genre, Fassungen, Phase) | 3 |
+| Ausgangspunkt | Ein Projekt festlegen (Genre, Formatklasse, Fassungen, Phase) | 4 |
 | 1 | Die ersten Sekunden | 4 |
 | 2 | Tempo und Schnitt | 2 |
 | 3 | Musik | 2 |
@@ -52,8 +73,8 @@ Unverändert gegenüber v1, drei Dinge:
 | 5 | Fünf Befunde gegen die Praxis prüfen | 5 |
 | 6 | Priorisierung | 2 |
 
-20 Kernfragen, davon 17 Freitext, 1 Skala, 1 Mehrfachauswahl (max. 2), 1 optionales
-Zusatzfeld pro Befund. Rund 15–20 Minuten.
+21 Kernfragen, davon 17 Freitext, 1 Formatklassen-Weiche, 1 Skala, 1 Mehrfachauswahl
+(max. 2), 1 optionales Zusatzfeld pro Befund. Rund 15–20 Minuten.
 
 ## Gestaltungsentscheidungen
 
@@ -78,11 +99,17 @@ Zusatzfeld pro Befund. Rund 15–20 Minuten.
 **A1.** Um welches Projekt geht es — und welches Genre?
 *(Beispiel: „Working Title, Thriller" oder „ein Liebesfilm für Ende des Jahres")*
 
-**A2.** Welche Fassungen wurden dafür geschnitten?
-*(Beispiel: „90 Sekunden für YouTube, ein 30-Sekunden-Spot, drei vertikale
-15-Sekünder")*
+**A2.** Worum geht es bei den folgenden Antworten in erster Linie?
+*(Auswahl: „Langformat — Haupttrailer, Teaser, Promo ab etwa einer Minute" /
+„Kurzformate — TV- und Social-Spots, etwa 5 bis 90 Sekunden" / „Beides gemischt".
+Hinweis im Bogen: Lang- und Kurzformate funktionieren unterschiedlich — bei
+„beides" gern in den Antworten dazuschreiben, wo sich die Welten unterscheiden.)*
 
-**A3.** Für welche Phase der Kampagne?
+**A3.** Welche Fassungen wurden dafür geschnitten?
+*(Beispiel: „ein 90-Sekunden-Trailer für YouTube, ein 30-Sekunden-Spot, drei
+15-Sekunden-Schnitte im Handy-Hochformat")*
+
+**A4.** Für welche Phase der Kampagne?
 *(Beispiel: „Teaser, lange vor Start" oder „Release-Woche")*
 
 ### Teil 1 — Die ersten Sekunden
@@ -122,8 +149,10 @@ Schnitt? *(Freitext)*
 > Bewusste Verallgemeinerung — hier geht es ausdrücklich nicht mehr nur um das
 > Projekt von oben.
 
-**09.** Gleicher Film, zwei Fassungen: 15 Sekunden vertikal und 90 Sekunden für
-YouTube — was unterscheidet sich grundsätzlich im Vorgehen? *(Freitext)*
+**09.** Gleicher Film, zwei Aufgaben: ein kurzer Social-Spot von etwa 15 Sekunden
+im Handy-Hochformat (TikTok, Reels, Shorts) und ein voller Trailer von etwa
+90 Sekunden für YouTube — was unterscheidet sich grundsätzlich im Vorgehen?
+*(Freitext)*
 
 **10.** Woran lässt sich im Schnitt erkennen, dass es ein Thriller ist — oder eine
 Romance, eine Animation? *(Freitext)*
@@ -134,12 +163,19 @@ die intern gebräuchlichen Begriffe, unabhängig von dieser Liste)*
 
 ### Teil 5 — Fünf Befunde aus der Auswertung
 
+> Erklärbox im Bogen (neu in 2.1): Datenbasis sind die öffentlichen
+> Social-Media-Kanäle der Studios (TikTok, Instagram, YouTube; DE/US/UK, rund
+> 7.600 Posts aus 90 Tagen). „Trefferquote" = Anteil der Posts mit mindestens
+> doppelter der auf dem Kanal üblichen Reaktion; Durchschnitt 20 %. Kein
+> Systemzugang nötig — gefragt ist nur der Abgleich mit dem Eindruck aus der
+> Praxis.
+
 Je Befund eine Auswahl: „Deckt sich mit der Erfahrung" / „Überraschend, aber
 plausibel" / „Wirkt falsch" / „Kann ich nicht beurteilen" — plus optionales
 Freitextfeld „Mögliche Erklärung?".
 
-**12.** Videos über 60 Sekunden erzeugen deutlich häufiger Ausreißer-Erfolge als
-kürzere.
+**12.** Posts mit Videos über 60 Sekunden (darunter viele komplette Trailer auf
+YouTube) erzeugen deutlich häufiger Ausreißer-Erfolge als kürzere.
 *1.577 Posts · 151 Kanäle · 28,7 % Trefferquote gegen 20 % Durchschnitt*
 
 **13.** Behind-the-Scenes läuft meistens unterdurchschnittlich — bringt aber
