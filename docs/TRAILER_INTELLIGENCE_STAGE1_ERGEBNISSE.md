@@ -736,6 +736,10 @@ Drei mögliche Ursachen, in absteigender Wahrscheinlichkeit:
 3. Sie läuft und setzt `last_analyzed_at`, liefert aber keine verwertbaren Formate —
    dann steigt `analysiert`, ohne dass `mit_format` mitwächst.
 
+> **Beantwortet am 07.08.2026 — siehe Abschnitt 14.** Keine der drei Ursachen war es.
+> Der Cron läuft wöchentlich montags, und der Merge kam drei Tage nach dem letzten
+> Lauf. Die Stage hatte schlicht noch keine Gelegenheit.
+
 Die folgenden Queries unterscheiden die drei Fälle. Read-only, gegen ein lokales
 Postgres 16 geprüft.
 
@@ -907,3 +911,240 @@ schlicht keine Views liefert.
    Abschnitt 4g: die entscheidende Varianz sitzt nicht in diesen Metadaten, sondern in
    der kreativen Ausführung — Hook, Schnitt, Bildsprache. Genau das, was die
    Thumbnail-only-Pipeline nicht erhebt.
+
+## 14. Die Cron-Stage lief nie — und warum das harmlos ist
+
+Die Queries C1–C3 aus Abschnitt 12 sind gelaufen. Ergebnis: alle drei möglichen
+Ursachen, die dort standen, treffen nicht zu.
+
+### 14.1 C1 — zehn Läufe, zehnmal `NULL`
+
+| | |
+|---|---|
+| Cron-Rhythmus | **wöchentlich, Montag 03:00 UTC** (`cron_scheduler.py`, `_TRIGGER_WEEKDAY = 0`) |
+| Letzter Lauf | Mo **03.08.2026**, 03:00:04, `completed` |
+| PR #331 gemergt | Do **06.08.2026**, 21:13 |
+
+Der Merge kam drei Tage **nach** dem letzten Wochenlauf. Deshalb steht in allen zehn
+protokollierten Läufen `NULL` bei `post_analysis` — keiner von ihnen kannte die Stage.
+Kein Fehler, keine fehlende Konfiguration, kein blockierendes Budget. Nächster Lauf:
+**Montag, 10.08.2026, 03:00 UTC.**
+
+Nachtrag zur Methodik: der Zeitplan steht im Code und war ohne Datenbankzugriff
+nachlesbar. Die Beobachtung in Abschnitt 12 war richtig, die dort formulierte
+Dringlichkeit nicht.
+
+### 14.2 C2 und C3 — der Bestand kommt aus zwei manuellen Läufen im Mai
+
+| | |
+|---|---:|
+| nie analysiert | 7.212 |
+| analysiert | 1.220 |
+| davon mit `format` | **1.220** |
+| zuletzt analysiert | 28.05.2026, 21:47 |
+
+| Tag | analysiert | davon mit Format |
+|---|---:|---:|
+| 28.05.2026 | 1.210 | 1.210 |
+| 03.05.2026 | 10 | 10 |
+
+`analysiert` und `mit_format` sind identisch — der Analyzer liefert für jeden Post, den
+er anfasst, auch ein Format. Die dritte Hypothese aus Abschnitt 12 („läuft, liefert
+aber keine Formate") ist damit ausgeschlossen.
+
+### 14.3 Eine Frist: 26. August
+
+Die 1.210 Posts vom 28.05. fallen am **26.08.2026** aus dem 90-Tage-Fenster. Passiert
+bis dahin nichts, sinkt die Klassifikations-Abdeckung nicht auf 12 %, sondern auf nahe
+null — dann sind `format`, `tone` und `lifecycle_stage` als Dimensionen unbrauchbar.
+
+Bei 800 Posts pro Lauf und einem Rhythmus von einer Woche braucht der Backlog von 7.212
+Posts **neun Wochen**, also bis Mitte Oktober. Das ist nach der Frist.
+
+**Empfehlung:** `CRON_POST_ANALYSIS_MAX_POSTS_PER_RUN` vor dem 10.08. auf **2500**
+setzen. Kosten bei ~$0,0029 pro Post text-only: rund **$7 pro Lauf**, drei Läufe für
+den ganzen Backlog, der erste noch vor der Frist.
+
+Bewusst nicht 8.000 in einem Rutsch: die reale Latenz pro Post ist unbekannt, und
+geschätzt wären das sechs bis sieben Stunden am Stück. Die Stage meldet
+`duration_seconds` in ihrer Zusammenfassung — nach dem ersten Lauf lässt sich der Wert
+mit einer echten Messung setzen statt mit einer Schätzung.
+
+### 14.4 Kontrolle nach dem 10.08.
+
+```sql
+SELECT started_at, status, summary_json -> 'post_analysis' AS post_analysis_stage
+FROM creative_radar.cron_run ORDER BY started_at DESC LIMIT 1;
+```
+
+Dort stehen dann `attempted`, `analyzed`, `errors` und `duration_seconds` — die vier
+Zahlen, die für die Cap-Entscheidung nötig sind.
+
+## 15. Query für die Neu-Erhebung nach der Views-Korrektur
+
+Ersetzt Abschnitt 8.5. Entspricht dem Stand nach PR #342: `visible_views > 0`,
+`format_class` als sechste Dimension, Erwartungswert je Plattform-Mischung. Gegen ein
+lokales Postgres 16 geprüft — mit Testdaten, bei denen der Views-Filter eine künstlich
+auf 18,2 % verdünnte Quote korrekt auf die echten 33,3 % zurückholt, während die
+unbelastete Plattform unverändert bleibt.
+
+```sql
+WITH scoped AS (
+  SELECT p.id, p.channel_id, c.platform, p.duration_seconds, p.analysis, p.raw_payload,
+         CASE WHEN c.platform='youtube' THEN (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0))::numeric/p.visible_views
+              ELSE (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0)+GREATEST(COALESCE(p.visible_bookmarks,0),0))::numeric/p.visible_views END AS activation
+  FROM creative_radar.post p JOIN creative_radar.channel c ON c.id=p.channel_id
+  WHERE p.detected_at > now() - interval '90 days'
+    AND COALESCE(p.visible_views, 0) > 0
+), baseline AS (
+  SELECT channel_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY activation) AS med
+  FROM scoped GROUP BY channel_id HAVING count(*) >= 4
+), lifted AS (
+  SELECT s.*, s.activation/b.med AS lift
+  FROM scoped s JOIN baseline b ON b.channel_id=s.channel_id WHERE b.med > 0
+), korpus AS (
+  SELECT count(*) FILTER (WHERE lift >= 2.0)::numeric / count(*) AS rate FROM lifted
+), plattform AS (
+  SELECT platform, count(*) FILTER (WHERE lift >= 2.0)::numeric / count(*) AS rate
+  FROM lifted GROUP BY platform HAVING count(*) >= 30
+), cells AS (
+  SELECT 'format_class' AS dimension,
+         CASE WHEN duration_seconds < 60 THEN '1_kurzform'
+              WHEN duration_seconds < 90 THEN '2_uebergang_60_90s'
+              ELSE '3_langform' END AS value, lift, channel_id, platform
+  FROM lifted WHERE duration_seconds IS NOT NULL
+
+  UNION ALL SELECT 'duration_bucket',
+         CASE WHEN duration_seconds<15 THEN '1_<15s' WHEN duration_seconds<30 THEN '2_15-30s'
+              WHEN duration_seconds<60 THEN '3_30-60s' ELSE '4_>60s' END, lift, channel_id, platform
+  FROM lifted WHERE duration_seconds IS NOT NULL
+
+  UNION ALL SELECT 'music_kind',
+         CASE WHEN raw_payload -> '_creative_radar_music' ->> 'musicOriginal' = 'true' THEN 'original_sound'
+              WHEN raw_payload -> '_creative_radar_music' ->> 'musicOriginal' = 'false' THEN 'licensed_track'
+              ELSE 'unknown' END, lift, channel_id, platform
+  FROM lifted WHERE (raw_payload -> '_creative_radar_music')::text NOT IN ('null', '{}')
+
+  UNION ALL SELECT 'format', analysis->>'format', lift, channel_id, platform FROM lifted
+  WHERE analysis->>'format' IS NOT NULL AND (analysis->>'confidence')::numeric >= 0.7
+
+  UNION ALL SELECT 'tone', analysis->>'tone', lift, channel_id, platform FROM lifted
+  WHERE analysis->>'tone' IS NOT NULL AND (analysis->>'confidence')::numeric >= 0.7
+
+  UNION ALL SELECT 'lifecycle_stage', analysis->>'lifecycle_stage', lift, channel_id, platform FROM lifted
+  WHERE analysis->>'lifecycle_stage' IS NOT NULL AND (analysis->>'confidence')::numeric >= 0.7
+), agg AS (
+  SELECT c.dimension, c.value,
+         count(*) AS posts, count(DISTINCT c.channel_id) AS kanaele,
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY c.lift) AS median_lift,
+         percentile_cont(0.9) WITHIN GROUP (ORDER BY c.lift) AS p90_lift,
+         count(*) FILTER (WHERE c.lift >= 2.0)::numeric / count(*) AS treffer,
+         avg(COALESCE(pl.rate, (SELECT rate FROM korpus))) AS erwartet,
+         string_agg(DISTINCT c.platform, '+' ORDER BY c.platform) AS plattformen
+  FROM cells c LEFT JOIN plattform pl ON pl.platform = c.platform
+  GROUP BY c.dimension, c.value
+  HAVING count(*) >= 5 AND count(DISTINCT c.channel_id) >= 3
+)
+SELECT dimension, value, posts, kanaele, plattformen,
+       round(median_lift::numeric, 2) AS median_lift,
+       round(100 * treffer, 1)  AS treffer_pct,
+       round(100 * erwartet, 1) AS erwartet_pct,
+       round(((treffer - erwartet)
+              / NULLIF(sqrt(erwartet * (1 - erwartet) / posts), 0))::numeric, 2) AS z,
+       round(p90_lift::numeric, 2) AS p90_lift
+FROM agg
+ORDER BY z DESC NULLS LAST;
+```
+
+**Zwei Kontrollen beim Lesen des Ergebnisses:**
+
+1. Die vier Dauer-Buckets dürfen nicht mehr alle gleichzeitig über ihrer Erwartung
+   liegen. Tun sie es doch, steckt ein zweiter Confound derselben Bauart drin.
+2. Die Plattform-Quoten sollten bei rund 15,9 % (YouTube), 15,1 % (Instagram) und
+   10,1 % (TikTok) landen — die bereinigten Werte aus Abschnitt 13.5.
+
+## 16. Neu-Erhebung nach allen drei Korrekturen (07.08.2026, 15:22)
+
+Die Query aus Abschnitt 15 ist gelaufen. 28 Zellen, sortiert nach `z`. Screenshots
+unter `docs/screenshots/`.
+
+### 16.1 Die Korrektur hat gegriffen — beide Kontrollen bestanden
+
+**Kontrolle 1: die Dauer-Buckets streuen wieder in beide Richtungen.**
+
+| Bucket | vorher (Abschnitt 13.2) | | nachher | |
+|---|---:|---:|---:|---:|
+| | Treffer | z | Treffer | z |
+| >60s | 28,3 % | **+8,74** | 15,2 % | ~+2 |
+| <15s | 23,7 % | **+4,20** | 14,0 % | +0,96 |
+| 15–30s | 22,5 % | **+3,98** | 12,3 % | −0,80 |
+| 30–60s | 21,3 % | **+3,06** | 11,7 % | −1,75 |
+
+Vorher vier gleichgerichtete Ausschläge, jetzt zwei über und zwei unter der Erwartung.
+Das systematische Artefakt ist weg.
+
+**Kontrolle 2: der Median-Lift ist zusammengefallen.** `>60s` hatte 1,24, jetzt 1,01.
+Über alle 28 Zellen liegt der Median-Lift zwischen 0,96 und 1,32 — die Aufblähung durch
+die gedrückten Kanal-Mediane ist verschwunden.
+
+**Unerwarteter Nebeneffekt: die Auswertung deckt jetzt mehr Bestand ab.** `>60s` ging
+von 152 auf **179 Kanäle**, `15–30s` von 146 auf 168. Grund: Kanäle, deren
+Median-Aktivierung wegen der Posts ohne Views bei 0,0 lag, fielen vorher komplett durch
+den `med > 0`-Filter. Mit dem Ausschluss haben sie einen positiven Median und zählen
+wieder mit. Die Korrektur hat also nicht nur verzerrt gemessene Posts entfernt, sondern
+zu Unrecht ausgeschlossene zurückgeholt.
+
+### 16.2 Der einzige Befund, der übrig bleibt: die Formatklasse
+
+| Klasse | Posts | Kanäle | Median-Lift | Treffer | erwartet |
+|---|---:|---:|---:|---:|---:|
+| `3_langform` (≥ 90 s) | 869 | 176 | 1,06 | **16,9 %** | ~13 % |
+| `2_uebergang` (60–89 s) | 758 | 153 | 0,99 | 13,3 % | ~13 % |
+| `1_kurzform` (< 60 s) | 3.980 | 180 | 1,00 | 12,3 % | 13,0 % |
+
+Ein sauberer monotoner Verlauf über 5.607 Posts und 180 Kanäle — und die einzige
+Struktur-Aussage, die alle drei Korrekturrunden überlebt hat.
+
+**Die Grauzone hat sich empirisch bestätigt.** Sie war eine Konstruktionsentscheidung
+mit dem Argument „ein 75-Sekunden-Stück kann ein kurzer Trailer oder ein langer Spot
+sein". Die Daten sagen jetzt: der 60–89-Sekunden-Bereich liegt mit 13,3 % gegen ~13 %
+Erwartung **exakt auf dem Durchschnitt** — er verhält sich weder wie Langform noch wie
+Kurzform.
+
+Das erklärt auch, warum `3_langform` mit 16,9 % **besser abschneidet als der rohe
+`>60s`-Bucket mit 15,2 %**, obwohl `>60s` die Langformate enthält: die 758 Posts der
+Grauzone verwässern ihn. Wäre die Grauzone der Langform zugeschlagen worden, wäre der
+Befund auf den `>60s`-Wert zusammengeschrumpft.
+
+### 16.3 Was sonst noch übrig bleibt: fast nichts
+
+Nur drei der 28 Zellen erreichen plausibel |z| ≥ 2: `behind_the_scenes`,
+`format_class 3_langform` und `duration_bucket >60s`. Alles ab Platz sechs liegt
+zwischen z = +0,96 und z = −1,75.
+
+`behind_the_scenes` ist mit 28,1 % Trefferquote die auffälligste Einzelzelle, hat aber
+nur 32 Posts über 19 Kanäle. Bei 28 geprüften Zellen ist rund ein Zufallstreffer bei
+|z| ≥ 2 zu erwarten (siehe `_breakout_z`, Absatz „Bekannte Grenze") — und die kleinste
+der drei Zellen ist der wahrscheinlichste Kandidat dafür. Vorerst als Hypothese führen,
+nicht als Befund.
+
+Bemerkenswert im Negativen:
+
+- **`trailer` (13,5 % gegen 15,4 % erwartet) und `teaser` (8,0 % gegen 13,7 %) sind
+  unauffällig bis schwach.** Das Signal sitzt in der *Dauerklasse*, nicht im
+  Format-Label. Ein als „Trailer" klassifizierter Post läuft nicht besser; ein Post ab
+  90 Sekunden schon.
+- **`music_kind` ist unverändert** (2.065 / 228 Posts, 10,1 % / 9,6 %). Erwartet, weil
+  TikTok keine Posts ohne Views hat — die Korrektur konnte dort nichts ändern. Eine
+  saubere Gegenprobe, dass sie nur dort gewirkt hat, wo sie sollte.
+
+### 16.4 Konsequenz
+
+Die Metadaten-Route ist damit ausgeschöpft. Nach drei Korrekturrunden über denselben
+Datensatz bleibt **eine** belastbare Aussage: *Formate ab 90 Sekunden produzieren
+überdurchschnittlich oft Ausreißer, Formate unter 60 Sekunden unterdurchschnittlich —
+und der Bereich dazwischen ist genau das: der Bereich dazwischen.*
+
+Das ist zugleich das Fundament für Stufe 3: die Frage ist nicht mehr, *ob* Langform
+anders funktioniert, sondern *warum*. Und diese Antwort steckt in Hook, Schnitt und
+Aufbau — nicht in Metadaten.
