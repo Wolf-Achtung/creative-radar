@@ -284,6 +284,7 @@ def trailer_patterns(
     market: str | None = Query(None),
     min_sample: int = Query(5, ge=2, le=100),
     min_channels: int = Query(3, ge=1, le=50),
+    format_class: str | None = Query(None),
     session: Session = Depends(get_session),
 ) -> dict:
     """Trailer-Intelligence Stufe 1, Schritt 2 — korpusweite Muster.
@@ -334,8 +335,26 @@ def trailer_patterns(
     ``platform_mix`` je Zelle macht die Rechnung nachvollziehbar.
     ``baseline_breakout_rate`` bleibt als Kontextwert und als Rueckfall
     fuer Plattformen mit zu wenig Posts erhalten.
+
+    **``format_class``** grenzt auf eine Formatklasse ein: ``kurzform``
+    (unter 60 s), ``langform`` (ab 90 s) oder ``uebergang_60_90s`` fuer
+    die Zone, in der sich beide Branchendefinitionen ueberlappen. Ohne
+    Angabe laufen alle drei zusammen, und ``format_class`` erscheint als
+    eigene Dimension. Langform und Kurzform sind verschiedene Handwerke;
+    fuer eine Aussage ueber eines von beiden gehoert die Eingrenzung
+    gesetzt. Die Kanal-Baseline bleibt dabei die des vollen
+    Kanal-Outputs — Begruendung im Modul-Docstring.
     """
-    from app.services.trailer_patterns import compute_trailer_patterns
+    from app.services.trailer_patterns import (
+        FORMAT_CLASSES,
+        compute_trailer_patterns,
+    )
+
+    if format_class is not None and format_class not in FORMAT_CLASSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"format_class muss eines von {list(FORMAT_CLASSES)} sein.",
+        )
 
     report = compute_trailer_patterns(
         session,
@@ -343,6 +362,7 @@ def trailer_patterns(
         market=market,
         min_sample=min_sample,
         min_channels=min_channels,
+        format_class=format_class,
     )
     return report.to_dict()
 

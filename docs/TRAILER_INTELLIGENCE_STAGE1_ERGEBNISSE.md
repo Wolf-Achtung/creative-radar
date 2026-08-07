@@ -493,3 +493,53 @@ Die Zeile `avg(COALESCE(pl.rate, (SELECT rate FROM korpus)))` ist der Kern: gemi
 wird über die *Posts* der Zelle, nicht über die Plattformen — damit ist es das mit der
 Besetzung gewichtete Mittel. Plattformen mit weniger als 30 Posts haben keine eigene
 Quote und fallen auf die Korpusquote zurück (`HAVING count(*) >= 30` in `plattform`).
+
+## 9. Formatklassen: Langform und Kurzform getrennt auswerten
+
+Die Auswertung hat bisher Langformate (Trailer, Teaser, Promo, ab rund einer Minute)
+und Kurzformate (TV- und Social-Spots, 5 bis rund 90 Sekunden) in einem Topf gehabt
+und nach „dem" erfolgreichen Muster gesucht. Das mischt zwei verschiedene Handwerke:
+Langform ist auf Aufbau, Wendepunkt und Auflösung gebaut, Kurzform muss in den ersten
+Sekunden alles unterbringen.
+
+### 9.1 Die Klassen
+
+| Klasse | Dauer | |
+|---|---|---|
+| `kurzform` | < 60 s | TV- und Social-Spots |
+| `uebergang_60_90s` | 60 – 89 s | Grauzone, in der sich beide Definitionen überlappen |
+| `langform` | ≥ 90 s | Trailer, Teaser, Promo |
+
+**Aus der Dauer, nicht aus dem Format-Label.** Das Label läge näher — `trailer` ist per
+Definition Langform. Aber es existiert für 13,8 % der Posts, die Dauer für rund 90 %.
+Eine Einteilung auf Label-Basis hätte in genau der Frage, wegen der sie gebaut wird,
+fast keine Datengrundlage.
+
+**Die Grauzone bekommt einen eigenen Namen statt einer Zuordnung.** Ein
+75-Sekunden-Stück kann ein kurzer Trailer oder ein langer Spot sein; das entscheidet
+der Aufbau, nicht die Sekundenzahl. Sie still einer Seite zuzuschlagen wäre schlimmer,
+als die Lücke zu zeigen — dieselbe Regel wie bei `verdict="insufficient"`. Wenn die
+Trailerhaus-Fragebögen zurück sind, kann diese Zone gezielt aufgelöst werden.
+
+### 9.2 Zwei Wege, sie zu nutzen
+
+`format_class` ist zugleich Dimension und Filter:
+
+- **Ohne Eingrenzung** erscheint `format_class` als eigene Dimension im Bericht — man
+  sieht auf einen Blick, ob und wie stark die Klassen sich unterscheiden.
+- **Mit `?format_class=langform`** läuft die *gesamte* Auswertung nur innerhalb dieser
+  Klasse, inklusive der Plattform-Quoten. Langformate werden dann ausschließlich mit
+  Langformaten verglichen.
+
+### 9.3 Was dabei bewusst nicht mitgefiltert wird
+
+Die Kanal-Baseline bleibt auch bei eingegrenzter Auswertung der Median des **gesamten**
+Kanal-Outputs. Das ist die eine Stelle, an der eine naheliegende Vereinfachung das
+Ergebnis zerstören würde: Filtert man die Baseline mit, vergleichen sich Langformate
+nur noch mit Langformaten desselben Kanals. Der Median-Lift läge dann per Konstruktion
+bei 1,0, und die Frage „trägt Langform überhaupt?" wäre nicht mehr beantwortbar — die
+Antwort wäre immer „durchschnittlich".
+
+Gesichert durch `test_scoped_report_keeps_the_full_channel_baseline`: ein Kanal mit
+schwachem Kurzform-Grundrauschen und durchgehend doppelt so starker Langform muss auch
+im eingegrenzten Bericht Lift 2,0 und `verdict="over"` liefern.

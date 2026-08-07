@@ -751,3 +751,163 @@ def test_expected_breakout_rate_helper(session: Session):
     assert tp._expected_breakout_rate(mix, rates, 0.25) == pytest.approx(0.325)
     # Unbekannte Plattform faellt auf die Korpus-Quote zurueck.
     assert tp._expected_breakout_rate(["youtube"], rates, 0.25) == pytest.approx(0.25)
+
+
+# ---------- Formatklassen: Langform und Kurzform trennen -----------------
+#
+# Langformate (Trailer, Teaser, Promo, ab ca. 1 Minute) und Kurzformate
+# (TV- und Social-Spots, 5 bis ca. 90 Sekunden) sind verschiedene
+# Handwerke. Beide zusammen auszuwerten und nach "dem" erfolgreichen
+# Muster zu suchen, mischt zwei Fragen.
+
+
+@pytest.mark.parametrize(
+    "seconds, expected",
+    [
+        (5, tp.FORMAT_CLASS_KURZFORM),
+        (59, tp.FORMAT_CLASS_KURZFORM),
+        (60, tp.FORMAT_CLASS_UEBERGANG),
+        (89, tp.FORMAT_CLASS_UEBERGANG),
+        (90, tp.FORMAT_CLASS_LANGFORM),
+        (180, tp.FORMAT_CLASS_LANGFORM),
+    ],
+)
+def test_format_class_boundaries(session: Session, seconds, expected):
+    ch = _channel(session)
+    p = _post(session, ch, duration=seconds)
+    assert tp._format_class_of(p) == expected
+
+
+def test_format_class_needs_a_duration(session: Session):
+    """Ohne Dauer keine Klasse — geraten wird nicht."""
+    ch = _channel(session)
+    p = _post(session, ch, duration=None)
+    assert tp._format_class_of(p) is None
+
+
+def test_overlap_zone_is_its_own_class_not_a_guess(session: Session):
+    """Zwischen 60 und 90 Sekunden ueberlappen sich beide
+    Branchendefinitionen. Ein 75-Sekunden-Stueck kann ein kurzer Trailer
+    oder ein langer Spot sein; das entscheidet der Aufbau, nicht die
+    Sekundenzahl. Die Zone bekommt deshalb einen eigenen Namen, statt
+    still zu einer der beiden Klassen geschlagen zu werden."""
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(5):
+            _post(session, ch, duration=30)   # kurzform
+            _post(session, ch, duration=75)   # Grauzone
+            _post(session, ch, duration=150)  # langform
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    values = {c.value for c in report.dimensions["format_class"]}
+    assert values == {
+        tp.FORMAT_CLASS_KURZFORM,
+        tp.FORMAT_CLASS_UEBERGANG,
+        tp.FORMAT_CLASS_LANGFORM,
+    }
+    uebergang = _cell(report, "format_class", tp.FORMAT_CLASS_UEBERGANG)
+    assert uebergang.sample_size == 15
+
+
+def test_format_class_scope_restricts_the_whole_report(session: Session):
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(8):
+            _post(session, ch, duration=20, analysis=_analysis("clip"))
+        for _ in range(6):
+            _post(session, ch, duration=150, analysis=_analysis("trailer"))
+
+    scoped = tp.compute_trailer_patterns(
+        session, now=NOW, format_class=tp.FORMAT_CLASS_LANGFORM
+    )
+
+    assert scoped.format_class == tp.FORMAT_CLASS_LANGFORM
+    assert scoped.posts_with_baseline == 18
+    # Nur noch Langform-Formate in der Auswertung.
+    assert {c.value for c in scoped.dimensions["format"]} == {"trailer"}
+    # Die Klassen-Dimension selbst entfaellt — sie waere eine einzige
+    # Zelle, die gegen sich selbst geprueft wird.
+    assert "format_class" not in scoped.dimensions
+    assert any("format_class" in n for n in scoped.notes)
+
+
+def test_scoped_report_keeps_the_full_channel_baseline(session: Session):
+    """Der Kern der Eingrenzung.
+
+    Die Kanal-Baseline darf NICHT mitgefiltert werden. Sonst verglichen
+    sich Langformate nur noch mit Langformaten desselben Kanals, der
+    Median-Lift laege per Konstruktion bei 1,0, und die Frage "traegt
+    Langform ueberhaupt?" waere nicht mehr beantwortbar.
+    """
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        # Grundrauschen kurz und schwach ...
+        for _ in range(8):
+            _post(session, ch, duration=20, views=1000, likes=100)
+        # ... Langform durchgehend doppelt so stark.
+        for _ in range(4):
+            _post(session, ch, duration=150, views=1000, likes=200)
+
+    scoped = tp.compute_trailer_patterns(
+        session, now=NOW, format_class=tp.FORMAT_CLASS_LANGFORM
+    )
+    langform_cells = scoped.dimensions["duration_bucket"]
+    assert langform_cells, scoped.notes
+    cell = langform_cells[0]
+
+    # Gegen den vollen Kanal-Output normiert: Lift 2,0, klar over.
+    assert cell.median_lift == pytest.approx(2.0)
+    assert cell.verdict == "over"
+
+
+def test_unscoped_report_still_shows_every_class(session: Session):
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(6):
+            _post(session, ch, duration=20)
+        for _ in range(6):
+            _post(session, ch, duration=150)
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    assert report.format_class is None
+    assert report.to_dict()["format_class"] is None
+    assert {c.value for c in report.dimensions["format_class"]} == {
+        tp.FORMAT_CLASS_KURZFORM,
+        tp.FORMAT_CLASS_LANGFORM,
+    }
+
+
+def test_unknown_format_class_is_rejected(session: Session):
+    with pytest.raises(ValueError, match="format_class"):
+        tp.compute_trailer_patterns(session, now=NOW, format_class="mittellang")
+
+
+def test_empty_scope_reports_the_gap_instead_of_failing(session: Session):
+    """Eine Klasse ohne Posts ist ein Befund, kein Fehler."""
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(6):
+            _post(session, ch, duration=20)
+
+    report = tp.compute_trailer_patterns(
+        session, now=NOW, format_class=tp.FORMAT_CLASS_LANGFORM
+    )
+    assert report.posts_with_baseline == 0
+    assert report.dimensions == {}
+    assert any("format_class" in n for n in report.notes)
+
+
+def test_endpoint_accepts_format_class(client, session: Session):
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(6):
+            _post(session, ch, duration=20)
+        for _ in range(6):
+            _post(session, ch, duration=150)
+
+    resp = client.get("/api/admin/trailer-patterns?format_class=langform")
+    assert resp.status_code == 200
+    assert resp.json()["format_class"] == "langform"
+
+    bad = client.get("/api/admin/trailer-patterns?format_class=mittellang")
+    assert bad.status_code == 422

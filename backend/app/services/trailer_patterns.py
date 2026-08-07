@@ -143,6 +143,49 @@ Kanal-Median, was die Lifts der uebrigen Posts rechnerisch anhebt. Die
 Plattform-Korrektur macht diesen Effekt unschaedlich fuer den
 *Vergleich zwischen Zellen* — die absolute Hoehe der Instagram-Quote
 bleibt aber bis zur Klaerung mit Vorbehalt zu lesen.
+
+Formatklassen: Langform und Kurzform sind nicht dasselbe Spiel
+==============================================================
+
+Langformate (Trailer, Teaser, Promo) beginnen bei rund einer Minute und
+sind auf Aufbau, Wendepunkt und Aufloesung gebaut. Kurzformate (TV- und
+Social-Spots, 5 bis rund 90 Sekunden) muessen in den ersten Sekunden
+alles unterbringen. Beide in einen Topf zu werfen und nach "dem"
+erfolgreichen Muster zu suchen, mischt zwei verschiedene Handwerke.
+
+Die Dimension ``format_class`` macht die Trennung sichtbar, der
+Parameter ``format_class`` von ``compute_trailer_patterns`` grenzt die
+gesamte Auswertung darauf ein. Eingegrenzt laeuft alles Weitere — auch
+die Plattform-Quoten — innerhalb dieser Klasse, sodass Langformate nur
+noch mit Langformaten verglichen werden.
+
+Drei Klassen, rein aus der Dauer:
+
+    kurzform            < 60 s
+    uebergang_60_90s    60 bis unter 90 s
+    langform            >= 90 s
+
+**Warum nicht aus dem Format-Label.** Das laege naeher — ``trailer`` ist
+per Definition Langform. Aber das Label existiert fuer rund 14 % der
+Posts, die Dauer fuer rund 90 %. Eine Klasseneinteilung auf Label-Basis
+haette in genau der Frage, wegen der sie gebaut wurde, fast keine
+Datengrundlage.
+
+**Warum die Grauzone eine eigene Klasse ist.** Zwischen 60 und 90
+Sekunden ueberlappen sich beide Branchendefinitionen. Ein
+75-Sekunden-Stueck kann ein kurzer Trailer oder ein langer Spot sein;
+das entscheidet der Aufbau, nicht die Sekundenzahl. Die Zone bekommt
+deshalb einen eigenen Namen statt einer geratenen Zuordnung — dieselbe
+Regel wie bei ``verdict="insufficient"``: eine Luecke zeigen ist besser
+als sie zu fuellen.
+
+**Warum die Kanal-Baseline nicht mitgefiltert wird.** Bei eingegrenzter
+Auswertung bleibt der Nenner des Lifts der Median des *gesamten*
+Kanal-Outputs. Wuerde er mitgefiltert, verglichen sich Langformate nur
+noch mit Langformaten desselben Kanals — und die Frage "traegt Langform
+ueberhaupt?" waere per Konstruktion nicht mehr beantwortbar, weil die
+Antwort dann immer 1,0 lautet.
+(Test: ``test_scoped_report_keeps_the_full_channel_baseline``.)
 """
 from __future__ import annotations
 
@@ -187,6 +230,25 @@ BREAKOUT_Z_THRESHOLD = 2.0
 # selbst geprueft und koennte nie auffallen; solche Plattformen fallen
 # auf die Korpus-Quote zurueck.
 MIN_POSTS_PER_PLATFORM_BASELINE = 30
+
+# ---- Formatklassen (s. Modul-Docstring) --------------------------------
+#
+# Grenzen aus der Branchendefinition: Langformate (Trailer, Teaser,
+# Promo) beginnen bei rund einer Minute, Kurzformate (TV- und
+# Social-Spots) reichen von 5 Sekunden bis maximal rund 90 Sekunden.
+# Zwischen 60 und 90 Sekunden ueberlappen sich beide Definitionen — das
+# ist kein Fehler der Grenzen, sondern eine echte Grauzone.
+FORMAT_CLASS_LOWER_SECONDS = 60
+FORMAT_CLASS_UPPER_SECONDS = 90
+
+FORMAT_CLASS_KURZFORM = "kurzform"
+FORMAT_CLASS_LANGFORM = "langform"
+FORMAT_CLASS_UEBERGANG = "uebergang_60_90s"
+FORMAT_CLASSES = (
+    FORMAT_CLASS_KURZFORM,
+    FORMAT_CLASS_UEBERGANG,
+    FORMAT_CLASS_LANGFORM,
+)
 
 # Ein Kanal braucht selbst genug Posts, damit sein Median als Baseline
 # taugt. Darunter ist der Median ein Zufallswert und der daraus
@@ -252,6 +314,10 @@ class TrailerPatternReport:
     posts_with_baseline: int
     channels_covered: int
     analysis_coverage: float
+    # Auf welche Formatklasse die Auswertung eingegrenzt wurde; None =
+    # alle. Steht im Bericht, weil sonst nicht erkennbar waere, dass die
+    # Zahlen nur fuer einen Ausschnitt gelten.
+    format_class: Optional[str] = None
     # Trefferquote ueber den gesamten normierten Bestand. Nur noch
     # Rueckfall-Referenz und Kontextwert — verglichen wird je Zelle gegen
     # ``platform_breakout_rates``, gewichtet mit ihrer Plattform-Mischung.
@@ -269,6 +335,7 @@ class TrailerPatternReport:
             "window_start": self.window_start.isoformat(),
             "window_end": self.window_end.isoformat(),
             "market": self.market,
+            "format_class": self.format_class,
             "posts_in_window": self.posts_in_window,
             "posts_with_baseline": self.posts_with_baseline,
             "channels_covered": self.channels_covered,
@@ -329,6 +396,35 @@ def _extract_duration_bucket(post: Post) -> Optional[str]:
     return _duration_bucket(post.duration_seconds)
 
 
+def _format_class_of(post: Post) -> Optional[str]:
+    """Kurzform, Langform oder Grauzone — allein aus der Dauer.
+
+    Bewusst nicht aus dem ``format``-Label abgeleitet, obwohl das
+    naeherliegt: das Label existiert fuer rund 14 % der Posts, die Dauer
+    fuer rund 90 %. Eine Klasseneinteilung, die auf dem Label aufsetzt,
+    haette in genau der Frage, wegen der sie gebaut wurde, fast keine
+    Datengrundlage.
+
+    Die Grauzone bekommt eine eigene Klasse statt einer Zuordnung. Ein
+    75-Sekunden-Stueck kann ein kurzer Trailer oder ein langer Spot sein;
+    das entscheidet der Aufbau, nicht die Sekundenzahl. Zu raten waere
+    hier schlimmer als die Luecke zu zeigen — dieselbe Regel wie bei
+    ``verdict="insufficient"``.
+    """
+    d = post.duration_seconds
+    if d is None:
+        return None
+    if d < FORMAT_CLASS_LOWER_SECONDS:
+        return FORMAT_CLASS_KURZFORM
+    if d < FORMAT_CLASS_UPPER_SECONDS:
+        return FORMAT_CLASS_UEBERGANG
+    return FORMAT_CLASS_LANGFORM
+
+
+def _extract_format_class(post: Post) -> Optional[str]:
+    return _format_class_of(post)
+
+
 def _extract_music_kind(post: Post) -> Optional[str]:
     """TikTok-Musikart aus ``raw_payload['_creative_radar_music']``.
 
@@ -370,6 +466,7 @@ class _Dimension:
 # gemessen und wuerden bei 12 % Klassifikations-Abdeckung sonst
 # unnoetig auf ein Achtel schrumpfen.
 DIMENSIONS: tuple[_Dimension, ...] = (
+    _Dimension("format_class", _extract_format_class, False),
     _Dimension("format", _extract_format, True),
     _Dimension("tone", _extract_tone, True),
     _Dimension("lifecycle_stage", _extract_lifecycle, True),
@@ -479,13 +576,28 @@ def compute_trailer_patterns(
     now: Optional[datetime] = None,
     min_sample: int = MIN_SAMPLE_PER_CELL,
     min_channels: int = MIN_CHANNELS_PER_CELL,
+    format_class: Optional[str] = None,
 ) -> TrailerPatternReport:
     """Aggregiert Reichweiten-Muster ueber den Bestand.
 
     ``market`` filtert auf die Kanal-Spalte (z.B. "DE"); ``None`` nimmt
     alle. ``now`` ist der Fensterendpunkt und existiert, damit Tests ein
     festes Fenster setzen koennen.
+
+    ``format_class`` grenzt die Auswertung auf eine Formatklasse ein
+    (``kurzform``, ``langform``, ``uebergang_60_90s``). Die
+    Kanal-Baseline bleibt dabei bewusst die des **gesamten** Kanal-
+    Outputs: der Lift soll weiter "verglichen mit dem, was dieser Kanal
+    ueblicherweise erreicht" heissen. Wuerde die Baseline mitgefiltert,
+    verglichen sich Langformate nur noch mit Langformaten desselben
+    Kanals, und die Frage "traegt Langform ueberhaupt?" waere per
+    Konstruktion nicht mehr beantwortbar.
     """
+    if format_class is not None and format_class not in FORMAT_CLASSES:
+        raise ValueError(
+            f"format_class={format_class!r} unbekannt, erlaubt: {FORMAT_CLASSES}"
+        )
+
     window_end = now or datetime.now(timezone.utc)
     window_start = window_end - timedelta(days=window_days)
 
@@ -504,6 +616,7 @@ def compute_trailer_patterns(
             posts_with_baseline=0,
             channels_covered=0,
             analysis_coverage=0.0,
+            format_class=format_class,
             notes=[f"Keine Kanaele fuer market={market!r}."],
         )
 
@@ -527,6 +640,7 @@ def compute_trailer_patterns(
             posts_with_baseline=0,
             channels_covered=0,
             analysis_coverage=0.0,
+            format_class=format_class,
             notes=["Keine Posts im Fenster."],
         )
 
@@ -581,8 +695,35 @@ def compute_trailer_patterns(
             posts_with_baseline=0,
             channels_covered=0,
             analysis_coverage=0.0,
+            format_class=format_class,
             notes=notes + ["Kein Kanal hatte genug Posts fuer eine Baseline."],
         )
+
+    # ---- Eingrenzung auf eine Formatklasse -------------------------------
+    #
+    # Erst hier, nicht schon bei den Baselines: der Lift soll weiter
+    # gegen den vollen Kanal-Output normiert sein (s. Docstring).
+    if format_class is not None:
+        before = len(usable)
+        usable = [p for p in usable if _format_class_of(p) == format_class]
+        notes.append(
+            f"Eingegrenzt auf format_class={format_class!r}: {len(usable)} "
+            f"von {before} Posts mit Baseline. Die Kanal-Baseline stammt "
+            f"weiterhin aus dem vollen Output des jeweiligen Kanals."
+        )
+        if not usable:
+            return TrailerPatternReport(
+                window_days=window_days,
+                window_start=window_start,
+                window_end=window_end,
+                market=market,
+                posts_in_window=len(posts),
+                posts_with_baseline=0,
+                channels_covered=0,
+                analysis_coverage=0.0,
+                format_class=format_class,
+                notes=notes,
+            )
 
     analysed = sum(1 for p in usable if _extract_format(p) is not None)
     coverage = analysed / len(usable)
@@ -636,6 +777,11 @@ def compute_trailer_patterns(
     # ---- Cross-Tabs -----------------------------------------------------
     dimensions: dict[str, list[PatternCell]] = {}
     for dim in DIMENSIONS:
+        # Bei eingegrenzter Auswertung waere die Formatklassen-Dimension
+        # eine einzige Zelle mit z = 0 gegen sich selbst — kein Befund,
+        # nur Rauschen in der Ausgabe.
+        if dim.name == "format_class" and format_class is not None:
+            continue
         buckets: dict[str, list[Post]] = defaultdict(list)
         for p in usable:
             if dim.requires_analysis:
@@ -730,6 +876,7 @@ def compute_trailer_patterns(
         posts_with_baseline=len(usable),
         channels_covered=len(baseline_by_channel),
         analysis_coverage=coverage,
+        format_class=format_class,
         baseline_breakout_rate=baseline_breakout_rate,
         platform_breakout_rates=platform_breakout_rates,
         dimensions=dimensions,
