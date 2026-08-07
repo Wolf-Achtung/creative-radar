@@ -308,3 +308,10 @@ Sprint.
 Kommt das Material nicht zustande, bleibt die Möglichkeit aus Abschnitt 5c der Vorstufe:
 der Befund aus Stufe 3 steht, ohne handwerkliche Erklärung. Auch ein vertretbares
 Ergebnis — nur eben ein kleineres.
+
+**Nachtrag vom selben Tag:** Zwischen „auf das Trailerhaus warten" und „aufgeben" gibt es
+mehr, als dieser Abschnitt nahelegt.
+[TRAILER_INTELLIGENCE_STUFE5_PLAN_B.md](./TRAILER_INTELLIGENCE_STUFE5_PLAN_B.md)
+eruiert die Wege ohne Wartezeit — allen voran wilde Langform/Cutdown-Paare aus der
+eigenen Datenbank, annotiert per Tap-Along im nutzungsbedingungskonformen
+IFrame-Player.
