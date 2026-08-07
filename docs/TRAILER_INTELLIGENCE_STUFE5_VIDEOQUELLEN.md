@@ -204,3 +204,19 @@ prüfen.
 Die Empfehlung aus Abschnitt 5 (eigenes Material des Trailerhauses für den PoC) steht.
 Dieser Fund ist eine Werkzeugkiste für später, keine Abkürzung für den YouTube-Befund
 aus Stufe 3 — der bleibt an die Rechtsfrage aus Abschnitt 5 gebunden.
+
+## 9. Weiter geht es im Fundament-Dokument
+
+Der quellenunabhängige Teil aus Abschnitt 7 ist inzwischen gebaut: Merkmalsberechnung,
+Kohortenvergleich, Datenmodell und Migration. Beschrieben in
+**[TRAILER_INTELLIGENCE_STUFE5_FUNDAMENT.md](./TRAILER_INTELLIGENCE_STUFE5_FUNDAMENT.md)**.
+
+Zwei Dinge daraus korrigieren bzw. schärfen dieses Dokument:
+
+- Das Merkmal aus Abschnitt 4, hier noch „Musikeinsatz-Zeitpunkt" genannt, heißt jetzt
+  `loudness_rise_position`. Aus einer Lautheitskurve allein lässt sich Musik nicht von
+  Dialog unterscheiden — der alte Name versprach mehr, als die Messung hergibt.
+- Die zwanzig Paare aus Abschnitt 5 sind nachgerechnet, nicht geschätzt: bei zwanzig
+  gepaarten Titeln wird ein schwacher Effekt in 84 % der Fälle gefunden, bei dreißig
+  **ungepaarten** Videos je Arm nur in 13 %. Die Paarung ist nicht ein Vorteil des
+  Trailerhaus-Materials, sie ist der Grund, warum der PoC in dieser Größe funktioniert.
