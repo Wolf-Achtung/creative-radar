@@ -278,6 +278,59 @@ def breakouts(
     return {"count": len(entries), "min_multiplier": min_multiplier, "entries": entries}
 
 
+@router.get("/langform")
+def langform_analysis(
+    window_days: int = Query(90, ge=7, le=365),
+    market: str | None = Query(None),
+    min_posts_per_arm: int = Query(30, ge=5, le=500),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Trailer-Intelligence Stufe 3, Schritt 1 — warum gewinnt Langform?
+
+    Rein lesend, kein Modell-Call, kein Budget-Effekt.
+
+    Stufe 1 hat genau einen Befund uebrig gelassen: Formate ab 90
+    Sekunden produzieren ueberdurchschnittlich oft Ausreisser (16,9 %
+    gegen 14,2 % Erwartung, z = 2,27). Dieser Endpunkt beantwortet nicht,
+    *warum* — er **grenzt ein**, indem er den Vorsprung von Langform
+    (>= 90 s) gegenueber Kurzform (< 60 s) innerhalb jeder Schicht neu
+    rechnet:
+
+    - ``platform`` — traegt Langform nur dort, wo der Player es hergibt?
+    - ``market`` — ein DE/US/UK-Effekt?
+    - ``title_match`` — nur bei Posts mit erkanntem Titel, also bei
+      Assets mit echtem Release dahinter?
+    - ``channel_habit`` — nur bei Kanaelen, die selten Langform machen
+      (dann ist die Laenge ein Marker fuer Investition, keine Ursache)?
+    - ``days_to_release`` — nur nahe am Kinostart?
+
+    Verschwindet der Vorsprung innerhalb einer Schicht, erklaert sie ihn;
+    der Name steht dann in ``explained_by``. Ueberlebt er ueberall, bleibt
+    die Ausfuehrung als Erklaerung — und die ist ohne Video-Erfassung
+    nicht messbar.
+
+    Kennzahl der Ausgabe ist ``survives_in`` von ``tested_strata``. Eine
+    Schicht ohne genug Posts in **beiden** Armen zaehlt nicht als
+    bestandener Test, sondern wird als ``insufficient`` mit Grund
+    gemeldet.
+
+    ``duration_gradient`` beantwortet eine eigene Frage: waechst der
+    Vorsprung mit der Laenge weiter (dann ist "mehr Raum fuer Aufbau"
+    plausibel) oder springt er bei 90 Sekunden und bleibt flach (dann ist
+    es eine Format-Konvention)? Er geht bewusst nicht in ``survives_in``
+    ein, weil er keine konkurrierende Erklaerung testet.
+    """
+    from app.services.langform_analysis import compute_langform_report
+
+    report = compute_langform_report(
+        session,
+        window_days=window_days,
+        market=market,
+        min_posts_per_arm=min_posts_per_arm,
+    )
+    return report.to_dict()
+
+
 @router.get("/trailer-patterns")
 def trailer_patterns(
     window_days: int = Query(90, ge=7, le=365),

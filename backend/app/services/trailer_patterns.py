@@ -613,6 +613,172 @@ def _breakout_verdict_for(z: Optional[float]) -> str:
     return "neutral"
 
 
+@dataclass
+class LiftContext:
+    """Kanal-normierte Lifts plus alles, was zum Deuten noetig ist.
+
+    Gemeinsame Grundlage fuer ``compute_trailer_patterns`` (Stufe 1) und
+    ``langform_analysis`` (Stufe 3). Bewusst geteilt statt kopiert: hier
+    stecken die Ehrlichkeits-Regeln, die drei Korrekturrunden gekostet
+    haben — Mindest-Postzahl je Kanal, Ausschluss der Posts ohne
+    messbare Views, Median als Baseline. Zwei Kopien davon liefen
+    auseinander, und dann waeren die Zahlen der beiden Stufen nicht mehr
+    vergleichbar.
+
+    ``usable`` ist leer, wenn kein Post eine Baseline bekommen hat; der
+    Grund steht dann in ``notes``.
+    """
+
+    window_start: datetime
+    window_end: datetime
+    posts_in_window: int
+    usable: list[Post] = field(default_factory=list)
+    lift_by_post: dict[Any, float] = field(default_factory=dict)
+    activation_by_post: dict[Any, float] = field(default_factory=dict)
+    platform_by_channel: dict[Any, str] = field(default_factory=dict)
+    baseline_by_channel: dict[Any, float] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
+
+
+def build_lift_context(
+    session: Session,
+    *,
+    window_days: int = DEFAULT_WINDOW_DAYS,
+    market: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> LiftContext:
+    """Laedt das Fenster und rechnet je Post den Kanal-normierten Lift.
+
+    Die Reihenfolge ist wesentlich und in dieser Form das Ergebnis der
+    Korrekturen vom 07.08.2026:
+
+    1. Kanaele (optional je Markt) und ihre Posts im Fenster laden.
+    2. Posts ohne messbare Views **ausschliessen** — vor allem anderen,
+       weil ihre 0,0-Aktivierung sonst den Kanal-Median druecken und die
+       Lifts aller uebrigen Posts anheben wuerde.
+    3. Je Kanal den Median der Aktivierung als Baseline bilden, aber nur
+       ab ``MIN_POSTS_PER_CHANNEL_BASELINE`` Posts und nur bei Median > 0.
+    4. Lift = Aktivierung / Kanal-Baseline.
+    """
+    window_end = now or datetime.now(timezone.utc)
+    window_start = window_end - timedelta(days=window_days)
+
+    channel_stmt = select(Channel)
+    if market:
+        channel_stmt = channel_stmt.where(Channel.market == market)
+    channels = list(session.exec(channel_stmt).all())
+    platform_by_channel = {c.id: c.platform for c in channels}
+    if not channels:
+        return LiftContext(
+            window_start=window_start,
+            window_end=window_end,
+            posts_in_window=0,
+            notes=[f"Keine Kanaele fuer market={market!r}."],
+        )
+
+    posts = list(
+        session.exec(
+            select(Post)
+            .where(Post.channel_id.in_(list(platform_by_channel.keys())))
+            .where(Post.detected_at >= window_start)
+            .where(Post.detected_at <= window_end)
+        ).all()
+    )
+    posts_in_window = len(posts)
+    if not posts:
+        return LiftContext(
+            window_start=window_start,
+            window_end=window_end,
+            posts_in_window=0,
+            platform_by_channel=platform_by_channel,
+            notes=["Keine Posts im Fenster."],
+        )
+
+    notes: list[str] = []
+
+    # ---- Posts ohne messbare Reichweite ausschliessen ---------------------
+    without_views = [p for p in posts if not _has_measurable_views(p)]
+    if without_views:
+        posts = [p for p in posts if _has_measurable_views(p)]
+        by_platform_missing: dict[str, int] = defaultdict(int)
+        for p in without_views:
+            by_platform_missing[platform_by_channel.get(p.channel_id, "unknown")] += 1
+        spread = ", ".join(
+            f"{pl} {n}"
+            for pl, n in sorted(by_platform_missing.items(), key=lambda kv: -kv[1])
+        )
+        notes.append(
+            f"{len(without_views)} von {posts_in_window} Posts ohne messbare "
+            f"Views ausgeschlossen ({spread}). Ihre Aktivierung waere 0,0 — "
+            f"eine Leerstelle, keine Messung, die den Kanal-Median druecken "
+            f"und die Lifts aller uebrigen Posts anheben wuerde."
+        )
+    if not posts:
+        return LiftContext(
+            window_start=window_start,
+            window_end=window_end,
+            posts_in_window=posts_in_window,
+            platform_by_channel=platform_by_channel,
+            notes=notes + ["Kein Post im Fenster hat messbare Views."],
+        )
+
+    # ---- Kanal-Baselines --------------------------------------------------
+    by_channel: dict[Any, list[Post]] = defaultdict(list)
+    for p in posts:
+        by_channel[p.channel_id].append(p)
+
+    activation_by_post: dict[Any, float] = {}
+    for channel_id, channel_posts in by_channel.items():
+        platform = platform_by_channel.get(channel_id, "tiktok")
+        for p in channel_posts:
+            activation_by_post[p.id] = compute_activation_rate(p, platform)
+
+    baseline_by_channel: dict[Any, float] = {}
+    thin_channels = 0
+    for channel_id, channel_posts in by_channel.items():
+        if len(channel_posts) < MIN_POSTS_PER_CHANNEL_BASELINE:
+            thin_channels += 1
+            continue
+        med = _median([activation_by_post[p.id] for p in channel_posts])
+        if med <= 0:
+            # Kanal ohne messbare Aktivierung im Fenster. Ein Lift waere
+            # hier eine Division durch ~0.
+            continue
+        baseline_by_channel[channel_id] = med
+
+    if thin_channels:
+        notes.append(
+            f"{thin_channels} Kanaele mit weniger als "
+            f"{MIN_POSTS_PER_CHANNEL_BASELINE} Posts im Fenster uebersprungen "
+            f"(Median waere als Baseline nicht belastbar)."
+        )
+
+    # ---- Lifts ------------------------------------------------------------
+    lift_by_post: dict[Any, float] = {}
+    usable: list[Post] = []
+    for p in posts:
+        base = baseline_by_channel.get(p.channel_id)
+        if base is None:
+            continue
+        lift_by_post[p.id] = activation_by_post[p.id] / base
+        usable.append(p)
+
+    if not usable:
+        notes.append("Kein Kanal hatte genug Posts fuer eine Baseline.")
+
+    return LiftContext(
+        window_start=window_start,
+        window_end=window_end,
+        posts_in_window=posts_in_window,
+        usable=usable,
+        lift_by_post=lift_by_post,
+        activation_by_post=activation_by_post,
+        platform_by_channel=platform_by_channel,
+        baseline_by_channel=baseline_by_channel,
+        notes=notes,
+    )
+
+
 def compute_trailer_patterns(
     session: Session,
     *,
@@ -643,129 +809,17 @@ def compute_trailer_patterns(
             f"format_class={format_class!r} unbekannt, erlaubt: {FORMAT_CLASSES}"
         )
 
-    window_end = now or datetime.now(timezone.utc)
-    window_start = window_end - timedelta(days=window_days)
-
-    channel_stmt = select(Channel)
-    if market:
-        channel_stmt = channel_stmt.where(Channel.market == market)
-    channels = list(session.exec(channel_stmt).all())
-    platform_by_channel = {c.id: c.platform for c in channels}
-    if not channels:
-        return TrailerPatternReport(
-            window_days=window_days,
-            window_start=window_start,
-            window_end=window_end,
-            market=market,
-            posts_in_window=0,
-            posts_with_baseline=0,
-            channels_covered=0,
-            analysis_coverage=0.0,
-            format_class=format_class,
-            notes=[f"Keine Kanaele fuer market={market!r}."],
-        )
-
-    posts = list(
-        session.exec(
-            select(Post)
-            .where(Post.channel_id.in_(list(platform_by_channel.keys())))
-            .where(Post.detected_at >= window_start)
-            .where(Post.detected_at <= window_end)
-        ).all()
+    ctx = build_lift_context(
+        session, window_days=window_days, market=market, now=now
     )
-
-    notes: list[str] = []
-    posts_in_window = len(posts)
-    if not posts:
-        return TrailerPatternReport(
-            window_days=window_days,
-            window_start=window_start,
-            window_end=window_end,
-            market=market,
-            posts_in_window=0,
-            posts_with_baseline=0,
-            channels_covered=0,
-            analysis_coverage=0.0,
-            format_class=format_class,
-            notes=["Keine Posts im Fenster."],
-        )
-
-    # ---- Posts ohne messbare Reichweite ausschliessen ---------------------
-    #
-    # Muss VOR den Kanal-Baselines passieren: die 0,0-Aktivierung dieser
-    # Posts wuerde sonst den Median druecken und damit die Lifts aller
-    # uebrigen Posts desselben Kanals anheben. Begruendung und Messung
-    # bei ``_has_measurable_views``.
-    without_views = [p for p in posts if not _has_measurable_views(p)]
-    if without_views:
-        posts = [p for p in posts if _has_measurable_views(p)]
-        by_platform_missing: dict[str, int] = defaultdict(int)
-        for p in without_views:
-            by_platform_missing[platform_by_channel.get(p.channel_id, "unknown")] += 1
-        spread = ", ".join(
-            f"{pl} {n}"
-            for pl, n in sorted(by_platform_missing.items(), key=lambda kv: -kv[1])
-        )
-        notes.append(
-            f"{len(without_views)} von {posts_in_window} Posts ohne messbare "
-            f"Views ausgeschlossen ({spread}). Ihre Aktivierung waere 0,0 — "
-            f"eine Leerstelle, keine Messung, die den Kanal-Median druecken "
-            f"und die Lifts aller uebrigen Posts anheben wuerde."
-        )
-    if not posts:
-        return TrailerPatternReport(
-            window_days=window_days,
-            window_start=window_start,
-            window_end=window_end,
-            market=market,
-            posts_in_window=posts_in_window,
-            posts_with_baseline=0,
-            channels_covered=0,
-            analysis_coverage=0.0,
-            format_class=format_class,
-            notes=notes + ["Kein Post im Fenster hat messbare Views."],
-        )
-
-    # ---- Kanal-Baselines ------------------------------------------------
-    by_channel: dict[Any, list[Post]] = defaultdict(list)
-    for p in posts:
-        by_channel[p.channel_id].append(p)
-
-    activation_by_post: dict[Any, float] = {}
-    for channel_id, channel_posts in by_channel.items():
-        platform = platform_by_channel.get(channel_id, "tiktok")
-        for p in channel_posts:
-            activation_by_post[p.id] = compute_activation_rate(p, platform)
-
-    baseline_by_channel: dict[Any, float] = {}
-    thin_channels = 0
-    for channel_id, channel_posts in by_channel.items():
-        if len(channel_posts) < MIN_POSTS_PER_CHANNEL_BASELINE:
-            thin_channels += 1
-            continue
-        med = _median([activation_by_post[p.id] for p in channel_posts])
-        if med <= 0:
-            # Kanal ohne messbare Aktivierung im Fenster (z.B. nur Posts
-            # ohne views). Ein Lift waere hier eine Division durch ~0.
-            continue
-        baseline_by_channel[channel_id] = med
-
-    if thin_channels:
-        notes.append(
-            f"{thin_channels} Kanaele mit weniger als "
-            f"{MIN_POSTS_PER_CHANNEL_BASELINE} Posts im Fenster uebersprungen "
-            f"(Median waere als Baseline nicht belastbar)."
-        )
-
-    # ---- Lifts ----------------------------------------------------------
-    lift_by_post: dict[Any, float] = {}
-    usable: list[Post] = []
-    for p in posts:
-        base = baseline_by_channel.get(p.channel_id)
-        if base is None:
-            continue
-        lift_by_post[p.id] = activation_by_post[p.id] / base
-        usable.append(p)
+    window_start, window_end = ctx.window_start, ctx.window_end
+    platform_by_channel = ctx.platform_by_channel
+    activation_by_post = ctx.activation_by_post
+    lift_by_post = ctx.lift_by_post
+    baseline_by_channel = ctx.baseline_by_channel
+    posts_in_window = ctx.posts_in_window
+    notes = list(ctx.notes)
+    usable = ctx.usable
 
     if not usable:
         return TrailerPatternReport(
@@ -778,7 +832,7 @@ def compute_trailer_patterns(
             channels_covered=0,
             analysis_coverage=0.0,
             format_class=format_class,
-            notes=notes + ["Kein Kanal hatte genug Posts fuer eine Baseline."],
+            notes=notes,
         )
 
     # ---- Eingrenzung auf eine Formatklasse -------------------------------
