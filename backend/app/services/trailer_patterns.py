@@ -68,6 +68,41 @@ Zellen, die 1 oder 2 reissen, verschwinden nicht — sie werden mit
 ``verdict="insufficient"`` gemeldet. Eine Luecke ist ein Befund; sie
 stillschweigend wegzufiltern wuerde den Bestand besser aussehen lassen,
 als er ist.
+
+Zwei Kennzahlen, zwei Verdikte
+==============================
+
+Die erste Auswertung auf echten Daten (06.08.2026, Ergebnisse-Dokument)
+hat gezeigt, dass der Median allein hier nichts hergibt: **alle** Zellen
+lagen zwischen 0,86 und 1,29, keine einzige erreichte die 1,5x/0,5x-
+Schwellen. Das ist kein Zufall, sondern Bauart — die Baseline ist der
+Median desselben Kanals, gegen den gemessen wird, und ueber tausende
+Posts regrediert jeder Teilmengen-Median zurueck Richtung 1,0.
+
+Deshalb gibt es eine zweite Kennzahl, die eine andere Frage beantwortet:
+
+- ``median_lift`` / ``verdict`` — *laeuft der typische Post besser?*
+  Bleibt erhalten, spricht bei Korpusgroesse aber selten an.
+- ``breakout_rate`` / ``breakout_verdict`` — *produziert dieses Merkmal
+  mehr Ausreisser?* Anteil der Posts mit Lift >= 2,0, verglichen mit
+  derselben Quote ueber den gesamten normierten Bestand
+  (``baseline_breakout_rate``).
+
+Erst die zweite Kennzahl brachte Signal: die Trefferquoten spannten sich
+von 11,2 % (humorvoll) bis 28,7 % (>60s) bei einer Basisquote von 20 %.
+Sie fand auch den Fall, den der Median strukturell verdeckt —
+behind_the_scenes mit unterdurchschnittlichem Median (0,86) bei
+gleichzeitig ueberdurchschnittlicher Trefferquote (27,9 %): meist
+Blindgaenger, aber ueberdurchschnittlich oft ein Volltreffer.
+
+Das ``breakout_verdict`` benutzt einen z-Test gegen die Basisquote statt
+eines festen Faktors — Begruendung bei ``_breakout_z``. ``p90_lift``
+zeigt zusaetzlich, wie hoch die guten Faelle einer Zelle reichen.
+
+Interpretationsfalle Nummer zwei: ``median_lift`` und ``breakout_rate``
+koennen in verschiedene Richtungen zeigen (siehe behind_the_scenes).
+Das ist kein Widerspruch, sondern die eigentliche Information — beide
+Spalten gehoeren zusammen gelesen.
 """
 from __future__ import annotations
 
@@ -96,6 +131,17 @@ CONFIDENCE_THRESHOLD = 0.7
 OVER_THRESHOLD = 1.5
 UNDER_THRESHOLD = 0.5
 
+# ---- Trefferquote (zweite Kennzahl, s. Modul-Docstring) ---------------
+#
+# Ab welchem Lift ein Post als "Treffer" zaehlt. 2.0 = doppelt so gute
+# Aktivierung wie der Kanal ueblicherweise erreicht.
+BREAKOUT_LIFT_THRESHOLD = 2.0
+
+# Ab welchem z-Wert die Abweichung der Zellen-Trefferquote von der
+# Korpus-Trefferquote als belastbar gilt. 2.0 entspricht grob dem
+# 95-%-Niveau bei einem Binomialanteil.
+BREAKOUT_Z_THRESHOLD = 2.0
+
 # Ein Kanal braucht selbst genug Posts, damit sein Median als Baseline
 # taugt. Darunter ist der Median ein Zufallswert und der daraus
 # abgeleitete Lift verzerrt jede Zelle, in die er einfliesst.
@@ -113,6 +159,14 @@ class PatternCell:
     median_activation: float
     median_views: Optional[int]
     verdict: str  # "over" | "under" | "neutral" | "insufficient"
+
+    # Zweite Kennzahl: Anteil Posts mit Lift >= BREAKOUT_LIFT_THRESHOLD,
+    # verglichen mit derselben Quote ueber den gesamten normierten Bestand.
+    breakout_rate: float = 0.0
+    breakout_z: Optional[float] = None
+    breakout_verdict: str = "insufficient"
+    p90_lift: float = 0.0
+
     reason: Optional[str] = None  # nur bei "insufficient"
 
     def to_dict(self) -> dict:
@@ -124,6 +178,10 @@ class PatternCell:
             "median_activation": round(self.median_activation, 5),
             "median_views": self.median_views,
             "verdict": self.verdict,
+            "breakout_rate": round(self.breakout_rate, 4),
+            "breakout_z": round(self.breakout_z, 2) if self.breakout_z is not None else None,
+            "breakout_verdict": self.breakout_verdict,
+            "p90_lift": round(self.p90_lift, 3),
         }
         if self.reason:
             out["reason"] = self.reason
@@ -140,6 +198,9 @@ class TrailerPatternReport:
     posts_with_baseline: int
     channels_covered: int
     analysis_coverage: float
+    # Trefferquote ueber den gesamten normierten Bestand — die Referenz,
+    # gegen die jede Zelle verglichen wird.
+    baseline_breakout_rate: float = 0.0
     dimensions: dict[str, list[PatternCell]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
@@ -153,6 +214,7 @@ class TrailerPatternReport:
             "posts_with_baseline": self.posts_with_baseline,
             "channels_covered": self.channels_covered,
             "analysis_coverage": round(self.analysis_coverage, 4),
+            "baseline_breakout_rate": round(self.baseline_breakout_rate, 4),
             "dimensions": {
                 name: [c.to_dict() for c in cells]
                 for name, cells in self.dimensions.items()
@@ -260,6 +322,63 @@ def _verdict_for(lift: float) -> str:
     if lift >= OVER_THRESHOLD:
         return "over"
     if lift <= UNDER_THRESHOLD:
+        return "under"
+    return "neutral"
+
+
+def _percentile(values: list[float], q: float) -> float:
+    """Lineares Perzentil. Fuer p90 der Lift-Verteilung einer Zelle —
+    zeigt, wie hoch die guten Faelle reichen, was der Median verschweigt."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    if len(s) == 1:
+        return s[0]
+    pos = q * (len(s) - 1)
+    low = int(pos)
+    high = min(low + 1, len(s) - 1)
+    frac = pos - low
+    return s[low] + (s[high] - s[low]) * frac
+
+
+def _breakout_z(cell_rate: float, baseline_rate: float, n: int) -> Optional[float]:
+    """z-Wert der Zellen-Trefferquote gegen die Korpus-Trefferquote.
+
+    Warum ein z-Test statt eines festen Schwellwerts wie "1,25x der
+    Basisquote": die Stichprobengroessen unterscheiden sich um zwei
+    Groessenordnungen (43 Posts bei behind_the_scenes gegen 1.577 bei
+    >60s). Ein fester Faktor behandelt beide gleich und erklaert eine
+    Abweichung, die bei n=43 blosses Rauschen sein kann, zum Befund. Der
+    z-Wert skaliert dagegen mit der Wurzel aus n und macht den
+    Unterschied rechnerisch statt nur optisch sichtbar.
+
+    Standardfehler des Binomialanteils unter der Nullhypothese
+    "Zelle verhaelt sich wie der Korpus": sqrt(p*(1-p)/n) mit p =
+    baseline_rate. Gibt None zurueck, wenn keine sinnvolle Referenz
+    existiert (leerer Korpus oder Basisquote 0/1).
+
+    Bekannte Grenze, bewusst nicht korrigiert: ueber alle Dimensionen
+    werden rund 20 Zellen geprueft, bei |z| >= 2 ist also etwa ein
+    Zufallstreffer zu erwarten. Eine Bonferroni-Korrektur wuerde die
+    Schwelle so weit anheben, dass kleine Zellen grundsaetzlich nie
+    ansprechen — fuer eine Hypothesen-erzeugende Auswertung der falsche
+    Tausch. Wer eine Einzelaussage belastbar braucht, prueft sie
+    gesondert nach.
+    """
+    if n <= 0 or baseline_rate <= 0.0 or baseline_rate >= 1.0:
+        return None
+    se = (baseline_rate * (1.0 - baseline_rate) / n) ** 0.5
+    if se == 0:
+        return None
+    return (cell_rate - baseline_rate) / se
+
+
+def _breakout_verdict_for(z: Optional[float]) -> str:
+    if z is None:
+        return "insufficient"
+    if z >= BREAKOUT_Z_THRESHOLD:
+        return "over"
+    if z <= -BREAKOUT_Z_THRESHOLD:
         return "under"
     return "neutral"
 
@@ -387,6 +506,12 @@ def compute_trailer_patterns(
             f"vollen Bestand."
         )
 
+    # ---- Korpus-Trefferquote als Referenz --------------------------------
+    breakouts_total = sum(
+        1 for p in usable if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
+    )
+    baseline_breakout_rate = breakouts_total / len(usable)
+
     # ---- Cross-Tabs -----------------------------------------------------
     dimensions: dict[str, list[PatternCell]] = {}
     for dim in DIMENSIONS:
@@ -409,18 +534,29 @@ def compute_trailer_patterns(
             views = [int(p.visible_views) for p in cell_posts if p.visible_views]
             median_lift = _median(lifts)
 
+            breakout_hits = sum(1 for x in lifts if x >= BREAKOUT_LIFT_THRESHOLD)
+            breakout_rate = breakout_hits / len(lifts)
+
             reason = None
             if len(cell_posts) < min_sample:
                 verdict = "insufficient"
+                breakout_verdict = "insufficient"
+                breakout_z = None
                 reason = f"nur {len(cell_posts)} Posts (Minimum {min_sample})"
             elif channel_count < min_channels:
                 verdict = "insufficient"
+                breakout_verdict = "insufficient"
+                breakout_z = None
                 reason = (
                     f"nur {channel_count} Kanaele (Minimum {min_channels}) — "
                     f"ein einzelner Vielposter wuerde das Muster tragen"
                 )
             else:
                 verdict = _verdict_for(median_lift)
+                breakout_z = _breakout_z(
+                    breakout_rate, baseline_breakout_rate, len(cell_posts)
+                )
+                breakout_verdict = _breakout_verdict_for(breakout_z)
 
             cells.append(
                 PatternCell(
@@ -431,12 +567,25 @@ def compute_trailer_patterns(
                     median_activation=_median(activations),
                     median_views=int(_median([float(v) for v in views])) if views else None,
                     verdict=verdict,
+                    breakout_rate=breakout_rate,
+                    breakout_z=breakout_z,
+                    breakout_verdict=breakout_verdict,
+                    p90_lift=_percentile(lifts, 0.9),
                     reason=reason,
                 )
             )
 
-        # Stabile Reihenfolge: belastbare Zellen zuerst, darin nach Lift.
-        cells.sort(key=lambda c: (c.verdict == "insufficient", -c.median_lift))
+        # Stabile Reihenfolge: belastbare Zellen zuerst, darin nach
+        # Auffaelligkeit der Trefferquote. Sortiert wird nach breakout_z
+        # statt nach median_lift, weil der Median bei Korpusgroesse
+        # gegen 1,0 regrediert und die Reihenfolge dann kaum noch etwas
+        # aussagt (s. Modul-Docstring).
+        cells.sort(
+            key=lambda c: (
+                c.verdict == "insufficient",
+                -(c.breakout_z if c.breakout_z is not None else float("-inf")),
+            )
+        )
         dimensions[dim.name] = cells
 
     return TrailerPatternReport(
@@ -448,6 +597,7 @@ def compute_trailer_patterns(
         posts_with_baseline=len(usable),
         channels_covered=len(baseline_by_channel),
         analysis_coverage=coverage,
+        baseline_breakout_rate=baseline_breakout_rate,
         dimensions=dimensions,
         notes=notes,
     )
