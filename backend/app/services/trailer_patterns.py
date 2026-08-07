@@ -108,41 +108,66 @@ Warum gegen die Plattform-Mischung geprueft wird, nicht gegen den Korpus
 =======================================================================
 
 Die Trefferquote wurde zunaechst gegen eine korpusweite Basisquote von
-20 % geprueft. Eine Aufteilung derselben Auswertung nach Plattform
-(07.08.2026) hat gezeigt, dass diese 20 % ein Mittelwert ohne Bedeutung
-sind — die Plattformen liegen um den Faktor vier auseinander:
-
-    Instagram 42,1 %   YouTube 15,9 %   TikTok 9,9 %
-
-Damit wurde die vermeintlich staerkste Aussage der ersten Auswertung
-hinfaellig. "Laenger als 60 Sekunden hat die hoechste Trefferquote"
-stimmte korpusweit, war aber weitgehend ein verkleideter
-Plattform-Vergleich: lange Formate liegen ueberproportional auf
-YouTube und Instagram, kurze auf TikTok. Je Plattform gerechnet bleibt
-vom Dauer-Effekt nur ein Teil uebrig, und er zeigt in
-unterschiedliche Richtungen:
-
-    | Plattform | >60s   | eigene Basis | Urteil            |
-    |-----------|--------|--------------|-------------------|
-    | YouTube   | 21,4 % | 15,9 %       | klar darueber     |
-    | Instagram | 46,9 % | 42,1 %       | schwach darueber  |
-    | TikTok    |  9,1 % |  9,9 %       | kein Effekt       |
+20 % geprueft. Eine Aufteilung nach Plattform (07.08.2026) hat gezeigt,
+dass diese 20 % ein Mittelwert ohne Bedeutung sind: die Plattformen
+haben verschiedene Basisquoten, und eine Zelle, die ueberwiegend auf
+einer starken Plattform liegt, sieht dagegen automatisch gut aus.
 
 Jede Zelle bekommt deshalb ihren eigenen Erwartungswert: das mit ihrer
 Besetzung gewichtete Mittel der Plattform-Quoten
 (``_expected_breakout_rate``). Geprueft wird die Zellen-Trefferquote
-gegen diesen Wert, nicht gegen die Korpus-Quote. Eine Zelle, die nur
-deshalb gut aussieht, weil sie ueberwiegend auf Instagram liegt, faellt
-damit auf "neutral" zurueck.
+gegen diesen Wert, nicht gegen die Korpus-Quote.
 (Test: ``test_platform_composition_alone_is_not_a_pattern``.)
 
-Offene Frage, bewusst noch nicht korrigiert: die 42,1 % von Instagram
-sind selbst verdaechtig. Nur 2.532 von 4.239 Instagram-Posts tragen
-Views; Posts ohne Views bekommen Aktivierung 0,0 und druecken den
-Kanal-Median, was die Lifts der uebrigen Posts rechnerisch anhebt. Die
-Plattform-Korrektur macht diesen Effekt unschaedlich fuer den
-*Vergleich zwischen Zellen* — die absolute Hoehe der Instagram-Quote
-bleibt aber bis zur Klaerung mit Vorbehalt zu lesen.
+Der Produktionslauf danach lieferte den Beleg in Reinform. ``music_kind``
+stammt aus dem TikTok-Connector und existiert nur fuer TikTok-Posts, hat
+also eine reine Plattform-Mischung. ``original_sound`` liegt bei 10,1 %:
+
+    gegen die Korpusquote 20,0 %  ->  z = -11,2  (Einbruch)
+    gegen die TikTok-Quote 10,1 % ->  z =  +0,0  (durchschnittlich)
+
+Dieselbe Zahl, zwei gegensaetzliche Aussagen.
+
+Warum Posts ohne Views ausgeschlossen werden
+============================================
+
+Derselbe Lauf hat aber auch gezeigt, dass die Korrektur allein nicht
+reicht: **alle vier** Dauer-Buckets kamen mit z zwischen 3,1 und 8,7
+ueber ihrer Erwartung heraus, waehrend jede andere Zelle auf neutral
+fiel. Vier gleichgerichtete Ausschlaege in einer Dimension sind kein
+Befund, sondern ein Hinweis auf einen systematischen Fehler.
+
+Er lag in der Grundgesamtheit der Plattform-Quote. Instagram hatte im
+Fenster 3.130 Posts mit einer Trefferquote von 28,6 %, davon 2.125 mit
+Dauer-Angabe und einer Quote von 42,1 %. Die Differenz:
+
+    1.005 Posts ohne Dauer  ->  0 Treffer (nachgerechnet: 0,6)
+
+Diese 1.005 Posts sind Bilder und Karussells, fuer die Instagram keine
+Views ausliefert. Ihre Aktivierung ist 0,0 — keine Messung, sondern eine
+Leerstelle. Sie koennen per Konstruktion nie ein Treffer sein, sitzen
+aber im Nenner der Plattform-Quote. Jede Zelle, die nur Posts mit Dauer
+enthaelt (also jeder Dauer-Bucket), lag dadurch automatisch darueber.
+
+Schlimmer noch: die 0,0 geht in den Kanal-Median ein und druckt ihn,
+womit die Lifts **aller uebrigen** Posts desselben Kanals steigen.
+Gemessen (Query B, 07.08.2026):
+
+    | Plattform | mit 0,0-Posts | ohne | Differenz |
+    |-----------|---------------|------|-----------|
+    | Instagram |        28,6 % | 15,1 % | -13,5 pp |
+    | YouTube   |        15,9 % | 15,9 % |        0 |
+    | TikTok    |        10,1 % | 10,1 % |        0 |
+
+TikTok und YouTube haben keinen einzigen solchen Post; der Effekt ist
+rein instagram-seitig, dort aber halbiert er die Quote.
+
+``_has_measurable_views`` schliesst diese Posts deshalb aus — vor der
+Baseline, damit der Median sauber bleibt. Die tatsaechliche
+Plattform-Spanne betraegt danach 10,1 % bis 15,9 % statt der zunaechst
+berichteten vier Groessenordnungen; die Plattform-Korrektur bleibt
+richtig, ihr Ausmass war ueberzeichnet.
+(Test: ``test_posts_without_views_do_not_inflate_the_rest``.)
 
 Formatklassen: Langform und Kurzform sind nicht dasselbe Spiel
 ==============================================================
@@ -254,6 +279,26 @@ FORMAT_CLASSES = (
 # taugt. Darunter ist der Median ein Zufallswert und der daraus
 # abgeleitete Lift verzerrt jede Zelle, in die er einfliesst.
 MIN_POSTS_PER_CHANNEL_BASELINE = 4
+
+
+def _has_measurable_views(post: Post) -> bool:
+    """Traegt dieser Post eine Reichweite, gegen die sich Aktivierung
+    ueberhaupt rechnen laesst?
+
+    ``compute_activation_rate`` liefert fuer views=0 eine 0,0 — was wie
+    eine Messung aussieht, aber eine Leerstelle ist. Bei Instagram
+    betrifft das 676 von 3.130 Posts im Fenster (Bilder und Karussells,
+    fuer die Instagram keine Views ausliefert); TikTok und YouTube haben
+    keinen einzigen solchen Post.
+
+    Warum das nicht harmlos ist: die Null geht in den Kanal-Median ein
+    und druckt ihn. Dadurch steigen die Lifts **aller anderen** Posts
+    desselben Kanals. Gemessen am 07.08.2026 hob das Instagrams
+    Trefferquote von 15,1 % auf 28,6 % — die Verzerrung trifft also
+    nicht die Posts ohne Views, sondern alle uebrigen.
+    """
+    v = post.visible_views
+    return v is not None and v > 0
 
 
 @dataclass
@@ -630,6 +675,7 @@ def compute_trailer_patterns(
     )
 
     notes: list[str] = []
+    posts_in_window = len(posts)
     if not posts:
         return TrailerPatternReport(
             window_days=window_days,
@@ -642,6 +688,42 @@ def compute_trailer_patterns(
             analysis_coverage=0.0,
             format_class=format_class,
             notes=["Keine Posts im Fenster."],
+        )
+
+    # ---- Posts ohne messbare Reichweite ausschliessen ---------------------
+    #
+    # Muss VOR den Kanal-Baselines passieren: die 0,0-Aktivierung dieser
+    # Posts wuerde sonst den Median druecken und damit die Lifts aller
+    # uebrigen Posts desselben Kanals anheben. Begruendung und Messung
+    # bei ``_has_measurable_views``.
+    without_views = [p for p in posts if not _has_measurable_views(p)]
+    if without_views:
+        posts = [p for p in posts if _has_measurable_views(p)]
+        by_platform_missing: dict[str, int] = defaultdict(int)
+        for p in without_views:
+            by_platform_missing[platform_by_channel.get(p.channel_id, "unknown")] += 1
+        spread = ", ".join(
+            f"{pl} {n}"
+            for pl, n in sorted(by_platform_missing.items(), key=lambda kv: -kv[1])
+        )
+        notes.append(
+            f"{len(without_views)} von {posts_in_window} Posts ohne messbare "
+            f"Views ausgeschlossen ({spread}). Ihre Aktivierung waere 0,0 — "
+            f"eine Leerstelle, keine Messung, die den Kanal-Median druecken "
+            f"und die Lifts aller uebrigen Posts anheben wuerde."
+        )
+    if not posts:
+        return TrailerPatternReport(
+            window_days=window_days,
+            window_start=window_start,
+            window_end=window_end,
+            market=market,
+            posts_in_window=posts_in_window,
+            posts_with_baseline=0,
+            channels_covered=0,
+            analysis_coverage=0.0,
+            format_class=format_class,
+            notes=notes + ["Kein Post im Fenster hat messbare Views."],
         )
 
     # ---- Kanal-Baselines ------------------------------------------------
@@ -691,7 +773,7 @@ def compute_trailer_patterns(
             window_start=window_start,
             window_end=window_end,
             market=market,
-            posts_in_window=len(posts),
+            posts_in_window=posts_in_window,
             posts_with_baseline=0,
             channels_covered=0,
             analysis_coverage=0.0,
@@ -717,7 +799,7 @@ def compute_trailer_patterns(
                 window_start=window_start,
                 window_end=window_end,
                 market=market,
-                posts_in_window=len(posts),
+                posts_in_window=posts_in_window,
                 posts_with_baseline=0,
                 channels_covered=0,
                 analysis_coverage=0.0,
@@ -872,7 +954,7 @@ def compute_trailer_patterns(
         window_start=window_start,
         window_end=window_end,
         market=market,
-        posts_in_window=len(posts),
+        posts_in_window=posts_in_window,
         posts_with_baseline=len(usable),
         channels_covered=len(baseline_by_channel),
         analysis_coverage=coverage,

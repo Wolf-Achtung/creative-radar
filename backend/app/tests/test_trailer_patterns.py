@@ -911,3 +911,96 @@ def test_endpoint_accepts_format_class(client, session: Session):
 
     bad = client.get("/api/admin/trailer-patterns?format_class=mittellang")
     assert bad.status_code == 422
+
+
+# ---------- Posts ohne messbare Views ------------------------------------
+#
+# Der Produktionslauf vom 07.08.2026 hat gezeigt, dass 1.005 Instagram-
+# Posts ohne Views (Bilder, Karussells) mit Aktivierung 0,0 in den
+# Kanal-Median eingingen und damit die Lifts aller uebrigen Posts
+# desselben Kanals anhoben — Instagrams Trefferquote sprang dadurch von
+# 15,1 % auf 28,6 %. Diese Posts sind keine Messung, sondern eine
+# Leerstelle, und werden vor der Baseline ausgeschlossen.
+
+
+def test_posts_without_views_do_not_inflate_the_rest(session: Session):
+    """Der Kern der Korrektur: die Null darf den Median nicht druecken.
+
+    Nachbau des gemessenen Falls. Fuenf Posts mit Aktivierung 0,10 und
+    fuenf ohne Views. Ohne Ausschluss liegt der Kanal-Median bei 0,05,
+    womit die fuenf echten Posts rechnerisch Lift 2,0 bekommen und als
+    Treffer zaehlen — Trefferquote 100 % aus dem Nichts. Mit Ausschluss
+    ist der Median 0,10 und die Lifts sind 1,0.
+    """
+    for _ in range(3):
+        ch = _channel(session)
+        for _ in range(5):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("clip"))
+        for _ in range(5):
+            _post(session, ch, views=None, likes=100, analysis=_analysis("clip"))
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    clip = _cell(report, "format", "clip")
+
+    assert clip.sample_size == 15          # nur die Posts mit Views
+    assert clip.median_lift == pytest.approx(1.0)
+    assert clip.breakout_rate == 0.0       # ohne Ausschluss waeren es 100 %
+    assert report.baseline_breakout_rate == 0.0
+
+
+def test_missing_views_are_reported_per_platform(session: Session):
+    """Der Ausschluss ist ein Befund und gehoert in die Notes — sonst
+    verschwindet stillschweigend ein Drittel des Bestands."""
+    ig = _channel(session, platform="instagram")
+    tt = _channel(session, platform="tiktok")
+    for _ in range(6):
+        _post(session, ig, views=1000, likes=100)
+        _post(session, tt, views=1000, likes=100)
+    for _ in range(4):
+        _post(session, ig, views=None, likes=100)
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+
+    assert report.posts_in_window == 16     # inklusive der ausgeschlossenen
+    assert report.posts_with_baseline == 12
+    note = next(n for n in report.notes if "ohne messbare" in n)
+    assert "4 von 16" in note
+    assert "instagram 4" in note
+
+
+@pytest.mark.parametrize("views", [None, 0])
+def test_both_null_and_zero_views_are_excluded(session: Session, views):
+    """NULL heisst 'nicht erfasst', 0 heisst 'erfasst und null' — aber
+    ``compute_activation_rate`` macht aus beidem dieselbe 0,0, und keiner
+    der beiden Faelle traegt eine Reichweite, gegen die sich Aktivierung
+    rechnen liesse. Beide fliegen raus."""
+    ch = _channel(session)
+    p = _post(session, ch, views=views, likes=100)
+    assert tp._has_measurable_views(p) is False
+    assert tp._has_measurable_views(_post(session, ch, views=1, likes=0)) is True
+
+
+def test_platform_rate_uses_only_posts_with_views(session: Session):
+    """Der eigentliche Fehler, den der Produktionslauf sichtbar gemacht
+    hat: Posts ohne Views sassen im Nenner der Plattform-Quote, konnten
+    aber per Konstruktion nie Treffer sein. Jede Zelle, die sie nicht
+    enthielt, lag dadurch automatisch ueber ihrer Erwartung."""
+    for _ in range(3):
+        ch = _channel(session, platform="instagram")
+        # 24 Posts mit Views, davon 8 Ausreisser -> echte Quote 33 %
+        for _ in range(16):
+            _post(session, ch, views=1000, likes=100, duration=20)
+        for _ in range(8):
+            _post(session, ch, views=1000, likes=250, duration=20)
+        # 20 Posts ohne Views, die frueher die Quote verduennt haetten
+        for _ in range(20):
+            _post(session, ch, views=None, likes=100, duration=None)
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+
+    assert report.platform_breakout_rates["instagram"] == pytest.approx(1 / 3)
+    bucket = _cell(report, "duration_bucket", "15-30s")
+    # Zelle und Plattform-Quote stammen jetzt aus derselben
+    # Grundgesamtheit — kein kuenstlicher Ausschlag mehr.
+    assert bucket.expected_breakout_rate == pytest.approx(bucket.breakout_rate)
+    assert bucket.breakout_verdict == "neutral"
