@@ -357,3 +357,204 @@ unverändert, verpasste Schnitte ziehen die getippte ASL nachweislich nach oben
    ```
    Heraus kommt der Wilcoxon-Vergleich über alle skalenfreien Merkmale, getrennt nach
    echten Cutdowns und eigenständigen Kurzformaten.
+
+## 10. P3-Auswertung vom 07.08.2026 — aus 47 werden 20
+
+Die vollständige Liste (47 Zeilen, 10 Seiten) liegt vor. Sie bestätigt, dass der Weg
+trägt — aber der Puffer, den Abschnitt 9.1 noch sah, ist beim Hinsehen aufgebraucht.
+**Die 47 sind nicht 47 verwertbare Paare.** Drei Filter greifen nacheinander.
+
+### 10.1 Filter 1: Was P3 „Langform" nennt, ist oft kein Trailer (−14)
+
+P3 wählt je Paar die **kürzeste** Langform ab 90 Sekunden. Genau deshalb ist dieser
+Befund hart: Steht dort 358 s, dann gibt es im Fenster **keinen** Post zwischen 90 und
+358 Sekunden. Der Kanal hat zu diesem Titel schlicht keinen Trailer in Trailerlänge
+gepostet.
+
+Vierzehn Zeilen liegen über 180 Sekunden, die Spitzenreiter deutlich:
+
+| Kanal | Titel | „Langform" | was es vermutlich ist |
+|---|---|---:|---|
+| Pixar | Anniversary | **36.011 s** | 10 Stunden — Livestream oder Ambience-Loop |
+| DC | Green Lantern | 1.445 s | 24 Minuten — Featurette oder Zusammenschnitt |
+| Pixar | Toy Story 5 | 908 s | 15 Minuten |
+| Disney UK | Lady and the Tramp | 701 s | Katalog-Clip |
+| Disney UK | The Kitchen | 624 s | Katalog-Clip |
+| Universal | Zodiac / Expendables / Bourne / American Gangster | 509–609 s | „Best Scenes"-Format |
+| Disney | Maleficent | 358 s | Katalog-Clip |
+| Disney UK | Toy Story | 277 s | Katalog-Clip |
+| Prime Video | The Boys / Off Campus | 219–232 s | Grenzfall |
+| Amazon MGM | The War | 210 s | Grenzfall |
+
+Auffällig und stimmig: Es sind fast durchweg **Katalogtitel** (Zodiac 2007, American
+Gangster 2007, Bourne 2004) — Throwback-Content, kein Kampagnenmaterial. Der
+Laufzeit-Filter trennt hier nicht nur nach Länge, sondern faktisch nach Anlass.
+
+**Die 180-Sekunden-Grenze ist eine Setzung, keine Naturkonstante.** Drei Zeilen liegen
+knapp darüber (The War 210 s, Off Campus 219 s, The Boys 232 s) und könnten echte
+Langtrailer sein. Sie sind in zwei Minuten per Augenschein zu klären und wären der
+naheliegendste Weg, den Puffer zurückzugewinnen.
+
+### 10.2 Filter 2: Titel-Platzhalter (−7)
+
+Sechs Zeilen paaren auf einem Titel namens **„Unknown"** — bei Disney, Netflix
+Deutschland, Paramount+ DE, Universal Pictures, Universal Pictures UK und Warner Bros.
+Deutschland. Dazu kommt „Star Wars | Star Wars" (Franchise statt Film).
+
+*Unknown* ist zwar ein realer Universal-Film von 2011 — die Universal-Zeile könnte also
+echt sein. Dass aber Disney, Netflix und Paramount denselben Titel bespielen, ist
+unplausibel. Wahrscheinlicher ist ein Zuordnungsartefakt: ein Titel, dessen Name ein
+Allerweltswort ist, sammelt Posts ein, die nichts mit ihm zu tun haben. **Dann wären das
+keine Paare, sondern zwei beliebige Videos desselben Kanals.**
+
+Prüfabfrage (syntaxgeprüft) — teilen sich alle sechs *eine* `title_id`, ist es ein
+Sammelbecken; sind es getrennte Zeilen, liegt der Fall anders:
+
+```sql
+SELECT t.id, t.title_original, t.tmdb_id, t.source, t.content_type,
+       count(DISTINCT a.post_id)    AS posts,
+       count(DISTINCT p.channel_id) AS kanaele
+FROM creative_radar.title t
+LEFT JOIN creative_radar.asset a ON a.title_id = t.id
+LEFT JOIN creative_radar.post p  ON p.id = a.post_id
+WHERE t.title_original IN ('Unknown', 'Star Wars')
+GROUP BY 1, 2, 3, 4, 5
+ORDER BY posts DESC;
+```
+
+Unabhängig vom Ausgang: für den PoC bleiben diese sieben Zeilen draußen. Ein Paar, dessen
+Zusammengehörigkeit selbst der Verdachtsfall ist, gehört nicht in den ersten
+Machbarkeitsnachweis.
+
+### 10.3 Filter 3: Derselbe Film auf mehreren Kanälen (−6)
+
+Der Wilcoxon-Test setzt **unabhängige Paare** voraus. Vier Filme treten mehrfach auf:
+
+| Film | Kanäle |
+|---|---|
+| Masters of the Universe | Amazon MGM, Sony Pictures Deutschland, Sony Pictures Releasing UK |
+| Supergirl | DC, Warner Bros. Deutschland, Warner Bros UK |
+| PAW Patrol: The Dino Movie | Paramount Pictures Germany, Paramount Pictures UK |
+| Disclosure Day | Universal Pictures, Universal Pictures UK |
+
+Ein deutscher und ein britischer Trailer desselben Films sind meist **derselbe Schnitt
+mit anderer Sprachfassung** — die Schnittrhythmen wären fast identisch. Sie als drei
+Beobachtungen zu zählen würde die Stichprobe künstlich aufblähen und den z-Wert
+schönrechnen. Genau die Sorte Fehler, die dieses Projekt schon dreimal hatte.
+
+### 10.4 Das Ergebnis: exakt 20
+
+| Schritt | Paare |
+|---|---:|
+| P3-Rohliste | 47 |
+| − Langform über 180 s (kein Trailer) | −14 |
+| − Titel-Platzhalter „Unknown"/„Star Wars" | −7 |
+| − regionale Doppelungen desselben Films | −6 |
+| **verwertbar, unabhängig** | **20** |
+
+**Genau die zwanzig aus der Empfehlung — ohne einen einzigen Ersatz.** Die Simulation aus
+Abschnitt 3 sagt dafür 84 % Trefferwahrscheinlichkeit bei schwachem Effekt. Das trägt,
+aber es verträgt keinen Ausfall: Erweist sich beim Annotieren ein Paar als Featurette
+oder als eigenständiges Kurzformat, sinkt die Zahl unter die Schwelle.
+
+Zwei kleinere Einschränkungen der zwanzig, offen benannt:
+
+- **Drei Kurzformen liegen bei 15–16 Sekunden.** Bei typischer Trailer-Schnittfrequenz
+  sind das rund zehn Einstellungen — knapp an `MIN_SHOTS_FOR_THIRDS = 9`. Für diese Paare
+  können die Drittel- und Rhythmus-Merkmale leer bleiben. Sie zählen weiterhin für
+  `asl_seconds`, `shot_length_cv` und die Merkmale zur längsten Einstellung; nur bei
+  `rhythm_ratio` sinkt das effektive *n* auf etwa 17.
+- **Titel wie „Personality", „Driven", „At Home", „The Greatest"** sind ebenfalls
+  Allerweltswörter. Sie sind nicht so auffällig wie „Unknown", verdienen beim Annotieren
+  aber einen prüfenden Blick: Passt das Video zum Titel?
+
+### 10.5 Woher der Puffer kommt
+
+Drei Wege, in dieser Reihenfolge:
+
+1. **Montag, 10.08.** läuft die Post-Analyse erstmals mit dem 2500er-Cap. `P3`/`P4`
+   filtern auf `duration_seconds IS NOT NULL` — mit steigender Abdeckung wachsen auch die
+   Paare. Die zwanzig sind ein Boden, keine Decke. **P4 danach neu laufen lassen.**
+2. **Die drei Grenzfälle** aus 10.1 (210–232 s) per Augenschein klären: echte Langtrailer
+   → zurück in den Topf, macht 23.
+3. **Die regionalen Doppelungen** sind nicht wertlos. Sie eignen sich als
+   *Kontrollmessung*: Zwei Fassungen desselben Trailers müssen nahezu identische
+   Schnittmerkmale liefern. Tun sie das nicht, stimmt etwas mit der Annotation nicht —
+   eine kostenlose Qualitätskontrolle, die kein anderes Material bietet.
+
+### 10.6 Query P4 — die bereinigte Arbeitsliste
+
+Setzt alle drei Filter um und liefert direkt den `pair_key` für den Annotator. Gegen das
+Schema syntaxgeprüft:
+
+```sql
+WITH post_titel AS (
+  SELECT DISTINCT p.id, p.channel_id, p.duration_seconds, p.post_url, a.title_id
+  FROM creative_radar.post p
+  JOIN creative_radar.asset a   ON a.post_id = p.id
+  JOIN creative_radar.channel c ON c.id = p.channel_id
+  JOIN creative_radar.title t   ON t.id = a.title_id
+  WHERE a.title_id IS NOT NULL
+    AND c.platform = 'youtube'
+    AND p.detected_at > now() - interval '90 days'
+    AND p.duration_seconds IS NOT NULL
+    AND t.title_original NOT IN ('Unknown', 'Star Wars')
+),
+kandidaten AS (
+  SELECT channel_id, title_id
+  FROM post_titel
+  GROUP BY 1, 2
+  HAVING count(*) FILTER (WHERE duration_seconds BETWEEN 90 AND 180) > 0
+     AND count(*) FILTER (WHERE duration_seconds BETWEEN 15 AND 59)  > 0
+),
+lang AS (
+  SELECT DISTINCT ON (channel_id, title_id) channel_id, title_id, post_url, duration_seconds
+  FROM post_titel WHERE duration_seconds BETWEEN 90 AND 180
+  ORDER BY channel_id, title_id, duration_seconds ASC
+),
+kurz AS (
+  SELECT DISTINCT ON (channel_id, title_id) channel_id, title_id, post_url, duration_seconds
+  FROM post_titel WHERE duration_seconds BETWEEN 15 AND 59
+  ORDER BY channel_id, title_id, duration_seconds DESC
+),
+-- Ein Film, ein Paar. Bevorzugt der Kanal mit der laengsten Kurzform:
+-- mehr Einstellungen zum Tippen, hoehere Chance auf Rhythmus-Merkmale.
+je_titel AS (
+  SELECT DISTINCT ON (k.title_id)
+         k.channel_id, k.title_id, k.duration_seconds AS kurz_s, k.post_url AS kurz_url
+  FROM kandidaten kd
+  JOIN kurz k ON k.channel_id = kd.channel_id AND k.title_id = kd.title_id
+  ORDER BY k.title_id, k.duration_seconds DESC
+)
+SELECT row_number() OVER (ORDER BY t.title_original) AS nr,
+       regexp_replace(lower(t.title_original), '[^a-z0-9]+', '-', 'g') AS pair_key,
+       t.title_original AS titel,
+       c.name           AS kanal,
+       round(l.duration_seconds) AS lang_s,
+       l.post_url                AS langform_url,
+       round(j.kurz_s)           AS kurz_s,
+       j.kurz_url                AS kurzform_url
+FROM je_titel j
+JOIN lang l ON l.channel_id = j.channel_id AND l.title_id = j.title_id
+JOIN creative_radar.channel c ON c.id = j.channel_id
+JOIN creative_radar.title t   ON t.id = j.title_id
+ORDER BY t.title_original;
+```
+
+Die Spalte `pair_key` ist so gebaut, dass sie direkt in den Annotator kopiert werden
+kann — beide Seiten eines Paars brauchen denselben Wert.
+
+### 10.7 Bewertung
+
+Der Plan-B-Weg steht, aber ohne Reserve. **Die ehrliche Zahl ist 20, nicht 47** — und sie
+liegt exakt auf der Schwelle, die die Simulation als tragfähig ausweist. Das ist kein
+Grund umzuplanen, aber ein Grund, vor dem Annotieren P4 statt P3 zu benutzen und Montags
+Abdeckungssprung mitzunehmen.
+
+Bemerkenswert bleibt, was der Filter nebenbei gezeigt hat: **Rund ein Drittel der
+vermeintlichen „Langform-Posts" auf YouTube sind gar keine Trailer**, sondern
+Katalog-Clips, Featurettes und in einem Fall ein zehnstündiger Stream. Das betrifft nicht
+nur Stufe 5 — es ist ein Hinweis darauf, dass die Formatklasse `langform` aus Stufe 2 auf
+YouTube weniger homogen ist als angenommen. Für den Stufe-3-Befund selbst ist das keine
+Entwarnung und keine Widerlegung; es ist eine offene Frage, die eine eigene Prüfung
+verdient und hier nur festgehalten wird.
