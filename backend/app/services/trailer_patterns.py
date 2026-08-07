@@ -95,14 +95,54 @@ behind_the_scenes mit unterdurchschnittlichem Median (0,86) bei
 gleichzeitig ueberdurchschnittlicher Trefferquote (27,9 %): meist
 Blindgaenger, aber ueberdurchschnittlich oft ein Volltreffer.
 
-Das ``breakout_verdict`` benutzt einen z-Test gegen die Basisquote statt
-eines festen Faktors — Begruendung bei ``_breakout_z``. ``p90_lift``
-zeigt zusaetzlich, wie hoch die guten Faelle einer Zelle reichen.
+Das ``breakout_verdict`` benutzt einen z-Test statt eines festen
+Faktors — Begruendung bei ``_breakout_z``. ``p90_lift`` zeigt
+zusaetzlich, wie hoch die guten Faelle einer Zelle reichen.
 
 Interpretationsfalle Nummer zwei: ``median_lift`` und ``breakout_rate``
 koennen in verschiedene Richtungen zeigen (siehe behind_the_scenes).
 Das ist kein Widerspruch, sondern die eigentliche Information — beide
 Spalten gehoeren zusammen gelesen.
+
+Warum gegen die Plattform-Mischung geprueft wird, nicht gegen den Korpus
+=======================================================================
+
+Die Trefferquote wurde zunaechst gegen eine korpusweite Basisquote von
+20 % geprueft. Eine Aufteilung derselben Auswertung nach Plattform
+(07.08.2026) hat gezeigt, dass diese 20 % ein Mittelwert ohne Bedeutung
+sind — die Plattformen liegen um den Faktor vier auseinander:
+
+    Instagram 42,1 %   YouTube 15,9 %   TikTok 9,9 %
+
+Damit wurde die vermeintlich staerkste Aussage der ersten Auswertung
+hinfaellig. "Laenger als 60 Sekunden hat die hoechste Trefferquote"
+stimmte korpusweit, war aber weitgehend ein verkleideter
+Plattform-Vergleich: lange Formate liegen ueberproportional auf
+YouTube und Instagram, kurze auf TikTok. Je Plattform gerechnet bleibt
+vom Dauer-Effekt nur ein Teil uebrig, und er zeigt in
+unterschiedliche Richtungen:
+
+    | Plattform | >60s   | eigene Basis | Urteil            |
+    |-----------|--------|--------------|-------------------|
+    | YouTube   | 21,4 % | 15,9 %       | klar darueber     |
+    | Instagram | 46,9 % | 42,1 %       | schwach darueber  |
+    | TikTok    |  9,1 % |  9,9 %       | kein Effekt       |
+
+Jede Zelle bekommt deshalb ihren eigenen Erwartungswert: das mit ihrer
+Besetzung gewichtete Mittel der Plattform-Quoten
+(``_expected_breakout_rate``). Geprueft wird die Zellen-Trefferquote
+gegen diesen Wert, nicht gegen die Korpus-Quote. Eine Zelle, die nur
+deshalb gut aussieht, weil sie ueberwiegend auf Instagram liegt, faellt
+damit auf "neutral" zurueck.
+(Test: ``test_platform_composition_alone_is_not_a_pattern``.)
+
+Offene Frage, bewusst noch nicht korrigiert: die 42,1 % von Instagram
+sind selbst verdaechtig. Nur 2.532 von 4.239 Instagram-Posts tragen
+Views; Posts ohne Views bekommen Aktivierung 0,0 und druecken den
+Kanal-Median, was die Lifts der uebrigen Posts rechnerisch anhebt. Die
+Plattform-Korrektur macht diesen Effekt unschaedlich fuer den
+*Vergleich zwischen Zellen* — die absolute Hoehe der Instagram-Quote
+bleibt aber bis zur Klaerung mit Vorbehalt zu lesen.
 """
 from __future__ import annotations
 
@@ -137,10 +177,16 @@ UNDER_THRESHOLD = 0.5
 # Aktivierung wie der Kanal ueblicherweise erreicht.
 BREAKOUT_LIFT_THRESHOLD = 2.0
 
-# Ab welchem z-Wert die Abweichung der Zellen-Trefferquote von der
-# Korpus-Trefferquote als belastbar gilt. 2.0 entspricht grob dem
+# Ab welchem z-Wert die Abweichung der Zellen-Trefferquote von ihrer
+# erwarteten Quote als belastbar gilt. 2.0 entspricht grob dem
 # 95-%-Niveau bei einem Binomialanteil.
 BREAKOUT_Z_THRESHOLD = 2.0
+
+# Eine Plattform braucht selbst genug Posts, damit ihre Trefferquote als
+# Erwartungswert taugt. Darunter wuerde die Zelle faktisch gegen sich
+# selbst geprueft und koennte nie auffallen; solche Plattformen fallen
+# auf die Korpus-Quote zurueck.
+MIN_POSTS_PER_PLATFORM_BASELINE = 30
 
 # Ein Kanal braucht selbst genug Posts, damit sein Median als Baseline
 # taugt. Darunter ist der Median ein Zufallswert und der daraus
@@ -161,11 +207,17 @@ class PatternCell:
     verdict: str  # "over" | "under" | "neutral" | "insufficient"
 
     # Zweite Kennzahl: Anteil Posts mit Lift >= BREAKOUT_LIFT_THRESHOLD,
-    # verglichen mit derselben Quote ueber den gesamten normierten Bestand.
+    # verglichen mit der Quote, die aus der Plattform-Mischung dieser
+    # Zelle zu erwarten waere (``expected_breakout_rate``).
     breakout_rate: float = 0.0
+    expected_breakout_rate: float = 0.0
     breakout_z: Optional[float] = None
     breakout_verdict: str = "insufficient"
     p90_lift: float = 0.0
+
+    # Posts je Plattform in dieser Zelle. Steht in der Ausgabe, damit
+    # nachvollziehbar bleibt, woher der Erwartungswert kommt.
+    platform_mix: dict[str, int] = field(default_factory=dict)
 
     reason: Optional[str] = None  # nur bei "insufficient"
 
@@ -179,9 +231,11 @@ class PatternCell:
             "median_views": self.median_views,
             "verdict": self.verdict,
             "breakout_rate": round(self.breakout_rate, 4),
+            "expected_breakout_rate": round(self.expected_breakout_rate, 4),
             "breakout_z": round(self.breakout_z, 2) if self.breakout_z is not None else None,
             "breakout_verdict": self.breakout_verdict,
             "p90_lift": round(self.p90_lift, 3),
+            "platform_mix": dict(sorted(self.platform_mix.items())),
         }
         if self.reason:
             out["reason"] = self.reason
@@ -198,9 +252,14 @@ class TrailerPatternReport:
     posts_with_baseline: int
     channels_covered: int
     analysis_coverage: float
-    # Trefferquote ueber den gesamten normierten Bestand — die Referenz,
-    # gegen die jede Zelle verglichen wird.
+    # Trefferquote ueber den gesamten normierten Bestand. Nur noch
+    # Rueckfall-Referenz und Kontextwert — verglichen wird je Zelle gegen
+    # ``platform_breakout_rates``, gewichtet mit ihrer Plattform-Mischung.
     baseline_breakout_rate: float = 0.0
+    # Trefferquote je Plattform. Der eigentliche Massstab, seit die
+    # Auswertung vom 07.08.2026 gezeigt hat, wie weit die Plattformen
+    # auseinanderliegen (s. Modul-Docstring).
+    platform_breakout_rates: dict[str, float] = field(default_factory=dict)
     dimensions: dict[str, list[PatternCell]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
@@ -215,6 +274,10 @@ class TrailerPatternReport:
             "channels_covered": self.channels_covered,
             "analysis_coverage": round(self.analysis_coverage, 4),
             "baseline_breakout_rate": round(self.baseline_breakout_rate, 4),
+            "platform_breakout_rates": {
+                pl: round(rate, 4)
+                for pl, rate in sorted(self.platform_breakout_rates.items())
+            },
             "dimensions": {
                 name: [c.to_dict() for c in cells]
                 for name, cells in self.dimensions.items()
@@ -342,7 +405,7 @@ def _percentile(values: list[float], q: float) -> float:
 
 
 def _breakout_z(cell_rate: float, baseline_rate: float, n: int) -> Optional[float]:
-    """z-Wert der Zellen-Trefferquote gegen die Korpus-Trefferquote.
+    """z-Wert der Zellen-Trefferquote gegen ihre erwartete Quote.
 
     Warum ein z-Test statt eines festen Schwellwerts wie "1,25x der
     Basisquote": die Stichprobengroessen unterscheiden sich um zwei
@@ -352,10 +415,16 @@ def _breakout_z(cell_rate: float, baseline_rate: float, n: int) -> Optional[floa
     z-Wert skaliert dagegen mit der Wurzel aus n und macht den
     Unterschied rechnerisch statt nur optisch sichtbar.
 
-    Standardfehler des Binomialanteils unter der Nullhypothese
-    "Zelle verhaelt sich wie der Korpus": sqrt(p*(1-p)/n) mit p =
-    baseline_rate. Gibt None zurueck, wenn keine sinnvolle Referenz
-    existiert (leerer Korpus oder Basisquote 0/1).
+    ``baseline_rate`` ist seit der Plattform-Korrektur die *erwartete*
+    Quote der Zelle (``_expected_breakout_rate``), nicht mehr die
+    Korpus-Quote. Die Rechnung selbst bleibt gleich; nur die
+    Nullhypothese ist schaerfer geworden: statt "Zelle verhaelt sich wie
+    der Korpus" nun "Zelle verhaelt sich wie ihre eigene
+    Plattform-Mischung".
+
+    Standardfehler des Binomialanteils unter dieser Nullhypothese:
+    sqrt(p*(1-p)/n) mit p = baseline_rate. Gibt None zurueck, wenn keine
+    sinnvolle Referenz existiert (leerer Korpus oder Basisquote 0/1).
 
     Bekannte Grenze, bewusst nicht korrigiert: ueber alle Dimensionen
     werden rund 20 Zellen geprueft, bei |z| >= 2 ist also etwa ein
@@ -371,6 +440,25 @@ def _breakout_z(cell_rate: float, baseline_rate: float, n: int) -> Optional[floa
     if se == 0:
         return None
     return (cell_rate - baseline_rate) / se
+
+
+def _expected_breakout_rate(
+    platforms: list[str],
+    rate_by_platform: dict[str, float],
+    fallback: float,
+) -> float:
+    """Trefferquote, die eine Zelle allein wegen ihrer Plattform-Mischung
+    haette — ohne jeden inhaltlichen Effekt.
+
+    Entspricht dem mit der Zellbesetzung gewichteten Mittel der
+    Plattform-Quoten. Plattformen ohne belastbare eigene Quote (unter
+    ``MIN_POSTS_PER_PLATFORM_BASELINE``) gehen mit ``fallback``, der
+    Korpus-Quote, ein.
+    """
+    if not platforms:
+        return fallback
+    total = sum(rate_by_platform.get(pl, fallback) for pl in platforms)
+    return total / len(platforms)
 
 
 def _breakout_verdict_for(z: Optional[float]) -> str:
@@ -506,11 +594,44 @@ def compute_trailer_patterns(
             f"vollen Bestand."
         )
 
-    # ---- Korpus-Trefferquote als Referenz --------------------------------
+    # ---- Trefferquoten als Referenz --------------------------------------
     breakouts_total = sum(
         1 for p in usable if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
     )
     baseline_breakout_rate = breakouts_total / len(usable)
+
+    posts_by_platform: dict[str, list[Post]] = defaultdict(list)
+    for p in usable:
+        posts_by_platform[platform_by_channel.get(p.channel_id, "unknown")].append(p)
+
+    platform_breakout_rates: dict[str, float] = {}
+    for platform, platform_posts in posts_by_platform.items():
+        if len(platform_posts) < MIN_POSTS_PER_PLATFORM_BASELINE:
+            continue
+        hits = sum(
+            1
+            for p in platform_posts
+            if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
+        )
+        platform_breakout_rates[platform] = hits / len(platform_posts)
+
+    if len(platform_breakout_rates) >= 2:
+        lo = min(platform_breakout_rates.values())
+        hi = max(platform_breakout_rates.values())
+        if lo > 0 and hi / lo >= 1.5:
+            spread = ", ".join(
+                f"{pl} {rate:.1%}"
+                for pl, rate in sorted(
+                    platform_breakout_rates.items(),
+                    key=lambda kv: -kv[1],
+                )
+            )
+            notes.append(
+                f"Trefferquoten liegen je Plattform weit auseinander "
+                f"({spread}). Jede Zelle wird deshalb gegen ihre eigene "
+                f"Plattform-Mischung geprueft, nicht gegen die "
+                f"Korpus-Quote von {baseline_breakout_rate:.1%}."
+            )
 
     # ---- Cross-Tabs -----------------------------------------------------
     dimensions: dict[str, list[PatternCell]] = {}
@@ -537,6 +658,16 @@ def compute_trailer_patterns(
             breakout_hits = sum(1 for x in lifts if x >= BREAKOUT_LIFT_THRESHOLD)
             breakout_rate = breakout_hits / len(lifts)
 
+            cell_platforms = [
+                platform_by_channel.get(p.channel_id, "unknown") for p in cell_posts
+            ]
+            platform_mix: dict[str, int] = defaultdict(int)
+            for pl in cell_platforms:
+                platform_mix[pl] += 1
+            expected_rate = _expected_breakout_rate(
+                cell_platforms, platform_breakout_rates, baseline_breakout_rate
+            )
+
             reason = None
             if len(cell_posts) < min_sample:
                 verdict = "insufficient"
@@ -554,7 +685,7 @@ def compute_trailer_patterns(
             else:
                 verdict = _verdict_for(median_lift)
                 breakout_z = _breakout_z(
-                    breakout_rate, baseline_breakout_rate, len(cell_posts)
+                    breakout_rate, expected_rate, len(cell_posts)
                 )
                 breakout_verdict = _breakout_verdict_for(breakout_z)
 
@@ -568,9 +699,11 @@ def compute_trailer_patterns(
                     median_views=int(_median([float(v) for v in views])) if views else None,
                     verdict=verdict,
                     breakout_rate=breakout_rate,
+                    expected_breakout_rate=expected_rate,
                     breakout_z=breakout_z,
                     breakout_verdict=breakout_verdict,
                     p90_lift=_percentile(lifts, 0.9),
+                    platform_mix=dict(platform_mix),
                     reason=reason,
                 )
             )
@@ -598,6 +731,7 @@ def compute_trailer_patterns(
         channels_covered=len(baseline_by_channel),
         analysis_coverage=coverage,
         baseline_breakout_rate=baseline_breakout_rate,
+        platform_breakout_rates=platform_breakout_rates,
         dimensions=dimensions,
         notes=notes,
     )
