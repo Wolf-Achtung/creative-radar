@@ -591,3 +591,323 @@ def test_percentile_helper_edge_cases():
     assert tp._percentile([1.0, 2.0], 0.5) == pytest.approx(1.5)
     assert tp._percentile([1.0, 2.0, 3.0, 4.0], 0.0) == 1.0
     assert tp._percentile([1.0, 2.0, 3.0, 4.0], 1.0) == 4.0
+
+
+# ---------- Plattform-Korrektur der Trefferquote -------------------------
+#
+# Die Aufteilung der ersten echten Auswertung nach Plattform (07.08.2026)
+# hat gezeigt, dass die Trefferquoten je Plattform um Faktor vier
+# auseinanderliegen (Instagram 42,1 % / YouTube 15,9 % / TikTok 9,9 %).
+# Eine korpusweite Basisquote ist damit kein Massstab mehr, sondern
+# erklaert vor allem, auf welcher Plattform ein Merkmal haeufig vorkommt.
+# Die folgenden Tests sichern die Korrektur — und ebenso, dass sie echte
+# Effekte nicht mitwegschneidet.
+
+
+def _skewed_platforms(session: Session) -> None:
+    """Zwei Plattformen mit stark unterschiedlicher Trefferquote.
+
+    instagram: 3 Kanaele x 30 Posts, davon 12 Ausreisser -> 40 %.
+    tiktok:    3 Kanaele x 30 Posts, davon  1 Ausreisser -> 3,3 %.
+
+    Der Kanal-Median bleibt in beiden Faellen bei 0,1 Aktivierung, weil
+    die Ausreisser in der Minderheit sind — sonst wuerden sie ihre eigene
+    Baseline anheben (s. test_dominant_format_defines_its_own_baseline).
+    """
+    for _ in range(3):
+        ch = _channel(session, platform="instagram")
+        # Haelfte "format_a", Haelfte "format_b", beide mit derselben
+        # Trefferquote wie die Plattform insgesamt.
+        for fmt in ("format_a", "format_b"):
+            for _ in range(9):
+                _post(session, ch, views=1000, likes=100, analysis=_analysis(fmt))
+            for _ in range(6):
+                _post(session, ch, views=1000, likes=250, analysis=_analysis(fmt))
+    for _ in range(3):
+        ch = _channel(session, platform="tiktok")
+        for _ in range(29):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("format_b"))
+        _post(session, ch, views=1000, likes=250, analysis=_analysis("format_b"))
+
+
+def test_platform_composition_alone_is_not_a_pattern(session: Session):
+    """Der Kern der Korrektur.
+
+    ``format_a`` liegt ausschliesslich auf Instagram und hat dort exakt
+    die uebliche Instagram-Trefferquote — inhaltlich also kein Befund.
+    Gegen die Korpus-Quote gemessen saehe es trotzdem nach einem starken
+    Muster aus. Gegen die eigene Plattform-Mischung gemessen faellt es
+    korrekt auf "neutral" zurueck.
+    """
+    _skewed_platforms(session)
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    a = _cell(report, "format", "format_a")
+
+    assert a.platform_mix == {"instagram": 45}
+    assert a.breakout_rate == pytest.approx(0.4)
+    assert a.expected_breakout_rate == pytest.approx(0.4)
+    assert a.breakout_verdict == "neutral"
+    assert abs(a.breakout_z) < 0.5
+
+    # Gegenprobe: mit der alten, korpusweiten Referenz waere dieselbe
+    # Zelle als klarer Befund durchgegangen.
+    naive_z = tp._breakout_z(
+        a.breakout_rate, report.baseline_breakout_rate, a.sample_size
+    )
+    assert naive_z is not None and naive_z > tp.BREAKOUT_Z_THRESHOLD
+
+
+def test_mixed_cell_expects_the_weighted_average(session: Session):
+    """``format_b`` liegt auf beiden Plattformen. Sein Erwartungswert ist
+    das mit der Besetzung gewichtete Mittel, nicht der Korpus-Schnitt."""
+    _skewed_platforms(session)
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    b = _cell(report, "format", "format_b")
+
+    assert b.platform_mix == {"instagram": 45, "tiktok": 90}
+    expected = (45 * 0.4 + 90 * (1 / 30)) / 135
+    assert b.expected_breakout_rate == pytest.approx(expected)
+    assert b.breakout_rate == pytest.approx(expected)
+    assert b.breakout_verdict == "neutral"
+
+
+def test_real_effect_survives_the_platform_correction(session: Session):
+    """Gegenprobe zur Korrektur: ein Merkmal, das *innerhalb* seiner
+    Plattform deutlich ueber der Erwartung liegt, muss weiter ansprechen.
+    Sonst haette die Korrektur nur die Empfindlichkeit gesenkt."""
+    for _ in range(3):
+        ch = _channel(session, platform="instagram")
+        for _ in range(20):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("clip"))
+        for _ in range(2):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("trailer"))
+        for _ in range(8):
+            _post(session, ch, views=1000, likes=250, analysis=_analysis("trailer"))
+    for _ in range(3):
+        ch = _channel(session, platform="tiktok")
+        for _ in range(30):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("clip"))
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    trailer = _cell(report, "format", "trailer")
+    clip = _cell(report, "format", "clip")
+
+    assert trailer.breakout_rate == pytest.approx(0.8)
+    # Erwartung ist die Instagram-Quote (24 von 90), nicht der Korpus.
+    assert trailer.expected_breakout_rate == pytest.approx(24 / 90)
+    assert trailer.breakout_verdict == "over"
+    # Und die Gegenrichtung bleibt sichtbar: clip liegt auf Instagram
+    # unter der Erwartung, obwohl es auch tiktok-Posts enthaelt.
+    assert clip.breakout_rate < clip.expected_breakout_rate
+    assert clip.breakout_verdict == "under"
+
+
+def test_platform_rates_are_reported_with_a_note(session: Session):
+    _skewed_platforms(session)
+    report = tp.compute_trailer_patterns(session, now=NOW)
+
+    assert report.platform_breakout_rates["instagram"] == pytest.approx(0.4)
+    assert report.platform_breakout_rates["tiktok"] == pytest.approx(1 / 30)
+    assert any("Plattform" in n for n in report.notes)
+
+    payload = report.to_dict()
+    assert payload["platform_breakout_rates"]["instagram"] == pytest.approx(0.4)
+    assert payload["dimensions"]["format"][0]["platform_mix"]
+
+
+def test_thin_platform_falls_back_to_the_corpus_rate(session: Session):
+    """Eine Plattform mit zu wenig Posts bekommt keine eigene Quote.
+    Sonst wuerde jede Zelle darauf gegen sich selbst geprueft und
+    koennte grundsaetzlich nicht auffallen."""
+    for _ in range(3):
+        ch = _channel(session, platform="tiktok")
+        for _ in range(16):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("clip"))
+        for _ in range(4):
+            _post(session, ch, views=1000, likes=250, analysis=_analysis("clip"))
+    # Nur ein YouTube-Kanal mit 10 Posts — unter MIN_POSTS_PER_PLATFORM_BASELINE.
+    yt = _channel(session, platform="youtube")
+    for _ in range(10):
+        _post(session, yt, views=1000, likes=100, analysis=_analysis("teaser"))
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+
+    assert "tiktok" in report.platform_breakout_rates
+    assert "youtube" not in report.platform_breakout_rates
+    teaser = _cell(report, "format", "teaser")
+    # Zu wenige Kanaele fuer ein Verdikt, aber der Erwartungswert muss
+    # die Korpus-Quote sein, nicht die (nicht vorhandene) YouTube-Quote.
+    assert teaser.expected_breakout_rate == pytest.approx(
+        report.baseline_breakout_rate
+    )
+
+
+def test_expected_breakout_rate_helper(session: Session):
+    rates = {"instagram": 0.4, "tiktok": 0.1}
+    assert tp._expected_breakout_rate([], rates, 0.25) == pytest.approx(0.25)
+    assert tp._expected_breakout_rate(["instagram"] * 3, rates, 0.25) == pytest.approx(0.4)
+    # Gewichtung nach Besetzung, nicht nach Plattform-Zahl.
+    mix = ["instagram"] * 3 + ["tiktok"] * 1
+    assert tp._expected_breakout_rate(mix, rates, 0.25) == pytest.approx(0.325)
+    # Unbekannte Plattform faellt auf die Korpus-Quote zurueck.
+    assert tp._expected_breakout_rate(["youtube"], rates, 0.25) == pytest.approx(0.25)
+
+
+# ---------- Formatklassen: Langform und Kurzform trennen -----------------
+#
+# Langformate (Trailer, Teaser, Promo, ab ca. 1 Minute) und Kurzformate
+# (TV- und Social-Spots, 5 bis ca. 90 Sekunden) sind verschiedene
+# Handwerke. Beide zusammen auszuwerten und nach "dem" erfolgreichen
+# Muster zu suchen, mischt zwei Fragen.
+
+
+@pytest.mark.parametrize(
+    "seconds, expected",
+    [
+        (5, tp.FORMAT_CLASS_KURZFORM),
+        (59, tp.FORMAT_CLASS_KURZFORM),
+        (60, tp.FORMAT_CLASS_UEBERGANG),
+        (89, tp.FORMAT_CLASS_UEBERGANG),
+        (90, tp.FORMAT_CLASS_LANGFORM),
+        (180, tp.FORMAT_CLASS_LANGFORM),
+    ],
+)
+def test_format_class_boundaries(session: Session, seconds, expected):
+    ch = _channel(session)
+    p = _post(session, ch, duration=seconds)
+    assert tp._format_class_of(p) == expected
+
+
+def test_format_class_needs_a_duration(session: Session):
+    """Ohne Dauer keine Klasse — geraten wird nicht."""
+    ch = _channel(session)
+    p = _post(session, ch, duration=None)
+    assert tp._format_class_of(p) is None
+
+
+def test_overlap_zone_is_its_own_class_not_a_guess(session: Session):
+    """Zwischen 60 und 90 Sekunden ueberlappen sich beide
+    Branchendefinitionen. Ein 75-Sekunden-Stueck kann ein kurzer Trailer
+    oder ein langer Spot sein; das entscheidet der Aufbau, nicht die
+    Sekundenzahl. Die Zone bekommt deshalb einen eigenen Namen, statt
+    still zu einer der beiden Klassen geschlagen zu werden."""
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(5):
+            _post(session, ch, duration=30)   # kurzform
+            _post(session, ch, duration=75)   # Grauzone
+            _post(session, ch, duration=150)  # langform
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    values = {c.value for c in report.dimensions["format_class"]}
+    assert values == {
+        tp.FORMAT_CLASS_KURZFORM,
+        tp.FORMAT_CLASS_UEBERGANG,
+        tp.FORMAT_CLASS_LANGFORM,
+    }
+    uebergang = _cell(report, "format_class", tp.FORMAT_CLASS_UEBERGANG)
+    assert uebergang.sample_size == 15
+
+
+def test_format_class_scope_restricts_the_whole_report(session: Session):
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(8):
+            _post(session, ch, duration=20, analysis=_analysis("clip"))
+        for _ in range(6):
+            _post(session, ch, duration=150, analysis=_analysis("trailer"))
+
+    scoped = tp.compute_trailer_patterns(
+        session, now=NOW, format_class=tp.FORMAT_CLASS_LANGFORM
+    )
+
+    assert scoped.format_class == tp.FORMAT_CLASS_LANGFORM
+    assert scoped.posts_with_baseline == 18
+    # Nur noch Langform-Formate in der Auswertung.
+    assert {c.value for c in scoped.dimensions["format"]} == {"trailer"}
+    # Die Klassen-Dimension selbst entfaellt — sie waere eine einzige
+    # Zelle, die gegen sich selbst geprueft wird.
+    assert "format_class" not in scoped.dimensions
+    assert any("format_class" in n for n in scoped.notes)
+
+
+def test_scoped_report_keeps_the_full_channel_baseline(session: Session):
+    """Der Kern der Eingrenzung.
+
+    Die Kanal-Baseline darf NICHT mitgefiltert werden. Sonst verglichen
+    sich Langformate nur noch mit Langformaten desselben Kanals, der
+    Median-Lift laege per Konstruktion bei 1,0, und die Frage "traegt
+    Langform ueberhaupt?" waere nicht mehr beantwortbar.
+    """
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        # Grundrauschen kurz und schwach ...
+        for _ in range(8):
+            _post(session, ch, duration=20, views=1000, likes=100)
+        # ... Langform durchgehend doppelt so stark.
+        for _ in range(4):
+            _post(session, ch, duration=150, views=1000, likes=200)
+
+    scoped = tp.compute_trailer_patterns(
+        session, now=NOW, format_class=tp.FORMAT_CLASS_LANGFORM
+    )
+    langform_cells = scoped.dimensions["duration_bucket"]
+    assert langform_cells, scoped.notes
+    cell = langform_cells[0]
+
+    # Gegen den vollen Kanal-Output normiert: Lift 2,0, klar over.
+    assert cell.median_lift == pytest.approx(2.0)
+    assert cell.verdict == "over"
+
+
+def test_unscoped_report_still_shows_every_class(session: Session):
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(6):
+            _post(session, ch, duration=20)
+        for _ in range(6):
+            _post(session, ch, duration=150)
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    assert report.format_class is None
+    assert report.to_dict()["format_class"] is None
+    assert {c.value for c in report.dimensions["format_class"]} == {
+        tp.FORMAT_CLASS_KURZFORM,
+        tp.FORMAT_CLASS_LANGFORM,
+    }
+
+
+def test_unknown_format_class_is_rejected(session: Session):
+    with pytest.raises(ValueError, match="format_class"):
+        tp.compute_trailer_patterns(session, now=NOW, format_class="mittellang")
+
+
+def test_empty_scope_reports_the_gap_instead_of_failing(session: Session):
+    """Eine Klasse ohne Posts ist ein Befund, kein Fehler."""
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(6):
+            _post(session, ch, duration=20)
+
+    report = tp.compute_trailer_patterns(
+        session, now=NOW, format_class=tp.FORMAT_CLASS_LANGFORM
+    )
+    assert report.posts_with_baseline == 0
+    assert report.dimensions == {}
+    assert any("format_class" in n for n in report.notes)
+
+
+def test_endpoint_accepts_format_class(client, session: Session):
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(6):
+            _post(session, ch, duration=20)
+        for _ in range(6):
+            _post(session, ch, duration=150)
+
+    resp = client.get("/api/admin/trailer-patterns?format_class=langform")
+    assert resp.status_code == 200
+    assert resp.json()["format_class"] == "langform"
+
+    bad = client.get("/api/admin/trailer-patterns?format_class=mittellang")
+    assert bad.status_code == 422

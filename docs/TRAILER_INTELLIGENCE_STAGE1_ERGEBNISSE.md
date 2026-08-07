@@ -1,6 +1,7 @@
 # Trailer-Intelligence Stufe 1 — erste Auswertung
 
-Stand: 2026-08-06, abends. Erste Anwendung der in
+Stand: 2026-08-06, abends; **Abschnitt 8 ergänzt am 07.08.2026** — er korrigiert den
+Hauptbefund aus Abschnitt 4b. Erste Anwendung der in
 [`TRAILER_INTELLIGENCE_STAGE1_INVENTORY.md`](./TRAILER_INTELLIGENCE_STAGE1_INVENTORY.md)
 beschriebenen Kanal-Normierung auf die echten Produktionsdaten. Alle Queries liefen
 **read-only direkt in der Produktions-Postgres** (Railway-Query-Konsole), nicht über
@@ -172,6 +173,12 @@ Stichprobe im ganzen Datensatz. Auffällig: die Dauer-Reihenfolge ist **U-förmi
 `>60s` (28,7 %) und `<15s` (22,9 %) schlagen die Mitte `30–60s` (21,1 %). Die
 vermeintlich sichere Mittellänge ist die schwächste Wahl.
 
+> **Überholt durch Abschnitt 8 (07.08.2026).** Die Plattform-Aufteilung hat gezeigt,
+> dass dieser Befund überwiegend ein verkleideter Plattform-Vergleich war. Der
+> Dauer-Effekt existiert, aber nur auf YouTube — auf TikTok gar nicht. Auch die
+> U-Form löst sich je Plattform auf. Der Absatz bleibt als Beleg dafür stehen, wie
+> eine korpusweite Basisquote in die Irre führt.
+
 **c) Behind the Scenes ist ein Hochrisiko-Format.** Median 0,86 (unterdurchschnittlich
 im Regelfall) bei gleichzeitig 27,9 % Trefferquote (deutlich über der 20-%-Basis).
 Meist ein Blindgänger, aber mit überdurchschnittlicher Chance auf einen echten
@@ -303,8 +310,335 @@ ORDER BY treffer_pct DESC;
    90-Tage/Korpus-Zuschnitt vermutlich zu hoch. Über eine Trefferquoten-Metrik als
    zweite, produktive Kennzahl nachdenken (nicht nur ad hoc in SQL).
 3. **`music_kind` niedrig priorisieren** — kein Signal in dieser ersten Auswertung.
-4. **Plattform-Confound bei Dauer** vor jeder belastbaren Aussage zu "lange Formate
-   gewinnen" mit der Query aus Abschnitt 5 klären.
+4. ~~**Plattform-Confound bei Dauer** vor jeder belastbaren Aussage zu "lange Formate
+   gewinnen" mit der Query aus Abschnitt 5 klären.~~ **Erledigt, siehe Abschnitt 8** —
+   der Confound war real und hat den Befund gekippt.
 5. Mit steigender Klassifikations-Abdeckung (aktuell 13,8 %, durch die neue
    Cron-Stage wachsend) werden `format`/`tone`/`lifecycle_stage`-Zellen dichter und
    die Aussagen belastbarer — diese Auswertung in ein paar Wochen wiederholen.
+
+## 8. Auflösung des Plattform-Confounds (07.08.2026)
+
+Die Query aus Abschnitt 5 lief read-only auf der Produktions-Postgres. Ergebnis in
+zwölf Zeilen — und es kippt den stärksten Befund der ersten Auswertung.
+
+### 8.1 Die Basisquoten liegen um Faktor vier auseinander
+
+| Plattform | eigene Basisquote |
+|---|---:|
+| Instagram | 42,1 % |
+| YouTube | 15,9 % |
+| TikTok | 9,9 % |
+
+Die korpusweite Basisquote von 20,0 %, gegen die Abschnitt 3 gemessen hat, ist damit
+ein Mittelwert ohne Bedeutung. Sie liegt zwischen den Plattformen, entspricht keiner
+von ihnen, und jede Zelle, die überproportional auf Instagram liegt, sieht dagegen
+automatisch gut aus — ganz ohne inhaltlichen Effekt.
+
+### 8.2 Der Dauer-Effekt ist plattformspezifisch
+
+Vollständiges Ergebnis (Posts / Kanäle / Median-Lift / Trefferquote):
+
+| Plattform | Bucket | Posts | Kanäle | Median | Treffer | eigene Basis |
+|---|---|---:|---:|---:|---:|---:|
+| Instagram | >60s | 631 | 78 | 1,84 | 46,9 % | 42,1 % |
+| Instagram | <15s | 251 | 68 | 1,83 | 46,2 % | 42,1 % |
+| Instagram | 15–30s | 572 | 76 | 1,71 | 41,3 % | 42,1 % |
+| Instagram | 30–60s | 671 | 77 | 1,53 | 36,8 % | 42,1 % |
+| YouTube | >60s | 406 | 37 | 1,23 | 21,4 % | 15,9 % |
+| YouTube | <15s | 91 | 22 | 0,90 | 14,3 % | 15,9 % |
+| YouTube | 30–60s | 253 | 36 | 0,93 | 13,0 % | 15,9 % |
+| YouTube | 15–30s | 201 | 33 | 0,86 | 9,0 % | 15,9 % |
+| TikTok | 30–60s | 751 | 37 | 1,03 | 10,1 % | 9,9 % |
+| TikTok | 15–30s | 642 | 37 | 0,97 | 10,1 % | 9,9 % |
+| TikTok | <15s | 345 | 35 | 1,04 | 9,9 % | 9,9 % |
+| TikTok | >60s | 470 | 37 | 0,95 | 9,1 % | 9,9 % |
+
+Gegen die jeweils eigene Basis geprüft (z-Test auf den Binomialanteil):
+
+| Plattform | `>60s` | Basis | z | Urteil |
+|---|---:|---:|---:|---|
+| YouTube | 21,4 % | 15,9 % | ≈ 3,0 | klar darüber |
+| Instagram | 46,9 % | 42,1 % | ≈ 2,4 | schwach darüber |
+| TikTok | 9,1 % | 9,9 % | ≈ −0,6 | kein Effekt |
+
+**„Lange Formate gewinnen" gilt dort, wo Langformate leben (YouTube), und gar nicht
+dort, wo Cutdowns leben (TikTok).** Korpusweit sah es nach einem universellen
+Dauer-Gesetz aus, weil lange Posts überproportional auf den Plattformen mit hoher
+Basisquote liegen. Es war überwiegend ein verkleideter Plattform-Vergleich.
+
+Die U-Form aus Abschnitt 4b überlebt ebenfalls nicht: auf Instagram sind `>60s` und
+`<15s` praktisch gleichauf (46,9 % / 46,2 %) mit einem klaren Tief in der Mitte, auf
+YouTube ist es eine schlichte Rangfolge mit `>60s` vorn, auf TikTok ist die Kurve
+flach. Drei verschiedene Muster, die korpusweit zu einer künstlichen U-Form
+verschmelzen.
+
+### 8.3 Konsequenz im Code
+
+`trailer_patterns.py` prüft die Trefferquote seither nicht mehr gegen die
+Korpusquote, sondern gegen den **Erwartungswert aus der Plattform-Mischung der
+jeweiligen Zelle** — das mit ihrer Besetzung gewichtete Mittel der Plattform-Quoten
+(`expected_breakout_rate`). Der Bericht liefert `platform_breakout_rates` und je
+Zelle `platform_mix` mit, damit die Rechnung nachvollziehbar bleibt.
+`baseline_breakout_rate` bleibt als Kontextwert und als Rückfall für Plattformen mit
+weniger als 30 Posts erhalten.
+
+Eine Zelle, die nur deshalb gut aussieht, weil sie überwiegend auf Instagram liegt,
+fällt damit auf `neutral` zurück. Der Test
+`test_platform_composition_alone_is_not_a_pattern` baut genau diesen Fall nach und
+zeigt in der Gegenprobe, dass die alte Referenz ihn als klaren Befund durchgewinkt
+hätte.
+
+### 8.4 Offen: die Instagram-Quote ist selbst verdächtig
+
+42,1 % Trefferquote heißt: gut vier von zehn Instagram-Posts erreichen die doppelte
+Aktivierung ihres eigenen Kanal-Medians. Das ist für eine Median-normierte Größe
+unplausibel hoch — bei sauberen Daten müssten es grob 25 % sein.
+
+Wahrscheinliche Ursache: nur 2.532 von 4.239 Instagram-Posts tragen überhaupt Views.
+Posts ohne Views bekommen Aktivierung 0,0 (`compute_activation_rate`), drücken den
+Kanal-Median nach unten und heben damit die Lifts aller übrigen Posts rechnerisch an.
+Bei einem Kanal, bei dem die Mehrheit der Posts keine Views hat, kann der Median
+sogar exakt auf einem 0,0-Wert liegen — dann greift zwar der `med > 0`-Filter, aber
+knapp darüber bleibt der Effekt bestehen.
+
+Für den *Vergleich zwischen Zellen* ist das jetzt unschädlich, weil jede Zelle gegen
+dieselbe verzerrte Instagram-Quote geprüft wird. Die **absolute Höhe** der
+Instagram-Zahlen ist bis zur Klärung mit Vorbehalt zu lesen. Nächster Schritt: prüfen,
+ob die fehlenden Views ein Erfassungsproblem des Instagram-Connectors sind oder ob
+Instagram sie für bestimmte Post-Typen (Karussells, Bilder) gar nicht ausliefert. Im
+zweiten Fall gehören diese Posts aus der Aktivierungs-Rechnung heraus statt mit 0,0
+hinein.
+
+### 8.5 Korrigierte Query für die nächste Auswertung
+
+Ersetzt die Fassung aus Abschnitt 6. Gleiche fünf Dimensionen, aber jede Zelle wird
+gegen ihren eigenen Erwartungswert geprüft statt gegen die Korpusquote. Neue Spalten:
+`plattformen` (woraus die Zelle besteht), `erwartet_pct` (die Quote, die allein aus
+der Plattform-Mischung folgt) und `z`. Sortiert nach `z` — was oben steht, ist
+auffällig *gegenüber seiner eigenen Plattform*, nicht gegenüber dem Korpus.
+
+Gegen ein lokales Postgres 16 mit zwei synthetischen Fällen geprüft: (a) ein Format,
+das nur auf der starken Plattform liegt und dort exakt deren Quote hat → `z = 0,00`,
+obwohl die Korpusquote 21,7 % beträgt; (b) ein Format, das innerhalb seiner Plattform
+wirklich heraussticht (80 % gegen 26,7 % erwartet) → `z = 6,61`. Beide Ergebnisse
+stimmen mit den Unit-Tests in `test_trailer_patterns.py` überein.
+
+```sql
+WITH scoped AS (
+  SELECT p.id, p.channel_id, c.platform, p.duration_seconds, p.analysis, p.raw_payload,
+         CASE WHEN COALESCE(p.visible_views,0)=0 THEN 0::numeric
+              WHEN c.platform='youtube' THEN (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0))::numeric/p.visible_views
+              ELSE (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0)+GREATEST(COALESCE(p.visible_bookmarks,0),0))::numeric/p.visible_views END AS activation
+  FROM creative_radar.post p JOIN creative_radar.channel c ON c.id=p.channel_id
+  WHERE p.detected_at > now() - interval '90 days'
+), baseline AS (
+  SELECT channel_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY activation) AS med
+  FROM scoped GROUP BY channel_id HAVING count(*) >= 4
+), lifted AS (
+  SELECT s.*, s.activation/b.med AS lift
+  FROM scoped s JOIN baseline b ON b.channel_id=s.channel_id WHERE b.med > 0
+), korpus AS (
+  SELECT count(*) FILTER (WHERE lift >= 2.0)::numeric / count(*) AS rate FROM lifted
+), plattform AS (
+  SELECT platform, count(*) FILTER (WHERE lift >= 2.0)::numeric / count(*) AS rate
+  FROM lifted GROUP BY platform HAVING count(*) >= 30
+), cells AS (
+  SELECT 'duration_bucket' AS dimension,
+         CASE WHEN duration_seconds<15 THEN '1_<15s' WHEN duration_seconds<30 THEN '2_15-30s'
+              WHEN duration_seconds<60 THEN '3_30-60s' ELSE '4_>60s' END AS value,
+         lift, channel_id, platform
+  FROM lifted WHERE duration_seconds IS NOT NULL
+
+  UNION ALL SELECT 'music_kind',
+         CASE WHEN raw_payload -> '_creative_radar_music' ->> 'musicOriginal' = 'true' THEN 'original_sound'
+              WHEN raw_payload -> '_creative_radar_music' ->> 'musicOriginal' = 'false' THEN 'licensed_track'
+              ELSE 'unknown' END, lift, channel_id, platform
+  FROM lifted WHERE (raw_payload -> '_creative_radar_music')::text NOT IN ('null', '{}')
+
+  UNION ALL SELECT 'format', analysis->>'format', lift, channel_id, platform FROM lifted
+  WHERE analysis->>'format' IS NOT NULL AND (analysis->>'confidence')::numeric >= 0.7
+
+  UNION ALL SELECT 'tone', analysis->>'tone', lift, channel_id, platform FROM lifted
+  WHERE analysis->>'tone' IS NOT NULL AND (analysis->>'confidence')::numeric >= 0.7
+
+  UNION ALL SELECT 'lifecycle_stage', analysis->>'lifecycle_stage', lift, channel_id, platform FROM lifted
+  WHERE analysis->>'lifecycle_stage' IS NOT NULL AND (analysis->>'confidence')::numeric >= 0.7
+), agg AS (
+  SELECT c.dimension, c.value,
+         count(*) AS posts,
+         count(DISTINCT c.channel_id) AS kanaele,
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY c.lift) AS median_lift,
+         percentile_cont(0.9) WITHIN GROUP (ORDER BY c.lift) AS p90_lift,
+         count(*) FILTER (WHERE c.lift >= 2.0)::numeric / count(*) AS treffer,
+         avg(COALESCE(pl.rate, (SELECT rate FROM korpus))) AS erwartet,
+         string_agg(DISTINCT c.platform, '+' ORDER BY c.platform) AS plattformen
+  FROM cells c LEFT JOIN plattform pl ON pl.platform = c.platform
+  GROUP BY c.dimension, c.value
+  HAVING count(*) >= 5 AND count(DISTINCT c.channel_id) >= 3
+)
+SELECT dimension, value, posts, kanaele, plattformen,
+       round(median_lift::numeric, 2) AS median_lift,
+       round(100 * treffer, 1)  AS treffer_pct,
+       round(100 * erwartet, 1) AS erwartet_pct,
+       round(100 * (SELECT rate FROM korpus), 1) AS korpus_pct,
+       round(((treffer - erwartet)
+              / NULLIF(sqrt(erwartet * (1 - erwartet) / posts), 0))::numeric, 2) AS z,
+       round(p90_lift::numeric, 2) AS p90_lift
+FROM agg
+ORDER BY z DESC NULLS LAST;
+```
+
+Die Zeile `avg(COALESCE(pl.rate, (SELECT rate FROM korpus)))` ist der Kern: gemittelt
+wird über die *Posts* der Zelle, nicht über die Plattformen — damit ist es das mit der
+Besetzung gewichtete Mittel. Plattformen mit weniger als 30 Posts haben keine eigene
+Quote und fallen auf die Korpusquote zurück (`HAVING count(*) >= 30` in `plattform`).
+
+## 9. Formatklassen: Langform und Kurzform getrennt auswerten
+
+Die Auswertung hat bisher Langformate (Trailer, Teaser, Promo, ab rund einer Minute)
+und Kurzformate (TV- und Social-Spots, 5 bis rund 90 Sekunden) in einem Topf gehabt
+und nach „dem" erfolgreichen Muster gesucht. Das mischt zwei verschiedene Handwerke:
+Langform ist auf Aufbau, Wendepunkt und Auflösung gebaut, Kurzform muss in den ersten
+Sekunden alles unterbringen.
+
+### 9.1 Die Klassen
+
+| Klasse | Dauer | |
+|---|---|---|
+| `kurzform` | < 60 s | TV- und Social-Spots |
+| `uebergang_60_90s` | 60 – 89 s | Grauzone, in der sich beide Definitionen überlappen |
+| `langform` | ≥ 90 s | Trailer, Teaser, Promo |
+
+**Aus der Dauer, nicht aus dem Format-Label.** Das Label läge näher — `trailer` ist per
+Definition Langform. Aber es existiert für 13,8 % der Posts, die Dauer für rund 90 %.
+Eine Einteilung auf Label-Basis hätte in genau der Frage, wegen der sie gebaut wird,
+fast keine Datengrundlage.
+
+**Die Grauzone bekommt einen eigenen Namen statt einer Zuordnung.** Ein
+75-Sekunden-Stück kann ein kurzer Trailer oder ein langer Spot sein; das entscheidet
+der Aufbau, nicht die Sekundenzahl. Sie still einer Seite zuzuschlagen wäre schlimmer,
+als die Lücke zu zeigen — dieselbe Regel wie bei `verdict="insufficient"`. Wenn die
+Trailerhaus-Fragebögen zurück sind, kann diese Zone gezielt aufgelöst werden.
+
+### 9.2 Zwei Wege, sie zu nutzen
+
+`format_class` ist zugleich Dimension und Filter:
+
+- **Ohne Eingrenzung** erscheint `format_class` als eigene Dimension im Bericht — man
+  sieht auf einen Blick, ob und wie stark die Klassen sich unterscheiden.
+- **Mit `?format_class=langform`** läuft die *gesamte* Auswertung nur innerhalb dieser
+  Klasse, inklusive der Plattform-Quoten. Langformate werden dann ausschließlich mit
+  Langformaten verglichen.
+
+### 9.3 Was dabei bewusst nicht mitgefiltert wird
+
+Die Kanal-Baseline bleibt auch bei eingegrenzter Auswertung der Median des **gesamten**
+Kanal-Outputs. Das ist die eine Stelle, an der eine naheliegende Vereinfachung das
+Ergebnis zerstören würde: Filtert man die Baseline mit, vergleichen sich Langformate
+nur noch mit Langformaten desselben Kanals. Der Median-Lift läge dann per Konstruktion
+bei 1,0, und die Frage „trägt Langform überhaupt?" wäre nicht mehr beantwortbar — die
+Antwort wäre immer „durchschnittlich".
+
+Gesichert durch `test_scoped_report_keeps_the_full_channel_baseline`: ein Kanal mit
+schwachem Kurzform-Grundrauschen und durchgehend doppelt so starker Langform muss auch
+im eingegrenzten Bericht Lift 2,0 und `verdict="over"` liefern.
+
+## 10. Nächste Diagnose: die fehlenden Instagram-Views
+
+Aus Abschnitt 8.4. Zwei Queries, beide gegen ein lokales Postgres 16 mit synthetischen
+Testfällen geprüft. Read-only, beliebig oft ausführbar.
+
+### 10.1 Query A — wo genau fehlen die Views?
+
+Entscheidet die eigentliche Frage: **Erfassungsproblem oder Plattform-Verhalten?**
+Wenn die Lücke sich auf `image` und `sidecar` (Karussells) konzentriert, liefert
+Instagram für diese Post-Typen schlicht keine Views — dann gehören sie aus der
+Aktivierungsrechnung heraus. Verteilt sie sich gleichmäßig über alle Asset-Typen,
+ist es ein Fehler im Connector.
+
+Die Query trennt außerdem `NULL` von `0`. Das ist kein Detail: `NULL` heißt „nicht
+erfasst", `0` heißt „erfasst und tatsächlich null" — und nur im ersten Fall ist die
+Behandlung als Aktivierung 0,0 falsch.
+
+```sql
+SELECT c.platform,
+       COALESCE(p.asset_type, '(kein asset_type)') AS asset_typ,
+       count(*) AS posts,
+       count(*) FILTER (WHERE p.visible_views IS NULL)  AS views_null,
+       count(*) FILTER (WHERE p.visible_views = 0)      AS views_null_wert,
+       count(*) FILTER (WHERE COALESCE(p.visible_views,0) > 0) AS views_vorhanden,
+       round(100.0 * count(*) FILTER (WHERE COALESCE(p.visible_views,0) = 0)
+             / count(*), 1) AS ohne_views_pct
+FROM creative_radar.post p
+JOIN creative_radar.channel c ON c.id = p.channel_id
+WHERE p.detected_at > now() - interval '90 days'
+GROUP BY 1, 2
+ORDER BY 1, ohne_views_pct DESC, posts DESC;
+```
+
+### 10.2 Query B — wie stark hängt die Trefferquote daran?
+
+Rechnet dieselbe Trefferquote zweimal nebeneinander: einmal wie heute (Posts ohne
+Views zählen mit Aktivierung 0,0), einmal ohne diese Posts — auch aus der
+Kanal-Baseline heraus.
+
+**Erwartung, falls die Hypothese stimmt:** die Instagram-Quote fällt von 42,1 % Richtung
+25 %, TikTok und YouTube bleiben praktisch unverändert. Bleibt Instagram oben, liegt es
+nicht an den fehlenden Views und die Ursache ist woanders zu suchen.
+
+```sql
+WITH alle AS (
+  SELECT p.id, p.channel_id, c.platform, p.visible_views,
+         CASE WHEN COALESCE(p.visible_views,0)=0 THEN 0::numeric
+              WHEN c.platform='youtube' THEN (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0))::numeric/p.visible_views
+              ELSE (GREATEST(COALESCE(p.visible_likes,0),0)+GREATEST(COALESCE(p.visible_comments,0),0)+GREATEST(COALESCE(p.visible_bookmarks,0),0))::numeric/p.visible_views END AS activation
+  FROM creative_radar.post p JOIN creative_radar.channel c ON c.id=p.channel_id
+  WHERE p.detected_at > now() - interval '90 days'
+), mit_views AS (
+  SELECT * FROM alle WHERE COALESCE(visible_views,0) > 0
+),
+base_ist AS (
+  SELECT channel_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY activation) AS med
+  FROM alle GROUP BY channel_id HAVING count(*) >= 4
+),
+base_ohne AS (
+  SELECT channel_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY activation) AS med
+  FROM mit_views GROUP BY channel_id HAVING count(*) >= 4
+),
+lift_ist AS (
+  SELECT a.platform, a.activation/b.med AS lift
+  FROM alle a JOIN base_ist b ON b.channel_id=a.channel_id WHERE b.med > 0
+),
+lift_ohne AS (
+  SELECT m.platform, m.activation/b.med AS lift
+  FROM mit_views m JOIN base_ohne b ON b.channel_id=m.channel_id WHERE b.med > 0
+)
+SELECT COALESCE(i.platform, o.platform) AS plattform,
+       i.posts AS ist_posts, i.quote AS ist_trefferquote_pct,
+       o.posts AS ohne_posts, o.quote AS ohne_trefferquote_pct
+FROM (SELECT platform, count(*) AS posts,
+             round(100.0*count(*) FILTER (WHERE lift >= 2.0)/count(*),1) AS quote
+      FROM lift_ist GROUP BY platform) i
+FULL OUTER JOIN
+     (SELECT platform, count(*) AS posts,
+             round(100.0*count(*) FILTER (WHERE lift >= 2.0)/count(*),1) AS quote
+      FROM lift_ohne GROUP BY platform) o
+  ON o.platform = i.platform
+ORDER BY 1;
+```
+
+**Der Mechanismus, den die Query sichtbar macht** (so im Testfall nachgebaut): ein Kanal
+mit 5 Posts à Aktivierung 0,10 und 5 Posts ohne Views hat einen Median von 0,05 statt
+0,10. Damit bekommen die fünf echten Posts rechnerisch Lift 2,0 und gelten als Treffer —
+Trefferquote 50 % statt 0 %. Die Verzerrung entsteht also nicht bei den Posts ohne
+Views selbst, sondern bei allen anderen Posts desselben Kanals.
+
+### 10.3 Danach
+
+- Bestätigt sich der Verdacht: `compute_activation_rate` bekommt eine Unterscheidung
+  zwischen „keine Views erfasst" (Post gehört nicht in die Rechnung) und „null Views"
+  (Aktivierung 0,0 ist korrekt). Das betrifft auch den Empfehlungs-Baustein, nicht nur
+  dieses Modul — die Änderung will sorgfältig gemacht werden.
+- Bestätigt er sich nicht, bleiben die Instagram-Zahlen wie sie sind, und die Ursache
+  der hohen Quote ist eine offene Frage für die nächste Auswertung.

@@ -95,14 +95,97 @@ behind_the_scenes mit unterdurchschnittlichem Median (0,86) bei
 gleichzeitig ueberdurchschnittlicher Trefferquote (27,9 %): meist
 Blindgaenger, aber ueberdurchschnittlich oft ein Volltreffer.
 
-Das ``breakout_verdict`` benutzt einen z-Test gegen die Basisquote statt
-eines festen Faktors — Begruendung bei ``_breakout_z``. ``p90_lift``
-zeigt zusaetzlich, wie hoch die guten Faelle einer Zelle reichen.
+Das ``breakout_verdict`` benutzt einen z-Test statt eines festen
+Faktors — Begruendung bei ``_breakout_z``. ``p90_lift`` zeigt
+zusaetzlich, wie hoch die guten Faelle einer Zelle reichen.
 
 Interpretationsfalle Nummer zwei: ``median_lift`` und ``breakout_rate``
 koennen in verschiedene Richtungen zeigen (siehe behind_the_scenes).
 Das ist kein Widerspruch, sondern die eigentliche Information — beide
 Spalten gehoeren zusammen gelesen.
+
+Warum gegen die Plattform-Mischung geprueft wird, nicht gegen den Korpus
+=======================================================================
+
+Die Trefferquote wurde zunaechst gegen eine korpusweite Basisquote von
+20 % geprueft. Eine Aufteilung derselben Auswertung nach Plattform
+(07.08.2026) hat gezeigt, dass diese 20 % ein Mittelwert ohne Bedeutung
+sind — die Plattformen liegen um den Faktor vier auseinander:
+
+    Instagram 42,1 %   YouTube 15,9 %   TikTok 9,9 %
+
+Damit wurde die vermeintlich staerkste Aussage der ersten Auswertung
+hinfaellig. "Laenger als 60 Sekunden hat die hoechste Trefferquote"
+stimmte korpusweit, war aber weitgehend ein verkleideter
+Plattform-Vergleich: lange Formate liegen ueberproportional auf
+YouTube und Instagram, kurze auf TikTok. Je Plattform gerechnet bleibt
+vom Dauer-Effekt nur ein Teil uebrig, und er zeigt in
+unterschiedliche Richtungen:
+
+    | Plattform | >60s   | eigene Basis | Urteil            |
+    |-----------|--------|--------------|-------------------|
+    | YouTube   | 21,4 % | 15,9 %       | klar darueber     |
+    | Instagram | 46,9 % | 42,1 %       | schwach darueber  |
+    | TikTok    |  9,1 % |  9,9 %       | kein Effekt       |
+
+Jede Zelle bekommt deshalb ihren eigenen Erwartungswert: das mit ihrer
+Besetzung gewichtete Mittel der Plattform-Quoten
+(``_expected_breakout_rate``). Geprueft wird die Zellen-Trefferquote
+gegen diesen Wert, nicht gegen die Korpus-Quote. Eine Zelle, die nur
+deshalb gut aussieht, weil sie ueberwiegend auf Instagram liegt, faellt
+damit auf "neutral" zurueck.
+(Test: ``test_platform_composition_alone_is_not_a_pattern``.)
+
+Offene Frage, bewusst noch nicht korrigiert: die 42,1 % von Instagram
+sind selbst verdaechtig. Nur 2.532 von 4.239 Instagram-Posts tragen
+Views; Posts ohne Views bekommen Aktivierung 0,0 und druecken den
+Kanal-Median, was die Lifts der uebrigen Posts rechnerisch anhebt. Die
+Plattform-Korrektur macht diesen Effekt unschaedlich fuer den
+*Vergleich zwischen Zellen* — die absolute Hoehe der Instagram-Quote
+bleibt aber bis zur Klaerung mit Vorbehalt zu lesen.
+
+Formatklassen: Langform und Kurzform sind nicht dasselbe Spiel
+==============================================================
+
+Langformate (Trailer, Teaser, Promo) beginnen bei rund einer Minute und
+sind auf Aufbau, Wendepunkt und Aufloesung gebaut. Kurzformate (TV- und
+Social-Spots, 5 bis rund 90 Sekunden) muessen in den ersten Sekunden
+alles unterbringen. Beide in einen Topf zu werfen und nach "dem"
+erfolgreichen Muster zu suchen, mischt zwei verschiedene Handwerke.
+
+Die Dimension ``format_class`` macht die Trennung sichtbar, der
+Parameter ``format_class`` von ``compute_trailer_patterns`` grenzt die
+gesamte Auswertung darauf ein. Eingegrenzt laeuft alles Weitere — auch
+die Plattform-Quoten — innerhalb dieser Klasse, sodass Langformate nur
+noch mit Langformaten verglichen werden.
+
+Drei Klassen, rein aus der Dauer:
+
+    kurzform            < 60 s
+    uebergang_60_90s    60 bis unter 90 s
+    langform            >= 90 s
+
+**Warum nicht aus dem Format-Label.** Das laege naeher — ``trailer`` ist
+per Definition Langform. Aber das Label existiert fuer rund 14 % der
+Posts, die Dauer fuer rund 90 %. Eine Klasseneinteilung auf Label-Basis
+haette in genau der Frage, wegen der sie gebaut wurde, fast keine
+Datengrundlage.
+
+**Warum die Grauzone eine eigene Klasse ist.** Zwischen 60 und 90
+Sekunden ueberlappen sich beide Branchendefinitionen. Ein
+75-Sekunden-Stueck kann ein kurzer Trailer oder ein langer Spot sein;
+das entscheidet der Aufbau, nicht die Sekundenzahl. Die Zone bekommt
+deshalb einen eigenen Namen statt einer geratenen Zuordnung — dieselbe
+Regel wie bei ``verdict="insufficient"``: eine Luecke zeigen ist besser
+als sie zu fuellen.
+
+**Warum die Kanal-Baseline nicht mitgefiltert wird.** Bei eingegrenzter
+Auswertung bleibt der Nenner des Lifts der Median des *gesamten*
+Kanal-Outputs. Wuerde er mitgefiltert, verglichen sich Langformate nur
+noch mit Langformaten desselben Kanals — und die Frage "traegt Langform
+ueberhaupt?" waere per Konstruktion nicht mehr beantwortbar, weil die
+Antwort dann immer 1,0 lautet.
+(Test: ``test_scoped_report_keeps_the_full_channel_baseline``.)
 """
 from __future__ import annotations
 
@@ -137,10 +220,35 @@ UNDER_THRESHOLD = 0.5
 # Aktivierung wie der Kanal ueblicherweise erreicht.
 BREAKOUT_LIFT_THRESHOLD = 2.0
 
-# Ab welchem z-Wert die Abweichung der Zellen-Trefferquote von der
-# Korpus-Trefferquote als belastbar gilt. 2.0 entspricht grob dem
+# Ab welchem z-Wert die Abweichung der Zellen-Trefferquote von ihrer
+# erwarteten Quote als belastbar gilt. 2.0 entspricht grob dem
 # 95-%-Niveau bei einem Binomialanteil.
 BREAKOUT_Z_THRESHOLD = 2.0
+
+# Eine Plattform braucht selbst genug Posts, damit ihre Trefferquote als
+# Erwartungswert taugt. Darunter wuerde die Zelle faktisch gegen sich
+# selbst geprueft und koennte nie auffallen; solche Plattformen fallen
+# auf die Korpus-Quote zurueck.
+MIN_POSTS_PER_PLATFORM_BASELINE = 30
+
+# ---- Formatklassen (s. Modul-Docstring) --------------------------------
+#
+# Grenzen aus der Branchendefinition: Langformate (Trailer, Teaser,
+# Promo) beginnen bei rund einer Minute, Kurzformate (TV- und
+# Social-Spots) reichen von 5 Sekunden bis maximal rund 90 Sekunden.
+# Zwischen 60 und 90 Sekunden ueberlappen sich beide Definitionen — das
+# ist kein Fehler der Grenzen, sondern eine echte Grauzone.
+FORMAT_CLASS_LOWER_SECONDS = 60
+FORMAT_CLASS_UPPER_SECONDS = 90
+
+FORMAT_CLASS_KURZFORM = "kurzform"
+FORMAT_CLASS_LANGFORM = "langform"
+FORMAT_CLASS_UEBERGANG = "uebergang_60_90s"
+FORMAT_CLASSES = (
+    FORMAT_CLASS_KURZFORM,
+    FORMAT_CLASS_UEBERGANG,
+    FORMAT_CLASS_LANGFORM,
+)
 
 # Ein Kanal braucht selbst genug Posts, damit sein Median als Baseline
 # taugt. Darunter ist der Median ein Zufallswert und der daraus
@@ -161,11 +269,17 @@ class PatternCell:
     verdict: str  # "over" | "under" | "neutral" | "insufficient"
 
     # Zweite Kennzahl: Anteil Posts mit Lift >= BREAKOUT_LIFT_THRESHOLD,
-    # verglichen mit derselben Quote ueber den gesamten normierten Bestand.
+    # verglichen mit der Quote, die aus der Plattform-Mischung dieser
+    # Zelle zu erwarten waere (``expected_breakout_rate``).
     breakout_rate: float = 0.0
+    expected_breakout_rate: float = 0.0
     breakout_z: Optional[float] = None
     breakout_verdict: str = "insufficient"
     p90_lift: float = 0.0
+
+    # Posts je Plattform in dieser Zelle. Steht in der Ausgabe, damit
+    # nachvollziehbar bleibt, woher der Erwartungswert kommt.
+    platform_mix: dict[str, int] = field(default_factory=dict)
 
     reason: Optional[str] = None  # nur bei "insufficient"
 
@@ -179,9 +293,11 @@ class PatternCell:
             "median_views": self.median_views,
             "verdict": self.verdict,
             "breakout_rate": round(self.breakout_rate, 4),
+            "expected_breakout_rate": round(self.expected_breakout_rate, 4),
             "breakout_z": round(self.breakout_z, 2) if self.breakout_z is not None else None,
             "breakout_verdict": self.breakout_verdict,
             "p90_lift": round(self.p90_lift, 3),
+            "platform_mix": dict(sorted(self.platform_mix.items())),
         }
         if self.reason:
             out["reason"] = self.reason
@@ -198,9 +314,18 @@ class TrailerPatternReport:
     posts_with_baseline: int
     channels_covered: int
     analysis_coverage: float
-    # Trefferquote ueber den gesamten normierten Bestand — die Referenz,
-    # gegen die jede Zelle verglichen wird.
+    # Auf welche Formatklasse die Auswertung eingegrenzt wurde; None =
+    # alle. Steht im Bericht, weil sonst nicht erkennbar waere, dass die
+    # Zahlen nur fuer einen Ausschnitt gelten.
+    format_class: Optional[str] = None
+    # Trefferquote ueber den gesamten normierten Bestand. Nur noch
+    # Rueckfall-Referenz und Kontextwert — verglichen wird je Zelle gegen
+    # ``platform_breakout_rates``, gewichtet mit ihrer Plattform-Mischung.
     baseline_breakout_rate: float = 0.0
+    # Trefferquote je Plattform. Der eigentliche Massstab, seit die
+    # Auswertung vom 07.08.2026 gezeigt hat, wie weit die Plattformen
+    # auseinanderliegen (s. Modul-Docstring).
+    platform_breakout_rates: dict[str, float] = field(default_factory=dict)
     dimensions: dict[str, list[PatternCell]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
@@ -210,11 +335,16 @@ class TrailerPatternReport:
             "window_start": self.window_start.isoformat(),
             "window_end": self.window_end.isoformat(),
             "market": self.market,
+            "format_class": self.format_class,
             "posts_in_window": self.posts_in_window,
             "posts_with_baseline": self.posts_with_baseline,
             "channels_covered": self.channels_covered,
             "analysis_coverage": round(self.analysis_coverage, 4),
             "baseline_breakout_rate": round(self.baseline_breakout_rate, 4),
+            "platform_breakout_rates": {
+                pl: round(rate, 4)
+                for pl, rate in sorted(self.platform_breakout_rates.items())
+            },
             "dimensions": {
                 name: [c.to_dict() for c in cells]
                 for name, cells in self.dimensions.items()
@@ -266,6 +396,35 @@ def _extract_duration_bucket(post: Post) -> Optional[str]:
     return _duration_bucket(post.duration_seconds)
 
 
+def _format_class_of(post: Post) -> Optional[str]:
+    """Kurzform, Langform oder Grauzone — allein aus der Dauer.
+
+    Bewusst nicht aus dem ``format``-Label abgeleitet, obwohl das
+    naeherliegt: das Label existiert fuer rund 14 % der Posts, die Dauer
+    fuer rund 90 %. Eine Klasseneinteilung, die auf dem Label aufsetzt,
+    haette in genau der Frage, wegen der sie gebaut wurde, fast keine
+    Datengrundlage.
+
+    Die Grauzone bekommt eine eigene Klasse statt einer Zuordnung. Ein
+    75-Sekunden-Stueck kann ein kurzer Trailer oder ein langer Spot sein;
+    das entscheidet der Aufbau, nicht die Sekundenzahl. Zu raten waere
+    hier schlimmer als die Luecke zu zeigen — dieselbe Regel wie bei
+    ``verdict="insufficient"``.
+    """
+    d = post.duration_seconds
+    if d is None:
+        return None
+    if d < FORMAT_CLASS_LOWER_SECONDS:
+        return FORMAT_CLASS_KURZFORM
+    if d < FORMAT_CLASS_UPPER_SECONDS:
+        return FORMAT_CLASS_UEBERGANG
+    return FORMAT_CLASS_LANGFORM
+
+
+def _extract_format_class(post: Post) -> Optional[str]:
+    return _format_class_of(post)
+
+
 def _extract_music_kind(post: Post) -> Optional[str]:
     """TikTok-Musikart aus ``raw_payload['_creative_radar_music']``.
 
@@ -307,6 +466,7 @@ class _Dimension:
 # gemessen und wuerden bei 12 % Klassifikations-Abdeckung sonst
 # unnoetig auf ein Achtel schrumpfen.
 DIMENSIONS: tuple[_Dimension, ...] = (
+    _Dimension("format_class", _extract_format_class, False),
     _Dimension("format", _extract_format, True),
     _Dimension("tone", _extract_tone, True),
     _Dimension("lifecycle_stage", _extract_lifecycle, True),
@@ -342,7 +502,7 @@ def _percentile(values: list[float], q: float) -> float:
 
 
 def _breakout_z(cell_rate: float, baseline_rate: float, n: int) -> Optional[float]:
-    """z-Wert der Zellen-Trefferquote gegen die Korpus-Trefferquote.
+    """z-Wert der Zellen-Trefferquote gegen ihre erwartete Quote.
 
     Warum ein z-Test statt eines festen Schwellwerts wie "1,25x der
     Basisquote": die Stichprobengroessen unterscheiden sich um zwei
@@ -352,10 +512,16 @@ def _breakout_z(cell_rate: float, baseline_rate: float, n: int) -> Optional[floa
     z-Wert skaliert dagegen mit der Wurzel aus n und macht den
     Unterschied rechnerisch statt nur optisch sichtbar.
 
-    Standardfehler des Binomialanteils unter der Nullhypothese
-    "Zelle verhaelt sich wie der Korpus": sqrt(p*(1-p)/n) mit p =
-    baseline_rate. Gibt None zurueck, wenn keine sinnvolle Referenz
-    existiert (leerer Korpus oder Basisquote 0/1).
+    ``baseline_rate`` ist seit der Plattform-Korrektur die *erwartete*
+    Quote der Zelle (``_expected_breakout_rate``), nicht mehr die
+    Korpus-Quote. Die Rechnung selbst bleibt gleich; nur die
+    Nullhypothese ist schaerfer geworden: statt "Zelle verhaelt sich wie
+    der Korpus" nun "Zelle verhaelt sich wie ihre eigene
+    Plattform-Mischung".
+
+    Standardfehler des Binomialanteils unter dieser Nullhypothese:
+    sqrt(p*(1-p)/n) mit p = baseline_rate. Gibt None zurueck, wenn keine
+    sinnvolle Referenz existiert (leerer Korpus oder Basisquote 0/1).
 
     Bekannte Grenze, bewusst nicht korrigiert: ueber alle Dimensionen
     werden rund 20 Zellen geprueft, bei |z| >= 2 ist also etwa ein
@@ -371,6 +537,25 @@ def _breakout_z(cell_rate: float, baseline_rate: float, n: int) -> Optional[floa
     if se == 0:
         return None
     return (cell_rate - baseline_rate) / se
+
+
+def _expected_breakout_rate(
+    platforms: list[str],
+    rate_by_platform: dict[str, float],
+    fallback: float,
+) -> float:
+    """Trefferquote, die eine Zelle allein wegen ihrer Plattform-Mischung
+    haette — ohne jeden inhaltlichen Effekt.
+
+    Entspricht dem mit der Zellbesetzung gewichteten Mittel der
+    Plattform-Quoten. Plattformen ohne belastbare eigene Quote (unter
+    ``MIN_POSTS_PER_PLATFORM_BASELINE``) gehen mit ``fallback``, der
+    Korpus-Quote, ein.
+    """
+    if not platforms:
+        return fallback
+    total = sum(rate_by_platform.get(pl, fallback) for pl in platforms)
+    return total / len(platforms)
 
 
 def _breakout_verdict_for(z: Optional[float]) -> str:
@@ -391,13 +576,28 @@ def compute_trailer_patterns(
     now: Optional[datetime] = None,
     min_sample: int = MIN_SAMPLE_PER_CELL,
     min_channels: int = MIN_CHANNELS_PER_CELL,
+    format_class: Optional[str] = None,
 ) -> TrailerPatternReport:
     """Aggregiert Reichweiten-Muster ueber den Bestand.
 
     ``market`` filtert auf die Kanal-Spalte (z.B. "DE"); ``None`` nimmt
     alle. ``now`` ist der Fensterendpunkt und existiert, damit Tests ein
     festes Fenster setzen koennen.
+
+    ``format_class`` grenzt die Auswertung auf eine Formatklasse ein
+    (``kurzform``, ``langform``, ``uebergang_60_90s``). Die
+    Kanal-Baseline bleibt dabei bewusst die des **gesamten** Kanal-
+    Outputs: der Lift soll weiter "verglichen mit dem, was dieser Kanal
+    ueblicherweise erreicht" heissen. Wuerde die Baseline mitgefiltert,
+    verglichen sich Langformate nur noch mit Langformaten desselben
+    Kanals, und die Frage "traegt Langform ueberhaupt?" waere per
+    Konstruktion nicht mehr beantwortbar.
     """
+    if format_class is not None and format_class not in FORMAT_CLASSES:
+        raise ValueError(
+            f"format_class={format_class!r} unbekannt, erlaubt: {FORMAT_CLASSES}"
+        )
+
     window_end = now or datetime.now(timezone.utc)
     window_start = window_end - timedelta(days=window_days)
 
@@ -416,6 +616,7 @@ def compute_trailer_patterns(
             posts_with_baseline=0,
             channels_covered=0,
             analysis_coverage=0.0,
+            format_class=format_class,
             notes=[f"Keine Kanaele fuer market={market!r}."],
         )
 
@@ -439,6 +640,7 @@ def compute_trailer_patterns(
             posts_with_baseline=0,
             channels_covered=0,
             analysis_coverage=0.0,
+            format_class=format_class,
             notes=["Keine Posts im Fenster."],
         )
 
@@ -493,8 +695,35 @@ def compute_trailer_patterns(
             posts_with_baseline=0,
             channels_covered=0,
             analysis_coverage=0.0,
+            format_class=format_class,
             notes=notes + ["Kein Kanal hatte genug Posts fuer eine Baseline."],
         )
+
+    # ---- Eingrenzung auf eine Formatklasse -------------------------------
+    #
+    # Erst hier, nicht schon bei den Baselines: der Lift soll weiter
+    # gegen den vollen Kanal-Output normiert sein (s. Docstring).
+    if format_class is not None:
+        before = len(usable)
+        usable = [p for p in usable if _format_class_of(p) == format_class]
+        notes.append(
+            f"Eingegrenzt auf format_class={format_class!r}: {len(usable)} "
+            f"von {before} Posts mit Baseline. Die Kanal-Baseline stammt "
+            f"weiterhin aus dem vollen Output des jeweiligen Kanals."
+        )
+        if not usable:
+            return TrailerPatternReport(
+                window_days=window_days,
+                window_start=window_start,
+                window_end=window_end,
+                market=market,
+                posts_in_window=len(posts),
+                posts_with_baseline=0,
+                channels_covered=0,
+                analysis_coverage=0.0,
+                format_class=format_class,
+                notes=notes,
+            )
 
     analysed = sum(1 for p in usable if _extract_format(p) is not None)
     coverage = analysed / len(usable)
@@ -506,15 +735,53 @@ def compute_trailer_patterns(
             f"vollen Bestand."
         )
 
-    # ---- Korpus-Trefferquote als Referenz --------------------------------
+    # ---- Trefferquoten als Referenz --------------------------------------
     breakouts_total = sum(
         1 for p in usable if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
     )
     baseline_breakout_rate = breakouts_total / len(usable)
 
+    posts_by_platform: dict[str, list[Post]] = defaultdict(list)
+    for p in usable:
+        posts_by_platform[platform_by_channel.get(p.channel_id, "unknown")].append(p)
+
+    platform_breakout_rates: dict[str, float] = {}
+    for platform, platform_posts in posts_by_platform.items():
+        if len(platform_posts) < MIN_POSTS_PER_PLATFORM_BASELINE:
+            continue
+        hits = sum(
+            1
+            for p in platform_posts
+            if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
+        )
+        platform_breakout_rates[platform] = hits / len(platform_posts)
+
+    if len(platform_breakout_rates) >= 2:
+        lo = min(platform_breakout_rates.values())
+        hi = max(platform_breakout_rates.values())
+        if lo > 0 and hi / lo >= 1.5:
+            spread = ", ".join(
+                f"{pl} {rate:.1%}"
+                for pl, rate in sorted(
+                    platform_breakout_rates.items(),
+                    key=lambda kv: -kv[1],
+                )
+            )
+            notes.append(
+                f"Trefferquoten liegen je Plattform weit auseinander "
+                f"({spread}). Jede Zelle wird deshalb gegen ihre eigene "
+                f"Plattform-Mischung geprueft, nicht gegen die "
+                f"Korpus-Quote von {baseline_breakout_rate:.1%}."
+            )
+
     # ---- Cross-Tabs -----------------------------------------------------
     dimensions: dict[str, list[PatternCell]] = {}
     for dim in DIMENSIONS:
+        # Bei eingegrenzter Auswertung waere die Formatklassen-Dimension
+        # eine einzige Zelle mit z = 0 gegen sich selbst — kein Befund,
+        # nur Rauschen in der Ausgabe.
+        if dim.name == "format_class" and format_class is not None:
+            continue
         buckets: dict[str, list[Post]] = defaultdict(list)
         for p in usable:
             if dim.requires_analysis:
@@ -537,6 +804,16 @@ def compute_trailer_patterns(
             breakout_hits = sum(1 for x in lifts if x >= BREAKOUT_LIFT_THRESHOLD)
             breakout_rate = breakout_hits / len(lifts)
 
+            cell_platforms = [
+                platform_by_channel.get(p.channel_id, "unknown") for p in cell_posts
+            ]
+            platform_mix: dict[str, int] = defaultdict(int)
+            for pl in cell_platforms:
+                platform_mix[pl] += 1
+            expected_rate = _expected_breakout_rate(
+                cell_platforms, platform_breakout_rates, baseline_breakout_rate
+            )
+
             reason = None
             if len(cell_posts) < min_sample:
                 verdict = "insufficient"
@@ -554,7 +831,7 @@ def compute_trailer_patterns(
             else:
                 verdict = _verdict_for(median_lift)
                 breakout_z = _breakout_z(
-                    breakout_rate, baseline_breakout_rate, len(cell_posts)
+                    breakout_rate, expected_rate, len(cell_posts)
                 )
                 breakout_verdict = _breakout_verdict_for(breakout_z)
 
@@ -568,9 +845,11 @@ def compute_trailer_patterns(
                     median_views=int(_median([float(v) for v in views])) if views else None,
                     verdict=verdict,
                     breakout_rate=breakout_rate,
+                    expected_breakout_rate=expected_rate,
                     breakout_z=breakout_z,
                     breakout_verdict=breakout_verdict,
                     p90_lift=_percentile(lifts, 0.9),
+                    platform_mix=dict(platform_mix),
                     reason=reason,
                 )
             )
@@ -597,7 +876,9 @@ def compute_trailer_patterns(
         posts_with_baseline=len(usable),
         channels_covered=len(baseline_by_channel),
         analysis_coverage=coverage,
+        format_class=format_class,
         baseline_breakout_rate=baseline_breakout_rate,
+        platform_breakout_rates=platform_breakout_rates,
         dimensions=dimensions,
         notes=notes,
     )
