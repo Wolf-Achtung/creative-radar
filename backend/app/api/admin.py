@@ -310,6 +310,22 @@ def trailer_patterns(
     mit und erscheint deshalb als ``neutral``, waehrend sich das Signal im
     ``under`` der uebrigen Werte zeigt. Details im Modul-Docstring von
     ``app/services/trailer_patterns.py``.
+
+    **Zwei Kennzahlen pro Zelle, die verschiedene Fragen beantworten:**
+
+    - ``median_lift`` / ``verdict`` — laeuft der typische Post besser?
+      Bei Korpusgroesse regrediert jeder Teilmengen-Median Richtung 1,0,
+      dieses Verdikt spricht deshalb selten an.
+    - ``breakout_rate`` / ``breakout_verdict`` — produziert das Merkmal
+      mehr Ausreisser? Anteil Posts mit Lift >= 2,0 gegen
+      ``baseline_breakout_rate`` (Korpusquote), bewertet per z-Test, der
+      die Stichprobengroesse beruecksichtigt. In der ersten echten
+      Auswertung war das die einzige der beiden Kennzahlen mit Signal.
+
+    Beide koennen gegenlaeufig sein — ein Merkmal mit schwachem Median
+    und hoher Trefferquote ist meist Blindgaenger, aber ueberdurch-
+    schnittlich oft Volltreffer. Das ist die eigentliche Information,
+    kein Widerspruch. Sortiert wird nach ``breakout_z`` absteigend.
     """
     from app.services.trailer_patterns import compute_trailer_patterns
 

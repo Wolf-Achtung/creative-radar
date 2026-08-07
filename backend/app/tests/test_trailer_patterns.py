@@ -453,3 +453,141 @@ def test_endpoint_passes_market_filter(client, session: Session):
     body = client.get("/api/admin/trailer-patterns?market=DE").json()
     assert body["market"] == "DE"
     assert body["posts_in_window"] == 5
+
+
+# ---------- Trefferquote als zweite Kennzahl ----------------------------
+
+
+def test_breakout_rate_finds_what_median_hides(session: Session):
+    """Der eigentliche Grund fuer die zweite Kennzahl.
+
+    Nachbau des behind_the_scenes-Falls aus der echten Auswertung: ein
+    Merkmal, dessen typischer Post UNTERdurchschnittlich laeuft, das aber
+    ueberdurchschnittlich oft einen Volltreffer produziert. Der Median
+    allein wuerde es als schwach abtun.
+    """
+    for _ in range(4):
+        ch = _channel(session)
+        # Grundrauschen: 10 Posts auf Kanal-Niveau.
+        for _ in range(10):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("clip"))
+        # Das Risiko-Format: 6 schwache Posts, 4 echte Ausreisser.
+        for _ in range(6):
+            _post(session, ch, views=1000, likes=50, analysis=_analysis("behind_the_scenes"))
+        for _ in range(4):
+            _post(session, ch, views=1000, likes=400, analysis=_analysis("behind_the_scenes"))
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    bts = _cell(report, "format", "behind_the_scenes")
+    clip = _cell(report, "format", "clip")
+
+    # Der typische BTS-Post liegt unter dem Kanalschnitt ...
+    assert bts.median_lift < 1.0
+    # ... und trotzdem produziert das Format mehr Treffer als der Korpus.
+    assert bts.breakout_rate > report.baseline_breakout_rate
+    assert bts.breakout_verdict == "over"
+    # Genau diese Kombination haette der Median-Verdict verschwiegen.
+    assert bts.verdict != "over"
+
+    # Gegenprobe: das unauffaellige Format bleibt unauffaellig.
+    assert clip.breakout_verdict in ("neutral", "under")
+
+
+def test_breakout_z_scales_with_sample_size(session: Session):
+    """Kernbegruendung fuer den z-Test statt eines festen Faktors:
+    dieselbe Abweichung muss bei grosser Stichprobe belastbarer sein
+    als bei kleiner."""
+    baseline_rate = 0.2
+    # Gleiche Abweichung (30 % statt 20 %), einmal bei n=30, einmal bei n=1000.
+    z_small = tp._breakout_z(0.30, baseline_rate, 30)
+    z_large = tp._breakout_z(0.30, baseline_rate, 1000)
+
+    assert z_small is not None and z_large is not None
+    assert z_large > z_small
+    # Bei n=30 reicht es nicht fuer ein Verdikt, bei n=1000 schon.
+    assert tp._breakout_verdict_for(z_small) == "neutral"
+    assert tp._breakout_verdict_for(z_large) == "over"
+
+
+def test_breakout_z_is_none_without_usable_baseline(session: Session):
+    assert tp._breakout_z(0.5, 0.0, 100) is None
+    assert tp._breakout_z(0.5, 1.0, 100) is None
+    assert tp._breakout_z(0.5, 0.2, 0) is None
+    assert tp._breakout_verdict_for(None) == "insufficient"
+
+
+def test_thin_cells_get_no_breakout_verdict(session: Session):
+    """Zellen unter der Mindest-Stichprobe bekommen auch beim
+    Trefferquoten-Pfad kein Verdikt — sonst waere die Ehrlichkeits-Regel
+    ueber die Hintertuer ausgehebelt."""
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(6):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("clip"))
+    # Zwei Teaser, beide Volltreffer -> 100 % Trefferquote, aber n=2.
+    _post(session, channels[0], views=1000, likes=900, analysis=_analysis("teaser"))
+    _post(session, channels[1], views=1000, likes=900, analysis=_analysis("teaser"))
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    teaser = _cell(report, "format", "teaser")
+
+    assert teaser.breakout_rate == 1.0        # Rohwert wird trotzdem gemeldet
+    assert teaser.breakout_verdict == "insufficient"
+    assert teaser.breakout_z is None
+
+
+def test_baseline_breakout_rate_is_reported(session: Session):
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        # 8 normale + 2 Ausreisser pro Kanal -> 20 % Basisquote.
+        for _ in range(8):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("clip"))
+        for _ in range(2):
+            _post(session, ch, views=1000, likes=300, analysis=_analysis("clip"))
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    assert report.baseline_breakout_rate == pytest.approx(0.2)
+    assert report.to_dict()["baseline_breakout_rate"] == pytest.approx(0.2)
+
+
+def test_p90_lift_shows_the_ceiling(session: Session):
+    """Der Median verschweigt, wie hoch die guten Faelle reichen."""
+    channels = [_channel(session) for _ in range(3)]
+    for ch in channels:
+        for _ in range(9):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("clip"))
+        _post(session, ch, views=1000, likes=500, analysis=_analysis("clip"))
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    clip = _cell(report, "format", "clip")
+
+    assert clip.median_lift == pytest.approx(1.0)
+    assert clip.p90_lift > clip.median_lift
+
+
+def test_cells_sort_by_breakout_z_not_median(session: Session):
+    """Sortierung nach Auffaelligkeit der Trefferquote, weil der Median
+    bei Korpusgroesse gegen 1,0 regrediert."""
+    for _ in range(4):
+        ch = _channel(session)
+        for _ in range(10):
+            _post(session, ch, views=1000, likes=100, analysis=_analysis("clip"))
+        for _ in range(6):
+            _post(session, ch, views=1000, likes=50, analysis=_analysis("behind_the_scenes"))
+        for _ in range(4):
+            _post(session, ch, views=1000, likes=400, analysis=_analysis("behind_the_scenes"))
+
+    report = tp.compute_trailer_patterns(session, now=NOW)
+    solid = [c for c in report.dimensions["format"] if c.verdict != "insufficient"]
+
+    # BTS hat den niedrigeren Median, steht aber wegen der Trefferquote vorn.
+    assert solid[0].value == "behind_the_scenes"
+    assert solid[0].median_lift < solid[1].median_lift
+
+
+def test_percentile_helper_edge_cases():
+    assert tp._percentile([], 0.9) == 0.0
+    assert tp._percentile([2.0], 0.9) == 2.0
+    assert tp._percentile([1.0, 2.0], 0.5) == pytest.approx(1.5)
+    assert tp._percentile([1.0, 2.0, 3.0, 4.0], 0.0) == 1.0
+    assert tp._percentile([1.0, 2.0, 3.0, 4.0], 1.0) == 4.0
