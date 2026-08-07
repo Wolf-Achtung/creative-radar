@@ -35,11 +35,19 @@ Daten prüfen:
 | 4 | **Markt** — ein DE/US/UK-Effekt | Markt-Schichtung |
 | 5 | **Handwerk** — Langform hat Raum für Aufbau, Wendepunkt, Auflösung | **nur mit Video (Stufe 5)** |
 
-Das Modul rechnet den Langform-Vorsprung **innerhalb** jeder Schicht neu. Verschwindet
-er dort, erklärt diese Schicht ihn. Überlebt er überall, bleibt Erklärung 5 — und dann
-ist belegt, dass die Antwort in der Ausführung steckt und nicht in Metadaten.
+Das Modul rechnet den Langform-Vorsprung **innerhalb** jeder Schicht neu. Je Dimension
+gibt es drei mögliche Ausgänge:
 
-Kennzahl der Ausgabe: **`survives_in` von `tested_strata`**.
+| Ausgang | Bedeutung |
+|---|---|
+| `explained_by` | Keine belastbare Schicht zeigt den Vorsprung — die Dimension erklärt ihn vollständig. |
+| `localized_in` | Ein Teil der Schichten zeigt ihn, ein anderer nicht — die Dimension erklärt ihn *nicht weg*, sondern sagt, **wo der Hebel greift**. |
+| keins von beidem | Der Vorsprung hält in jeder Schicht. Dann bleibt Erklärung 5. |
+
+Die Dreiteilung stammt aus dem ersten Produktionslauf (Abschnitt 10), der die
+ursprünglich binäre Fassung als zu grob entlarvt hat. `survives_in` von
+`tested_strata` bleibt als Grobmaß erhalten, ist aber die schwächere Zahl — was zählt,
+ist die Schicht-Tabelle.
 
 ## 3. Warum ein anderer Test als in Stufe 1
 
@@ -175,6 +183,7 @@ Joins über `asset` und `title` — dafür ist der Endpunkt der bequemere Weg.
 | `explained_by` enthält `platform` | Der Vorsprung ist ein Plattform-Effekt | Langform je Plattform getrennt betrachten, Befund aus Stufe 1 relativieren |
 | `explained_by` enthält `title_match` oder `channel_habit` | Auswahl-Effekt: Länge ist Marker für Investition | Die Frage verschiebt sich auf „was macht ein hochinvestiertes Asset aus" |
 | `explained_by` enthält `days_to_release` | Release-Fenster-Effekt | Langform-Empfehlung an das Zeitfenster koppeln, nicht an die Länge |
+| `localized_in` enthält eine Dimension | Der Vorsprung ist echt, aber nur in einem Teil der Schichten | Empfehlung an die Schicht koppeln, nicht pauschal aussprechen |
 | `explained_by` ist leer, `survives_in == tested_strata` | Keine Metadaten-Erklärung trägt | **Stufe 5 ist gerechtfertigt** — die Antwort steckt in der Ausführung |
 
 Der letzte Fall ist der wahrscheinlichste, gemessen an dem, was Stufe 1 gezeigt hat.
@@ -192,3 +201,82 @@ können — statt einer Vermutung, die sie bestätigen sollen.
 Umgekehrt: erklärt eine Schicht den Vorsprung, gehört das den Befragten mitgeteilt,
 bevor sie über Handwerk sprechen. Sonst diskutieren alle über eine Wirkung, die es so
 nicht gibt.
+
+## 10. Erster Produktionslauf (07.08.2026) — der Hebel greift, aber nicht überall
+
+Die Query aus Abschnitt 7 ist auf der Produktions-Postgres gelaufen.
+
+| Schicht | Langform | | Kurzform | | Differenz | z |
+|---|---:|---:|---:|---:|---:|---:|
+| | Posts | Treffer | Posts | Treffer | | |
+| **GESAMT** | 869 | 16,9 % | 3.980 | 12,3 % | +4,6 pp | **+3,62** |
+| **YouTube** | 288 | 19,4 % | 545 | 11,7 % | +7,7 pp | **+3,01** |
+| Instagram | 388 | 18,6 % | 1.697 | 14,8 % | +3,7 pp | +1,82 |
+| TikTok | 193 | 9,8 % | 1.738 | 10,1 % | −0,2 pp | −0,10 |
+
+### 10.1 Die Plattform erklärt den Vorsprung nicht weg — sie lokalisiert ihn
+
+Das ist der entscheidende Unterschied zum Confound aus Stufe 1. Damals verschwand der
+Dauer-Effekt beim Schichten (TikTok z = −0,6, obwohl korpusweit z = +8,7). Hier bleibt
+er auf YouTube mit z = 3,01 klar bestehen.
+
+**Wichtig für das Verständnis:** verglichen wird *innerhalb* der Plattform,
+YouTube-Langform gegen YouTube-Kurzform. Der Befund heißt also **nicht** „YouTube läuft
+besser", sondern „auf YouTube schlägt lang kurz". Das ist eine Aussage über das Format,
+nicht über den Kanal.
+
+### 10.2 Drei Plattformen, drei Antworten
+
+**YouTube: der Hebel greift.** 19,4 % gegen 11,7 %, +7,7 Prozentpunkte. Langform hat
+dort fast die anderthalbfache Ausreißer-Chance von Kurzform. Plausibel, weil YouTube
+Langform nativ bedient: Player ohne Längenlimit, Zuschauer kommen mit Absicht (Suche,
+Abo) statt im Vorbeiscrollen.
+
+**TikTok: der Hebel greift gar nicht.** 9,8 % gegen 10,1 %, z = −0,10. Nicht schwach —
+*null*. Über 193 Langform- und 1.738 Kurzform-Posts. Ein langes Stück auf TikTok
+zu posten bringt messbar nichts.
+
+**Instagram: dazwischen, unentschieden.** +3,7 Prozentpunkte, aber z = 1,82 und damit
+unter der Schwelle. Die Richtung stimmt, die Belastbarkeit fehlt. Bei 388 Langform-Posts
+ist das keine Frage der Stichprobengröße allein — Instagram liegt vermutlich wirklich
+dazwischen, was zur Zwitterstellung des Formats passt (Reels sind auf Kürze gebaut, aber
+längere Beiträge sind möglich).
+
+### 10.3 Was das für die Empfehlung heißt
+
+Aus einer Längen-Regel wird eine **Plattform-abhängige** Regel:
+
+| Plattform | Empfehlung |
+|---|---|
+| YouTube | Länge lohnt sich. Ab 90 Sekunden deutlich bessere Ausreißer-Chance. |
+| Instagram | Länge schadet nicht, hilft tendenziell — aber nicht belastbar. |
+| TikTok | Länge bringt nichts. Der Aufwand ist dort besser in die ersten Sekunden investiert. |
+
+Das ist eine schärfere und nützlichere Aussage als „lange Formate gewinnen".
+
+### 10.4 Konsequenz für den Code
+
+Die ursprüngliche Fassung kannte nur zwei Ausgänge je Dimension: „erklärt den Vorsprung"
+oder „erklärt ihn nicht". Dieser Lauf zeigt, dass das zu grob war — ein bloßer Zähler
+hätte „hält in 1 von 3 Schichten" gemeldet, was nach Schwäche klingt, während es
+tatsächlich ein eigener Befund ist.
+
+Deshalb gibt es jetzt drei Ausgänge: `explained_by` (keine Schicht zeigt ihn),
+**`localized_in`** (ein Teil zeigt ihn, ein Teil nicht) und universell (alle zeigen ihn).
+`survives_in` bleibt als Grobmaß erhalten, ist aber die schwächere Zahl — was zählt, ist
+die Schicht-Tabelle.
+
+### 10.5 Was noch offen ist
+
+Die übrigen vier Schichtungen — Markt, Titel-Match, Kanal-Gewohnheit, Release-Fenster —
+brauchen Joins über `asset` und `title` und laufen deshalb über den Endpunkt
+`GET /api/admin/langform`, nicht über die SQL aus Abschnitt 7.
+
+Besonders **Kanal-Gewohnheit** ist nach diesem Ergebnis interessant: wenn der
+YouTube-Vorsprung nur bei Kanälen besteht, die selten Langform produzieren, wäre es
+doch ein Auswahl-Effekt — die seltene lange Veröffentlichung wäre dann das teure Asset,
+nicht das lange. Besteht er auch bei Kanälen mit regelmäßigem Langform-Output, ist die
+Länge selbst der Hebel.
+
+Diese eine Frage entscheidet, ob Stufe 5 nach Handwerksmerkmalen suchen sollte oder nach
+Produktionsaufwand.

@@ -36,10 +36,32 @@ Verschwindet er in einer Schicht, erklaert diese Schicht ihn. Ueberlebt er
 ueberall, bleibt Erklaerung 5 uebrig — und dann ist bewiesen, dass die
 Antwort in der Ausfuehrung steckt und nicht in den Metadaten.
 
-Der Ergebniswert des Moduls ist deshalb ``survives_in`` von
-``tested_strata``: in wie vielen belastbaren Schichten der Vorsprung
-standhaelt. Das ist keine Erklaerung, sondern eine **Eingrenzung** — und
-genau das ist an dieser Stelle der ehrliche Beitrag.
+Je Dimension gibt es drei moegliche Ausgaenge:
+
+- **``explained_by``** — keine einzige belastbare Schicht zeigt den
+  Vorsprung. Die Dimension erklaert ihn, und zwar vollstaendig.
+- **``localized_in``** — ein Teil der Schichten zeigt ihn, ein anderer
+  nicht. Die Dimension erklaert ihn *nicht weg*, sondern sagt, **wo der
+  Hebel greift**.
+- keins von beidem — der Vorsprung haelt in jeder Schicht.
+
+Die Dreiteilung stammt aus dem Produktionslauf vom 07.08.2026, der die
+urspruenglich binaere Fassung als zu grob entlarvt hat:
+
+    GESAMT      16,9 % gegen 12,3 %   z = +3,62
+    youtube     19,4 % gegen 11,7 %   z = +3,01   traegt
+    instagram   18,6 % gegen 14,8 %   z = +1,82   tendenziell
+    tiktok       9,8 % gegen 10,1 %   z = -0,10   gar nicht
+
+Ein blosser Zaehler haette daraus "haelt in 1 von 3 Schichten" gemacht,
+was nach Schwaeche klingt. Tatsaechlich ist es ein eigener Befund: auf
+YouTube lohnt sich Laenge deutlich, auf TikTok ueberhaupt nicht. Wichtig
+dabei — verglichen wird **innerhalb** der Plattform, YouTube-Langform
+gegen YouTube-Kurzform. Der Befund heisst also nicht "YouTube laeuft
+besser", sondern "auf YouTube schlaegt lang kurz".
+
+``survives_in`` von ``tested_strata`` bleibt als Grobmass erhalten, ist
+aber die schwaechere Zahl. Was zaehlt, ist die Schicht-Tabelle.
 
 Warum Kurzform als Kontrollgruppe und nicht die Erwartung
 =========================================================
@@ -163,6 +185,7 @@ class LangformReport:
     tested_strata: int = 0
     survives_in: int = 0
     explained_by: list[str] = field(default_factory=list)
+    localized_in: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -183,6 +206,7 @@ class LangformReport:
             "tested_strata": self.tested_strata,
             "survives_in": self.survives_in,
             "explained_by": self.explained_by,
+            "localized_in": self.localized_in,
             "notes": self.notes,
         }
 
@@ -512,14 +536,25 @@ def compute_langform_report(
     ]
     report.tested_strata = len(testable)
     report.survives_in = sum(1 for c in testable if c.verdict == "advantage")
-    report.explained_by = sorted(
-        {
-            kind
-            for kind, rows in report.strata.items()
-            if any(c.verdict != "insufficient" for c in rows)
-            and all(c.verdict != "advantage" for c in rows if c.verdict != "insufficient")
-        }
-    )
+    # Drei Ausgaenge je Dimension, nicht zwei. Der Produktionslauf vom
+    # 07.08.2026 hat gezeigt, warum die binaere Fassung zu grob war:
+    # Langform gewinnt auf YouTube klar (z = 3,01), auf Instagram
+    # tendenziell (1,82) und auf TikTok gar nicht (-0,10). Die Plattform
+    # erklaert den Vorsprung also nicht weg — sie sagt, *wo* der Hebel
+    # greift. Das ist ein eigener Befund und keine Abwesenheit.
+    explained: list[str] = []
+    localized: list[str] = []
+    for kind, rows in report.strata.items():
+        solid = [c for c in rows if c.verdict != "insufficient"]
+        if not solid:
+            continue
+        with_adv = [c for c in solid if c.verdict == "advantage"]
+        if not with_adv:
+            explained.append(kind)
+        elif len(with_adv) < len(solid):
+            localized.append(kind)
+    report.explained_by = sorted(explained)
+    report.localized_in = sorted(localized)
 
     if report.tested_strata == 0:
         notes.append(
@@ -531,6 +566,13 @@ def compute_langform_report(
             "Der Vorsprung verschwindet vollstaendig innerhalb von: "
             + ", ".join(report.explained_by)
             + ". Diese Erklaerung(en) kommen vor dem Handwerk."
+        )
+    elif report.localized_in:
+        notes.append(
+            "Der Vorsprung besteht, aber nicht ueberall: innerhalb von "
+            + ", ".join(report.localized_in)
+            + " traegt er nur in einem Teil der Schichten. Das erklaert ihn "
+            "nicht weg — es sagt, wo der Hebel greift und wo nicht."
         )
     elif report.survives_in == report.tested_strata:
         notes.append(
