@@ -1,170 +1,199 @@
 # Fragebogen Trailerhaus-Team — Trailer-Intelligence Stufe 1
 
+**Fassung 2.0** (aktuell). Ersetzt die erste Fassung nach Wolfs Feedback — siehe
+[Recherche](./TRAILERHAUS_FRAGEBOGEN_V2_RESEARCH.md) für die Begründung jeder
+Änderung. Die erste Fassung ist in der Git-Historie erhalten, aber nicht mehr in
+Gebrauch.
+
 Ausfüllbare Fassung (im Browser, mit Kopier-Funktion für die Antworten):
 **https://claude.ai/code/artifact/2ee0587d-83f3-474a-83df-5946677192d0**
 
 Dieses Dokument hält die Fragen versioniert fest und dient als Druckvorlage. Die
 ausfüllbare Fassung ist maßgeblich; wer hier etwas ändert, muss sie nachziehen.
 
+## Was sich gegenüber v1 geändert hat
+
+| | v1 | v2 |
+|---|---|---|
+| Grundform | Vorgegebene Kategorien ankreuzen | Ein Freitextfeld pro Frage, an einem konkreten Projekt entlang |
+| Anteil Freitext | ~25 % | ~90 % (nur Skala und Priorisierung bleiben strukturiert) |
+| Ansprache | direkt („eure Arbeit", „ihr steigt ein") | neutral, ohne ihr/euch/wir/uns |
+| Format-Frage | Matrix: „Passt unsere Liste?" | Offen: „Welche Bezeichnungen werden intern verwendet?" |
+| Genre/Länge | nicht erfasst | Jede Detailfrage hängt an einem selbst gewählten Projekt (Genre, Längen, Phase) |
+| Dauer | ~12 Minuten | ~15–20 Minuten |
+
+Der Tausch ist bewusst: Freitext ist aufwendiger auszuwerten, liefert bei einer
+Handvoll Experten aber ehrlichere, kontextreichere Antworten als Ankreuzfelder.
+
 ## Zweck
 
-Zwei Dinge sollen geklärt werden, bevor aus der Auswertung Empfehlungen werden:
+Unverändert gegenüber v1, drei Dinge:
 
-1. **Hält unsere Taxonomie der Praxis stand?** Format- und Ton-Kategorien wurden am
-   Schreibtisch festgelegt (Sprint 5.3.1) und nie mit dem Team abgeglichen.
-2. **Lohnt der Hook-Ausbau?** Die Auswertung
-   ([Ergebnisse](./TRAILER_INTELLIGENCE_STAGE1_ERGEBNISSE.md), Abschnitt 4g) legt nahe,
-   dass die entscheidende Varianz in der Ausführung liegt — messen können wir die
-   heute nicht. Ob wir dafür Geld ausgeben, sollte das Team mitentscheiden.
-
-Dazu kommt ein dritter, methodischer Zweck: Teil 4 legt fünf Befunde offen und fragt
-nach Widerspruch. Wenn erfahrene Cutter unsere Zahlen für falsch halten, ist das ein
-Hinweis auf einen Fehler in der Auswertung — billiger zu erfahren als über eine
-Fehlentscheidung.
+1. **Wie wird intern über Formate und Machart gesprochen?** — nicht mehr als
+   Abgleich gegen eine vorgegebene Liste, sondern als offene Erhebung.
+2. **Lohnt der Hook-/Video-Ausbau?** Die Auswertung
+   ([Ergebnisse](./TRAILER_INTELLIGENCE_STAGE1_ERGEBNISSE.md), Abschnitt 4g) legt
+   nahe, dass die entscheidende Varianz in der Ausführung liegt — messen lässt
+   sich das heute nicht. Bereits entschieden: Hook-Typ, Schnittfrequenz/Tempo und
+   Musik werden künftig per Video-Erfassung erhoben, nicht nur per Standbild.
+3. **Fünf Befunde gegen die Praxis prüfen.** Wirkt ein Befund falsch, ist das ein
+   Hinweis auf einen Fehler in der Auswertung — billiger zu erfahren als über eine
+   Fehlentscheidung.
 
 ## Aufbau
 
 | Teil | Inhalt | Fragen |
 |---|---|---|
-| — | Wer antwortet | 1 (optional) |
-| 1 | Format-Kategorien validieren | 3 |
-| 2 | Tonalität | 2 |
-| 3 | Die ersten drei Sekunden (Hook) | 4 |
-| 4 | Fünf Befunde gegen die Praxis prüfen | 5 |
-| 5 | Priorisierung des Ausbaus | 2 |
+| Ausgangspunkt | Ein Projekt festlegen (Genre, Fassungen, Phase) | 3 |
+| 1 | Die ersten Sekunden | 4 |
+| 2 | Tempo und Schnitt | 2 |
+| 3 | Musik | 2 |
+| 4 | Über das Projekt hinaus (Länge, Genre, Begriffe) | 3 |
+| 5 | Fünf Befunde gegen die Praxis prüfen | 5 |
+| 6 | Priorisierung | 2 |
 
-12 Auswahlfragen, 4 optionale Freitextfelder, rund 12 Minuten.
+20 Kernfragen, davon 17 Freitext, 1 Skala, 1 Mehrfachauswahl (max. 2), 1 optionales
+Zusatzfeld pro Befund. Rund 15–20 Minuten.
 
 ## Gestaltungsentscheidungen
 
-- **„Kann ich nicht beurteilen" ist überall eine gültige Antwort.** Geratene Antworten
-  wären schlechter als Lücken.
-- **Teil 3 nennt die Einschränkung offen:** Wir sehen aktuell nur Vorschaubild und Text,
-  nicht das Video. Ohne diesen Hinweis würde das Team eine Taxonomie definieren, die
-  wir nicht befüllen können.
-- **Teil 4 zeigt Stichprobengrößen** neben jedem Befund, damit erkennbar ist, wie
-  belastbar er ist (1.577 Posts wiegen anders als 43).
-- **Freitext bleibt optional und knapp gehalten** — offene Felder sind die häufigste
-  Ursache für abgebrochene Fragebögen.
+- **Alle Detailfragen hängen an einem selbst gewählten Projekt** (Critical-Incident-
+  Technik) — löst das Genre-/Längen-Problem, ohne eine eigene Frage pro Kombination
+  zu brauchen. Verallgemeinerungen (Teil 4) sind ausdrücklich als solche markiert.
+- **Beispiele stehen unter dem Feld, nicht als Klickoptionen** — sie sollen
+  Starthilfe geben, ohne die Antwort zu verankern.
+- **„Kann ich nicht sagen" ist überall eine gültige Antwort;** Kürze ist explizit
+  erlaubt.
+- **Neutrale Formulierung** — keine direkte Ansprache.
+- **Teil 5 zeigt Stichprobengrößen** neben jedem Befund und hat jetzt zusätzlich
+  ein optionales Freitextfeld „Mögliche Erklärung?" — bei Widerspruch soll nicht
+  nur das Verdikt, sondern nach Möglichkeit auch der Grund erfasst werden.
 
 ---
 
 ## Die Fragen
 
-### Wer antwortet
+### Ausgangspunkt — ein Projekt vor Augen
 
-**00.** Wer antwortet hier? *(Freitext, optional — gern nur die Rolle)*
+**A1.** Um welches Projekt geht es — und welches Genre?
+*(Beispiel: „Working Title, Thriller" oder „ein Liebesfilm für Ende des Jahres")*
 
-### Teil 1 — Wie ihr Formate benennt
+**A2.** Welche Fassungen wurden dafür geschnitten?
+*(Beispiel: „90 Sekunden für YouTube, ein 30-Sekunden-Spot, drei vertikale
+15-Sekünder")*
 
-**01.** Passt diese Einteilung zu eurer Arbeit? *(eine Auswahl pro Zeile:
-„Nutzen wir genauso" / „Heißt bei uns anders" / „Zu grob" / „Brauchen wir nicht")*
+**A3.** Für welche Phase der Kampagne?
+*(Beispiel: „Teaser, lange vor Start" oder „Release-Woche")*
 
-| Kategorie | Erläuterung im Fragebogen |
-|---|---|
-| Trailer | Der vollständige Trailer |
-| Teaser | Kurzer Vorgeschmack, oft vor dem Trailer |
-| Clip | Einzelne Szene aus dem Film |
-| Behind the Scenes | Blick hinter die Kulissen, Making-of |
-| Interview | Cast oder Crew im Gespräch |
-| Short | Kurzformat, plattformnativ |
-| Compilation | Zusammenschnitt mehrerer Momente |
-| Promo | Werblicher Post, Ticket-Hinweis, Start-Erinnerung |
-| Sonstiges | Alles, was in keine Kategorie passt |
+### Teil 1 — Die ersten Sekunden
 
-**02.** Welche Format-Bezeichnung fehlt in dieser Liste? *(Freitext, optional)*
+> Hinweis im Fragebogen: Aktuell sichtbar ist nur ein Vorschaubild und der Text
+> darunter, nicht das Video. Genau das steht hier zur Debatte.
 
-**03.** Bei welcher Kategorie würdet ihr am ehesten streiten, was hineingehört?
-*(eine Auswahl aus den neun Kategorien)*
+**01.** Wie beginnt dieser Spot? Die ersten Sekunden in eigenen Worten.
+*(Freitext; Beispiel: mitten in einer Szene, ein Logo, ein Zitat, ein
+Musikeinsatz, eine Frage im Bild)*
 
-### Teil 2 — Tonalität
+**02.** Warum genau dieser Einstieg — was war die Überlegung dahinter? *(Freitext)*
 
-**04.** Welche dieser Begriffe benutzt ihr tatsächlich, wenn ihr über einen Schnitt
-sprecht? *(Mehrfachauswahl)*
+**03.** Woran zeigt sich hinterher, ob ein Einstieg funktioniert hat? *(Freitext)*
 
-energetisch · emotional · humorvoll · spannungsgeladen · informativ · inspirierend ·
-kantig · neutral
+**04.** Wie viel vom Erfolg eines Spots entscheidet sich in den ersten Sekunden?
+*(Skala 1–5, von „kaum etwas" bis „fast alles")*
 
-**05.** Welcher Ton fehlt? *(Freitext, optional)*
+### Teil 2 — Tempo und Schnitt
 
-### Teil 3 — Die ersten drei Sekunden
+**05.** Wie verändert sich das Tempo dieses Spots über die Laufzeit? *(Freitext;
+Beispiel: ruhiger Aufbau mit Beschleunigung zum Ende, oder durchgehend schnell)*
 
-> Hinweis im Fragebogen: Das können wir **heute noch nicht messen**. Unser System sieht
-> nur ein Standbild, nicht den Anfang des Videos. Die Antworten entscheiden mit, ob wir
-> das ausbauen.
+**06.** Wovon hängt die Schnittfrequenz am stärksten ab? *(Freitext; Genre,
+Ziellänge, Plattform, Musik — oder etwas anderes)*
 
-**06.** Wie stark entscheidet der Anfang über den Erfolg eines Posts?
-*(Skala 1–5, von „kaum relevant" bis „entscheidet fast alles")*
+### Teil 3 — Musik
 
-**07.** Womit steigt ihr typischerweise ein? *(Mehrfachauswahl)*
+**07.** Welche Rolle spielte die Musik in diesem Spot — Ausgangspunkt des Schnitts
+oder kam sie später dazu? *(Freitext)*
 
-- Kaltstart mitten in einer Szene
-- Studio- oder Franchise-Logo zuerst
-- Kritikerstimme oder Zitat
-- Dialogzeile oder Voice-over
-- Musikeinsatz, Beat-Drop
-- Textfrage oder Behauptung im Bild
-- Großaufnahme eines bekannten Gesichts
-- Action- oder Spektakelmoment
-- Andeutung ohne Auflösung
+**08.** Wird damit gerechnet, dass viele ohne Ton zuschauen? Was ändert das am
+Schnitt? *(Freitext)*
 
-**08.** Welche drei davon haltet ihr für die wirksamsten? *(höchstens drei — nicht was
-am häufigsten gemacht wird, sondern was am besten funktioniert)*
+### Teil 4 — Über das eine Projekt hinaus
 
-**09.** Welcher Einstieg fehlt in der Liste? *(Freitext, optional)*
+> Bewusste Verallgemeinerung — hier geht es ausdrücklich nicht mehr nur um das
+> Projekt von oben.
 
-### Teil 4 — Unsere Befunde gegen eure Erfahrung
+**09.** Gleicher Film, zwei Fassungen: 15 Sekunden vertikal und 90 Sekunden für
+YouTube — was unterscheidet sich grundsätzlich im Vorgehen? *(Freitext)*
 
-Je Befund eine Auswahl: „Deckt sich mit meiner Erfahrung" / „Überrascht mich, klingt
-aber plausibel" / „Halte ich für falsch" / „Kann ich nicht beurteilen".
+**10.** Woran lässt sich im Schnitt erkennen, dass es ein Thriller ist — oder eine
+Romance, eine Animation? *(Freitext)*
 
-**10.** Videos über 60 Sekunden erzeugen deutlich häufiger Ausreißer-Erfolge als kürzere.
+**11.** Welche Bezeichnungen werden intern für die verschiedenen Spot-Arten
+verwendet? *(Freitext; Beispiel: Trailer, Teaser, Cutdown, Bumper, Social-Schnitt —
+die intern gebräuchlichen Begriffe, unabhängig von dieser Liste)*
+
+### Teil 5 — Fünf Befunde aus der Auswertung
+
+Je Befund eine Auswahl: „Deckt sich mit der Erfahrung" / „Überraschend, aber
+plausibel" / „Wirkt falsch" / „Kann ich nicht beurteilen" — plus optionales
+Freitextfeld „Mögliche Erklärung?".
+
+**12.** Videos über 60 Sekunden erzeugen deutlich häufiger Ausreißer-Erfolge als
+kürzere.
 *1.577 Posts · 151 Kanäle · 28,7 % Trefferquote gegen 20 % Durchschnitt*
 
-**11.** Behind-the-Scenes läuft meistens unterdurchschnittlich — bringt aber
+**13.** Behind-the-Scenes läuft meistens unterdurchschnittlich — bringt aber
 überdurchschnittlich oft einen echten Volltreffer.
-*43 Posts · 26 Kanäle · typischer Post 14 % unter Kanalschnitt, aber 27,9 % Trefferquote*
+*43 Posts · 26 Kanäle · typischer Post 14 % unter Kanalschnitt, aber 27,9 %
+Trefferquote*
 
-**12.** Humorvolle Posts erzeugen am seltensten Ausreißer.
+**14.** Humorvolle Posts erzeugen am seltensten Ausreißer.
 *161 Posts · 51 Kanäle · 11,2 % Trefferquote, knapp die Hälfte des Durchschnitts*
 
-**13.** Trailer und Teaser liegen genau im Durchschnitt — sie schlagen andere Formate nicht.
+**15.** Trailer und Teaser liegen genau im Durchschnitt — sie schlagen andere
+Formate nicht.
 *51 bzw. 37 Posts · 19,6 % und 18,9 % Trefferquote gegen 20 % Durchschnitt*
 
-**14.** Auf TikTok macht es keinen Unterschied, ob Original-Sound oder ein lizensierter
-Track läuft.
+**16.** Auf TikTok macht es keinen Unterschied, ob Original-Sound oder ein
+lizensierter Track läuft.
 *2.103 gegen 232 Posts · Unterschied im Median unter 5 %*
 
-### Teil 5 — Was wäre euch am meisten wert?
+### Teil 6 — Priorisierung
 
-**15.** Wenn wir eine Sache ausbauen könnten — welche zwei würdet ihr wählen?
-*(höchstens zwei)*
+**17.** Wenn eine Sache ausgebaut werden könnte — welche zwei wären am
+wertvollsten? *(höchstens zwei)*
 
-- Analyse der ersten Sekunden (Hook-Typ, Einstieg)
+- Analyse der ersten Sekunden (Hook-Typ, Einstieg) als Video statt Standbild
 - Schnittfrequenz und Tempo messen
+- Musikeinsatz genauer erfassen
 - Sehen, was der Wettbewerb gerade macht
 - Empfehlung für den besten Veröffentlichungszeitpunkt
 - Auswertung je Titel oder Franchise statt über alles
 
-**16.** Was fehlt euch heute in eurer Arbeit, das Daten liefern könnten?
-*(Freitext, optional)*
+**18.** Was fehlt in der täglichen Arbeit, das Daten liefern könnten? *(Freitext,
+optional)*
 
 ---
 
 ## Auswertung
 
-Der Fragebogen erzeugt am Ende einen Textblock, den die Befragten kopieren und per Mail
-zurückschicken. Bewusst kein Server, keine Datenbank, keine Anmeldung — das hätte
-Aufwand und Datenschutzfragen erzeugt, die bei einer einmaligen Befragung von wenigen
-Personen in keinem Verhältnis stehen.
+Der Fragebogen erzeugt am Ende einen Textblock zum Kopieren, der per Mail
+zurückgeschickt wird. Bewusst kein Server, keine Datenbank, keine Anmeldung.
 
 Worauf beim Auswerten zu achten ist:
 
-- **Teil 1/2:** Häuft sich „Heißt bei uns anders" oder „Zu grob", muss die Taxonomie vor
-  Stufe 2 überarbeitet werden — dann sind auch die bisherigen Klassifikationen betroffen.
-- **Teil 3:** Ein hoher Wert bei Frage 06 zusammen mit „Hook-Analyse" in Frage 15 ist das
-  Signal, den Video-Erfassungsschritt zu bauen. Ein niedriger Wert spart Geld.
-- **Teil 4:** Jedes „Halte ich für falsch" ist ein Prüfauftrag an die Auswertung, kein
-  Widerspruch zum Team. Besonders bei Befund 10 (Dauer) — dort steht der
+- **Teil 1–4:** Anders als bei v1 keine direkte Kategorienzuordnung — die
+  Antworten müssen zunächst gruppiert werden (z. B. wiederkehrende Hook-Typen aus
+  den Freitextantworten clustern), bevor sich Muster erkennen lassen. Das ist der
+  Preis des Freitext-Ansatzes.
+- **Teil 4, Frage 11** liefert die faktische Terminologie fürs Mapping auf die
+  bestehende Taxonomie — Grundlage für eine mögliche Überarbeitung der Format-
+  Kategorien in `app/prompts/analyze_format_tone.py` und
+  `app/services/trailer_patterns.py`.
+- **Frage 04** (Hook-Gewicht) zusammen mit der Häufigkeit von „Analyse der ersten
+  Sekunden" in Frage 17 ist das Signal, ob sich der Video-Erfassungsschritt lohnt.
+- **Teil 5:** Jedes „Wirkt falsch" ist ein Prüfauftrag an die Auswertung, kein
+  Widerspruch zum Team — das optionale Erklärungsfeld hilft, den Prüfauftrag
+  konkret zu machen. Besonders bei Befund 12 (Dauer) — dort steht der
   Plattform-Confound ohnehin noch offen
   ([Ergebnisse](./TRAILER_INTELLIGENCE_STAGE1_ERGEBNISSE.md), Abschnitt 5).
