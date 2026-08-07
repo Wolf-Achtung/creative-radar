@@ -280,3 +280,75 @@ Länge selbst der Hebel.
 
 Diese eine Frage entscheidet, ob Stufe 5 nach Handwerksmerkmalen suchen sollte oder nach
 Produktionsaufwand.
+
+## 11. Die restlichen vier Schichten (07.08.2026) — kein Auswahl-Effekt
+
+Alle elf Schichten in einem Lauf. Die entscheidende Frage war: trägt der Vorsprung nur
+bei Kanälen, die *selten* Langform veröffentlichen? Dann wäre nicht die Länge wirksam,
+sondern das seltene teure Asset, das zufällig lang ist.
+
+| Dimension | Schicht | Langform | Kurzform | Differenz | z | Urteil |
+|---|---|---:|---:|---:|---:|---|
+| Plattform | YouTube | 288 / 19,4 % | 545 / 11,7 % | +7,7 pp | **+3,01** | trägt |
+| Plattform | Instagram | 388 / 18,6 % | 1.697 / 14,8 % | +3,8 pp | +1,82 | — |
+| Plattform | TikTok | 193 / 9,8 % | 1.738 / 10,1 % | −0,3 pp | −0,10 | — |
+| Markt | US | 369 / 17,9 % | 1.685 / 9,9 % | +8,0 pp | **+4,42** | trägt |
+| Markt | UK | 247 / 15,8 % | 1.168 / 12,7 % | +3,1 pp | +1,31 | — |
+| Markt | DE | 233 / 16,7 % | 1.074 / 15,8 % | +0,9 pp | +0,34 | — |
+| Markt | INT | 20 / 15,0 % | 53 / 13,2 % | +1,8 pp | — | zu dünn |
+| **Kanal-Gewohnheit** | **regelmäßig** | 503 / 17,9 % | 729 / 13,6 % | +4,3 pp | **+2,06** | **trägt** |
+| **Kanal-Gewohnheit** | gelegentlich | 366 / 15,6 % | 3.251 / 12,1 % | +3,5 pp | +1,93 | — |
+| Titel-Match | gematcht | 581 / 17,0 % | 2.757 / 12,2 % | +4,8 pp | **+3,13** | trägt |
+| Titel-Match | ohne Titel | 288 / 16,7 % | 1.223 / 12,6 % | +4,1 pp | +1,83 | — |
+
+### 11.1 Der Auswahl-Effekt ist widerlegt
+
+Die Auswahl-Hypothese sagt voraus: der Vorsprung sitzt bei **gelegentlich**, weil dort
+die seltene lange Veröffentlichung das teure Asset ist, und verschwindet bei
+**regelmäßig**, wo Langform Routine ist.
+
+Gemessen ist es umgekehrt herum — regelmäßig trägt (z = 2,06), gelegentlich liegt knapp
+darunter (1,93). Aber der ehrlichere Schluss ist noch einfacher: **die beiden
+unterscheiden sich gar nicht.**
+
+```
+regelmaessig  +4,3 pp,  95 %-Band  +0,2 … +8,4
+gelegentlich  +3,5 pp,  95 %-Band  −0,1 … +7,1
+```
+
+Die Bänder überlappen fast vollständig. Der Unterschied in `z` kommt nicht von
+verschiedenen Effekten, sondern von der Stichprobe (503 gegen 366 Langform-Posts). Es
+ist derselbe Effekt in beiden Armen.
+
+**Damit ist die Länge selbst der Hebel, nicht die Investition dahinter.** Für Stufe 5
+heißt das: nach Handwerksmerkmalen suchen — Hook, Schnittfrequenz, Aufbau — und nicht
+nach Produktionsaufwand.
+
+Dasselbe Muster bei `titel_match`: +4,8 gegen +4,1 Prozentpunkte, der Schwellenunterschied
+ist reine Stichprobengröße (581 gegen 288). Auch ein erkannter Kinostart erklärt den
+Vorsprung nicht.
+
+### 11.2 Der Markt-Effekt ist vermutlich der Plattform-Effekt im Spiegel
+
+US +8,0 pp (z = 4,42), DE +0,9 pp (z = 0,34) sieht nach einem starken Markt-Effekt aus.
+Vorsicht: Markt und Plattform sind nicht unabhängig. Wenn US-Kanäle YouTube-lastiger
+sind und DE-Kanäle Instagram-/TikTok-lastiger, erbt die Markt-Schichtung schlicht die
+Plattform-Schichtung.
+
+Sauber trennen ließe sich das nur mit einer Plattform-×-Markt-Kreuzung, und dort werden
+die Zellen dünn (DE-YouTube-Langform dürfte deutlich unter 100 Posts liegen). Bis das
+geprüft ist, gilt: **der Markt-Befund ist nicht eigenständig zu lesen.**
+
+### 11.3 Bilanz
+
+`explained_by` ist leer — keine der vier prüfbaren Erklärungen wird den Vorsprung los.
+
+`localized_in` enthält Plattform (und Markt als deren Schatten): der Hebel greift auf
+YouTube, nicht auf TikTok.
+
+Nicht lokalisiert, sondern gleichmäßig vorhanden: Kanal-Gewohnheit und Titel-Match.
+Genau die beiden, die einen Auswahl-Effekt angezeigt hätten.
+
+**Stufe 5 ist damit gerechtfertigt, und ihr Suchraum steht fest:** was unterscheidet
+ein YouTube-Langformat ab 90 Sekunden handwerklich von einem Cutdown unter 60 — bei
+gleichem Kanal, gleichem Titel und gleicher Produktionsroutine?
