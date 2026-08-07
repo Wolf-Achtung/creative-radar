@@ -1062,3 +1062,89 @@ ORDER BY z DESC NULLS LAST;
    liegen. Tun sie es doch, steckt ein zweiter Confound derselben Bauart drin.
 2. Die Plattform-Quoten sollten bei rund 15,9 % (YouTube), 15,1 % (Instagram) und
    10,1 % (TikTok) landen — die bereinigten Werte aus Abschnitt 13.5.
+
+## 16. Neu-Erhebung nach allen drei Korrekturen (07.08.2026, 15:22)
+
+Die Query aus Abschnitt 15 ist gelaufen. 28 Zellen, sortiert nach `z`. Screenshots
+unter `docs/screenshots/`.
+
+### 16.1 Die Korrektur hat gegriffen — beide Kontrollen bestanden
+
+**Kontrolle 1: die Dauer-Buckets streuen wieder in beide Richtungen.**
+
+| Bucket | vorher (Abschnitt 13.2) | | nachher | |
+|---|---:|---:|---:|---:|
+| | Treffer | z | Treffer | z |
+| >60s | 28,3 % | **+8,74** | 15,2 % | ~+2 |
+| <15s | 23,7 % | **+4,20** | 14,0 % | +0,96 |
+| 15–30s | 22,5 % | **+3,98** | 12,3 % | −0,80 |
+| 30–60s | 21,3 % | **+3,06** | 11,7 % | −1,75 |
+
+Vorher vier gleichgerichtete Ausschläge, jetzt zwei über und zwei unter der Erwartung.
+Das systematische Artefakt ist weg.
+
+**Kontrolle 2: der Median-Lift ist zusammengefallen.** `>60s` hatte 1,24, jetzt 1,01.
+Über alle 28 Zellen liegt der Median-Lift zwischen 0,96 und 1,32 — die Aufblähung durch
+die gedrückten Kanal-Mediane ist verschwunden.
+
+**Unerwarteter Nebeneffekt: die Auswertung deckt jetzt mehr Bestand ab.** `>60s` ging
+von 152 auf **179 Kanäle**, `15–30s` von 146 auf 168. Grund: Kanäle, deren
+Median-Aktivierung wegen der Posts ohne Views bei 0,0 lag, fielen vorher komplett durch
+den `med > 0`-Filter. Mit dem Ausschluss haben sie einen positiven Median und zählen
+wieder mit. Die Korrektur hat also nicht nur verzerrt gemessene Posts entfernt, sondern
+zu Unrecht ausgeschlossene zurückgeholt.
+
+### 16.2 Der einzige Befund, der übrig bleibt: die Formatklasse
+
+| Klasse | Posts | Kanäle | Median-Lift | Treffer | erwartet |
+|---|---:|---:|---:|---:|---:|
+| `3_langform` (≥ 90 s) | 869 | 176 | 1,06 | **16,9 %** | ~13 % |
+| `2_uebergang` (60–89 s) | 758 | 153 | 0,99 | 13,3 % | ~13 % |
+| `1_kurzform` (< 60 s) | 3.980 | 180 | 1,00 | 12,3 % | 13,0 % |
+
+Ein sauberer monotoner Verlauf über 5.607 Posts und 180 Kanäle — und die einzige
+Struktur-Aussage, die alle drei Korrekturrunden überlebt hat.
+
+**Die Grauzone hat sich empirisch bestätigt.** Sie war eine Konstruktionsentscheidung
+mit dem Argument „ein 75-Sekunden-Stück kann ein kurzer Trailer oder ein langer Spot
+sein". Die Daten sagen jetzt: der 60–89-Sekunden-Bereich liegt mit 13,3 % gegen ~13 %
+Erwartung **exakt auf dem Durchschnitt** — er verhält sich weder wie Langform noch wie
+Kurzform.
+
+Das erklärt auch, warum `3_langform` mit 16,9 % **besser abschneidet als der rohe
+`>60s`-Bucket mit 15,2 %**, obwohl `>60s` die Langformate enthält: die 758 Posts der
+Grauzone verwässern ihn. Wäre die Grauzone der Langform zugeschlagen worden, wäre der
+Befund auf den `>60s`-Wert zusammengeschrumpft.
+
+### 16.3 Was sonst noch übrig bleibt: fast nichts
+
+Nur drei der 28 Zellen erreichen plausibel |z| ≥ 2: `behind_the_scenes`,
+`format_class 3_langform` und `duration_bucket >60s`. Alles ab Platz sechs liegt
+zwischen z = +0,96 und z = −1,75.
+
+`behind_the_scenes` ist mit 28,1 % Trefferquote die auffälligste Einzelzelle, hat aber
+nur 32 Posts über 19 Kanäle. Bei 28 geprüften Zellen ist rund ein Zufallstreffer bei
+|z| ≥ 2 zu erwarten (siehe `_breakout_z`, Absatz „Bekannte Grenze") — und die kleinste
+der drei Zellen ist der wahrscheinlichste Kandidat dafür. Vorerst als Hypothese führen,
+nicht als Befund.
+
+Bemerkenswert im Negativen:
+
+- **`trailer` (13,5 % gegen 15,4 % erwartet) und `teaser` (8,0 % gegen 13,7 %) sind
+  unauffällig bis schwach.** Das Signal sitzt in der *Dauerklasse*, nicht im
+  Format-Label. Ein als „Trailer" klassifizierter Post läuft nicht besser; ein Post ab
+  90 Sekunden schon.
+- **`music_kind` ist unverändert** (2.065 / 228 Posts, 10,1 % / 9,6 %). Erwartet, weil
+  TikTok keine Posts ohne Views hat — die Korrektur konnte dort nichts ändern. Eine
+  saubere Gegenprobe, dass sie nur dort gewirkt hat, wo sie sollte.
+
+### 16.4 Konsequenz
+
+Die Metadaten-Route ist damit ausgeschöpft. Nach drei Korrekturrunden über denselben
+Datensatz bleibt **eine** belastbare Aussage: *Formate ab 90 Sekunden produzieren
+überdurchschnittlich oft Ausreißer, Formate unter 60 Sekunden unterdurchschnittlich —
+und der Bereich dazwischen ist genau das: der Bereich dazwischen.*
+
+Das ist zugleich das Fundament für Stufe 3: die Frage ist nicht mehr, *ob* Langform
+anders funktioniert, sondern *warum*. Und diese Antwort steckt in Hook, Schnitt und
+Aufbau — nicht in Metadaten.
