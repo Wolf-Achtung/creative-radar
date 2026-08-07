@@ -121,3 +121,75 @@ Sobald Abschnitt 3 gelaufen ist, entscheidet die Verteilung über das weitere Vo
 
 Ohne diese Zahlen wäre jeder Fix ein Schuss ins Blaue gegen ein System, das zwei
 frühere Schüsse schon verdaut hat.
+
+## 6. Ergebnis (07.08.2026, abends)
+
+Beide Queries sind auf Produktion gelaufen. Vollständige Verteilung aus Abschnitt 3:
+
+| Plattform | Zeitraum | Ingest-Ergebnis | Assets |
+|---|---|---|---:|
+| Instagram | vor 10.06. | fetch_failed | 1.817 |
+| Instagram | vor 10.06. | no_source | 18 |
+| Instagram | 10.06.–13.07. | fetch_failed | 202 |
+| Instagram | 10.06.–13.07. | no_source | 63 |
+| Instagram | nach 13.07. | fetch_failed | 3 |
+| TikTok | vor 10.06. | fetch_failed | 1.342 |
+| TikTok | 10.06.–13.07. | fetch_failed | 25 |
+| YouTube | vor 10.06. | captured | 9 |
+| YouTube | vor 10.06. | fetch_failed | 1 |
+
+**Gesamt 3.480 fehlgeschlagene Assets** — deutlich mehr als die ursprünglich geschätzten
+1.005. Die 1.005 stammten vermutlich aus einer auf das 90-Tage-Fenster begrenzten
+Zählung; diese Query läuft absichtlich ohne Zeitfenster über den gesamten Bestand, weil
+genau die Verteilung über die Zeit die Diagnose trägt. Die Diskrepanz ändert nichts an
+der Verteilung, ist aber hier festgehalten statt stillschweigend übernommen.
+
+### 6.1 Fall C: bestätigt leer — der Wiederverwendungs-Fix hält
+
+Keine Zeile mit `zeitraum = 3_nach_beiden_fixes` und `ingest_ergebnis = captured`.
+Bestätigt durch die separate Kontrollquery aus Abschnitt 2: `count = 0`. **Kein
+Code-Fix nötig.** Der Incident-Fix vom 13.07. (PR #302) tut, was er soll.
+
+### 6.2 Fall A dominiert: 3.187 von 3.480 (91,6 %) — unrettbarer Altbestand
+
+| Plattform | Fall-A-Assets |
+|---|---:|
+| Instagram | 1.835 |
+| TikTok | 1.342 |
+| YouTube | 10 |
+
+Wie in Abschnitt 5 vorgezeichnet: dieser Block ist historisch und nicht reparierbar —
+die Original-CDN-Links sind seit Monaten tot. Für den 90-Tage-Report-Zeitraum ist das
+Problem ohnehin am Auslaufen: jede Woche fallen mehr dieser Assets aus dem Fenster, ohne
+dass Code dafür nötig ist.
+
+### 6.3 Fall B: 293 (8,4 %) — die Stichprobe zeigt Post-Verlust, keine Extraktions-Lücke
+
+Die Stichprobe aus Abschnitt 4 (5 Instagram-Assets aus der Zeit nach dem 13.07., Stand
+zum Abfragezeitpunkt) zeigt in allen fünf Fällen eine **gefüllte** `displayUrl`
+(z. B. `https://instagram.fosu2-2.fna.fbcdn.net/v/t51...`). Nach der in Abschnitt 4
+festgelegten Lesart heißt das: **keine Extraktions-Lücke im `apify_connector`** — die
+URL wurde korrekt gezogen, sie ist nur zum Abrufzeitpunkt bereits tot. Das spricht für
+gelöschte oder privat gestellte Posts, nicht für einen Bug in unserem Code.
+
+`tt_cover` ist bei allen fünf `NULL`, erwartungsgemäß — das Feld existiert nur für
+TikTok-Payloads.
+
+Fünf Beispiele sind eine Stichprobe, kein Beweis für alle 293. Sollte sich das Bild bei
+größerer Stichprobe ändern (z. B. Häufung bei wenigen Kanälen statt gleichmäßig verteilt),
+wäre das ein Hinweis auf einen kanalspezifischen Extraktionsfehler statt auf Post-Verlust
+— dafür bräuchte es eine Aufschlüsselung nach `channel_id`, hier nicht gemacht.
+
+### 6.4 Fazit
+
+| Fall | Anteil | Verdikt |
+|---|---:|---|
+| A — Altbestand | 91,6 % | nicht reparierbar, läuft von selbst aus dem Fenster |
+| B — Ingest-Fehlschlag | 8,4 % | Stichprobe spricht für Post-Verlust, kein Code-Fix erkennbar |
+| C — Wiederverwendung greift nicht | 0,0 % | bestätigt: kein Bug |
+
+**Schritt 4 endet ohne Code-Änderung.** Zwei frühere, gezielte Fixes (10.06. und 13.07.)
+haben das strukturelle Problem bereits gelöst; was übrig bleibt, ist zu 92 % Datenverlust
+vor den Fixes und zu 8 % mutmaßlicher Post-Verlust nach ihnen — beides keine
+Programmieraufgabe. Die Thumbnail-Abdeckung nähert sich der Zielmarke von selbst, mit der
+Zeit statt mit einem weiteren Patch.
