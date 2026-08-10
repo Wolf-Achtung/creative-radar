@@ -57,8 +57,11 @@ CUTDOWN_MIN_SECONDS = 15    # darunter zu wenige Einstellungen fuer Rhythmus
 CUTDOWN_MAX_SECONDS = 59
 PLACEHOLDER_TITLES = ("Unknown", "Star Wars")
 
-# Gemessen am Lauf vom 10.08.: ~1.100 Posts in 103 Minuten.
-SECONDS_PER_POST = 5.6
+# Gemessen an neun Backfill-Laeufen am 10.08.2026 (2.780 Posts): 3,7s
+# pro Post mit ``--skip-vision``. Der frueher hier stehende Wert 5,6 kam
+# aus dem abgebrochenen Cron-Lauf und war zu pessimistisch — dort lief
+# die Stage neben Vision und Scrape.
+SECONDS_PER_POST = 3.7
 
 MIN_PAIRS_FOR_POC = 20
 
@@ -161,13 +164,19 @@ def _block_coverage(session: Session) -> list[str]:
         f"  mit format            {row['mit_format']}  ({_fmt(row['format_prozent'], '0.0')} %)",
         f"  mit duration_seconds  {row['mit_dauer']}  ({_fmt(row['dauer_prozent'], '0.0')} %)",
         "",
-        f"  Backlog ohne format:  {backlog} Posts",
-        f"  Geschaetzte Backfill-Dauer: {stunden:.1f} h "
-        f"(bei {SECONDS_PER_POST} s/Post, gemessen am 10.08.)",
+        f"  Ohne format insgesamt: {backlog} Posts "
+        f"(Obergrenze {stunden:.1f} h bei {SECONDS_PER_POST} s/Post)",
         "",
-        "  Abarbeiten mit:",
-        "    railway run --environment production \\",
-        "      python -m scripts.backfill_post_analyzer --apply --yes --skip-vision",
+        "  ACHTUNG: Der Backfill erreicht davon nur die Posts der aktiven",
+        "  Pairs — Kanaele ausserhalb bleiben unberuehrt. Die belastbare",
+        "  Zahl liefert der Dry-Run, er aendert nichts:",
+        "",
+        "    railway ssh",
+        "    cd /app && python -m scripts.backfill_post_analyzer",
+        "",
+        "  Danach je Pair (idempotent, jederzeit abbrechbar):",
+        "    python -m scripts.backfill_post_analyzer \\",
+        "        --apply --yes --skip-vision --pair <pair-key>",
     ]
 
 

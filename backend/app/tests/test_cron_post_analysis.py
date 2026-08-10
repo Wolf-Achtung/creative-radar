@@ -337,3 +337,168 @@ def test_text_only_cost_estimate_is_lower_than_full(session: Session):
     assert costs[True] < costs[False]
     # Vision ist ~72 % der Kosten -> text-only liegt bei grob einem Drittel
     assert costs[True] == pytest.approx(costs[False] * 0.287, rel=0.05)
+
+
+# ---------- Zeitbudget der Stage (Vorfall 10.08.2026) ------------------
+#
+# Am 10.08. hat diese Stage mit cap=2500 den ganzen Cron-Lauf ins
+# Gesamt-Timeout gezogen: ~3,7s pro Post ergeben rund 2,5 Stunden, die zur
+# Grundlaufzeit von ~7.200s dazukamen; abgeschnitten wurde bei 9.000s.
+# Scrape war fertig, aber Briefs, Roundups und Wochenbriefings fehlten —
+# sie stehen hinter dieser Stage. Ein Cap in *Posts* schuetzt nicht, weil
+# er nichts ueber Zeit aussagt. Diese Tests decken den Zeitdeckel ab.
+
+
+def test_budget_stops_the_loop_between_posts(session: Session):
+    """Ist das Budget aufgebraucht, bricht die Stage geordnet ab."""
+    ch = _make_channel(session)
+    base = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    for i in range(10):
+        _make_post(session, ch, detected_at=base + timedelta(hours=i))
+
+    clock = iter([0.0] + [float(i) for i in range(1, 60)])
+    processed = []
+
+    def fake(sess, post, *, skip_vision=False):
+        processed.append(post.id)
+        return _ok_result(post.id)
+
+    p_analyze, p_conf = _patch_analyzer(fake)
+    with p_analyze, p_conf, patch.object(
+        cron_module.time, "monotonic", side_effect=lambda: next(clock)
+    ):
+        result = cron_module._run_post_analysis_backlog(
+            session, 10, skip_vision=True, budget_seconds=3.0
+        )
+
+    assert result["timed_out"] is True
+    # Nicht alle zehn — der Deckel hat gegriffen.
+    assert result["attempted"] < 10
+    assert result["remaining"] == 10 - result["attempted"]
+    assert len(processed) == result["attempted"]
+
+
+def test_work_done_before_the_budget_ran_out_is_kept(session: Session):
+    """Der Abbruch verwirft nichts: analysierte Posts bleiben analysiert.
+
+    Das ist die Eigenschaft, die den kooperativen Abbruch ueberhaupt
+    zulaessig macht — die Schleife committet nach jedem Post.
+    """
+    ch = _make_channel(session)
+    base = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    for i in range(6):
+        _make_post(session, ch, detected_at=base + timedelta(hours=i))
+
+    clock = iter([0.0] + [float(i) for i in range(1, 40)])
+
+    def fake(sess, post, *, skip_vision=False):
+        post.last_analyzed_at = datetime.now(timezone.utc)
+        sess.add(post)
+        return _ok_result(post.id)
+
+    p_analyze, p_conf = _patch_analyzer(fake)
+    with p_analyze, p_conf, patch.object(
+        cron_module.time, "monotonic", side_effect=lambda: next(clock)
+    ):
+        result = cron_module._run_post_analysis_backlog(
+            session, 6, skip_vision=True, budget_seconds=2.0
+        )
+
+    persisted = len(
+        session.exec(select(Post).where(Post.last_analyzed_at.is_not(None))).all()
+    )
+    assert result["analyzed"] == persisted
+    assert persisted > 0
+    # Und der Rest ist nicht verloren, nur verschoben.
+    assert result["remaining"] > 0
+
+
+def test_without_budget_nothing_changes(session: Session):
+    """Ohne ``budget_seconds`` verhaelt sich die Stage wie bisher."""
+    ch = _make_channel(session)
+    base = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    for i in range(4):
+        _make_post(session, ch, detected_at=base + timedelta(hours=i))
+
+    p_analyze, p_conf = _patch_analyzer(lambda s, p, **k: _ok_result(p.id))
+    with p_analyze, p_conf:
+        result = cron_module._run_post_analysis_backlog(session, 4, skip_vision=True)
+
+    assert result["timed_out"] is False
+    assert result["attempted"] == 4
+    assert result["remaining"] == 0
+    assert result["budget_seconds"] is None
+
+
+def test_generous_budget_processes_everything(session: Session):
+    ch = _make_channel(session)
+    base = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    for i in range(4):
+        _make_post(session, ch, detected_at=base + timedelta(hours=i))
+
+    p_analyze, p_conf = _patch_analyzer(lambda s, p, **k: _ok_result(p.id))
+    with p_analyze, p_conf:
+        result = cron_module._run_post_analysis_backlog(
+            session, 4, skip_vision=True, budget_seconds=3600
+        )
+
+    assert result["timed_out"] is False
+    assert result["attempted"] == 4
+    assert result["remaining"] == 0
+
+
+# ---------- Der Default des Zeitbudgets --------------------------------
+
+
+def test_stage_timeout_default_fits_under_the_total_timeout(monkeypatch):
+    """1800s sind auch beim Code-Default von 9.000s noch sicher.
+
+    Gemessene Grundlaufzeit ohne diese Stage: ~7.200s. 7.200 + 1.800 =
+    9.000 — der Wert passt also selbst dann, wenn eine Umgebung
+    ``CRON_TOTAL_RUN_TIMEOUT_SECONDS`` nie angehoben hat.
+    """
+    monkeypatch.delenv("CRON_POST_ANALYSIS_STAGE_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("CRON_TOTAL_RUN_TIMEOUT_SECONDS", raising=False)
+
+    stage = cron_module._post_analysis_stage_timeout_seconds()
+    total = cron_module._cron_total_timeout_seconds()
+
+    assert stage == 1800
+    assert stage <= total - 7200
+
+
+def test_stage_timeout_is_configurable_and_survives_garbage(monkeypatch):
+    monkeypatch.setenv("CRON_POST_ANALYSIS_STAGE_TIMEOUT_SECONDS", "2700")
+    assert cron_module._post_analysis_stage_timeout_seconds() == 2700
+
+    monkeypatch.setenv("CRON_POST_ANALYSIS_STAGE_TIMEOUT_SECONDS", "keine-zahl")
+    assert cron_module._post_analysis_stage_timeout_seconds() == 1800
+
+
+def test_cron_call_site_actually_passes_the_budget():
+    """Die Verdrahtung ist der eigentliche Schutz — also wird sie geprueft.
+
+    Ein Zeitbudget, das die Stage kann, aber der Cron nicht mitgibt, haette
+    den 10.08. nicht verhindert. Geprueft wird per AST statt per Textsuche,
+    damit Umformatierung den Test nicht bricht.
+    """
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(cron_module))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and any(
+            isinstance(a, ast.Name) and a.id == "_run_post_analysis_backlog"
+            for a in node.args
+        )
+    ]
+    assert calls, "Aufruf von _run_post_analysis_backlog nicht gefunden"
+    for call in calls:
+        keywords = {kw.arg for kw in call.keywords}
+        assert "budget_seconds" in keywords, (
+            "Der Cron ruft die Post-Analyse ohne budget_seconds auf — genau "
+            "diese Luecke hat am 10.08. den ganzen Lauf gerissen."
+        )

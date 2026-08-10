@@ -961,8 +961,21 @@ null — dann sind `format`, `tone` und `lifecycle_stage` als Dimensionen unbrau
 Bei 800 Posts pro Lauf und einem Rhythmus von einer Woche braucht der Backlog von 7.212
 Posts **neun Wochen**, also bis Mitte Oktober. Das ist nach der Frist.
 
-**Empfehlung:** `CRON_POST_ANALYSIS_MAX_POSTS_PER_RUN` vor dem 10.08. auf **2500**
-setzen. Kosten bei ~$0,0029 pro Post text-only: rund **$7 pro Lauf**, drei Läufe für
+> **KORREKTUR vom 10.08.2026 — diese Empfehlung war falsch.** Der Lauf am 10.08. ist
+> damit ins Gesamt-Timeout gelaufen; Briefs, Roundups und Wochenbriefings fehlten. Die
+> Rechnung unten betrachtet nur die Kosten, nicht die Laufzeit gegen
+> `CRON_TOTAL_RUN_TIMEOUT_SECONDS`. Bei gemessenen 3,7 s/Post brauchen 2500 Posts rund
+> 2,5 Stunden — die Grundlaufzeit lag bereits bei ~7.200 s von 9.000 s erlaubten. Selbst
+> der Standardwert 800 hätte nicht gepasst. Siehe
+> [VORFALL_2026-08-10_CRON_TIMEOUT.md](./VORFALL_2026-08-10_CRON_TIMEOUT.md).
+>
+> **Gültig ist jetzt:** Die Stage hat seit dem 10.08. ein eigenes Zeitbudget
+> (`CRON_POST_ANALYSIS_STAGE_TIMEOUT_SECONDS`, Default 1800 s) und steigt notfalls
+> zwischen zwei Posts aus, statt den ganzen Lauf zu reißen. Der Cap ist damit nur noch
+> die Kostenbremse; empfohlener Wert **800**.
+
+**Empfehlung (überholt, siehe Korrektur oben):** `CRON_POST_ANALYSIS_MAX_POSTS_PER_RUN`
+vor dem 10.08. auf **2500** setzen. Kosten bei ~$0,0029 pro Post text-only: rund **$7 pro Lauf**, drei Läufe für
 den ganzen Backlog, der erste noch vor der Frist.
 
 Bewusst nicht 8.000 in einem Rutsch: die reale Latenz pro Post ist unbekannt, und
