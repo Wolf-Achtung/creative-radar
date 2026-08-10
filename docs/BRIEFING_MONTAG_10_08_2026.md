@@ -309,6 +309,32 @@ Widerlegung** — aber es ist eine Frage, die eine eigene Prüfung verdient.
 
 ---
 
+## Nachtrag 10.08. — ein Skript statt vier Abfragen
+
+Die Schritte A–C und E lassen sich seit heute in einem Aufruf erledigen, dessen Ausgabe
+sich am Stück in den Chat kopieren lässt:
+
+```bash
+railway run --environment production python -m scripts.plan_b_status
+```
+
+Optional die Annotations-Arbeitsliste zusätzlich als Datei:
+
+```bash
+railway run --environment production python -m scripts.plan_b_status --csv worklist.csv
+```
+
+Read-only, vier Blöcke: Cron-Läufe mit Bewertung, Abdeckung samt geschätzter
+Backfill-Dauer, erzeugte Artefakte, und die Plan-B-Arbeitsliste (Query P4) mit Warnung,
+wenn weniger als zwanzig Paare zusammenkommen. Einzelne Blöcke über `--only cron`,
+`--only coverage`, `--only artefacts`, `--only worklist`.
+
+Die SQL-Abfragen aus Teil 2 bleiben gültig — sie sind der Weg über die Railway-Oberfläche,
+wenn gerade kein Terminal zur Hand ist. Zwei Fallstricke sind im Skript nun einmal richtig
+gelöst: der `::jsonb`-Cast bei `analysis` (die Spalte ist `json`, den `?`-Operator gibt es
+nur für `jsonb`) und die Briefs, die in `insight_report` liegen und nicht in
+`weeklyreport`.
+
 ## Spickzettel
 
 ```
