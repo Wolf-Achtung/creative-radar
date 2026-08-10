@@ -480,11 +480,32 @@ def _run_vision_backlog(
     }
 
 
+def _post_analysis_stage_timeout_seconds() -> int:
+    """Zeitbudget der Post-Analyse-Stage in Sekunden.
+
+    Default 1800s, wie ``title_sync`` und ``rematch`` — und aus demselben
+    Grund sicher: der Gesamtlauf braucht gemessen ~7.200s, der
+    Code-Default von ``CRON_TOTAL_RUN_TIMEOUT_SECONDS`` liegt bei 9.000s.
+    1800s passen also auch dann noch, wenn die Umgebung den Gesamtwert
+    nicht angehoben hat.
+
+    Steht ``CRON_TOTAL_RUN_TIMEOUT_SECONDS`` hoeher (produktiv seit
+    10.08.2026: 12.000s), darf dieser Wert mitwachsen — 2700s entsprechen
+    bei gemessenen 3,7s/Post rund 730 Posts pro Lauf.
+    """
+    raw = os.environ.get("CRON_POST_ANALYSIS_STAGE_TIMEOUT_SECONDS", "1800")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1800
+
+
 def _run_post_analysis_backlog(
     session: Session,
     cap: int,
     *,
     skip_vision: bool,
+    budget_seconds: float | None = None,
 ) -> dict:
     """Trailer-Intelligence Stufe 1 — classify up to ``cap`` posts that have
     no ``last_analyzed_at`` yet (format / tone / purpose / lifecycle_stage).
@@ -505,6 +526,25 @@ def _run_post_analysis_backlog(
     post bumps a counter and the loop continues. An Anthropic auth error is
     the one exception: it is non-recoverable and would repeat for every
     remaining post, so the stage stops early and reports it.
+
+    Zeitbudget (``budget_seconds``, Vorfall 10.08.2026)
+    --------------------------------------------------
+    Am 10.08. hat diese Stage mit ``cap=2500`` den gesamten Cron-Lauf ins
+    Gesamt-Timeout laufen lassen: ~3,7s pro Post ergeben bei 2500 Posts
+    rund 2,5 Stunden, die zur Grundlaufzeit von ~7.200s dazukamen. Der
+    Lauf wurde bei 9.000s abgeschnitten — Scrape war fertig, aber Briefs,
+    Roundups und Wochenbriefings fehlten komplett, weil sie hinter dieser
+    Stage stehen.
+
+    Die Lehre: ein Cap in *Posts* ist kein Schutz, weil er nichts ueber
+    Zeit sagt. ``budget_seconds`` deckelt stattdessen die Wall-Clock. Die
+    Pruefung sitzt bewusst **zwischen** den Posts und nicht in einem
+    ``asyncio.wait_for`` um den ``to_thread``-Aufruf: ein Python-Thread
+    laesst sich nicht abbrechen, ``wait_for`` wuerde nur die wartende
+    Coroutine aufgeben und den Thread im Hintergrund weiterlaufen lassen.
+    Kooperativ abbrechen ist hier sauber moeglich, weil die Schleife nach
+    jedem Post committet — es geht nichts verloren, der Rest kommt im
+    naechsten Lauf dran.
     """
     if cap <= 0:
         return {"enabled": False, "cap": cap}
@@ -540,9 +580,21 @@ def _run_post_analysis_backlog(
         "assets_created": 0,
     }
     auth_failed = False
+    timed_out = False
     error_samples: list[str] = []
 
     for post in posts:
+        if budget_seconds is not None and time.monotonic() - started >= budget_seconds:
+            # Zeitbudget aufgebraucht: geordnet aussteigen, damit die
+            # nachfolgenden Stages (title_sync, rematch, Briefs, Roundups)
+            # noch laufen. Alles bis hierher ist committed.
+            timed_out = True
+            logger.warning(
+                "cron-post-analysis stage budget of %ss exhausted after %s/%s "
+                "posts — stopping early so the rest of the chain can run",
+                budget_seconds, counters["attempted"], len(posts),
+            )
+            break
         counters["attempted"] += 1
         try:
             result = analyze_post(session, post, skip_vision=skip_vision)
@@ -587,6 +639,12 @@ def _run_post_analysis_backlog(
         "selected": len(posts),
         **counters,
         "auth_failed": auth_failed,
+        "timed_out": timed_out,
+        # Was das Budget nicht mehr geschafft hat. Nicht verloren — die
+        # Posts haben weiterhin kein ``last_analyzed_at`` und werden im
+        # naechsten Lauf erneut ausgewaehlt.
+        "remaining": len(posts) - counters["attempted"],
+        "budget_seconds": budget_seconds,
         "error_samples": error_samples,
         "duration_seconds": round(time.monotonic() - started, 2),
         "estimated_cost_usd": round(counters["attempted"] * per_post, 4),
@@ -1700,6 +1758,10 @@ async def _run_cron_sync_background_impl(
                         session,
                         post_analysis_cap,
                         skip_vision=settings.cron_post_analysis_skip_vision,
+                        # Zeitbudget statt nur Post-Cap — siehe Docstring
+                        # von ``_run_post_analysis_backlog``. Ohne das hat
+                        # diese Stage am 10.08. den ganzen Lauf gerissen.
+                        budget_seconds=_post_analysis_stage_timeout_seconds(),
                     )
                 except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster rematch
                     logger.exception("post-analysis stage failed")
