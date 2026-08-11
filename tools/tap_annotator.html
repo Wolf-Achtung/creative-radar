@@ -99,7 +99,7 @@
   <button id="reset">Zurücksetzen</button>
   <span class="hint">Dateiname: &lt;pair_key&gt;_&lt;klasse&gt;.json —
     alle Exporte in einen Ordner, dann
-    <code>python scripts/evaluate_annotations.py pairs --dir ORDNER</code></span>
+    <code>python3 -m scripts.evaluate_annotations pairs --dir ORDNER</code> (aus <code>backend/</code>)</span>
 </fieldset>
 
 <p class="hint">Zeitstempel sind Medienzeit (<code>getCurrentTime</code>) —
@@ -107,7 +107,7 @@ bei 0,5× muss nichts zurückgerechnet werden, die Reaktionslatenz halbiert
 sich in Medienzeit sogar. YouTube läuft im offiziellen IFrame-Player;
 heruntergeladen wird nichts. Am besten über einen lokalen Server öffnen:
 <code>python3 -m http.server</code> im Ordner, dann
-<code>http://localhost:8000/tap_annotator.html</code>.</p>
+<code>http://localhost:8000/tools/tap_annotator.html</code>.</p>
 
 <script>
 "use strict";
@@ -122,7 +122,24 @@ const state = {
   titleCards: [],
   firstWord: null,
   videoName: "",
+  // Ungesicherte Eingaben? Wird beim Tippen gesetzt und beim Export
+  // bzw. Zuruecksetzen geloescht. Verhindert zwei Fehler, die am
+  // 10.08.2026 beim Kalibrieren aufgetreten sind: stilles Weiterzaehlen
+  // ueber zwei Clips hinweg — und, waere der Wechsel einfach stumm
+  // zuruecksetzend, das Gegenteil davon: Verlust ungesicherter Taps.
+  dirty: false,
 };
+
+function markDirty() { state.dirty = true; }
+
+function confirmDiscard() {
+  if (!state.dirty || state.taps.length === 0) return true;
+  return confirm(
+    `Es liegen ${state.taps.length} noch nicht exportierte Schnitte vor.\n\n` +
+    `Verwerfen und neues Video laden?\n` +
+    `(Abbrechen: erst "JSON exportieren", dann erneut laden.)`
+  );
+}
 
 // ---------- Zeitquelle: immer Medienzeit ----------
 function currentTime() {
@@ -147,6 +164,13 @@ function playing() {
   return v.src && !v.paused;
 }
 function togglePlay() {
+  // Fokus freigeben: steht der Cursor noch im pair_key-Feld, tippt die
+  // Leertaste dort ein Leerzeichen statt einen Schnitt zu setzen — der
+  // keydown-Handler ignoriert Eingabefelder absichtlich. Am 10.08.2026
+  // beim Kalibrieren aufgefallen.
+  if (document.activeElement && document.activeElement.blur) {
+    document.activeElement.blur();
+  }
   if (state.mode === "youtube") {
     if (!state.ytReady) return;
     playing() ? state.yt.pauseVideo() : state.yt.playVideo();
@@ -179,7 +203,10 @@ function parseYouTubeId(input) {
 function loadYouTube() {
   const id = parseYouTubeId($("ytid").value);
   if (!id) { alert("Keine YouTube-ID erkennbar."); return; }
+  if (!confirmDiscard()) return;
+  resetAll();
   state.videoName = id;
+  renderTaps();  // Anzeige auf das neue Video umstellen
   const create = () => {
     if (state.yt) { state.yt.loadVideoById(id); state.ytReady = true; return; }
     state.yt = new YT.Player("ytplayer", {
@@ -210,12 +237,16 @@ function loadFile(file) {
   v.hidden = false;
   state.videoName = file.name;
   applyRate();
+  renderTaps();  // Anzeige auf das neue Video umstellen
 }
 
 // ---------- Tippen ----------
 function fmt(t) { return t === null ? "–" : t.toFixed(2) + " s"; }
 function renderTaps() {
   const parts = [];
+  // Videoname mit anzeigen: macht sofort sichtbar, zu welchem Clip die
+  // Taps gehoeren — die Verwechslung vom 10.08. waere so aufgefallen.
+  parts.push(`Video: ${state.videoName || "— keines geladen —"}`);
   parts.push(`Schnitte: ${state.taps.length}` +
     (state.taps.length ? " → " + state.taps.map((t) => t.toFixed(2)).join(", ") : ""));
   parts.push(`Musikeinsatz: ${fmt(state.musicEntry)} · ` +
@@ -226,17 +257,18 @@ function tapCut() {
   const t = currentTime();
   if (t === null || !playing()) return;
   state.taps.push(t);
+  markDirty();
   renderTaps();
 }
-function undoCut() { state.taps.pop(); renderTaps(); }
+function undoCut() { state.taps.pop(); markDirty(); renderTaps(); }
 
 document.addEventListener("keydown", (ev) => {
   if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
   const key = ev.key.toLowerCase();
   if (ev.code === "Space") { ev.preventDefault(); tapCut(); }
-  else if (key === "m") { state.musicEntry = currentTime(); renderTaps(); }
-  else if (key === "t") { const t = currentTime(); if (t !== null) state.titleCards.push(t); renderTaps(); }
-  else if (key === "w") { state.firstWord = currentTime(); renderTaps(); }
+  else if (key === "m") { state.musicEntry = currentTime(); markDirty(); renderTaps(); }
+  else if (key === "t") { const t = currentTime(); if (t !== null) state.titleCards.push(t); markDirty(); renderTaps(); }
+  else if (key === "w") { state.firstWord = currentTime(); markDirty(); renderTaps(); }
   else if (key === "u") { undoCut(); }
   else if (key === "p") { ev.preventDefault(); togglePlay(); }
 });
@@ -273,10 +305,12 @@ function exportJson() {
   a.download = `${pairKey}_${cls}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
+  state.dirty = false;
 }
 function resetAll() {
   state.taps = []; state.musicEntry = null; state.titleCards = [];
   state.firstWord = null;
+  state.dirty = false;
   renderTaps();
 }
 
@@ -289,7 +323,15 @@ $("mode").addEventListener("change", () => {
 });
 $("load").addEventListener("click", loadYouTube);
 $("file").addEventListener("change", (ev) => {
-  if (ev.target.files[0]) loadFile(ev.target.files[0]);
+  if (!ev.target.files[0]) return;
+  if (!confirmDiscard()) {
+    // Auswahl zuruecknehmen, sonst zeigt das Feld einen Dateinamen an,
+    // der gar nicht geladen wurde.
+    ev.target.value = "";
+    return;
+  }
+  resetAll();
+  loadFile(ev.target.files[0]);
 });
 $("playpause").addEventListener("click", togglePlay);
 $("back5").addEventListener("click", () => seekBy(-5));

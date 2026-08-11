@@ -558,3 +558,58 @@ nur Stufe 5 — es ist ein Hinweis darauf, dass die Formatklasse `langform` aus 
 YouTube weniger homogen ist als angenommen. Für den Stufe-3-Befund selbst ist das keine
 Entwarnung und keine Widerlegung; es ist eine offene Frage, die eine eigene Prüfung
 verdient und hier nur festgehalten wird.
+
+## 11. Kalibrierung vom 10.08.2026 — die Annahmen sind belegt
+
+Zwei Kalibrier-Clips getippt (Wolf, 0,5× Abspielgeschwindigkeit, 34 Schnitte insgesamt).
+Damit ist Abschnitt 2.3 keine Argumentation mehr, sondern eine Messung.
+
+| | Zielwert | Clip 1 (ASL 1,89 s) | Clip 2 (ASL 1,56 s, beschleunigend) |
+|---|---|---:|---:|
+| Trefferquote | > 95 % | **100 %** | **100 %** |
+| Präzision | > 95 % | **100 %** | **100 %** |
+| Latenz, Mittel | (gleichgültig) | +0,241 s | +0,220 s |
+| Latenz, Streuung | < 0,10 s | **0,038 s** | **0,052 s** |
+| ASL-Verhältnis | 0,95–1,10 | **1,000** | **1,000** |
+
+Was daran zählt:
+
+**Kein verpasster und kein überzähliger Schnitt** bei 34 Gelegenheiten. Der konservative
+Effekt aus Abschnitt 2.3 (Untertippen staucht Unterschiede) tritt hier gar nicht erst
+auf — es gibt nichts zu stauchen.
+
+**Die Latenz ist konstant, nicht bloß klein.** +0,23 s im Mittel, aber mit einer Streuung
+von 0,04–0,05 s. Das Mittel verschiebt alle Grenzen gleich und kürzt sich in der
+Paardifferenz vollständig heraus; die Streuung ist der einzige Störfaktor, und sie liegt
+bei einem Drittel bis der Hälfte des Grenzwerts. Auch im schwierigeren Clip 2
+(beschleunigendes Profil, kürzere Einstellungen) bleibt sie stabil.
+
+**Das ASL-Verhältnis ist exakt 1,000** in beiden Clips — die gemessene mittlere
+Einstellungslänge trifft die wahre auf drei Nachkommastellen.
+
+Ein dritter Clip wurde nicht mehr gebraucht: Zwei Läufe mit vollständiger Trefferquote
+und stabiler Latenz ändern die Entscheidung nicht mehr. Und 0,5× reicht — auf 0,25×
+herunterzugehen würde die Sitzung verlängern, ohne die Messung zu verbessern.
+
+### 11.1 Zwei Bedienfehler, die dabei aufgefallen sind — beide behoben
+
+**Der Fokus blieb im Textfeld.** Wer nach dem Ausfüllen von `pair_key` direkt die
+Leertaste drückt, tippt ein Leerzeichen ins Feld statt einen Schnitt zu setzen — der
+Tastatur-Handler ignoriert Eingabefelder absichtlich. Der Start-Knopf gibt den Fokus
+jetzt selbst frei.
+
+**Ein Videowechsel behielt die alten Taps.** Beim zweiten Clip zählte der Annotator
+stillschweigend weiter, beide Clips landeten in einer Liste. Jetzt fragt er beim Wechsel
+nach, wenn ungesicherte Schnitte vorliegen — und setzt nach Bestätigung zurück. Bewusst
+mit Rückfrage statt stumm: stilles Zurücksetzen hätte den umgekehrten Fehler erzeugt,
+den Verlust noch nicht exportierter Arbeit. Zusätzlich steht der Name des geladenen
+Videos jetzt über der Tap-Liste, damit eine Verwechslung sofort sichtbar wäre.
+
+Beide Korrekturen sind im Browser geprüft (Playwright, fünf Prüfungen: Fokusfreigabe,
+Tap-Erfassung, Abbruch erhält die Taps, Bestätigung setzt zurück, Anzeige folgt dem
+geladenen Video).
+
+**Die Rohdaten der Kalibrierung sind nicht verloren gegangen** — die zusammengelaufene
+Tap-Liste war eindeutig trennbar, weil die Zeitstempel beim zweiten Clip wieder von vorn
+beginnen. Ausgewertet wurde die erste Aufnahme, nicht eine Wiederholung; das ist auch
+methodisch besser, weil ein zweiter Durchgang desselben Clips einen Lerneffekt hätte.
