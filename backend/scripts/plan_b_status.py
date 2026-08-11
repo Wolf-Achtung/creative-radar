@@ -283,7 +283,7 @@ ORDER BY t.title_original
 
 
 def _block_worklist(
-    session: Session, csv_path: Optional[str]
+    session: Session, csv_path: Optional[str], urls: bool = False
 ) -> tuple[list[str], list[dict[str, Any]]]:
     rows = _fetch(session, SQL_WORKLIST)
     out = [
@@ -310,6 +310,18 @@ def _block_worklist(
             f"  Kurzform unter 20 s (Rhythmus-Merkmale bleiben evtl. leer): "
             f"{', '.join(knapp)}"
         )
+    if urls and rows:
+        # Blockformat statt breiter Tabelle: beim Annotieren wird Paar fuer
+        # Paar gearbeitet, und zwei 43-Zeichen-URLs nebeneinander waeren im
+        # Terminal unlesbar. Der pair_key steht bewusst allein auf einer
+        # Zeile — er muss auf beiden Seiten identisch kopiert werden.
+        out += ["", "### Zum Annotieren — je Paar zwei Durchgaenge", ""]
+        for r in rows:
+            out.append(f"[{r['nr']:>2}] {r['pair_key']}")
+            out.append(f"     {r['titel']} ({r['kanal']})")
+            out.append(f"     Langform {r['lang_s']:>4} s  {r['langform_url']}")
+            out.append(f"     Kurzform {r['kurz_s']:>4} s  {r['kurzform_url']}")
+            out.append("")
     if csv_path:
         with open(csv_path, "w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(
@@ -332,6 +344,13 @@ def main() -> int:
         help="Arbeitsliste zusaetzlich als CSV schreiben (Pfad).",
     )
     parser.add_argument(
+        "--urls", action="store_true",
+        help=(
+            "Arbeitsliste zusaetzlich als Bloecke mit beiden Video-URLs "
+            "ausgeben — das Format, mit dem annotiert wird."
+        ),
+    )
+    parser.add_argument(
         "--only",
         choices=("cron", "coverage", "artefacts", "worklist"),
         default=None,
@@ -348,7 +367,7 @@ def main() -> int:
         if args.only in (None, "artefacts"):
             blocks.append(_block_artefacts(session))
         if args.only in (None, "worklist"):
-            block, _ = _block_worklist(session, args.csv)
+            block, _ = _block_worklist(session, args.csv, urls=args.urls)
             blocks.append(block)
 
     print("# Creative Radar — Statusbericht")
