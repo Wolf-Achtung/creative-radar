@@ -1,0 +1,1380 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="description" content="Fragebogen für Trailer- und Social-Spot-Schnitt: Einstieg, Tempo, Musik und fünf Befunde aus der Auswertung von 7.623 Posts." />
+<title>Fragebogen: Was macht einen Trailer-Post erfolgreich?</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23A8631A'/%3E%3Crect x='6' y='9' width='20' height='14' fill='%23F2F2F0'/%3E%3Crect x='6' y='9' width='20' height='3' fill='%23A8631A'/%3E%3Crect x='6' y='20' width='20' height='3' fill='%23A8631A'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    color-scheme: light;
+
+    --paper: #F2F2F0;
+    --raised: #FFFFFF;
+    --ink: #191A18;
+    --muted: #6B6C68;
+    --faint: #8E8F8A;
+    --rule: #DEDEDA;
+    --rule-strong: #C6C6C1;
+    --accent: #A8631A;
+    --accent-ink: #7C4812;
+    --accent-wash: rgba(168, 99, 26, 0.09);
+    --focus: #A8631A;
+
+    --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+
+      --paper: #17181A;
+      --raised: #1F2023;
+      --ink: #E9E9E4;
+      --muted: #9C9D97;
+      --faint: #7E7F79;
+      --rule: #2E2F32;
+      --rule-strong: #414247;
+      --accent: #E0A052;
+      --accent-ink: #EDBA79;
+      --accent-wash: rgba(224, 160, 82, 0.12);
+      --focus: #E0A052;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --paper: #17181A;
+    --raised: #1F2023;
+    --ink: #E9E9E4;
+    --muted: #9C9D97;
+    --faint: #7E7F79;
+    --rule: #2E2F32;
+    --rule-strong: #414247;
+    --accent: #E0A052;
+    --accent-ink: #EDBA79;
+    --accent-wash: rgba(224, 160, 82, 0.12);
+    --focus: #E0A052;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  img { max-width: 100%; }
+
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 30;
+    font-family: var(--sans);
+    font-size: 0.9rem;
+    background: var(--raised);
+    color: var(--ink);
+    border: 1px solid var(--accent);
+    padding: 0.6rem 1rem;
+  }
+  .skip-link:focus {
+    left: 0.75rem;
+    top: 0.75rem;
+  }
+
+  .progress-rail {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    height: 3px;
+    background: var(--rule);
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 240ms ease;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .progress-fill { transition: none; }
+  }
+
+  .wrap {
+    max-width: 42rem;
+    margin: 0 auto;
+    padding: 0 1.5rem 5rem;
+  }
+
+  header.intro {
+    padding: 3.5rem 0 2rem;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1.1rem;
+  }
+
+  h1 {
+    font-size: clamp(1.85rem, 5vw, 2.6rem);
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0 0 1.1rem;
+  }
+
+  .lede {
+    font-size: 1.08rem;
+    color: var(--muted);
+    margin: 0 0 1.6rem;
+    max-width: 34em;
+  }
+
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.75rem;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    letter-spacing: 0.04em;
+    color: var(--faint);
+  }
+  .meta-strip strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .callout {
+    margin: 2rem 0 0;
+    padding: 1.1rem 1.25rem;
+    background: var(--accent-wash);
+    border-left: 2px solid var(--accent);
+    font-size: 0.95rem;
+    color: var(--ink);
+  }
+  .callout p { margin: 0; }
+  .callout p + p { margin-top: 0.7rem; }
+
+  section.part {
+    padding-top: 3rem;
+  }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.85rem;
+    margin-bottom: 0.4rem;
+  }
+  .part-num {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    flex: none;
+  }
+  h2 {
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .part-note {
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin: 0 0 0.5rem;
+    max-width: 36em;
+  }
+
+  /* Haelt den in A3 gewaehlten Bezugspunkt in den Teilen 1 bis 3 sichtbar. */
+  .focus-echo {
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: var(--muted);
+    margin: 1rem 0 0;
+    padding: 0.5rem 0.75rem;
+    background: var(--accent-wash);
+    border-left: 2px solid var(--accent);
+    max-width: 36em;
+  }
+  .focus-echo strong { color: var(--ink); font-weight: 600; }
+  .focus-echo.empty {
+    background: transparent;
+    border-left-color: var(--rule-strong);
+    color: var(--faint);
+  }
+
+  .anchor-box {
+    margin-top: 1.1rem;
+    padding: 1.1rem 1.25rem 1.3rem;
+    background: var(--raised);
+    border: 1px solid var(--rule-strong);
+  }
+  .anchor-box .anchor-lead {
+    font-family: var(--sans);
+    font-size: 0.86rem;
+    color: var(--muted);
+    margin: 0 0 1rem;
+  }
+
+  .q {
+    padding: 1.9rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .q:first-of-type { border-top: 1px solid var(--rule-strong); }
+  .anchor-box .q {
+    padding: 1.1rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .anchor-box .q:first-of-type { border-top: none; padding-top: 0; }
+
+  .q-head {
+    display: flex;
+    gap: 0.85rem;
+    align-items: baseline;
+    margin-bottom: 0.35rem;
+  }
+  .q-num {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--faint);
+    flex: none;
+    padding-top: 0.18rem;
+  }
+  .q-text {
+    font-size: 1.06rem;
+    font-weight: 600;
+    line-height: 1.4;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .anchor-box .q-text { font-size: 0.98rem; }
+  .q-hint {
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin: 0.3rem 0 0 1.95rem;
+  }
+  .q-example {
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    font-style: italic;
+    color: var(--faint);
+    margin: 0.3rem 0 0 1.95rem;
+  }
+  .q-body { margin: 1rem 0 0 1.95rem; }
+  @media (max-width: 34rem) {
+    .q-hint, .q-example, .q-body { margin-left: 0; }
+  }
+
+  /* ---- Option lists (Weiche, Teil 5, Roadmap) ---- */
+  .opts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .opts.cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 0.4rem 1rem;
+  }
+
+  label.opt {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.55rem 0.7rem;
+    font-family: var(--sans);
+    font-size: 0.94rem;
+    line-height: 1.45;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  }
+  label.opt:hover { background: var(--accent-wash); }
+  label.opt:has(input:checked) {
+    background: var(--accent-wash);
+    border-color: var(--accent);
+  }
+  label.opt:has(input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  label.opt input {
+    margin: 0.28rem 0 0;
+    accent-color: var(--accent);
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+  }
+  label.opt input:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .opt-text { display: block; }
+  .opt-title { display: block; font-weight: 600; }
+  .opt-sub {
+    display: block;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: var(--muted);
+    margin-top: 0.15rem;
+  }
+
+  .opt-counter {
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 0.5rem;
+  }
+
+  /* ---- Scale ---- */
+  .scale {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.4rem;
+    max-width: 30rem;
+  }
+  .scale label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.6rem 0.3rem;
+    border: 1px solid var(--rule-strong);
+    font-family: var(--mono);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .scale label:hover { background: var(--accent-wash); }
+  .scale label:has(input:checked) {
+    background: var(--accent-wash);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .scale input { accent-color: var(--accent); }
+  .scale input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .scale-ends {
+    display: flex;
+    justify-content: space-between;
+    max-width: 30rem;
+    margin-top: 0.45rem;
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--faint);
+  }
+
+  /* ---- Text inputs ---- */
+  input[type="text"], textarea {
+    width: 100%;
+    max-width: 34rem;
+    font-family: var(--sans);
+    font-size: 0.94rem;
+    color: var(--ink);
+    background: var(--raised);
+    border: 1px solid var(--rule-strong);
+    padding: 0.6rem 0.7rem;
+    line-height: 1.5;
+  }
+  .anchor-box input[type="text"] { background: var(--paper); }
+  textarea { min-height: 4.5rem; resize: vertical; }
+  textarea.long { min-height: 6rem; }
+  input[type="text"]:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+
+  /* ---- Finding blocks ---- */
+  .finding {
+    font-family: var(--serif);
+    font-size: 1rem;
+    line-height: 1.5;
+    padding: 0.85rem 1rem;
+    background: var(--raised);
+    border: 1px solid var(--rule);
+    margin: 0 0 0.85rem;
+  }
+  .finding .stat {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    color: var(--faint);
+    margin-top: 0.45rem;
+  }
+  /* Steht nur dort, wo die Zahlen die Aussage nicht voll tragen. */
+  .finding .caveat {
+    display: block;
+    font-family: var(--sans);
+    font-size: 0.83rem;
+    line-height: 1.45;
+    color: var(--muted);
+    margin-top: 0.6rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--rule);
+  }
+  .finding-followup {
+    margin-top: 0.65rem;
+  }
+  .finding-followup label {
+    display: block;
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+  }
+
+  /* ---- Footer / output ---- */
+  .finish {
+    margin-top: 3.5rem;
+    padding-top: 2.25rem;
+    border-top: 2px solid var(--rule-strong);
+  }
+  .btn {
+    font-family: var(--sans);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--paper);
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 0.7rem 1.4rem;
+    cursor: pointer;
+    transition: opacity 120ms ease;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .btn.secondary {
+    color: var(--accent-ink);
+    background: transparent;
+    border: 1px solid var(--accent);
+  }
+  .btn-row { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: center; }
+  .btn-note {
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  #output {
+    margin-top: 1.25rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.55;
+    min-height: 12rem;
+    max-width: none;
+    display: none;
+  }
+  #output.show { display: block; }
+
+  .reset-row {
+    margin-top: 2.25rem;
+  }
+  .reset-link {
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    color: var(--faint);
+    background: none;
+    border: none;
+    padding: 0;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .reset-link:hover { color: var(--muted); }
+  .reset-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  footer.colophon {
+    margin-top: 3rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--sans);
+    font-size: 0.8rem;
+    color: var(--faint);
+  }
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#fragebogen">Direkt zum Fragebogen</a>
+
+<div class="progress-rail" id="progressRail" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Fortschritt: 0 von 22 Kernfragen beantwortet"><div class="progress-fill" id="progressFill"></div></div>
+
+<div class="wrap">
+
+  <header class="intro">
+    <p class="eyebrow">Trailer &amp; Social-Spots · Befragung · Fassung 2.2</p>
+    <h1>Was macht einen Trailer-Post erfolgreich?</h1>
+    <p class="lede">
+      7.623 Posts aus 90 Tagen wurden ausgewertet. Statt vorgegebener Kategorien
+      geht es diesmal von einem konkreten Projekt aus — den eigenen Erfahrungen
+      damit, in eigenen Worten.
+    </p>
+    <div class="meta-strip">
+      <span><strong>Ein Projekt</strong> als Ausgangspunkt</span>
+      <span><strong>Meist Freitext</strong></span>
+      <span><strong>ca. 15–20 Minuten</strong></span>
+    </div>
+
+    <div class="callout">
+      <p>
+        <strong>Es gibt keine falschen Antworten.</strong> „Kann ich nicht sagen“
+        ist eine gute Antwort. Kürze ist auch in Ordnung — ein Satz reicht, wenn
+        ein Satz die Sache trifft.
+      </p>
+      <p>
+        <strong>Zwischenspeichern läuft automatisch.</strong> Alle Eingaben
+        bleiben lokal in diesem Browser erhalten — die Seite kann jederzeit
+        geschlossen und später weiter ausgefüllt werden. Nichts wird
+        automatisch übertragen.
+      </p>
+      <p>
+        <strong>Was aktuell sichtbar ist:</strong> ein Vorschaubild und der Text
+        darunter. Nicht das Video. Genau das steht bei den Fragen zu den ersten
+        Sekunden zur Debatte — dort geht es um etwas, das heute noch nicht
+        gemessen wird.
+      </p>
+    </div>
+  </header>
+
+  <main id="fragebogen">
+
+  <section class="part">
+    <div class="part-head">
+      <span class="part-num">AUSGANGSPUNKT</span>
+      <h2>Ein Projekt vor Augen</h2>
+    </div>
+    <p class="part-note">
+      Ein konkretes, kürzlich abgeschlossenes Projekt festhalten — und daraus
+      <strong>eine einzelne Fassung</strong>. Die Teile 1 bis 3 beziehen sich
+      dann genau auf diese eine Fassung. Das macht die Antworten konkreter als
+      eine Frage, die über alles hinweg gelten soll.
+    </p>
+
+    <div class="anchor-box">
+      <p class="anchor-lead">Optional der Name, sonst reicht eine Beschreibung.</p>
+
+      <div class="q">
+        <div class="q-head">
+          <span class="q-num">A1</span>
+          <p class="q-text" id="qt-anchor-project">Um welches Projekt geht es — und welches Genre?</p>
+        </div>
+        <p class="q-example">Beispiel: „Working Title, Thriller“ oder einfach „ein Liebesfilm für Ende des Jahres“</p>
+        <div class="q-body">
+          <input type="text" name="anchor_project" aria-labelledby="qt-anchor-project" placeholder="Projekt / Genre" />
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="q-head">
+          <span class="q-num">A2</span>
+          <p class="q-text" id="qt-anchor-versions">Welche Fassungen wurden dafür geschnitten?</p>
+        </div>
+        <p class="q-example">Beispiel: „ein 90-Sekunden-Trailer für YouTube, ein 30-Sekunden-Spot, drei 15-Sekunden-Schnitte im Handy-Hochformat“</p>
+        <div class="q-body">
+          <input type="text" name="anchor_versions" aria-labelledby="qt-anchor-versions" placeholder="Alle Fassungen und Längen" />
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="q-head">
+          <span class="q-num">A3</span>
+          <p class="q-text" id="qt-anchor-focus">Welche einzelne davon ist ab hier gemeint?</p>
+        </div>
+        <p class="q-hint">Die Teile 1 bis 3 fragen nach dem Einstieg, dem Tempo und der Musik — das lässt sich nur für eine Fassung genau beantworten. Am besten die, bei der am meisten Arbeit steckte.</p>
+        <p class="q-example">Beispiel: „der 90-Sekunden-Trailer für YouTube“ oder „der 15-Sekunden-Schnitt im Hochformat“</p>
+        <div class="q-body">
+          <input type="text" name="anchor_focus" id="anchorFocus" aria-labelledby="qt-anchor-focus" placeholder="Eine Fassung, kurz benannt" />
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="q-head">
+          <span class="q-num">A4</span>
+          <p class="q-text" id="qt-format-class">Und was für eine Art Fassung ist das?</p>
+        </div>
+        <p class="q-hint">Langformate und Kurzformate haben einen anderen Aufbau — die Antworten werden später getrennt nach diesen beiden Gruppen ausgewertet.</p>
+        <div class="q-body">
+          <div class="opts" id="formatClassOpts" role="radiogroup" aria-labelledby="qt-format-class"></div>
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="q-head">
+          <span class="q-num">A5</span>
+          <p class="q-text" id="qt-anchor-phase">Für welche Phase der Kampagne?</p>
+        </div>
+        <p class="q-example">Beispiel: „Teaser, lange vor Start“ oder „Release-Woche“</p>
+        <div class="q-body">
+          <input type="text" name="anchor_phase" aria-labelledby="qt-anchor-phase" placeholder="Kampagnenphase" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="part">
+    <div class="part-head">
+      <span class="part-num">TEIL 1 VON 6</span>
+      <h2>Die ersten Sekunden</h2>
+    </div>
+    <p class="part-note">
+      Hier geht es um etwas, das aktuell <strong>nicht gemessen wird</strong> —
+      nur das Vorschaubild ist heute sichtbar, nicht der Anfang des Videos.
+    </p>
+    <p class="focus-echo" data-focus-echo></p>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">01</span>
+        <p class="q-text" id="qt-hook-description">Wie beginnt diese Fassung? Die ersten Sekunden in eigenen Worten.</p>
+      </div>
+      <p class="q-example">Beispiel: mitten in einer Szene, ein Logo, ein Zitat, ein Musikeinsatz, eine Frage im Bild</p>
+      <div class="q-body">
+        <textarea name="hook_description" aria-labelledby="qt-hook-description" placeholder="Stichworte genügen"></textarea>
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">02</span>
+        <p class="q-text" id="qt-hook-reasoning">Warum genau dieser Einstieg — was war die Überlegung dahinter?</p>
+      </div>
+      <div class="q-body">
+        <textarea name="hook_reasoning" aria-labelledby="qt-hook-reasoning" placeholder="Stichworte genügen"></textarea>
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">03</span>
+        <p class="q-text" id="qt-hook-success">Woran zeigt sich hinterher, ob ein Einstieg funktioniert hat?</p>
+      </div>
+      <div class="q-body">
+        <textarea name="hook_success_signal" aria-labelledby="qt-hook-success" placeholder="Stichworte genügen"></textarea>
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">04</span>
+        <p class="q-text" id="qt-hook-weight">Wie viel vom Erfolg eines Spots entscheidet sich in den ersten Sekunden?</p>
+      </div>
+      <div class="q-body">
+        <div class="scale" id="hookScale" role="radiogroup" aria-labelledby="qt-hook-weight"></div>
+        <div class="scale-ends" aria-hidden="true">
+          <span>kaum etwas</span>
+          <span>fast alles</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="part">
+    <div class="part-head">
+      <span class="part-num">TEIL 2 VON 6</span>
+      <h2>Tempo und Schnitt</h2>
+    </div>
+    <p class="focus-echo" data-focus-echo></p>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">05</span>
+        <p class="q-text" id="qt-pace-change">Wie verändert sich das Tempo über die Laufzeit dieser Fassung?</p>
+      </div>
+      <p class="q-example">Beispiel: ruhiger Aufbau mit Beschleunigung zum Ende, oder ein harter, durchgehend schneller Einstieg</p>
+      <div class="q-body">
+        <textarea name="pace_change" aria-labelledby="qt-pace-change" placeholder="Stichworte genügen"></textarea>
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">06</span>
+        <p class="q-text" id="qt-pace-driver">Wovon hängt die Schnittfrequenz am stärksten ab?</p>
+      </div>
+      <p class="q-example">Genre, Ziellänge, Plattform, Musik — oder etwas anderes</p>
+      <div class="q-body">
+        <textarea name="pace_driver" aria-labelledby="qt-pace-driver" placeholder="Stichworte genügen"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <section class="part">
+    <div class="part-head">
+      <span class="part-num">TEIL 3 VON 6</span>
+      <h2>Musik</h2>
+    </div>
+    <p class="focus-echo" data-focus-echo></p>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">07</span>
+        <p class="q-text" id="qt-music-role">Welche Rolle spielte die Musik bei dieser Fassung — Ausgangspunkt des Schnitts oder kam sie später dazu?</p>
+      </div>
+      <div class="q-body">
+        <textarea name="music_role" aria-labelledby="qt-music-role" placeholder="Stichworte genügen"></textarea>
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">08</span>
+        <p class="q-text" id="qt-music-silent">Wird damit gerechnet, dass viele ohne Ton zuschauen? Was ändert das am Schnitt?</p>
+      </div>
+      <div class="q-body">
+        <textarea name="music_silent_autoplay" aria-labelledby="qt-music-silent" placeholder="Stichworte genügen"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <section class="part">
+    <div class="part-head">
+      <span class="part-num">TEIL 4 VON 6</span>
+      <h2>Über die eine Fassung hinaus</h2>
+    </div>
+    <p class="part-note">
+      Ab hier geht es ausdrücklich nicht mehr um die Fassung von oben, sondern
+      um die Arbeit im Allgemeinen.
+    </p>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">09</span>
+        <p class="q-text" id="qt-format-diff">Gleicher Film, zwei Aufgaben: ein kurzer Social-Spot von etwa 15 Sekunden im Handy-Hochformat (TikTok, Reels, Shorts) und ein voller Trailer von etwa 90 Sekunden für YouTube — was unterscheidet sich grundsätzlich im Vorgehen?</p>
+      </div>
+      <div class="q-body">
+        <textarea name="format_length_diff" class="long" aria-labelledby="qt-format-diff" placeholder="Stichworte genügen"></textarea>
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">10</span>
+        <p class="q-text" id="qt-genre-signature">Woran lässt sich im Schnitt erkennen, dass es ein Thriller ist — oder eine Romance, eine Animation?</p>
+      </div>
+      <div class="q-body">
+        <textarea name="genre_signature" class="long" aria-labelledby="qt-genre-signature" placeholder="Stichworte genügen"></textarea>
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">11</span>
+        <p class="q-text" id="qt-internal-terms">Welche Bezeichnungen werden intern für die verschiedenen Spot-Arten verwendet?</p>
+      </div>
+      <p class="q-example">Beispiel: Trailer, Teaser, Cutdown, Bumper, Social-Schnitt — die intern gebräuchlichen Begriffe, unabhängig von dieser Liste</p>
+      <div class="q-body">
+        <textarea name="internal_terms" aria-labelledby="qt-internal-terms" placeholder="Begriffe, durch Komma getrennt"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <section class="part">
+    <div class="part-head">
+      <span class="part-num">TEIL 5 VON 6</span>
+      <h2>Fünf Befunde aus der Auswertung</h2>
+    </div>
+    <p class="part-note">
+      Es geht nicht darum, ob die Zahlen geglaubt werden — sondern ob sie zu dem
+      passen, was in der täglichen Arbeit zu sehen ist. Widerspruch ist hier
+      besonders wertvoll: Wirkt ein Befund falsch, ist das ein Hinweis auf einen
+      Fehler in der Auswertung.
+    </p>
+
+    <div class="callout">
+      <p>
+        <strong>Kurz zur Datenbasis, damit die Befunde einzuordnen sind</strong>
+        — Zugang zu irgendeinem System ist dafür nicht nötig.
+      </p>
+      <p>
+        Ausgewertet wurden die öffentlichen Social-Media-Kanäle der
+        Film-Studios (TikTok, Instagram, YouTube) in Deutschland, USA und
+        Großbritannien — also das, was jeder im Feed sehen kann, samt Likes und
+        Views. Die Zahlen unten stammen aus rund 7.600 solcher Posts der letzten
+        90 Tage.
+      </p>
+      <p>
+        <strong>„Trefferquote“</strong> heißt: Anteil der Posts, die mindestens
+        doppelt so viel Reaktion erzielt haben, wie auf dem jeweiligen Kanal
+        üblich ist. Über alle Posts hinweg liegt dieser Anteil bei 20 % — ein
+        höherer Wert bedeutet also „Posts mit diesem Merkmal landen öfter einen
+        Ausreißer nach oben“.
+      </p>
+      <p>
+        <strong>Wichtig:</strong> Gemessen wird die Reaktion auf den
+        <em>Post</em> — nicht die Qualität des Schnitts. Ein starker Spot auf
+        einem müden Kanal fällt hier durch, ein schwacher auf einem starken
+        Kanal nicht auf.
+      </p>
+      <p>
+        Die Zahl der Posts steht bei jedem Befund dabei, weil sie stark
+        schwankt: Nur ein Teil der Posts ist inhaltlich eingeordnet, manche
+        Merkmale beruhen deshalb auf wenigen Dutzend. Wo die Grundlage dünn
+        ist, steht es ausdrücklich dabei.
+      </p>
+      <p>
+        Diese Außensicht auf die Post-Performance ist im Schnitt-Alltag meist
+        nicht sichtbar — genau deshalb die Frage, ob die Befunde zum Eindruck
+        aus der Praxis passen. „Kann ich nicht beurteilen“ ist dabei jederzeit
+        eine vollwertige Antwort.
+      </p>
+    </div>
+
+    <div id="findings"></div>
+  </section>
+
+  <section class="part">
+    <div class="part-head">
+      <span class="part-num">TEIL 6 VON 6</span>
+      <h2>Was als Nächstes gebaut wird</h2>
+    </div>
+    <p class="part-note">
+      Die sechs Punkte unten gibt es heute <strong>noch nicht</strong> — sie
+      stehen alle auf der Liste, aber nicht alle lassen sich gleichzeitig
+      bauen. Deshalb die Frage, bevor die Reihenfolge festgelegt wird.
+    </p>
+
+    <div class="q" data-max="2">
+      <div class="q-head">
+        <span class="q-num">17</span>
+        <p class="q-text" id="qt-roadmap">Welche zwei davon würden der täglichen Arbeit am meisten bringen?</p>
+      </div>
+      <p class="q-hint">Höchstens zwei — die Beschränkung erzwingt eine echte Entscheidung.</p>
+      <div class="q-body">
+        <div class="opts" id="roadmap" role="group" aria-labelledby="qt-roadmap"></div>
+        <p class="opt-counter" id="roadmapCounter" aria-live="polite">Noch zwei Auswahlen frei.</p>
+      </div>
+    </div>
+
+    <div class="q">
+      <div class="q-head">
+        <span class="q-num">18</span>
+        <p class="q-text" id="qt-freetext">Fehlt in der Liste etwas, das nützlicher wäre als alles darin?</p>
+      </div>
+      <p class="q-hint">Optional. Auch Anmerkungen zum Fragebogen selbst sind hier willkommen.</p>
+      <div class="q-body">
+        <textarea name="freetext" aria-labelledby="qt-freetext" placeholder="Optional"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <div class="finish">
+    <div class="btn-row">
+      <button class="btn" id="collectBtn" type="button">Antworten zusammenstellen</button>
+      <span class="btn-note" id="collectNote">Erzeugt einen Text zum Kopieren — nichts wird verschickt.</span>
+    </div>
+    <textarea id="output" readonly aria-label="Zusammengestellte Antworten"></textarea>
+    <div class="btn-row" id="copyRow" style="display:none; margin-top: 0.85rem;">
+      <button class="btn" id="copyBtn" type="button">In die Zwischenablage kopieren</button>
+      <button class="btn secondary" id="downloadBtn" type="button">Als Textdatei speichern</button>
+      <span class="btn-note" id="copyNote">Danach per Mail zurückschicken.</span>
+    </div>
+    <div class="reset-row">
+      <button class="reset-link" id="resetBtn" type="button">Alle Eingaben auf diesem Gerät löschen</button>
+    </div>
+  </div>
+
+  </main>
+
+  <footer class="colophon">
+    Befragung Trailer &amp; Social-Spots · Fassung 2.2 · Datenstand
+    6. August 2026, 90-Tage-Fenster, 7.623 Posts über 204 Kanäle. Alle Eingaben
+    bleiben lokal im Browser.
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "fragebogen-trailer-2-2";
+
+  var FINDINGS = [
+    {
+      title: "Lange Videos schlagen kurze",
+      claim: "Posts, deren Video länger als 60 Sekunden läuft, landen deutlich " +
+             "häufiger einen Ausreißer als Posts mit kürzerem Video. In dieser " +
+             "Gruppe stecken vor allem die vollständigen Trailer auf YouTube.",
+      stat: "1.577 Posts · 151 Kanäle · 28,7 % Trefferquote gegen 20 % über alle Posts"
+    },
+    {
+      title: "Behind-the-Scenes: meistens schwach, manchmal sehr stark",
+      claim: "Material aus der Produktion bleibt im Regelfall unter dem, was der " +
+             "eigene Kanal sonst erreicht — bringt aber zugleich " +
+             "überdurchschnittlich oft einen Ausreißer hervor. Kein mittelmäßiges " +
+             "Format also, sondern ein schwankendes.",
+      stat: "43 Posts · 26 Kanäle · typischer Post 14 % unter dem Kanalschnitt, zugleich 27,9 % Trefferquote",
+      caveat: "Dünne Grundlage: 43 Posts. Als Tendenz zu lesen, nicht als gesicherte Zahl."
+    },
+    {
+      title: "Humor läuft am schlechtesten",
+      claim: "Posts mit humorvollem Ton landen seltener einen Ausreißer als jede " +
+             "andere ausgewertete Tonlage — etwa halb so oft wie der Durchschnitt.",
+      stat: "161 Posts · 51 Kanäle · 11,2 % Trefferquote gegen 20 % über alle Posts"
+    },
+    {
+      title: "Trailer und Teaser stechen nicht heraus",
+      claim: "Ein Post, der einen Trailer oder Teaser zeigt, hat keine bessere " +
+             "Aussicht auf einen Ausreißer als ein beliebiger anderer Post — beide " +
+             "liegen auf dem Gesamtschnitt. Erwartbar gewesen wäre, dass gerade " +
+             "das aufwendigste Material heraussticht.",
+      stat: "51 Posts (Trailer) und 37 Posts (Teaser) · 19,6 % und 18,9 % Trefferquote gegen 20 % über alle Posts",
+      caveat: "Dünne Grundlage, und der Abstand liegt unter einem Prozentpunkt — " +
+              "das ist von Zufall nicht zu unterscheiden. Bemerkenswert ist hier " +
+              "nicht die Zahl, sondern das Ausbleiben eines Vorsprungs."
+    },
+    {
+      title: "Auf TikTok ist die Tonspur egal",
+      claim: "Ob unter einem TikTok-Post der Original-Ton des Videos läuft oder " +
+             "ein lizenzierter Musiktitel, macht für die Reaktion keinen " +
+             "erkennbaren Unterschied.",
+      stat: "2.103 Posts mit Original-Ton gegen 232 mit lizenziertem Titel · Unterschied im Median unter 5 %"
+    }
+  ];
+
+  var VERDICTS = [
+    "Deckt sich mit der Erfahrung",
+    "Überraschend, aber plausibel",
+    "Widerspricht meiner Erfahrung",
+    "Kann ich nicht beurteilen"
+  ];
+
+  // Titel = was gebaut wuerde, Untertitel = was dabei herauskaeme.
+  // Bewusst nicht dabei: der Blick auf die Kanaele des Wettbewerbs — das
+  // leistet die Auswertung bereits, es waere keine echte Wahl.
+  var ROADMAP = [
+    {
+      title: "Den Einstieg aus dem Video lesen, nicht aus dem Vorschaubild",
+      sub: "Erfasst, womit ein Spot in den ersten Sekunden anfängt, und wertet aus, welche Einstiege besser laufen."
+    },
+    {
+      title: "Schnittfrequenz und Tempoverlauf messen",
+      sub: "Zählt die Schnitte und erkennt, ob ein Spot zum Ende hin beschleunigt — und ob sich das in der Reaktion niederschlägt."
+    },
+    {
+      title: "Den Musikeinsatz erfassen",
+      sub: "Hält fest, an welcher Stelle die Musik einsetzt und wie sie mit dem Schnitt zusammenfällt."
+    },
+    {
+      title: "Lange und kurze Fassung desselben Films vergleichen",
+      sub: "Zeigt, was ein Cutdown gegenüber dem Haupttrailer weglässt, verdichtet oder umstellt."
+    },
+    {
+      title: "Den besten Veröffentlichungszeitpunkt empfehlen",
+      sub: "Wertet aus, zu welcher Tageszeit und an welchem Wochentag die Posts eines Kanals am besten laufen."
+    },
+    {
+      title: "Getrennt nach Titel oder Franchise auswerten",
+      sub: "Statt einer Gesamtsicht eine eigene Auswertung je Film oder Reihe."
+    }
+  ];
+
+  var SCALE_LABELS = [
+    "1 — kaum etwas",
+    "2",
+    "3",
+    "4",
+    "5 — fast alles"
+  ];
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function optionRow(type, name, value, labelText, subText) {
+    var lab = el("label", "opt");
+    var inp = document.createElement("input");
+    inp.type = type;
+    inp.name = name;
+    inp.value = value;
+    lab.appendChild(inp);
+    var txt = el("span", "opt-text");
+    txt.appendChild(el("span", subText ? "opt-title" : null, labelText));
+    if (subText) txt.appendChild(el("span", "opt-sub", subText));
+    lab.appendChild(txt);
+    return lab;
+  }
+
+  // --- Anker: Lang-/Kurzformat-Weiche fuer die gewaehlte Fassung ---
+  var FORMAT_CLASSES = [
+    "Langformat — ab etwa einer Minute, also Haupttrailer, langer Teaser, Promo",
+    "Kurzformat — etwa 5 bis 90 Sekunden, also TV- und Social-Spot, Cutdown, Bumper"
+  ];
+  var fcBox = document.getElementById("formatClassOpts");
+  FORMAT_CLASSES.forEach(function (fc) {
+    fcBox.appendChild(optionRow("radio", "anchor_format_class", fc, fc));
+  });
+
+  // --- Bezugspunkt sichtbar halten (Teile 1 bis 3) ---
+  var focusField = document.getElementById("anchorFocus");
+  var echoes = Array.prototype.slice.call(
+    document.querySelectorAll("[data-focus-echo]")
+  );
+  function updateFocusEcho() {
+    var v = focusField.value.trim();
+    echoes.forEach(function (node) {
+      node.textContent = "";
+      if (v) {
+        node.classList.remove("empty");
+        node.appendChild(document.createTextNode("Die Fragen beziehen sich auf: "));
+        node.appendChild(el("strong", null, v));
+      } else {
+        node.classList.add("empty");
+        node.appendChild(document.createTextNode(
+          "Die Fragen beziehen sich auf die eine Fassung aus Frage A3 — "
+          + "die ist oben noch offen."
+        ));
+      }
+    });
+  }
+  focusField.addEventListener("input", updateFocusEcho);
+
+  // --- Teil 1: Hook-Skala ---
+  var scale = document.getElementById("hookScale");
+  for (var s = 1; s <= 5; s++) {
+    var lab = el("label");
+    var inp = document.createElement("input");
+    inp.type = "radio";
+    inp.name = "hook_weight";
+    inp.value = String(s);
+    inp.setAttribute("aria-label", SCALE_LABELS[s - 1]);
+    lab.appendChild(inp);
+    lab.appendChild(el("span", null, String(s)));
+    scale.appendChild(lab);
+  }
+
+  // --- Teil 5: Befunde ---
+  var findingsBox = document.getElementById("findings");
+  FINDINGS.forEach(function (f, i) {
+    var q = el("div", "q");
+
+    var head = el("div", "q-head");
+    head.appendChild(el("span", "q-num", String(12 + i)));
+    var qt = el("p", "q-text",
+      "Befund " + (i + 1) + " von " + FINDINGS.length + ": " + f.title);
+    qt.id = "qt-finding-" + i;
+    head.appendChild(qt);
+    q.appendChild(head);
+
+    var body = el("div", "q-body");
+    var card = el("div", "finding");
+    card.id = "finding-claim-" + i;
+    card.appendChild(document.createTextNode(f.claim));
+    card.appendChild(el("span", "stat", f.stat));
+    if (f.caveat) card.appendChild(el("span", "caveat", f.caveat));
+    body.appendChild(card);
+
+    var opts = el("div", "opts cols");
+    opts.setAttribute("role", "radiogroup");
+    opts.setAttribute("aria-labelledby", "qt-finding-" + i + " finding-claim-" + i);
+    VERDICTS.forEach(function (v) {
+      opts.appendChild(optionRow("radio", "finding_" + i, v, v));
+    });
+    body.appendChild(opts);
+
+    var followup = el("div", "finding-followup");
+    var flabel = el("label", null, "Woran könnte das liegen? (optional)");
+    flabel.setAttribute("for", "finding_note_" + i);
+    var ftext = document.createElement("textarea");
+    ftext.name = "finding_note_" + i;
+    ftext.id = "finding_note_" + i;
+    ftext.placeholder = "Optional";
+    followup.appendChild(flabel);
+    followup.appendChild(ftext);
+    body.appendChild(followup);
+
+    q.appendChild(body);
+    findingsBox.appendChild(q);
+  });
+
+  // --- Teil 6: Roadmap ---
+  var roadmapBox = document.getElementById("roadmap");
+  ROADMAP.forEach(function (r) {
+    roadmapBox.appendChild(
+      optionRow("checkbox", "roadmap", r.title, r.title, r.sub)
+    );
+  });
+
+  // Höchstens zwei: statt still abzuwählen, werden die übrigen Kästchen
+  // gesperrt und der Zähler sagt, woran es liegt.
+  function roadmapBoxes() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll('input[name="roadmap"]')
+    );
+  }
+  function enforceRoadmapMax() {
+    var boxes = roadmapBoxes();
+    var checked = boxes.filter(function (x) { return x.checked; });
+    var full = checked.length >= 2;
+    boxes.forEach(function (b) {
+      if (!b.checked) b.disabled = full;
+    });
+    var counter = document.getElementById("roadmapCounter");
+    if (checked.length === 0) {
+      counter.textContent = "Noch zwei Auswahlen frei.";
+    } else if (checked.length === 1) {
+      counter.textContent = "Noch eine Auswahl frei.";
+    } else {
+      counter.textContent = "Zwei ausgewählt — für eine andere Wahl zuerst eine abwählen.";
+    }
+  }
+  roadmapBox.addEventListener("change", enforceRoadmapMax);
+
+  // --- Lokales Zwischenspeichern ---
+  function allFields() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll(
+        '.wrap input[type="text"], .wrap textarea:not(#output), .wrap input[type="radio"], .wrap input[type="checkbox"]'
+      )
+    );
+  }
+  var saveTimer = 0;
+  function saveDraft() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      var data = { text: {}, radio: {}, check: [] };
+      allFields().forEach(function (f) {
+        if (f.type === "radio") {
+          if (f.checked) data.radio[f.name] = f.value;
+        } else if (f.type === "checkbox") {
+          if (f.checked) data.check.push(f.name + " " + f.value);
+        } else if (f.value.trim()) {
+          data.text[f.name] = f.value;
+        }
+      });
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      } catch (e) { /* z. B. Privatmodus — dann eben ohne Entwurf */ }
+    }, 250);
+  }
+  function restoreDraft() {
+    var raw = null;
+    try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+    if (!raw) return;
+    var data;
+    try { data = JSON.parse(raw); } catch (e) { return; }
+    if (!data || typeof data !== "object") return;
+    allFields().forEach(function (f) {
+      if (f.type === "radio") {
+        if (data.radio && data.radio[f.name] === f.value) f.checked = true;
+      } else if (f.type === "checkbox") {
+        if (Array.isArray(data.check) &&
+            data.check.indexOf(f.name + " " + f.value) !== -1) {
+          f.checked = true;
+        }
+      } else if (data.text && typeof data.text[f.name] === "string") {
+        f.value = data.text[f.name];
+      }
+    });
+  }
+  document.addEventListener("input", saveDraft);
+  document.addEventListener("change", saveDraft);
+
+  document.getElementById("resetBtn").addEventListener("click", function () {
+    var ok = window.confirm(
+      "Alle Eingaben auf diesem Gerät löschen? Das lässt sich nicht rückgängig machen."
+    );
+    if (!ok) return;
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    allFields().forEach(function (f) {
+      if (f.type === "radio" || f.type === "checkbox") {
+        f.checked = false;
+        f.disabled = false;
+      } else {
+        f.value = "";
+      }
+    });
+    var out = document.getElementById("output");
+    out.value = "";
+    out.classList.remove("show");
+    document.getElementById("copyRow").style.display = "none";
+    document.getElementById("collectNote").textContent =
+      "Erzeugt einen Text zum Kopieren — nichts wird verschickt.";
+    enforceRoadmapMax();
+    updateFocusEcho();
+    updateProgress();
+  });
+
+  // --- Fortschritt ---
+  // Zaehlt die Kernfragen: Anker (4 Textfelder + Formatklasse), erste
+  // Sekunden (3 Textfelder + Skala), Tempo (2), Musik (2),
+  // Verallgemeinerung (3), Befunde (5), Roadmap (1) = 22.
+  // Die optionalen Freitextfelder (18, Befund-Erklaerungen) zaehlen
+  // bewusst nicht mit, sonst deckelt der Balken unnoetig.
+  var CORE_TEXT_FIELDS = [
+    "anchor_project", "anchor_versions", "anchor_focus", "anchor_phase",
+    "hook_description", "hook_reasoning", "hook_success_signal",
+    "pace_change", "pace_driver",
+    "music_role", "music_silent_autoplay",
+    "format_length_diff", "genre_signature", "internal_terms"
+  ];
+  var TOTAL = CORE_TEXT_FIELDS.length + 2 /* format_class + hook_weight */ + FINDINGS.length + 1 /* roadmap */;
+
+  function answeredCount() {
+    var n = 0;
+    CORE_TEXT_FIELDS.forEach(function (name) {
+      var f = document.querySelector('textarea[name="' + name + '"], input[name="' + name + '"]');
+      if (f && f.value.trim()) n++;
+    });
+    if (document.querySelector('input[name="anchor_format_class"]:checked')) n++;
+    if (document.querySelector('input[name="hook_weight"]:checked')) n++;
+    for (var i = 0; i < FINDINGS.length; i++) {
+      if (document.querySelector('input[name="finding_' + i + '"]:checked')) n++;
+    }
+    if (document.querySelector('input[name="roadmap"]:checked')) n++;
+    return n;
+  }
+  function updateProgress() {
+    var answered = answeredCount();
+    var pct = Math.min(100, Math.round((answered / TOTAL) * 100));
+    document.getElementById("progressFill").style.width = pct + "%";
+    var rail = document.getElementById("progressRail");
+    rail.setAttribute("aria-valuenow", String(pct));
+    rail.setAttribute(
+      "aria-label",
+      "Fortschritt: " + answered + " von " + TOTAL + " Kernfragen beantwortet"
+    );
+  }
+  document.addEventListener("change", updateProgress);
+  document.addEventListener("input", updateProgress);
+
+  // --- Antworten zusammenstellen ---
+  function checkedValues(name) {
+    return Array.prototype.slice
+      .call(document.querySelectorAll('input[name="' + name + '"]:checked'))
+      .map(function (x) { return x.value; });
+  }
+  function single(name) {
+    var hit = document.querySelector('input[name="' + name + '"]:checked');
+    return hit ? hit.value : "—";
+  }
+  function textVal(sel) {
+    var n = document.querySelector(sel);
+    var v = n.value.trim();
+    return v ? v : "—";
+  }
+  document.getElementById("collectBtn").addEventListener("click", function () {
+    var L = [];
+    L.push("FRAGEBOGEN 2.2 — TRAILER & SOCIAL-SPOTS");
+    L.push("");
+    L.push("--- AUSGANGSPUNKT ---");
+    L.push("  Projekt / Genre: " + textVal('input[name="anchor_project"]'));
+    L.push("  Alle Fassungen: " + textVal('input[name="anchor_versions"]'));
+    L.push("  Betrachtete Fassung: " + textVal('input[name="anchor_focus"]'));
+    L.push("  Formatklasse: " + single("anchor_format_class"));
+    L.push("  Kampagnenphase: " + textVal('input[name="anchor_phase"]'));
+    L.push("");
+    L.push("--- TEIL 1: DIE ERSTEN SEKUNDEN ---");
+    L.push("  Beschreibung: " + textVal('textarea[name="hook_description"]'));
+    L.push("  Begründung: " + textVal('textarea[name="hook_reasoning"]'));
+    L.push("  Erfolgssignal: " + textVal('textarea[name="hook_success_signal"]'));
+    L.push("  Gewicht (1-5): " + single("hook_weight"));
+    L.push("");
+    L.push("--- TEIL 2: TEMPO UND SCHNITT ---");
+    L.push("  Tempoverlauf: " + textVal('textarea[name="pace_change"]'));
+    L.push("  Treiber der Schnittfrequenz: " + textVal('textarea[name="pace_driver"]'));
+    L.push("");
+    L.push("--- TEIL 3: MUSIK ---");
+    L.push("  Rolle der Musik: " + textVal('textarea[name="music_role"]'));
+    L.push("  Ton-aus-Szenario: " + textVal('textarea[name="music_silent_autoplay"]'));
+    L.push("");
+    L.push("--- TEIL 4: ÜBER DAS PROJEKT HINAUS ---");
+    L.push("  Länge/Format-Unterschied: " + textVal('textarea[name="format_length_diff"]'));
+    L.push("  Genre-Signatur im Schnitt: " + textVal('textarea[name="genre_signature"]'));
+    L.push("  Interne Begriffe: " + textVal('textarea[name="internal_terms"]'));
+    L.push("");
+    L.push("--- TEIL 5: BEFUNDE ---");
+    FINDINGS.forEach(function (f, i) {
+      L.push("  Befund " + (i + 1) + " (" + f.title + ")");
+      L.push("    -> " + single("finding_" + i));
+      var note = textVal('textarea[name="finding_note_' + i + '"]');
+      if (note !== "—") L.push("    Erklärung: " + note);
+    });
+    L.push("");
+    L.push("--- TEIL 6: WAS ALS NÄCHSTES GEBAUT WIRD ---");
+    var picks = checkedValues("roadmap");
+    if (picks.length) {
+      picks.forEach(function (p) { L.push("  - " + p); });
+    } else {
+      L.push("  —");
+    }
+    L.push("  Fehlt in der Liste: " + textVal('textarea[name="freetext"]'));
+
+    var out = document.getElementById("output");
+    out.value = L.join("\n");
+    out.classList.add("show");
+    out.rows = Math.min(45, L.length + 2);
+    document.getElementById("copyRow").style.display = "flex";
+    document.getElementById("collectNote").textContent =
+      answeredCount() + " von " + TOTAL + " Kernfragen beantwortet.";
+    var reduced = window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    out.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "nearest" });
+  });
+
+  document.getElementById("copyBtn").addEventListener("click", function () {
+    var out = document.getElementById("output");
+    var note = document.getElementById("copyNote");
+    function fallback() {
+      out.select();
+      try {
+        document.execCommand("copy");
+        note.textContent = "Kopiert.";
+      } catch (e) {
+        note.textContent = "Kopieren hat nicht geklappt — bitte den Text oben von Hand markieren.";
+      }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(out.value).then(function () {
+        note.textContent = "Kopiert.";
+      }, fallback);
+    } else {
+      fallback();
+    }
+  });
+
+  document.getElementById("downloadBtn").addEventListener("click", function () {
+    var out = document.getElementById("output");
+    var blob = new Blob([out.value], { type: "text/plain;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "fragebogen-trailer-antworten.txt";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    document.getElementById("copyNote").textContent =
+      "Gespeichert — die Datei kann als Mail-Anhang zurückgeschickt werden.";
+  });
+
+  // Entwurf wiederherstellen, dann Zustand einmal durchrechnen.
+  restoreDraft();
+  enforceRoadmapMax();
+  updateFocusEcho();
+  updateProgress();
+})();
+</script>
+</body>
+</html>

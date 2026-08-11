@@ -1,0 +1,18 @@
+# Statische Seite ohne Build-Schritt: Netlify legt einfach den Ordner-Inhalt ab.
+[build]
+  publish = "."
+  command = ""
+
+# Die Seite ist fuer einen ausgewaehlten Kreis gedacht, nicht fuer Suchmaschinen.
+# Der Header wirkt auch dort, wo das Meta-Tag im HTML nicht gelesen wird.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    # Keine externen Ressourcen: alles steckt in der index.html. 'unsafe-inline'
+    # ist noetig, weil CSS und Skript inline im Dokument stehen. blob: erlaubt
+    # das Speichern der Antworten als Textdatei.
+    Content-Security-Policy = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
