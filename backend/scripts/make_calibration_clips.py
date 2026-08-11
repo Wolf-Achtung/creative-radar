@@ -20,7 +20,7 @@ Drei Profile:
   gemischt        beides gemischt, je Clip zufaellig
 
 Beispiel:
-  python scripts/make_calibration_clips.py --out kalibrierung --clips 5
+  python3 -m scripts.make_calibration_clips --out kalibrierung --clips 5
   # -> kalibrierung/clip_01.mp4 + kalibrierung/clip_01.wahrheit.json ...
 
 Benoetigt ffmpeg im PATH. Laeuft lokal (Mac reicht), nicht auf Railway.
@@ -161,7 +161,7 @@ def main() -> int:
     print(
         f"\nFertig. Kalibrieren: Clips im Annotator (Modus 'Lokale Datei') "
         f"tippen, dann je Clip:\n"
-        f"  python scripts/evaluate_annotations.py calibrate "
+        f"  python3 -m scripts.evaluate_annotations calibrate "
         f"--annotation IHRE.json --truth {out_dir}/clip_01.wahrheit.json"
     )
     return 0
