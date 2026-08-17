@@ -52,6 +52,12 @@ def db():
 def client_with_auth(db, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "auth_enabled", True, raising=False)
     monkeypatch.setattr(settings, "api_token", "TESTTOKEN", raising=False)
+    # Audit 2026-08-17: sync-all akzeptiert das allgemeine API_TOKEN nicht
+    # mehr (require_cron_trigger_auth) — die Pipeline-Tests hier fahren wie
+    # der GitHub-Action-Fallback ueber den dedizierten Cron-Token. Der
+    # Ablehnungs-Vertrag fuer das Haupt-Token steht in
+    # test_audit_2026_08_17.py.
+    monkeypatch.setattr(settings, "cron_api_token", "TESTTOKEN", raising=False)
     monkeypatch.setattr(settings, "apify_api_token", "TEST", raising=False)
     monkeypatch.setattr(settings, "apify_instagram_actor_id", "test/instagram", raising=False)
     monkeypatch.setattr(settings, "apify_tiktok_actor_id", "test/tiktok", raising=False)

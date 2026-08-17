@@ -1,0 +1,46 @@
+# Audit 2026-08-17: Frontend-Tests liefen bisher in keiner CI — vitest nur
+# lokal, und src/api/imageUrl.test.mjs (node:test) wurde von gar keinem
+# Runner ausgefuehrt. Lint bleibt bewusst draussen (34 Bestandsfehler,
+# opt-in wie Ruff im Backend); der Build-Step faengt Vite-/Import-Bruch,
+# bevor Netlify ihn im Deploy findet.
+name: Frontend tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-tests.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-tests.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Vitest
+        run: npm test
+
+      - name: Node-Tests (imageUrl)
+        run: npm run test:node
+
+      - name: Build
+        run: npm run build

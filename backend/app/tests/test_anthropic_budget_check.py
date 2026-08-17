@@ -73,6 +73,10 @@ def db():
 def client_with_auth(db, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "auth_enabled", True, raising=False)
     monkeypatch.setattr(settings, "api_token", "TESTTOKEN", raising=False)
+    # Audit 2026-08-17: sync-all verlangt den dedizierten Cron-Token oder
+    # eine Admin-Session (require_cron_trigger_auth) — Haupt-Token reicht
+    # nicht mehr; diese Tests fahren den GitHub-Action-Pfad.
+    monkeypatch.setattr(settings, "cron_api_token", "TESTTOKEN", raising=False)
     # Apify config: required for the cron pre-flight to even get past
     # its Apify-side check (which runs first). Lock to Wolf-spec defaults
     # so the Apify cap doesn't accidentally fire and mask the Anthropic

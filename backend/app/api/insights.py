@@ -4,10 +4,12 @@ from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request
 from sqlmodel import Session, select
 
+from app.admin_session import require_admin_session
 from app.database import get_session
+from app.services.rate_limit import rate_limit
 from app.services.usage_log import log_usage
 from app.user_session import request_user_email
 
@@ -338,10 +340,14 @@ def weekly(
         description=(
             "True = Cache-Lookup überspringen und neuen LLM-Call ausführen. "
             "Der frisch generierte Brief wird trotzdem persistiert "
-            "(Last-Write-Wins). Hat keine Wirkung bei dry_run=true."
+            "(Last-Write-Wins). Hat keine Wirkung bei dry_run=true. "
+            "Audit 2026-08-17: verlangt eine Admin-Session — jeder Aufruf "
+            "kostet einen Opus-Call und überschreibt den persistierten Brief."
         ),
     ),
     session: Session = Depends(get_session),
+    cr_admin_session: str | None = Cookie(default=None),
+    cr_user_session: str | None = Cookie(default=None),
 ) -> InsightReport:
     """Generiere bzw. lade den Trailerhaus-Wochenreport für einen Pair.
 
@@ -382,6 +388,15 @@ def weekly(
             status_code=404,
             detail=f"Unbekannter Pair-Key: {pair!r}. Verfügbar: {_enabled_pair_keys()}",
         )
+    # Audit 2026-08-17: force=true loest garantiert einen frischen Opus-Call
+    # aus und ueberschreibt den persistierten Brief (Last-Write-Wins). Vorher
+    # reichte der Bearer aus dem oeffentlichen Frontend-Bundle — jeder
+    # Token-Besitzer konnte in einer Schleife Budget verbrennen und Briefs
+    # umschreiben. Jetzt Admin-Session Pflicht (No-Op solange
+    # ADMIN_AUTH_ENABLED aus ist — Production erzwingt das Flag per
+    # Boot-Check in main.py). dry_run bleibt frei: kein LLM-Call.
+    if force and not dry_run:
+        require_admin_session(request, cr_admin_session, cr_user_session)
     # Sprint User-Login 2026-07: „Brief <pair> geoeffnet" — nach der
     # Pair-Validierung, vor dem Cache-/LLM-Pfad (Cache-Hit und frische
     # Generierung sind aus Nutzersicht dieselbe Ansicht). dry_run ist
@@ -734,7 +749,15 @@ def market_timeline(
     )
 
 
-@router.post("/forecast", response_model=ForecastResponse)
+@router.post(
+    "/forecast",
+    response_model=ForecastResponse,
+    # Audit 2026-08-17: ein Cache-Miss loest genau einen Opus-Call aus —
+    # ohne Limit konnte jeder Token-Besitzer per Schleife Budget verbrennen
+    # (Deckel war erst der Monats-Hard-Cap). 10 Aufrufe / 5 Min / IP decken
+    # normales UI-Verhalten (ein Aufruf pro Pair-Ansicht) locker ab.
+    dependencies=[Depends(rate_limit("insights-forecast", max_calls=10, window_seconds=300))],
+)
 def public_forecast(
     request: Request,
     pair: str = Query(..., description="Pair-Key, z.B. 'warnerbros'"),

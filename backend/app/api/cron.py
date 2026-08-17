@@ -26,11 +26,14 @@ import time
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+import hmac
+
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
+from app.admin_session import user_session_is_admin, verify_session_token
 from app.config import settings
 from app.database import engine, get_session
 from app.models.entities import (
@@ -1953,7 +1956,49 @@ async def _run_cron_sync_background_impl(
             await _ping_cron_heartbeat(success=False)
 
 
-@router.post("/sync-all")
+def require_cron_trigger_auth(
+    request: Request,
+    cr_admin_session: str | None = Cookie(default=None),
+    cr_user_session: str | None = Cookie(default=None),
+) -> None:
+    """Audit 2026-08-17: sync-all nur noch per Admin-Session ODER dediziertem
+    ``CRON_API_TOKEN``. Das allgemeine ``API_TOKEN`` liegt im oeffentlichen
+    Frontend-Bundle (client.js, dort als "effectively public" dokumentiert)
+    und berechtigt nicht mehr zum Ausloesen des teuersten Endpoints. Die
+    Bearer-Middleware (app/auth.py) prueft weiterhin, DASS ein gueltiger
+    Token vorliegt — hier wird geprueft, WELCHER.
+
+    Akzeptierte Aufrufer:
+    - Admin-UI: gueltige Admin-Session (Cookie) oder Admin-User-Session.
+    - GitHub-Action-Fallback: ``Authorization: Bearer <CRON_API_TOKEN>``.
+    - Dev/Tests ohne jede Auth-Schicht (beide Master-Schalter aus): offen —
+      Production erzwingt beide Schalter per Boot-Check in main.py.
+    """
+    if not settings.auth_enabled and not settings.admin_auth_enabled:
+        return
+    if settings.admin_auth_enabled:
+        if user_session_is_admin(cr_user_session):
+            return
+        secret = settings.admin_session_secret
+        if secret and cr_admin_session and verify_session_token(cr_admin_session, secret):
+            return
+    cron_token = settings.cron_api_token
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+    presented = auth_header.removeprefix("Bearer ").strip()
+    if cron_token and presented and hmac.compare_digest(
+        presented.encode("utf-8"), cron_token.encode("utf-8")
+    ):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "sync-all verlangt eine Admin-Session oder den dedizierten "
+            "CRON_API_TOKEN — das allgemeine API_TOKEN reicht nicht mehr."
+        ),
+    )
+
+
+@router.post("/sync-all", dependencies=[Depends(require_cron_trigger_auth)])
 async def cron_sync_all(
     background_tasks: BackgroundTasks,
     target_week: str = Query(

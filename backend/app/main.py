@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,7 +29,86 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Creative Radar API", version="1.0.0")
+def _guard_production_auth() -> None:
+    """Boot-Check (Audit 2026-08-17): alle Auth-Flags defaulten auf "aus"
+    (staged Rollout). Faellt in Railway eine ENV-Variable weg, war die API
+    bisher still oeffentlich — nur ein Log-Eintrag verriet es. In Production
+    bricht der Boot jetzt ab, statt offen zu starten. Bewusster Betrieb ohne
+    Auth (z.B. waehrend eines Incidents am Auth-Code selbst) bleibt moeglich:
+    ALLOW_AUTH_DISABLED_IN_PRODUCTION=true ist der explizite Override."""
+    if settings.app_env != "production" or settings.allow_auth_disabled_in_production:
+        return
+    missing = [
+        name
+        for enabled, name in (
+            (settings.auth_enabled, "AUTH_ENABLED"),
+            (settings.admin_auth_enabled, "ADMIN_AUTH_ENABLED"),
+        )
+        if not enabled
+    ]
+    if missing:
+        raise RuntimeError(
+            "APP_ENV=production, aber "
+            + ", ".join(missing)
+            + " ist nicht aktiv — die API waere offen erreichbar. Entweder die "
+            "Flags in Railway setzen oder bewusst mit "
+            "ALLOW_AUTH_DISABLED_IN_PRODUCTION=true ueberschreiben."
+        )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Audit 2026-08-17: vorher @app.on_event("startup") — deprecated seit
+    # FastAPI 0.93. Der Handler startet u.a. den Wochen-Cron-Scheduler;
+    # waere on_event in einem kuenftigen Starlette-Release entfernt worden,
+    # haette der Montagslauf still gefehlt. Inhalt unveraendert uebernommen.
+    _guard_production_auth()
+    create_db_and_tables()
+    # Incident 2026-07-13: OPENAI_MODEL war in Railway auf "gpt-5.4-nano"
+    # gesetzt, obwohl Code-Default und alle Pricing-Kommentare fuer
+    # "gpt-5.4-mini" ausgelegt waren -- dieser Drift blieb eine ganze
+    # Session lang unbemerkt, weil sich Railway-ENV-Werte nirgends im Log
+    # zeigen. Ein Log-Eintrag beim Start macht das ab jetzt in jedem
+    # Railway-Log-Sichtbarkeitsfenster sofort sichtbar, ohne dass jemand
+    # manuell die ENV-Liste ziehen muss.
+    # app_env/mock_external_apis/cron_scheduler stehen bewusst VORNE
+    # (Staging-Setup 2026-08-06): beim ersten Staging-Deploy war APP_ENV
+    # unbemerkt auf "production" geblieben — der Boot-Check war damit ein
+    # No-Op und der Wochen-Cron lief an. Beides war nur indirekt am
+    # "cron_scheduler.started" erkennbar. Diese Zeile beantwortet
+    # "in welcher Umgebung laeuft dieser Container eigentlich?" auf einen
+    # Blick, ohne die ENV-Liste zu ziehen.
+    from app.services.cron_scheduler import is_scheduler_enabled  # noqa: PLC0415
+
+    logger.info(
+        "startup.resolved_config app_env=%s mock_external_apis=%s "
+        "cron_scheduler=%s storage_backend=%s openai_model=%s "
+        "anthropic_sonnet_model=%s auth_enabled=%s admin_auth_enabled=%s",
+        settings.app_env,
+        settings.mock_external_apis,
+        "on" if is_scheduler_enabled() else "off",
+        settings.storage_backend,
+        settings.openai_model,
+        settings.anthropic_sonnet_model,
+        settings.auth_enabled,
+        settings.admin_auth_enabled,
+    )
+    # Incident 2026-07-13: der bisherige alleinige Trigger (GitHub Actions
+    # Schedule) feuerte woechentlich 1,5-4,5h zu spaet. Der Loop unten laeuft
+    # im selben Prozess und pollt die Uhrzeit selbst -- keine externe
+    # Runner-Queue mehr im Trigger-Pfad. Referenz auf app.state, damit die
+    # Task nicht vom GC eingesammelt wird (asyncio-Empfehlung fuer
+    # "fire-and-forget"-Tasks).
+    app.state.cron_scheduler_task = asyncio.create_task(run_scheduler_loop())
+    try:
+        yield
+    finally:
+        task = getattr(app.state, "cron_scheduler_task", None)
+        if task is not None:
+            task.cancel()
+
+
+app = FastAPI(title="Creative Radar API", version="1.0.0", lifespan=lifespan)
 
 # Order: register auth_middleware FIRST so CORSMiddleware (added second) sits
 # outermost and handles preflight before auth runs. Starlette executes
@@ -88,47 +168,6 @@ storage_candidates = [
 storage_path = next((candidate for candidate in storage_candidates if candidate.exists()), storage_candidates[0])
 storage_path.mkdir(parents=True, exist_ok=True)
 app.mount("/storage", StaticFiles(directory=str(storage_path)), name="storage")
-
-
-@app.on_event("startup")
-async def on_startup():
-    create_db_and_tables()
-    # Incident 2026-07-13: OPENAI_MODEL war in Railway auf "gpt-5.4-nano"
-    # gesetzt, obwohl Code-Default und alle Pricing-Kommentare fuer
-    # "gpt-5.4-mini" ausgelegt waren -- dieser Drift blieb eine ganze
-    # Session lang unbemerkt, weil sich Railway-ENV-Werte nirgends im Log
-    # zeigen. Ein Log-Eintrag beim Start macht das ab jetzt in jedem
-    # Railway-Log-Sichtbarkeitsfenster sofort sichtbar, ohne dass jemand
-    # manuell die ENV-Liste ziehen muss.
-    # app_env/mock_external_apis/cron_scheduler stehen bewusst VORNE
-    # (Staging-Setup 2026-08-06): beim ersten Staging-Deploy war APP_ENV
-    # unbemerkt auf "production" geblieben — der Boot-Check war damit ein
-    # No-Op und der Wochen-Cron lief an. Beides war nur indirekt am
-    # "cron_scheduler.started" erkennbar. Diese Zeile beantwortet
-    # "in welcher Umgebung laeuft dieser Container eigentlich?" auf einen
-    # Blick, ohne die ENV-Liste zu ziehen.
-    from app.services.cron_scheduler import is_scheduler_enabled  # noqa: PLC0415
-
-    logger.info(
-        "startup.resolved_config app_env=%s mock_external_apis=%s "
-        "cron_scheduler=%s storage_backend=%s openai_model=%s "
-        "anthropic_sonnet_model=%s auth_enabled=%s admin_auth_enabled=%s",
-        settings.app_env,
-        settings.mock_external_apis,
-        "on" if is_scheduler_enabled() else "off",
-        settings.storage_backend,
-        settings.openai_model,
-        settings.anthropic_sonnet_model,
-        settings.auth_enabled,
-        settings.admin_auth_enabled,
-    )
-    # Incident 2026-07-13: der bisherige alleinige Trigger (GitHub Actions
-    # Schedule) feuerte woechentlich 1,5-4,5h zu spaet. Der Loop unten laeuft
-    # im selben Prozess und pollt die Uhrzeit selbst -- keine externe
-    # Runner-Queue mehr im Trigger-Pfad. Referenz auf app.state, damit die
-    # Task nicht vom GC eingesammelt wird (asyncio-Empfehlung fuer
-    # "fire-and-forget"-Tasks).
-    app.state.cron_scheduler_task = asyncio.create_task(run_scheduler_loop())
 
 
 app.include_router(health.router)

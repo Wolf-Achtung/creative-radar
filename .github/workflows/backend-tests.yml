@@ -30,7 +30,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:13
+        image: postgres:18
         env:
           POSTGRES_USER: cr
           POSTGRES_PASSWORD: cr
@@ -64,11 +64,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
-          # pytest itself is not in requirements.txt — only pytest-asyncio,
-          # which transitively pulls pytest in. Pin explicitly so the CI
-          # cannot drift if pytest-asyncio ever drops the dependency.
-          pip install pytest
+          # Audit 2026-08-17: requirements-dev.txt inkludiert requirements.txt
+          # und liefert pytest/pytest-asyncio — die Test-Tools liegen nicht
+          # mehr in den Prod-Requirements.
+          pip install -r backend/requirements-dev.txt
 
       - name: Wait for postgres readiness
         run: |

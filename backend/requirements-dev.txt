@@ -1,0 +1,7 @@
+# Test-/Dev-Werkzeuge — bewusst getrennt von requirements.txt, damit sie
+# nicht mehr ins Railway-Prod-Image wandern (Audit 2026-08-17; vorher lag
+# pytest-asyncio in den Prod-Requirements). CI installiert beide Dateien.
+-r requirements.txt
+pytest>=8
+pytest-asyncio>=0.23
+ruff
