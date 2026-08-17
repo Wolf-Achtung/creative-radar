@@ -1,6 +1,9 @@
-# Creative Radar v1
+# Creative Radar
 
 Online-first Monorepo für ein internes KI-gestütztes Creative Monitoring im Film-, Serien- und Game-Marketing.
+
+**Stand August 2026** (README-Refresh im Audit 2026-08-17 — der alte Text beschrieb noch den v1-MVP mit manuellem Import):
+Der wöchentliche Cron (Montag 03:00 UTC, in-process im Railway-Backend) sammelt via Apify und YouTube-API rund 500 Posts pro Woche über **Instagram, TikTok und YouTube**, analysiert Standbilder per Vision-Modell, klassifiziert Posts (Format/Ton/Zweck) und generiert Wochen-Briefs, Segment-Roundups und Cutter-/Designer-Briefings per LLM. Ein Mensch kuratiert weiterhin vor jedem Report. Drei Auth-Schichten (Bearer, Admin-Session, E-Mail-Login), Monats-Budget-Caps für alle Provider, Cost-Logging pro Call. Aktueller Arbeitsschwerpunkt: **Trailer Intelligence Stufe 5** (Schnitt-Rhythmus-Analyse, siehe `docs/TRAILER_INTELLIGENCE_STUFE5_PLAN_B.md`).
 
 ## Lokal starten in drei Befehlen
 
@@ -17,15 +20,15 @@ API: http://localhost:8000 · Frontend: http://localhost:5173 · DB (Adminer): h
 
 ## Projektlogik
 
-Creative Radar v1 dokumentiert relevante Social-Media-Treffer zu einer gepflegten Titel-/Franchise-Whitelist. Der MVP startet bewusst mit manuellem Post-Link-Import statt automatischem Instagram-Scraping.
+Creative Radar dokumentiert relevante Social-Media-Treffer zu einer gepflegten Titel-/Franchise-Whitelist (TMDb-gestützt) und verdichtet sie zu evidenzbasierten Wochen-Briefings je Studio-Pair.
 
-**Workflow v1:**
+**Workflow (Produktion):**
 
-1. Channels und Whitelist im System anlegen.
-2. Relevante Instagram-Post-Links manuell importieren.
-3. KI-/Platzhalter-Zusammenfassung erzeugen lassen.
-4. Mensch kuratiert: Approve / Highlight / Reject.
-5. Weekly Report als HTML-Draft erzeugen.
+1. Channels, Pairs und Titel-Whitelist im System pflegen.
+2. Montags-Cron: Scrape (Apify/YouTube) → Vision-Analyse → Post-Klassifikation → Title-Sync → Rematch.
+3. Brief-/Roundup-Generierung (LLM) mit Citation-Prüfung und Budget-Caps.
+4. Mensch kuratiert: Approve / Highlight / Reject; manueller Instagram-Link-Import bleibt als Ergänzung.
+5. Reports und Briefings im Dashboard; HTML-Export.
 
 ## Monorepo-Struktur
 
@@ -66,24 +69,21 @@ Die ausführliche Schritt-für-Schritt-Anleitung steht in:
 docs/online_only_setup.md
 ```
 
-## Scope v1
+## Scope
 
-Enthalten:
+Enthalten (Stand August 2026):
 
-- Instagram/Public-Post-Monitoring zunächst als manueller Import
-- Whitelist-basierte Relevanzprüfung
-- Asset-Typen: Trailer, Teaser, Poster, Story, Kinetic, Character Card, Review Quote, CTA Post, Unknown
-- menschliche Freigabe vor Report
-- Weekly Report als HTML
-- Dashboard für Import, Review und Report-Draft
+- Automatische Sammlung: Instagram, TikTok (Apify), YouTube (Data API)
+- Whitelist-basierte Relevanzprüfung, Titel-Matching gegen TMDb
+- Vision-Analyse von Post-Standbildern; Post-Klassifikation (Format/Ton/Zweck/Lifecycle)
+- LLM-Wochen-Briefs, Segment-Roundups, Cutter-/Designer-Briefings — mit menschlicher Freigabe
+- Manuelle Trailer-Schnitt-Annotation (Tap-Along-Annotator, `tools/`) für Stufe 5
 
 Nicht enthalten:
 
-- echtes Klicktracking
-- Performance-Ranking
-- automatische Instagram-Sammlung
-- TikTok/YouTube/Facebook
-- automatische kreative Bewertung
+- echtes Klicktracking, Performance-Ranking fremder Accounts
+- Video-Download von Drittplattformen (bewusste ToS-Entscheidung, siehe `docs/TRAILER_INTELLIGENCE_STUFE5_PLAN_B.md`)
+- automatische Video-Frame-Analyse (P2-Backlog F2.9)
 - Versand ohne menschliche Freigabe
 
 ## Wichtige Leitplanke

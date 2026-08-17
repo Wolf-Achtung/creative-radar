@@ -174,10 +174,25 @@ class Settings(BaseSettings):
     # (Least-Privilege: kann nur den Wochen-Sync ausloesen). Zweck:
     # entkoppelt den GitHub-Action-Wochenlauf vom rotationsempfindlichen
     # Haupt-``API_TOKEN`` — eine Rotation des Haupt-Tokens reisst den Cron
-    # nicht mehr mit (Ausfall 15.06.). Optional: ist der Wert nicht gesetzt,
-    # faellt der Cron auf den Haupt-Token zurueck (Backward-Compat). Rotation
-    # siehe docs/ROTATION.md.
+    # nicht mehr mit (Ausfall 15.06.). Audit 2026-08-17: der fruehere
+    # Fallback auf den Haupt-Token ist abgeschafft — das Haupt-``API_TOKEN``
+    # liegt im oeffentlichen Frontend-Bundle und berechtigt nicht mehr zum
+    # Ausloesen des teuersten Endpoints (siehe app/api/cron.py,
+    # ``require_cron_trigger_auth``). Rotation siehe docs/ROTATION.md.
     cron_api_token: str | None = None
+
+    # Audit 2026-08-17: Boot-Check in main.py. Production mit deaktivierter
+    # Auth (AUTH_ENABLED/ADMIN_AUTH_ENABLED) bricht den Start ab, statt die
+    # API still offen zu servieren. true = bewusster Override, z.B. waehrend
+    # eines Incidents am Auth-Code selbst.
+    allow_auth_disabled_in_production: bool = False
+
+    # Audit 2026-08-17 (SSRF): der Link-Preview-Fetch in
+    # services/link_preview.py folgt nur noch Zielen auf diesen Host-
+    # Suffixen (gleiche Semantik wie IMAGE_PROXY_ALLOWED_HOSTS). Alles
+    # andere — insbesondere Railway-interne Hosts — wird nicht gefetcht,
+    # der Import faellt auf "link-only" zurueck.
+    link_preview_allowed_hosts: str = "instagram.com,instagr.am"
 
     # Sprint 28.05.2026 (Admin-Login) — zweite Auth-Schicht ueber dem
     # Bearer-Token. Bearer beantwortet "richtiges Frontend?", die
@@ -425,10 +440,22 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origins(self) -> list[str]:
-        raw = self.cors_origins or self.frontend_url or "*"
-        if raw.strip() == "*":
-            return ["*"]
-        return [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+        # Audit 2026-08-17: "*" wird nicht mehr durchgereicht. Die App faehrt
+        # allow_credentials=True (Session-Cookies) — mit allow_origins=["*"]
+        # spiegelt Starlette den Request-Origin, und jede fremde Website
+        # koennte credentialed Cross-Origin-Requests senden. Wildcard- und
+        # Leer-Konfiguration fallen darum auf den festen Produktions-Origin
+        # zurueck; mehrere Origins weiterhin als komma-separierte Liste.
+        raw = self.cors_origins or self.frontend_url or ""
+        origins = [
+            item.strip().rstrip("/")
+            for item in raw.split(",")
+            if item.strip() and item.strip() != "*"
+        ]
+        if not origins:
+            fallback = (self.frontend_url or "https://app.creative-radar.de").strip()
+            return [fallback.rstrip("/")] if fallback != "*" else ["https://app.creative-radar.de"]
+        return origins
 
     @property
     def admin_user_email_set(self) -> frozenset[str]:
@@ -441,6 +468,10 @@ class Settings(BaseSettings):
     @property
     def image_proxy_host_suffixes(self) -> list[str]:
         return [item.strip().lower().lstrip(".") for item in self.image_proxy_allowed_hosts.split(",") if item.strip()]
+
+    @property
+    def link_preview_host_suffixes(self) -> list[str]:
+        return [item.strip().lower().lstrip(".") for item in self.link_preview_allowed_hosts.split(",") if item.strip()]
 
 
 settings = Settings()

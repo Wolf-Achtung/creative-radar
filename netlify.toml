@@ -42,3 +42,31 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Security-Header (Audit 2026-08-17): Netlify setzt keine dieser Header von
+# selbst — bislang kam das Prod-HTML komplett ohne aus (das Backend setzt
+# dieselben drei bereits auf allen API-Antworten, main.py). X-Frame-Options
+# DENY blockiert Clickjacking der Login-/Admin-UI per iframe; die App bettet
+# sich selbst nirgends ein. Bewusst OHNE Content-Security-Policy: eine CSP
+# muss erst gegen die real geladenen Ressourcen (API-Bilder, R2/CDN-URLs)
+# getestet werden, sonst bricht sie still die Bild-Anzeige — siehe Audit-
+# Report, als eigener Schritt vorgeschlagen.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    # HSTS (Audit-Schritt 5, 2026-08-17): Site ist HTTPS-only, Netlify stellt
+    # die Zertifikate. Kein includeSubDomains — der Header gilt nur fuer
+    # app.creative-radar.de, api.* setzt seine Header selbst (main.py).
+    Strict-Transport-Security = "max-age=31536000"
+    # CSP nach Ressourcen-Inventur (Audit-Schritt 5): Bundle-JS/CSS sind
+    # self; Bilder kommen ueber api.creative-radar.de (storage/thumbnails/
+    # img-Proxy, siehe imageUrl.js); fetch() geht an api.* (client.js) und
+    # relativ an /api/* (Report-Downloads via Netlify-Proxy). style-src
+    # braucht 'unsafe-inline' fuer React-style-Attribute und die inline
+    # gestylte Report-Vorschau (ReportsPanel iframe srcDoc). Kein externes
+    # Font-/Script-CDN im Einsatz. Nach Aenderungen an Bildquellen hier
+    # nachziehen — Verstoesse erscheinen in der Browser-Konsole.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.creative-radar.de; connect-src 'self' https://api.creative-radar.de; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

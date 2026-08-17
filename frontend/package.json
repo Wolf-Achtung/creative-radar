@@ -12,7 +12,8 @@
     "postbuild:staging": "node scripts/staging-headers.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:node": "node --test src/api/imageUrl.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.0.1",

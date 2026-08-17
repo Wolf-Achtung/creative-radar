@@ -1,9 +1,34 @@
 import re
 from html import unescape
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+
+from app.config import settings
+
+# Audit 2026-08-17 (SSRF): dieser Service hat vorher JEDE URL mit
+# follow_redirects=True gefetcht und Titel/Metadaten zurueckgegeben — damit
+# liess sich das Railway-interne Netz (postgres.railway.internal & Co.)
+# scannen und Response-Inhalte auslesen. Jetzt gilt dasselbe Muster wie im
+# Image-Proxy (app/api/proxy.py): Host-Allowlist + Redirect-Re-Validierung
+# pro Hop, http/https only. Nicht erlaubte Ziele werden NICHT gefetcht; der
+# Aufrufer bekommt das unveraenderte "link-only"-Resultat — kein Breaking
+# Change fuer den Admin-Import-Flow.
+_MAX_REDIRECTS = 5
+
+
+def _host_is_allowed(host: str) -> bool:
+    host_lower = (host or "").lower().rsplit(":", 1)[0]
+    for suffix in settings.link_preview_host_suffixes:
+        if host_lower == suffix or host_lower.endswith("." + suffix):
+            return True
+    return False
+
+
+def _url_is_fetchable(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc) and _host_is_allowed(parsed.netloc)
 
 
 def infer_instagram_handle(url: str) -> str | None:
@@ -31,9 +56,26 @@ async def fetch_public_preview(url: str) -> dict:
         'User-Agent': 'Mozilla/5.0 CreativeRadar/1.0',
         'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
     }
+    if not _url_is_fetchable(url):
+        return result
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=headers) as client:
-            response = await client.get(url)
+        # follow_redirects bewusst aus: jeder Redirect-Hop wird selbst gegen
+        # die Allowlist geprueft, sonst waere ein Redirect von instagram.com
+        # auf einen internen Host der triviale Bypass.
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False, headers=headers) as client:
+            current_url = url
+            for _ in range(_MAX_REDIRECTS + 1):
+                response = await client.get(current_url)
+                if response.status_code not in (301, 302, 303, 307, 308):
+                    break
+                location = response.headers.get("location")
+                if not location:
+                    return result
+                current_url = urljoin(current_url, location)
+                if not _url_is_fetchable(current_url):
+                    return result
+            else:
+                return result
             if response.status_code >= 400:
                 return result
             html = response.text

@@ -35,12 +35,16 @@ def _pg_url_from_parts() -> str | None:
 
 
 def resolve_database_url() -> str:
+    # Normalisierung hier statt erst am Modul-Level-DATABASE_URL, damit ALLE
+    # Aufrufer (App, migrations/env.py, scripts/db_bootstrap.py) denselben
+    # psycopg3-Treiber sehen — sonst liefe Alembic nach dem Entfernen von
+    # psycopg2-binary in einen ImportError.
     for candidate in (settings.database_url, settings.database_private_url, settings.database_public_url):
         if _is_valid_database_url(candidate):
-            return _clean_url(candidate)
+            return _normalize_pg_driver(_clean_url(candidate))
     pg_url = _pg_url_from_parts()
     if pg_url:
-        return pg_url
+        return _normalize_pg_driver(pg_url)
     if settings.allow_sqlite_fallback:
         return "sqlite:///./creative_radar.db"
     raise RuntimeError(
@@ -73,6 +77,24 @@ def _guard_staging_database(url: str) -> None:
             f"STAGING_EXPECTED_DB_HOST={expected!r}. Boot verweigert — das "
             "ist mit hoher Wahrscheinlichkeit eine kopierte Prod-DB-URL."
         )
+
+
+def _normalize_pg_driver(url: str) -> str:
+    """Audit 2026-08-17: ein Postgres-Treiber statt zwei. SQLAlchemy
+    default-dialektet ein nacktes ``postgresql://`` (Railway-Standard) auf
+    psycopg2 — dadurch fuhr Prod faktisch auf psycopg2, waehrend psycopg (v3)
+    als zweiter, praktisch ungenutzter Treiber mit im Image lag. Beide
+    URL-Formen werden jetzt auf ``postgresql+psycopg://`` (v3) normalisiert;
+    ``psycopg2-binary`` ist aus den Requirements gestrichen. Rollback bei
+    Treiber-Problemen: psycopg2-binary wieder eintragen und diese Funktion
+    zum Pass-Through machen. Alle bestehenden connect_args (connect_timeout,
+    keepalives*, options) sind libpq-Parameter, die psycopg3 genauso
+    versteht — siehe ``_build_connect_args``."""
+    if url.startswith("postgresql+psycopg2://"):
+        return "postgresql+psycopg://" + url[len("postgresql+psycopg2://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
 
 
 DATABASE_URL = resolve_database_url()

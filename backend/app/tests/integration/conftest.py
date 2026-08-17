@@ -66,7 +66,12 @@ def pg_engine():
     if not _is_postgres_url(url):
         pytest.skip(PG_SKIP_REASON)
 
-    engine = create_engine(url, future=True)
+    # Audit 2026-08-17: psycopg2 ist entfernt; ein rohes "postgresql://"
+    # aus der CI-ENV wuerde SQLAlchemy sonst auf den psycopg2-Dialekt
+    # schicken (ModuleNotFoundError). Gleiche Normalisierung wie die App.
+    from app.database import _normalize_pg_driver  # noqa: PLC0415
+
+    engine = create_engine(_normalize_pg_driver(url), future=True)
     try:
         yield engine
     finally:

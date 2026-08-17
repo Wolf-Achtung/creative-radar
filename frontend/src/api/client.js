@@ -3,7 +3,9 @@ import { buildProxyImageUrl } from './imageUrl.js';
 const DEFAULT_API_BASE = 'https://api.creative-radar.de';
 
 function resolveApiBase() {
-  const configured = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '').trim();
+  // trim() vor replace(): bei "http://host/ " (Slash + Leerzeichen) wuerde
+  // der Slash sonst stehen bleiben und Doppel-Slash-URLs erzeugen.
+  const configured = (import.meta.env.VITE_API_BASE || '').trim().replace(/\/+$/, '');
   if (!configured) return DEFAULT_API_BASE;
   try {
     const url = new URL(configured.startsWith('http') ? configured : `https://${configured}`);
