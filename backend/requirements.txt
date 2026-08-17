@@ -10,7 +10,10 @@ psycopg[binary]==3.3.4
 psycopg2-binary==2.9.12
 httpx==0.28.1
 openai==2.45.0
-anthropic>=0.40.0
+# Audit 2026-08-17: war ">=0.40.0" — als einziges SDK ungepinnt, jedes
+# Deploy zog still die jeweils neueste Version. Pin auf den zuletzt
+# verifizierten Stand; Upgrades ab jetzt bewusst per Commit.
+anthropic==0.122.0
 alembic==1.18.5
 boto3>=1.34.0,<2.0.0
 beautifulsoup4==4.15.0

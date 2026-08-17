@@ -42,3 +42,18 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Security-Header (Audit 2026-08-17): Netlify setzt keine dieser Header von
+# selbst — bislang kam das Prod-HTML komplett ohne aus (das Backend setzt
+# dieselben drei bereits auf allen API-Antworten, main.py). X-Frame-Options
+# DENY blockiert Clickjacking der Login-/Admin-UI per iframe; die App bettet
+# sich selbst nirgends ein. Bewusst OHNE Content-Security-Policy: eine CSP
+# muss erst gegen die real geladenen Ressourcen (API-Bilder, R2/CDN-URLs)
+# getestet werden, sonst bricht sie still die Bild-Anzeige — siehe Audit-
+# Report, als eigener Schritt vorgeschlagen.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"

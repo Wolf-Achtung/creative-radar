@@ -425,10 +425,22 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origins(self) -> list[str]:
-        raw = self.cors_origins or self.frontend_url or "*"
-        if raw.strip() == "*":
-            return ["*"]
-        return [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+        # Audit 2026-08-17: "*" wird nicht mehr durchgereicht. Die App faehrt
+        # allow_credentials=True (Session-Cookies) — mit allow_origins=["*"]
+        # spiegelt Starlette den Request-Origin, und jede fremde Website
+        # koennte credentialed Cross-Origin-Requests senden. Wildcard- und
+        # Leer-Konfiguration fallen darum auf den festen Produktions-Origin
+        # zurueck; mehrere Origins weiterhin als komma-separierte Liste.
+        raw = self.cors_origins or self.frontend_url or ""
+        origins = [
+            item.strip().rstrip("/")
+            for item in raw.split(",")
+            if item.strip() and item.strip() != "*"
+        ]
+        if not origins:
+            fallback = (self.frontend_url or "https://app.creative-radar.de").strip()
+            return [fallback.rstrip("/")] if fallback != "*" else ["https://app.creative-radar.de"]
+        return origins
 
     @property
     def admin_user_email_set(self) -> frozenset[str]:

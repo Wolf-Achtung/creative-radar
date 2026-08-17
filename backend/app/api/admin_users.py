@@ -625,6 +625,14 @@ def usage_export_csv(
         select(UsageEvent).where(UsageEvent.created_at >= cutoff).order_by(UsageEvent.created_at)  # type: ignore[arg-type]
     ).all()
 
+    def _excel_safe(value: str) -> str:
+        # CSV-Formula-Injection: Excel interpretiert Zellen, die mit = + - @
+        # (oder Tab/CR) beginnen, als Formel. Ein fuehrendes Hochkomma
+        # neutralisiert das, ohne den sichtbaren Wert zu aendern. Heute sind
+        # alle Felder admin-kontrolliert; der Schutz haelt auch dann, wenn
+        # kuenftig Client-Strings im Kontext landen.
+        return f"'{value}" if value and value[0] in ("=", "+", "-", "@", "\t", "\r") else value
+
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")
     writer.writerow(["zeitpunkt", "email", "aktion", "aktion_label", "studio_pair", "kontext"])
@@ -632,11 +640,11 @@ def usage_export_csv(
         context = event.context or {}
         writer.writerow([
             _fmt_local(event.created_at),
-            event.email,
-            event.action,
-            _ACTION_LABELS.get(event.action, event.action),
-            context.get("pair", ""),
-            json.dumps(context, ensure_ascii=False) if context else "",
+            _excel_safe(event.email),
+            _excel_safe(event.action),
+            _excel_safe(_ACTION_LABELS.get(event.action, event.action)),
+            _excel_safe(str(context.get("pair", ""))),
+            _excel_safe(json.dumps(context, ensure_ascii=False)) if context else "",
         ])
 
     filename = f"creative-radar-nutzung-{utc_now().strftime('%Y-%m-%d')}.csv"
