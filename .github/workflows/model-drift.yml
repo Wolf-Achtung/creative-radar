@@ -60,7 +60,11 @@ jobs:
         run: pip install pytest
 
       - name: Modell-Waechter
-        run: python -m pytest app/tests/test_model_defaults_drift.py -v
+        # --noconftest ist noetig, nicht kosmetisch: app/tests/conftest.py
+        # importiert die Anwendung und zieht damit FastAPI herein. Ohne
+        # das Flag muesste dieser Lauf die vollen requirements.txt
+        # installieren — und waere keine Sekundensache mehr.
+        run: python -m pytest app/tests/test_model_defaults_drift.py --noconftest -v
 
       - name: Abhaengigkeiten gegen PyPI halten
         # Rein berichtend: ein veraltetes Paket ist kein Fehlschlag,

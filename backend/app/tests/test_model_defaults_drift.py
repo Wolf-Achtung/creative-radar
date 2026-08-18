@@ -28,6 +28,9 @@ import pytest
 
 SERVICES = Path(__file__).resolve().parents[1] / "services"
 CONFIG = Path(__file__).resolve().parents[1] / "config.py"
+WORKFLOW = (
+    Path(__file__).resolve().parents[3] / ".github" / "workflows" / "model-drift.yml"
+)
 
 
 # ---------- Was wir ueber die eingesetzten Modelle wissen ---------------
@@ -120,6 +123,49 @@ def _post_analyzer_aufrufe() -> list[dict]:
 
 
 # ---------- Die Zusagen ------------------------------------------------
+
+
+def test_der_taegliche_lauf_bleibt_unabhaengig():
+    """Diese Datei importiert die Anwendung bewusst nicht — sonst
+    braeuchte der taegliche Lauf die vollen Abhaengigkeiten und waere
+    keine Sekundensache mehr.
+
+    Zwei Dinge halten das: der Verzicht auf Anwendungs-Importe hier, und
+    ``--noconftest`` im Workflow. Ohne das Flag laedt pytest
+    ``app/tests/conftest.py``, das die Anwendung importiert und FastAPI
+    hereinzieht — genau daran ist der erste CI-Lauf gescheitert.
+    """
+    quelle = Path(__file__).read_text(encoding="utf-8")
+    baum = ast.parse(quelle)
+    for knoten in ast.walk(baum):
+        modul = None
+        if isinstance(knoten, ast.ImportFrom):
+            modul = knoten.module
+        elif isinstance(knoten, ast.Import):
+            modul = knoten.names[0].name
+        assert not (modul or "").startswith("app"), (
+            f"Zeile {knoten.lineno} importiert {modul!r}. Diese Datei muss "
+            f"ohne die Anwendung auskommen."
+        )
+
+    if not WORKFLOW.exists():
+        return
+    # Nur die Aufrufzeile zaehlt. Im Kommentar darueber steht das Flag
+    # ebenfalls — Prosa darf einen Test nicht gruen halten. (Genau in
+    # diese Falle war die erste Fassung getappt.)
+    aufrufe = [
+        z.strip()
+        for z in WORKFLOW.read_text(encoding="utf-8").splitlines()
+        if "pytest" in z
+        and "test_model_defaults_drift" in z
+        and not z.lstrip().startswith("#")
+    ]
+    assert aufrufe, "model-drift.yml ruft diese Datei gar nicht mehr auf"
+    for zeile in aufrufe:
+        assert "--noconftest" in zeile, (
+            f"{zeile!r} laeuft ohne --noconftest — der Lauf wuerde "
+            f"conftest.py laden und an fehlendem FastAPI scheitern."
+        )
 
 
 def test_jedes_eingesetzte_modell_steht_in_der_tabelle():
