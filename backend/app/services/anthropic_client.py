@@ -173,15 +173,36 @@ def _cacheable_system(system: str) -> Any:
 # ---------- High-level call shapes ------------------------------------
 
 
+def _effort_kwargs(effort: Optional[str]) -> dict[str, Any]:
+    """``output_config`` nur mitschicken, wenn ein Aufrufer es will.
+
+    ``effort`` steuert, wie tief ein Modell vor der Antwort nachdenkt.
+    Denk-Tokens zaehlen gegen ``max_tokens`` und werden wie Ausgabe
+    abgerechnet — bei knappen Limits draengen sie die eigentliche
+    Antwort heraus.
+
+    Bewusst opt-in statt Default, aus zwei Gruenden:
+
+    * Haiku 4.5 kennt den Parameter nicht und quittiert ihn mit einem
+      400er. Ein globaler Default wuerde die Format-/Tonalitaets-
+      Klassifikation sofort zerlegen.
+    * Ob ein Modell ohne Angabe ueberhaupt denkt, haengt am Modell:
+      Sonnet 5 denkt per Voreinstellung, Opus 4.8 und Haiku 4.5 nicht.
+      Wer das Verhalten festnageln will, schreibt es hin.
+    """
+    return {"output_config": {"effort": effort}} if effort else {}
+
+
 def messages_create_text(
     *,
     model: str,
     system: str,
     user_message: str,
     max_tokens: int = 256,
+    effort: Optional[str] = None,
 ) -> Any:
     """Single-text-message Messages API call. Returns the raw Message
-    so the caller can read both ``content[0].text`` and ``usage``.
+    so the caller can read the text blocks and ``usage``.
 
     PR #123 wired an ``Idempotency-Key`` header as defense-in-depth
     against retry-echo; the 2026-05-12 smoke-test proved Anthropic does
@@ -199,6 +220,7 @@ def messages_create_text(
             max_tokens=max_tokens,
             system=_cacheable_system(system),
             messages=[{"role": "user", "content": user_message}],
+            **_effort_kwargs(effort),
         )
 
     return call_with_retry(_do)
@@ -272,6 +294,7 @@ def messages_create_vision(
     user_message: str,
     image_url: str,
     max_tokens: int = 400,
+    effort: Optional[str] = None,
 ) -> Any:
     """Messages API call with one image content block + one text block.
     The image is passed by URL — Anthropic fetches it server-side, no
@@ -296,6 +319,7 @@ def messages_create_vision(
                     ],
                 }
             ],
+            **_effort_kwargs(effort),
         )
 
     return call_with_retry(_do)

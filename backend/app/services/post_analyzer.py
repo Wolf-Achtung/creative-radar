@@ -159,10 +159,28 @@ def _mean_confidence(ft: dict, ps: dict) -> float:
     return round(sum(values) / len(values), 4)
 
 
+def _block_field(block: Any, name: str) -> Any:
+    """Feldzugriff, der Objekt- und Dict-Bloecke gleich behandelt —
+    das SDK liefert Objekte, die Tests duck-typed Dicts."""
+    value = getattr(block, name, None)
+    if value is None and isinstance(block, dict):
+        value = block.get(name)
+    return value
+
+
 def _message_text(message: Any) -> str:
-    """Extract the first text content block from a Messages API
-    response. The SDK returns a list of content blocks; tests pass
-    duck-typed dicts so we tolerate both shapes."""
+    """Alle Text-Bloecke einer Messages-API-Antwort aneinanderhaengen.
+
+    Frueher stand hier ``content[0]``. Das ging so lange gut, wie kein
+    Modell vor der Antwort nachdachte: Denkt eines, steht ein
+    ``thinking``-Block an erster Stelle und der blinde Zugriff liefert
+    einen leeren String — die Antwort dahinter faellt unter den Tisch.
+    Sonnet 5 denkt in der Voreinstellung, also ist das kein
+    theoretischer Fall mehr.
+
+    ``insight_engine`` und ``forecast`` iterieren aus demselben Grund
+    ueber alle Bloecke; hier war die Stelle uebersehen worden.
+    """
     if message is None:
         return ""
     content = getattr(message, "content", None)
@@ -170,11 +188,44 @@ def _message_text(message: Any) -> str:
         content = message.get("content")
     if not content:
         return ""
-    block = content[0]
-    text = getattr(block, "text", None)
-    if text is None and isinstance(block, dict):
-        text = block.get("text")
-    return text or ""
+    parts: list[str] = []
+    for block in content:
+        # Bloecke ohne Typ sind die Test-Dicts der Altbestaende: die
+        # tragen ihren Text direkt und sollen weiter durchgehen.
+        block_type = _block_field(block, "type")
+        if block_type is not None and block_type != "text":
+            continue
+        text = _block_field(block, "text")
+        if text:
+            parts.append(text)
+    return "".join(parts)
+
+
+def _was_truncated(message: Any) -> bool:
+    """Hat das Modell mitten im Satz aufgehoert, weil ``max_tokens``
+    erreicht war? Denk-Tokens zaehlen gegen dasselbe Limit, deshalb ist
+    das kein reines Prompt-Problem."""
+    return _block_field(message, "stop_reason") == "max_tokens"
+
+
+# ---------- Denk-Aufwand und Limits -----------------------------------
+#
+# Beide Sonnet-Aufrufe sind reine Extraktion: lies eine Bildunterschrift
+# beziehungsweise ein Bild, gib ein paar Felder zurueck. Dafuer ist
+# ``low`` der passende Aufwand — und vor allem ist er *hingeschrieben*.
+# Ohne Angabe entscheidet das Modell, und die Voreinstellung wechselt
+# mit dem Modell: Sonnet 4.6 hat nicht gedacht, Sonnet 5 denkt. Der
+# Wechsel hat unser Verhalten geaendert, ohne dass eine Zeile Code sich
+# geaendert haette.
+SONNET_EFFORT = "low"
+
+# ``max_tokens`` ist ein Deckel, keine Reservierung — ungenutzter Raum
+# kostet nichts. Die alten 256 beziehungsweise 400 liessen den
+# Denk-Tokens nur wenig Luft vor der eigentlichen Antwort. Die neuen
+# Werte nehmen dem Abschneiden die Grundlage, ohne die Rechnung zu
+# beruehren: die Prompts geben die Laenge vor, nicht dieses Limit.
+CLASSIFY_MAX_TOKENS = 2000
+VISION_MAX_TOKENS = 2000
 
 
 # ---------- Per-call helpers ------------------------------------------
@@ -247,6 +298,8 @@ def _classify_purpose_lifecycle(post: Post, result: AnalyzePostResult) -> Option
                 post.platform or "",
                 post.published_at,
             ),
+            max_tokens=CLASSIFY_MAX_TOKENS,
+            effort=SONNET_EFFORT,
         )
     except AnthropicRateLimitError as exc:
         result.errors.append(f"sonnet-rate-limit: {exc}")
@@ -276,6 +329,8 @@ def _classify_purpose_lifecycle(post: Post, result: AnalyzePostResult) -> Option
                     )
                     + "\n\nRespond with valid JSON only — no prose, no fences."
                 ),
+                max_tokens=CLASSIFY_MAX_TOKENS,
+                effort=SONNET_EFFORT,
             )
         except AnthropicRateLimitError as exc:
             result.errors.append(f"sonnet-retry-rate-limit: {exc}")
@@ -290,7 +345,16 @@ def _classify_purpose_lifecycle(post: Post, result: AnalyzePostResult) -> Option
         try:
             return _parse_json_object(_message_text(message))
         except (json.JSONDecodeError, ValueError) as exc:
-            result.errors.append(f"sonnet-invalid-json: {exc}")
+            # Abgeschnittenes JSON und echtes Schrott-JSON sehen fuer den
+            # Parser gleich aus. Der Unterschied entscheidet aber, was zu
+            # tun ist: Limit anheben oder Prompt schaerfen.
+            if _was_truncated(message):
+                result.errors.append(
+                    "sonnet-truncated: stop_reason=max_tokens "
+                    f"max_tokens={CLASSIFY_MAX_TOKENS}"
+                )
+            else:
+                result.errors.append(f"sonnet-invalid-json: {exc}")
             return None
 
 
@@ -306,6 +370,8 @@ def _describe_vision(post: Post, asset_url: str, result: AnalyzePostResult) -> O
                 post.caption or "", post.platform or ""
             ),
             image_url=asset_url,
+            max_tokens=VISION_MAX_TOKENS,
+            effort=SONNET_EFFORT,
         )
     except AnthropicRateLimitError as exc:
         result.errors.append(f"vision-rate-limit: {exc}")
@@ -323,6 +389,25 @@ def _describe_vision(post: Post, asset_url: str, result: AnalyzePostResult) -> O
         meta={"post_id": str(post.id), "asset_url": asset_url},
     )
     result.calls["sonnet_vision"] += 1
+
+    # Abgeschnittenes verwerfen statt speichern. Eine mitten im Satz
+    # endende Beschreibung sieht aus wie eine kurze — sie wandert
+    # unbemerkt in die Auswertung und der Idempotenz-Sprung in
+    # ``analyze_post`` haelt sie fuer erledigt. Lieber nichts: der
+    # naechste Lauf versucht es erneut, und die uebrige Analyse laeuft
+    # ohnehin ohne Bildbeschreibung weiter.
+    if _was_truncated(message):
+        logger.warning(
+            "vision description truncated at max_tokens — discarded "
+            "(post_id=%s max_tokens=%s)",
+            post.id,
+            VISION_MAX_TOKENS,
+        )
+        result.errors.append(
+            f"vision-truncated: stop_reason=max_tokens max_tokens={VISION_MAX_TOKENS}"
+        )
+        return None
+
     return (_message_text(message) or "").strip() or None
 
 
