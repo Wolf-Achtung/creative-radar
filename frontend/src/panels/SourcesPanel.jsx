@@ -60,7 +60,7 @@ export function SourcesPanel({
       </Section>
 
       <Section title="Quellen prüfen" kicker="Kanäle und Monitoring" helpKey="adminSources">
-        <p className="muted small source-intro">Kanal hier hinzufügen oder pflegen — danach in 'Treffer prüfen' zuordnen.</p>
+        <p className="muted small source-intro">Kanal hier hinzufügen oder pflegen — danach in „Treffer prüfen“ zuordnen.</p>
         <div className="source-grid">
           <div className="source-card">
             <h3>TikTok</h3>

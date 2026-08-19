@@ -91,8 +91,21 @@ export function UsageSection({ reloadKey = 0, initialDays = 30 }) {
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState('');
 
+  // Wartung 20.08.2026 — ``set-state-in-effect`` bewusst abgeschaltet.
+  // Der Effect laeuft nicht nur beim Mounten, sondern bei jeder
+  // Aenderung von ``days`` oder ``reloadKey``. Dann MUSS ``status``
+  // synchron zurueck auf ``'loading'``, sonst zeigt die Tabelle die
+  // Zahlen des alten Zeitraums weiter, waehrend im Hintergrund der neue
+  // geladen wird — ein stiller Fehlstand, kein kosmetisches Problem.
+  // Kein abgeleiteter Zustand, also nicht der Fall, auf den die Regel
+  // zielt.
+  //
+  // Die Direktive steht INNERHALB des Effect-Bodys, direkt vor der
+  // gemeldeten Zeile — vor dem ``useEffect`` deaktiviert sie nichts und
+  // eslint meldet sie selbst als wirkungslos.
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus('loading');
     endpoints.adminUsage(days)
       .then((data) => {
