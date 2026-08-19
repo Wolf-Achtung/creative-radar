@@ -120,11 +120,23 @@ class Settings(BaseSettings):
     anthropic_sonnet_model: str = "claude-sonnet-5"
     anthropic_haiku_input_per_1k_usd: float = 0.001
     anthropic_haiku_output_per_1k_usd: float = 0.005
-    # Standard-Rate ab 01.09.2026; Sonnet 5 laeuft bis dahin mit Einfuehrungs-
-    # preis $2/$10 pro Mtok (0.002/0.010 pro 1k) - guenstiger als hier
-    # veranschlagt, die Cost-Logs ueberschaetzen also bis dahin leicht.
-    anthropic_sonnet_input_per_1k_usd: float = 0.003
-    anthropic_sonnet_output_per_1k_usd: float = 0.015
+    # Wartung 20.08.2026: von 0.003/0.015 auf 0.002/0.010 korrigiert.
+    # Hier stand die erwartete Standard-Rate ab 01.09.2026 ($3/$15 pro
+    # MTok); der Einfuehrungspreis $2/$10 galt als befristet. Anthropic
+    # hat die Erhoehung abgesagt. Preisseite, abgerufen 20.08.2026:
+    #
+    #   "The $2/$10 per million input/output token pricing for Claude
+    #    Sonnet 5, announced at launch as introductory pricing through
+    #    August 31, 2026, is now the standard price. The previously
+    #    scheduled increase to $3/$15 per million input/output tokens on
+    #    September 1, 2026 will not occur."
+    #
+    # Bis zu dieser Korrektur haben die Cost-Logs den Sonnet-Anteil um
+    # 50 % ueberschaetzt — betrifft den Post-Analyzer, den einzigen
+    # Sonnet-Pfad. Der Anthropic-Monatsdeckel hat dadurch zu frueh
+    # gebremst, nicht zu spaet; ein Kosten-Risiko bestand nicht.
+    anthropic_sonnet_input_per_1k_usd: float = 0.002
+    anthropic_sonnet_output_per_1k_usd: float = 0.010
     # Opus 4.8 list price: $5/Mtok input, $25/Mtok output — identisch zu
     # Opus 4.5/4.6/4.7, die vorherigen $15/$75 hier waren falsch (das war
     # Opus-4/4.1-Alt-Pricing).
@@ -395,16 +407,39 @@ class Settings(BaseSettings):
 
     # Sprint 28.05.2026 (Evidenz-Block / Quellen-Attribution) —
     # Stufenmodell B→A fuer den Citation-Validator im Pair-Brief-Pfad.
-    # Default ``False`` (Phase 1, Soft-Mode): das LLM ist im
-    # System-Prompt zur Befuellung der ``cited_post_ids``-Felder
-    # verpflichtet, der Validator loggt nicht-belegte IDs als
-    # ``insight-engine-citation-unverified``, aber der Brief wird
-    # trotzdem ausgeliefert. Cutover-Kriterium auf Phase 2 (Strikt):
-    # nach 2-3 Wochen Cron-Lauf, Falsch-Zitat-Rate < 2 % im Log → ENV
-    # ``INSIGHT_CITATION_STRICT_ENFORCE=true`` flippen, kein neuer
-    # PR-Pfad. Strikt-Modus loest bei nicht-belegten IDs den
-    # bestehenden Retry-Loop aus (MAX_RECALLS=2) und faellt im
-    # Worst-Case auf ``llm_output=None`` + Persist-Skip zurueck.
+    # Soft-Mode (``False``): das LLM ist im System-Prompt zur Befuellung
+    # der ``cited_post_ids``-Felder verpflichtet, der Validator loggt
+    # nicht-belegte IDs als ``insight-engine-citation-unverified``, der
+    # Brief wird aber ausgeliefert. Strikt (``True``) verwirft die
+    # Antwort, loest den Retry-Loop aus (MAX_RECALLS=2) und faellt im
+    # Worst-Case auf ``llm_output=None`` + Persist-Skip zurueck — dann
+    # gibt es fuer dieses Pair in dieser Woche gar keinen Brief.
+    #
+    # ---- Stand 20.08.2026: bleibt bewusst aus. ----
+    #
+    # Hier stand seit Mai das Cutover-Kriterium "nach 2-3 Wochen
+    # Cron-Lauf, Falsch-Zitat-Rate < 2 % → flippen". Die Messung ist
+    # nachgeholt (``scripts/diag_citation_rate.py``, read-only gegen den
+    # DB-Bestand, kein Log noetig):
+    #
+    #   0,19 % ueber 120 Briefs und 4.186 zitierte IDs, W22 bis W33.
+    #   8 nicht belegte IDs auf 6 Briefe verteilt; W31-W33 fehlerfrei.
+    #   Auffaellig nur ``cross_market_insight`` (1,17 %) — die einzige
+    #   Sektion, die ``match_key`` statt Post-URLs zitiert.
+    #
+    # Das Kriterium waere also zehnfach erfuellt. Trotzdem bleibt der
+    # Schalter aus, aus einem Grund, den das Kriterium nicht kannte:
+    # ``cited_post_ids`` wird im Frontend NIRGENDS gerendert (Stand
+    # 20.08.2026 kein einziger Treffer in ``frontend/src``). Ein
+    # falsches Zitat ist fuer den Report-Leser unsichtbar, ein
+    # korrigiertes auch. Der Flip kauft also keine sichtbare Qualitaet,
+    # riskiert aber einen fehlenden Brief — bei 6 von 120 Briefen im
+    # Messzeitraum.
+    #
+    # Wieder aufmachen, wenn eins davon eintritt: die Rate steigt
+    # spuerbar (Skript erneut laufen lassen), oder die Belege tauchen im
+    # Report auf und werden damit fuer den Leser ueberpruefbar. Dann hat
+    # der Strikt-Modus einen sichtbaren Zweck.
     insight_citation_strict_enforce: bool = False
 
     # Master-Plan-Schritt-4 (2026-05-25) — Roll-out-Steuerung der

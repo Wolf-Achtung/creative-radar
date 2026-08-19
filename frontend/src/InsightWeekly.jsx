@@ -176,14 +176,41 @@ function ChannelStatsCard({ stats }) {
 // damit der ``LLMOutput``-Pfad weiter unten sich auf befuellte
 // Detail-Sektionen verlassen kann (Commit 2 schiebt die in Klapp-
 // Container; ein None-Output dort wuerde leere Container produzieren).
-function LLMHeadlineCard({ output, raw }) {
+// Warum ein Brief fehlt, in Klartext. Das Backend klassifiziert den
+// terminalen Fehler seit der Diagnose-Instrumentierung 22.06.2026 und
+// liefert ihn als ``failure_diagnostic = {kind, detail}`` mit; die
+// Karte unten hat das bis zum 20.08.2026 ignoriert und JEDEN Ausfall
+// als „JSON-Parsing fehlgeschlagen" beschriftet.
+//
+// Bei drei der vier Fehlerarten ist das schlicht falsch: das JSON war
+// einwandfrei, es scheiterte an den Belegen, am Schema oder an einer
+// abgeschnittenen Antwort. Wer die Karte liest, sucht dann an der
+// falschen Stelle.
+const FEHLER_TEXT = {
+  json_parse_error:
+    'Die Antwort des Modells war kein lesbares JSON. Roh-Antwort:',
+  schema_validation_error:
+    'Die Antwort war lesbar, passte aber nicht ins Brief-Schema — ein Pflichtfeld fehlte oder hatte den falschen Typ. Roh-Antwort:',
+  citation_validation_error:
+    'Die Antwort war formal in Ordnung, hat sich aber auf Posts berufen, die es im Datenfenster nicht gibt. Der Brief wurde deshalb verworfen (Strikt-Modus). Roh-Antwort:',
+  truncation_error:
+    'Die Antwort wurde vom Modell mitten im Satz abgeschnitten (Token-Limit erreicht). Roh-Antwort:',
+};
+
+function LLMHeadlineCard({ output, raw, diagnostic }) {
   if (!output) {
+    const art = diagnostic?.kind;
+    const einleitung =
+      FEHLER_TEXT[art] || 'Es entstand kein Brief. Roh-Antwort des Modells:';
     return (
       <div className="card">
         <p className="section-kicker">LLM-Output</p>
         {raw ? (
           <>
-            <p>JSON-Parsing fehlgeschlagen. Roh-Antwort des Modells:</p>
+            <p>{einleitung}</p>
+            {diagnostic?.detail && (
+              <p className="insight-tldr">{diagnostic.detail}</p>
+            )}
             <pre className="insight-raw">{raw}</pre>
           </>
         ) : (
@@ -2445,7 +2472,11 @@ export default function InsightWeekly({ pair }) {
               StaleWarning (Meta + Caveats), am Ende der Glossar-Block.
               Reine Umsortierung — jede Sektion traegt ihre bedingte
               Render-Logik und ihren section_help-Key selbst. */}
-          <LLMHeadlineCard output={report.llm_output} raw={report.raw_llm_text} />
+          <LLMHeadlineCard
+            output={report.llm_output}
+            raw={report.raw_llm_text}
+            diagnostic={report.failure_diagnostic}
+          />
 
           <PageNav sections={navSections} />
 

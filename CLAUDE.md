@@ -71,18 +71,26 @@ leicht verwechselt:
 kein Fehler: `medium` oder `low` auf den strukturierten Brief-Pfaden
 spart Token, kostet aber Qualität. Bisher nicht gemessen.
 
-### Preise (pro 1k Token, USD) — alle drei stimmen
+### Preise (pro 1k Token, USD) — Stand 20.08.2026
 
 | Modell | Config | Anbieter-Liste | |
 |---|---|---|---|
 | Haiku 4.5 | 0.001 / 0.005 | $1 / $5 pro MTok | stimmt |
-| Sonnet 5 | 0.003 / 0.015 | $3 / $15 pro MTok (Einführung $2/$10 bis 31.08.2026) | stimmt ab 01.09. |
+| Sonnet 5 | 0.002 / 0.010 | $2 / $10 pro MTok | stimmt (am 20.08. korrigiert) |
 | Opus 4.8 | 0.005 / 0.025 | $5 / $25 pro MTok | stimmt |
 
-Der Sonnet-Kommentar in `config.py` ist belegt: bis 31.08.2026 gilt der
-Einführungspreis, danach die eingetragene Standard-Rate. Bis dahin
-überschätzen die Cost-Logs den Sonnet-Anteil um 50 % — bewusst und
-dokumentiert, kein Wartungsfall.
+Der Sonnet-Wert stand bis zum 20.08.2026 auf 0.003/0.015 — der
+erwarteten Standard-Rate ab 01.09.2026. **Diese Erhöhung findet nicht
+statt.** Die Preisseite sagt: „The $2/$10 … pricing for Claude Sonnet 5,
+announced at launch as introductory pricing through August 31, 2026, is
+now the standard price. The previously scheduled increase to $3/$15 …
+will not occur." Bis zur Korrektur haben die Cost-Logs den Sonnet-Anteil
+um 50 % überschätzt; der Anthropic-Monatsdeckel hat dadurch zu früh
+gebremst, nicht zu spät.
+
+Lehre für den nächsten Durchgang: die Modell-Referenz im `claude-api`-
+Skill ist zwischengespeichert und war hier zwei Tage veraltet. Bei
+Preisfragen die Preisseite selbst abrufen.
 
 ## Abhängigkeiten
 
@@ -140,14 +148,69 @@ Bewusst **nicht** in Production gesetzt (laufen auf dem Code-Default):
 | `DISABLE_EMAILS`, `DOCS_PUBLIC`, `MOCK_EXTERNAL_APIS`, `STAGING_EXPECTED_DB_HOST` | nur in `staging` gesetzt — in Production korrekt aus |
 | `ALLOW_AUTH_DISABLED_IN_PRODUCTION` | `False` → Boot-Abbruch bei abgeschalteter Auth greift |
 | `OPENAI_MONTHLY_BUDGET_USD` | $50 aus dem Code. Apify und Anthropic sind dagegen ausdrücklich gesetzt — die Asymmetrie ist gewollt oder übersehen, das weiß nur Wolf |
-| `INSIGHT_CITATION_STRICT_ENFORCE` | `False`, Soft-Mode. Der im Code geplante Cutover nach „2-3 Wochen Cron-Lauf" (Sprint 28.05.) hat nie stattgefunden |
+| `INSIGHT_CITATION_STRICT_ENFORCE` | `False`, Soft-Mode. Am 20.08.2026 gemessen: 0,19 % Falsch-Zitat-Rate, Kriterium (< 2 %) erfüllt — der Flip ist durch die Daten gedeckt (s.u.) |
 | alle `*_PER_1K_USD`, `USD_TO_EUR_RATE` | Code-Werte gelten — die Preistabelle oben beschreibt also die echte Kostenrechnung |
 | `SMTP_HOST` / `_USER` / `_PASSWORD` | **nirgends gesetzt.** Fällt Resend aus, greift der SMTP-Rückfallweg ins Leere: `MailerError` → 503, Login komplett tot. Es gibt keinen zweiten Weg |
 
 **Weiterhin nicht prüfbar:** die Netlify-Variablen (`VITE_API_BASE`,
 `VITE_API_TOKEN`, `VITE_ENVIRONMENT`).
 
-## Auth-Schichten
+## Citation-Cutover — gemessen am 20.08.2026
+
+`INSIGHT_CITATION_STRICT_ENFORCE` steht auf `False`. Das Kriterium für
+den Umstieg auf Strikt steht in `config.py`: Falsch-Zitat-Rate < 2 %.
+
+**Gemessen: 0,19 %.** 120 Briefs, 4.186 zitierte IDs, 8 nicht belegt,
+verteilt auf 6 Briefe. Zeitraum 2026-W22 (Start der Funktion) bis W33 —
+zwölf Wochen statt der geforderten zwei bis drei. Das Kriterium ist mit
+zehnfachem Abstand erfüllt.
+
+Wo es hakt, wenn es hakt:
+
+| Sektion | Zitate | falsch | Rate |
+|---|---|---|---|
+| `cross_market_insight` | 512 | 6 | 1,17 % |
+| `ganz_konkret[6]` | 192 | 2 | 1,04 % |
+| alle übrigen 24 Sektionen | 3.482 | 0 | 0,00 % |
+
+`cross_market_insight` ist der Ausreißer — dort zitiert das Modell
+`match_key`-Werte statt Post-URLs, einen anderen ID-Raum. Die letzten
+drei Wochen (W31–W33) sind fehlerfrei.
+
+### Die Auswertung wiederholen
+
+Sie braucht **keine Logs**. `_validate_citations` ist eine reine Funktion
+von `(LLMReport, PairAggregation)`, und beide liegen als JSON-Spalten
+(`llm_output`, `aggregation`) in jeder `insight_report`-Zeile.
+`scripts/diag_citation_rate.py` baut sie zurück und lässt denselben
+Validator noch einmal laufen — read-only, kein LLM-Aufruf, jederzeit
+wiederholbar, unabhängig von der Railway-Log-Aufbewahrung:
+
+```sh
+source ~/.creative-radar/db.env && \
+    python -m scripts.diag_citation_rate --pro-sektion
+```
+
+Zwei Fallen, beide beim ersten Produktionslauf getreten und behoben:
+
+- **Validation-Context.** `LLMReport` prüft `cross_market_insight`
+  bedingt; die Signale (`has_de_data`, `has_cross_market`) stehen in der
+  Aggregation und kommen über `info.context`. Ohne Context gilt
+  „Pflicht AN" — das verwarf jeden lionsgate-Brief (kein DE-Channel, von
+  der Pflicht ausgenommen). Erst Aggregation validieren, daraus den
+  Context bauen, dann den Bericht.
+- **Kein `$.**`-SQL als Ersatz.** Eine jsonpath-Abfrage über
+  `cited_post_ids` zählt im lax mode doppelt (Array-Unwrapping) und
+  überschätzt die Menge um rund das Doppelte.
+
+### Bekannte Altzeilen
+
+Sechs Briefe aus W19–W22 lassen sich nicht mehr validieren:
+`ganz_konkret` hat 9–10 Einträge, das Schema erlaubt heute höchstens 8.
+Die Begrenzung kam nach diesen Briefen; sie tragen ohnehin null Zitate.
+Kein Wartungsfall.
+
+## Auth-Schichten## Auth-Schichten
 
 Drei, unabhängig schaltbar:
 
