@@ -186,10 +186,22 @@ async def request_code(
         "Es handelt sich nicht um Werbung.\n\n"
         "– Creative Radar\n"
     )
-    if settings.disable_emails:
+    if settings.disable_emails and settings.app_env != "production":
         # Lokaler Dev-Pfad ohne Mail-Provider: Code im Log statt Postfach.
-        # In Production ist disable_emails aus — dort landet NIE ein
-        # Klartext-Code im Log.
+        #
+        # Wartung 2026-08-19: der ``app_env``-Teil der Bedingung ist neu.
+        # Vorher stand hier nur ``disable_emails`` und darueber der Satz
+        # "In Production ist disable_emails aus — dort landet NIE ein
+        # Klartext-Code im Log". Das war eine Annahme ueber die Belegung
+        # einer ENV-Variablen, keine Pruefung. Wer ``DISABLE_EMAILS=true``
+        # in Production setzt — der naheliegende Griff, wenn der
+        # Mail-Provider klemmt und die Fehlversuche das Log fluten —
+        # schreibt damit jeden angeforderten Login-Code im Klartext in
+        # ein Prod-Log, das bei Drittanbietern liegt.
+        #
+        # ``services/mailer.py`` schuetzt exakt dieselbe Situation seit
+        # dem Staging-Briefing 06.08. mit genau dieser Bedingung. Hier
+        # fehlte sie. Gleiche Frage, gleiche Antwort.
         logger.info("auth.request-code (emails disabled) email=%s code=%s", _mask(email), code)
     try:
         await send_mail(to=email, subject="Ihr Anmeldecode für Creative Radar", text=text)
