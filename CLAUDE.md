@@ -50,27 +50,39 @@ Quelle OpenAI: **nicht erreichbar.** `platform.openai.com` und
 `gpt-5.4-mini` sind damit weiterhin unbestätigt — auch die
 `OPENAI_*_PER_1K_USD`-Werte, die in jede Kostenauswertung eingehen.
 
-### Offene Frage zum Denkverhalten
+### Denkverhalten — geprüft, Tabelle stimmt
 
 `app/tests/test_model_defaults_drift.py` führt `claude-opus-4-8` mit
-`denkt_per_default: False`. Die Anbieter-Doku sagt am 19.08.2026:
-Adaptive Thinking **Yes**, und „The API default is `high`" für den
-`effort`-Parameter. Kein Opus-Aufrufort im Projekt übergibt `effort`.
-Details und Folgen stehen im Wartungsbericht (PR vom 19.08.) — hier
-bewusst nicht entschieden.
+`denkt_per_default: False`. **Das ist richtig.** Zwei Angaben werden
+leicht verwechselt:
 
-### Preise (pro 1k Token, USD)
+- „Adaptive Thinking: Yes" in der Modell-Übersicht heißt *das Modell
+  kann es*, nicht *es tut es ungefragt*.
+- Opus 4.8 und 4.7 denken **nur**, wenn der Aufruf
+  `thinking={"type": "adaptive"}` mitschickt. Ohne den Parameter läuft
+  kein Denken. Kein Aufrufort im Projekt schickt ihn — also denkt hier
+  heute kein Opus-Pfad.
+- Opus 5 und Fable 5 verhalten sich **anders**: die denken ohne jede
+  Angabe. Ein Wechsel dorthin ändert Kosten und Abschneide-Risiko
+  schlagartig.
 
-| Modell | Config | Anbieter-Doku 19.08.2026 | |
+`effort` ist davon unabhängig und steht per API-Vorgabe auf `high`
+(gleichbedeutend mit „Parameter weggelassen"). Das ist ein Kosten-Hebel,
+kein Fehler: `medium` oder `low` auf den strukturierten Brief-Pfaden
+spart Token, kostet aber Qualität. Bisher nicht gemessen.
+
+### Preise (pro 1k Token, USD) — alle drei stimmen
+
+| Modell | Config | Anbieter-Liste | |
 |---|---|---|---|
 | Haiku 4.5 | 0.001 / 0.005 | $1 / $5 pro MTok | stimmt |
-| Sonnet 5 | 0.003 / 0.015 | $2 / $10 pro MTok | Config liegt **höher** |
+| Sonnet 5 | 0.003 / 0.015 | $3 / $15 pro MTok (Einführung $2/$10 bis 31.08.2026) | stimmt ab 01.09. |
 | Opus 4.8 | 0.005 / 0.025 | $5 / $25 pro MTok | stimmt |
 
-Der Sonnet-Kommentar in `config.py` begründet die Abweichung mit einer
-Preiserhöhung zum 01.09.2026. Auf der Preisseite steht dazu am
-19.08.2026 nichts; die Cost-Logs überschätzen den Sonnet-Anteil solange
-um 50 %.
+Der Sonnet-Kommentar in `config.py` ist belegt: bis 31.08.2026 gilt der
+Einführungspreis, danach die eingetragene Standard-Rate. Bis dahin
+überschätzen die Cost-Logs den Sonnet-Anteil um 50 % — bewusst und
+dokumentiert, kein Wartungsfall.
 
 ## Abhängigkeiten
 
@@ -112,12 +124,28 @@ Frontend (Netlify, Build-Zeit): `VITE_API_BASE`, `VITE_API_TOKEN`,
 `VITE_ENVIRONMENT`. Stehen in keiner `.env.example` — das Beispiel deckt
 nur das Backend ab.
 
-**Was von hier aus nicht prüfbar ist:** welche Variablen in Railway und
-Netlify tatsächlich gesetzt sind. Die Gegenüberstellung oben vergleicht
-Code gegen `.env.example`, nicht Code gegen Deployment. Verwaiste
-Variablen im Railway-Projekt — etwa `PERPLEXITY_API_KEY` und
-`PERPLEXITY_MODEL`, im Kosten-Audit 01.08.2026 aus dem Code entfernt —
-fallen nur bei einem Blick in die Railway-Oberfläche auf.
+### Railway-Abgleich (Screenshot 19.08.2026, Umgebung `production`)
+
+51 Variablen gesetzt, dazu 8 von Railway selbst. **Keine einzige
+verwaiste** — jede gesetzte Variable wird vom Code gelesen.
+`PERPLEXITY_API_KEY` und `PERPLEXITY_MODEL` sind nicht mehr da, der
+Kosten-Audit vom 01.08. ist also auch im Deployment nachvollzogen.
+
+Bewusst **nicht** in Production gesetzt (laufen auf dem Code-Default):
+
+| Variable | Wirkung ohne Setzung |
+|---|---|
+| `ANTHROPIC_OPUS_MODEL` / `_SONNET_` / `_HAIKU_` | die eingecheckten Defaults laufen — der Modell-Wächter prüft damit heute wirklich das, was in Produktion läuft |
+| `ENABLE_INTERNAL_CRON_SCHEDULER` | `is_scheduler_enabled()` fällt auf `app_env == "production"` zurück → Montags-Cron **an** (`cron_scheduler.py:45`) |
+| `DISABLE_EMAILS`, `DOCS_PUBLIC`, `MOCK_EXTERNAL_APIS`, `STAGING_EXPECTED_DB_HOST` | nur in `staging` gesetzt — in Production korrekt aus |
+| `ALLOW_AUTH_DISABLED_IN_PRODUCTION` | `False` → Boot-Abbruch bei abgeschalteter Auth greift |
+| `OPENAI_MONTHLY_BUDGET_USD` | $50 aus dem Code. Apify und Anthropic sind dagegen ausdrücklich gesetzt — die Asymmetrie ist gewollt oder übersehen, das weiß nur Wolf |
+| `INSIGHT_CITATION_STRICT_ENFORCE` | `False`, Soft-Mode. Der im Code geplante Cutover nach „2-3 Wochen Cron-Lauf" (Sprint 28.05.) hat nie stattgefunden |
+| alle `*_PER_1K_USD`, `USD_TO_EUR_RATE` | Code-Werte gelten — die Preistabelle oben beschreibt also die echte Kostenrechnung |
+| `SMTP_HOST` / `_USER` / `_PASSWORD` | **nirgends gesetzt.** Fällt Resend aus, greift der SMTP-Rückfallweg ins Leere: `MailerError` → 503, Login komplett tot. Es gibt keinen zweiten Weg |
+
+**Weiterhin nicht prüfbar:** die Netlify-Variablen (`VITE_API_BASE`,
+`VITE_API_TOKEN`, `VITE_ENVIRONMENT`).
 
 ## Auth-Schichten
 
