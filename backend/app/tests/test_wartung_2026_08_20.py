@@ -470,3 +470,108 @@ def test_fehlergrund_nennt_feld_und_meldung():
         grund = _diag_modul()._fehlergrund(exc)
     assert "zahl" in grund
     assert len(grund) > len("zahl"), f"nur der Feldname: {grund!r}"
+
+
+# ---------------------------------------------------------------------
+# 5 — Fehlerarten: Backend und Frontend dürfen nicht auseinanderlaufen
+# ---------------------------------------------------------------------
+#
+# Das Backend klassifiziert einen terminalen Brief-Fehler seit dem
+# 22.06.2026 (``failure_kind``) und reicht ihn als
+# ``failure_diagnostic = {kind, detail}`` an die API. Das Frontend hat das
+# bis zum 20.08.2026 ignoriert und JEDEN Ausfall als „JSON-Parsing
+# fehlgeschlagen" beschriftet — bei drei der vier Arten schlicht falsch.
+
+
+def _failure_kinds_aus_dem_backend() -> set[str]:
+    """Die ``failure_kind``-Literale, die ``insight_engine`` vergeben kann."""
+    import re as _re
+
+    quelle = (
+        Path(__file__).resolve().parents[1] / "services" / "insight_engine.py"
+    ).read_text(encoding="utf-8")
+    return set(_re.findall(r'failure_kind = "([a-z_]+)"', quelle))
+
+
+def _fehlertexte_aus_dem_frontend() -> set[str]:
+    """Die Schlüssel der ``FEHLER_TEXT``-Tabelle in InsightWeekly.jsx."""
+    import re as _re
+
+    quelle = (_REPO_ROOT / "frontend" / "src" / "InsightWeekly.jsx").read_text(
+        encoding="utf-8"
+    )
+    block = quelle.split("const FEHLER_TEXT = {", 1)
+    assert len(block) == 2, "FEHLER_TEXT ist verschwunden oder umbenannt."
+    return set(_re.findall(r"^  ([a-z_]+):", block[1].split("};", 1)[0], _re.M))
+
+
+def test_jede_fehlerart_hat_einen_text():
+    """Kommt im Backend eine fünfte Fehlerart dazu, muss das Frontend sie
+    benennen — sonst fällt sie auf den Sammeltext zurück und der Admin
+    sucht wieder an der falschen Stelle."""
+    backend = _failure_kinds_aus_dem_backend()
+    assert backend, "Keine failure_kind-Literale gefunden — Parser ins Leere?"
+    fehlend = backend - _fehlertexte_aus_dem_frontend()
+    assert not fehlend, (
+        f"Backend kennt {sorted(fehlend)}, das Frontend hat dafür keinen "
+        f"Text. Ergänzen in InsightWeekly.jsx → FEHLER_TEXT."
+    )
+
+
+def test_nur_der_json_fall_spricht_von_json():
+    """Der eigentliche Fehler: „JSON-Parsing fehlgeschlagen" stand über
+    jedem Ausfall. Bei Citation-, Schema- und Truncation-Fehlern war das
+    JSON in Ordnung."""
+    import re as _re
+
+    quelle = (_REPO_ROOT / "frontend" / "src" / "InsightWeekly.jsx").read_text(
+        encoding="utf-8"
+    )
+    tabelle = quelle.split("const FEHLER_TEXT = {", 1)[1].split("};", 1)[0]
+    for eintrag in _re.findall(r"^  ([a-z_]+):\s*\n?\s*'([^']+)'", tabelle, _re.M):
+        art, text = eintrag
+        if art == "json_parse_error":
+            continue
+        assert "JSON" not in text, (
+            f"{art} behauptet ein JSON-Problem: {text!r}. Bei dieser "
+            f"Fehlerart war das JSON in Ordnung."
+        )
+
+
+def test_die_karte_bekommt_die_diagnose_gereicht():
+    """Der Text nützt nichts, wenn die Komponente ihn nie sieht."""
+    quelle = (_REPO_ROOT / "frontend" / "src" / "InsightWeekly.jsx").read_text(
+        encoding="utf-8"
+    )
+    assert "diagnostic={report.failure_diagnostic}" in quelle, (
+        "LLMHeadlineCard bekommt failure_diagnostic nicht übergeben — die "
+        "Karte fällt dann immer auf den Sammeltext zurück."
+    )
+
+
+def test_citation_cutover_ist_als_entschieden_dokumentiert():
+    """In ``config.py`` stand seit Mai ein Cutover-Plan als offene
+    Absicht („nach 2-3 Wochen … flippen"). Die Messung ist nachgeholt und
+    die Entscheidung getroffen — ein stehengebliebener Plan würde beim
+    nächsten Durchgang erneut als offene Aufgabe gelesen."""
+    quelle = (Path(__file__).resolve().parents[1] / "config.py").read_text(
+        encoding="utf-8"
+    )
+    block = quelle.split("Stufenmodell B→A", 1)[1].split(
+        "insight_citation_strict_enforce", 1
+    )[0]
+    assert "0,19 %" in block, "Das Messergebnis fehlt."
+    assert "diag_citation_rate" in block, "Der Weg zur Wiederholung fehlt."
+    assert "bleibt bewusst aus" in block, "Die Entscheidung steht nicht da."
+    # Das alte Kriterium darf zitiert werden — als Historie, nicht als
+    # Auftrag. Genau daran ist die erste Fassung dieses Tests gescheitert:
+    # sie verbot das Zitat, statt seine Rahmung zu pruefen.
+    if "nach 2-3 Wochen" in block:
+        assert "Hier stand" in block, (
+            "Das alte Cutover-Kriterium steht ohne Vergangenheits-Rahmung "
+            "da und liest sich damit weiter wie eine offene Aufgabe."
+        )
+    assert "Wieder aufmachen, wenn" in block, (
+        "Es fehlt die Bedingung, unter der die Entscheidung neu ansteht — "
+        "sonst ist sie endgueltig statt begruendet."
+    )

@@ -407,16 +407,39 @@ class Settings(BaseSettings):
 
     # Sprint 28.05.2026 (Evidenz-Block / Quellen-Attribution) —
     # Stufenmodell B→A fuer den Citation-Validator im Pair-Brief-Pfad.
-    # Default ``False`` (Phase 1, Soft-Mode): das LLM ist im
-    # System-Prompt zur Befuellung der ``cited_post_ids``-Felder
-    # verpflichtet, der Validator loggt nicht-belegte IDs als
-    # ``insight-engine-citation-unverified``, aber der Brief wird
-    # trotzdem ausgeliefert. Cutover-Kriterium auf Phase 2 (Strikt):
-    # nach 2-3 Wochen Cron-Lauf, Falsch-Zitat-Rate < 2 % im Log → ENV
-    # ``INSIGHT_CITATION_STRICT_ENFORCE=true`` flippen, kein neuer
-    # PR-Pfad. Strikt-Modus loest bei nicht-belegten IDs den
-    # bestehenden Retry-Loop aus (MAX_RECALLS=2) und faellt im
-    # Worst-Case auf ``llm_output=None`` + Persist-Skip zurueck.
+    # Soft-Mode (``False``): das LLM ist im System-Prompt zur Befuellung
+    # der ``cited_post_ids``-Felder verpflichtet, der Validator loggt
+    # nicht-belegte IDs als ``insight-engine-citation-unverified``, der
+    # Brief wird aber ausgeliefert. Strikt (``True``) verwirft die
+    # Antwort, loest den Retry-Loop aus (MAX_RECALLS=2) und faellt im
+    # Worst-Case auf ``llm_output=None`` + Persist-Skip zurueck — dann
+    # gibt es fuer dieses Pair in dieser Woche gar keinen Brief.
+    #
+    # ---- Stand 20.08.2026: bleibt bewusst aus. ----
+    #
+    # Hier stand seit Mai das Cutover-Kriterium "nach 2-3 Wochen
+    # Cron-Lauf, Falsch-Zitat-Rate < 2 % → flippen". Die Messung ist
+    # nachgeholt (``scripts/diag_citation_rate.py``, read-only gegen den
+    # DB-Bestand, kein Log noetig):
+    #
+    #   0,19 % ueber 120 Briefs und 4.186 zitierte IDs, W22 bis W33.
+    #   8 nicht belegte IDs auf 6 Briefe verteilt; W31-W33 fehlerfrei.
+    #   Auffaellig nur ``cross_market_insight`` (1,17 %) — die einzige
+    #   Sektion, die ``match_key`` statt Post-URLs zitiert.
+    #
+    # Das Kriterium waere also zehnfach erfuellt. Trotzdem bleibt der
+    # Schalter aus, aus einem Grund, den das Kriterium nicht kannte:
+    # ``cited_post_ids`` wird im Frontend NIRGENDS gerendert (Stand
+    # 20.08.2026 kein einziger Treffer in ``frontend/src``). Ein
+    # falsches Zitat ist fuer den Report-Leser unsichtbar, ein
+    # korrigiertes auch. Der Flip kauft also keine sichtbare Qualitaet,
+    # riskiert aber einen fehlenden Brief — bei 6 von 120 Briefen im
+    # Messzeitraum.
+    #
+    # Wieder aufmachen, wenn eins davon eintritt: die Rate steigt
+    # spuerbar (Skript erneut laufen lassen), oder die Belege tauchen im
+    # Report auf und werden damit fuer den Leser ueberpruefbar. Dann hat
+    # der Strikt-Modus einen sichtbaren Zweck.
     insight_citation_strict_enforce: bool = False
 
     # Master-Plan-Schritt-4 (2026-05-25) — Roll-out-Steuerung der
