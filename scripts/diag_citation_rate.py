@@ -48,8 +48,10 @@ haben".
 
 Aufruf (lokal gegen Prod, analog den anderen diag_*-Skripten):
 
-    source ~/.creative-radar/db.env && \\
-        DATABASE_URL="$CR_DB_URL" python -m scripts.diag_citation_rate
+    source ~/.creative-radar/db.env && python -m scripts.diag_citation_rate
+
+``CR_DB_URL`` aus der db.env genuegt; ``DATABASE_URL`` und die
+PG*-Variablen werden ebenso akzeptiert.
 
 Optionen:
     --wochen N     nur die letzten N ISO-Wochen (Default: alle)
@@ -78,10 +80,29 @@ def _die(msg: str, code: int = 2):
 
 
 def _has_db_config() -> bool:
+    """Findet die DB-Verbindung — und akzeptiert dabei beide Konventionen,
+    die im Repo nebeneinander leben.
+
+    Die ``diag_*``-Skripte erwarten ``DATABASE_URL`` und werden mit einer
+    vorangestellten Zuweisung aufgerufen
+    (``DATABASE_URL="$CR_DB_URL" python -m ...``).
+    ``repair_channel_attribution.py`` und die beiden ``*_diff_harness``
+    lesen dagegen ``CR_DB_URL`` selbst.
+
+    ``~/.creative-radar/db.env`` setzt ``CR_DB_URL``. Wer die Datei
+    sourcet und die Zuweisung vergisst, laeuft in eine Fehlermeldung, die
+    nach etwas fragt, das er gerade gesetzt zu haben glaubt. Darum hier
+    beides: ist nur ``CR_DB_URL`` da, uebernimmt sie diese Funktion —
+    identisch zu ``repair_channel_attribution.py:70``.
+    """
     if any(
         os.environ.get(v)
         for v in ("DATABASE_URL", "DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL")
     ):
+        return True
+    cr_db_url = (os.environ.get("CR_DB_URL") or "").strip()
+    if cr_db_url:
+        os.environ["DATABASE_URL"] = cr_db_url
         return True
     return all(
         os.environ.get(v) for v in ("PGHOST", "PGUSER", "PGPASSWORD", "PGDATABASE")
@@ -112,11 +133,32 @@ def auswerten(zeilen) -> dict:
 
     for zeile in zeilen:
         kennung = f"{zeile.pair_key} {zeile.iso_year}-W{zeile.iso_week:02d}"
-        try:
-            bericht = LLMReport.model_validate(zeile.llm_output)
-            agg = PairAggregation.model_validate(zeile.aggregation)
-        except Exception as exc:  # noqa: BLE001 — Altzeilen sollen nicht abbrechen
-            unlesbar.append(f"{kennung}: {type(exc).__name__}")
+        # Getrennt validieren und den Grund mitschreiben. Ein blosses
+        # "ValidationError" beantwortet die entscheidende Frage nicht:
+        # ueberspringt die Auswertung eine Handvoll Altzeilen — oder
+        # systematisch ein bestimmtes Pair? Im zweiten Fall hat die
+        # ausgewiesene Rate einen blinden Fleck, und der muss sichtbar
+        # sein, bevor jemand auf Strikt umstellt.
+        bericht = agg = None
+        for feld, modell, rohwert in (
+            ("llm_output", LLMReport, zeile.llm_output),
+            ("aggregation", PairAggregation, zeile.aggregation),
+        ):
+            try:
+                geparst = modell.model_validate(rohwert)
+            except Exception as exc:  # noqa: BLE001 — Altzeilen nicht abbrechen
+                grund = str(exc).splitlines()
+                # Pydantic schreibt "N validation errors for X", dann je
+                # Fehler zwei Zeilen (Feldpfad, Meldung). Die erste
+                # Feldzeile reicht zur Einordnung.
+                detail = grund[1].strip() if len(grund) > 1 else grund[0][:80]
+                unlesbar.append(f"{kennung}: {feld} — {detail}")
+                break
+            if feld == "llm_output":
+                bericht = geparst
+            else:
+                agg = geparst
+        if bericht is None or agg is None:
             continue
 
         briefs_gesamt += 1
@@ -193,9 +235,10 @@ def main() -> int:
 
     if not _has_db_config():
         _die(
-            "keine DB-Konfiguration gefunden. Erwartet DATABASE_URL (oder "
-            "PGHOST/PGUSER/PGPASSWORD/PGDATABASE). Beispiel:\n"
-            '    DATABASE_URL="$CR_DB_URL" python -m scripts.diag_citation_rate'
+            "keine DB-Konfiguration gefunden. Erwartet CR_DB_URL, DATABASE_URL "
+            "oder PGHOST/PGUSER/PGPASSWORD/PGDATABASE. Ueblicher Weg:\n"
+            "    source ~/.creative-radar/db.env\n"
+            "    python -m scripts.diag_citation_rate"
         )
 
     from sqlmodel import Session, select
@@ -236,8 +279,16 @@ def main() -> int:
         print(f"Falsch-Zitat-Rate       : {e['rate_prozent']:.2f} %")
     if e["unlesbar"]:
         print(f"\nUebersprungen (Blob nicht lesbar): {len(e['unlesbar'])}")
-        for z in e["unlesbar"][:10]:
+        for z in e["unlesbar"]:
             print(f"  - {z}")
+        betroffene = {z.split(" ", 1)[0] for z in e["unlesbar"]}
+        if len(betroffene) < len(e["unlesbar"]):
+            print(
+                f"\n  ACHTUNG: die Ausfaelle verteilen sich auf nur "
+                f"{len(betroffene)} Pair(s) ({', '.join(sorted(betroffene))}). "
+                f"Das ist kein Altzeilen-Rauschen, sondern ein Muster — die "
+                f"Rate unten sagt ueber diese Briefe NICHTS."
+            )
 
     print("\nJe ISO-Woche (zitiert / nicht belegt / Rate):")
     for (jahr, woche), (zit, feh) in sorted(e["je_woche"].items(), reverse=True):

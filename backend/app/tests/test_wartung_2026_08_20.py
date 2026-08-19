@@ -366,3 +366,31 @@ def test_auswertung_benutzt_den_echten_validator():
     assert "_build_citation_allow_set" in quelle
     assert "_collect_cited_ids" in quelle
     assert "from app.services.insight_engine import" in quelle
+
+
+def test_cr_db_url_allein_genuegt(monkeypatch):
+    """``~/.creative-radar/db.env`` setzt ``CR_DB_URL``. Wer die Datei
+    sourcet und die ``DATABASE_URL=``-Zuweisung vergisst, bekam vorher
+    eine Fehlermeldung, die nach etwas fragte, das er gerade gesetzt zu
+    haben glaubte. (Genau darüber ist Wolf am 20.08. gestolpert.)"""
+    for name in ("DATABASE_URL", "DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CR_DB_URL", "postgresql://cr:cr@localhost:5432/creative_radar")
+
+    modul = _diag_modul()
+    assert modul._has_db_config() is True
+    # Die Engine liest DATABASE_URL — CR_DB_URL muss dorthin durchgereicht
+    # werden, sonst meldet die Prüfung Erfolg und der Verbindungsaufbau
+    # scheitert eine Zeile später.
+    import os
+    assert os.environ["DATABASE_URL"] == "postgresql://cr:cr@localhost:5432/creative_radar"
+
+
+def test_ohne_jede_db_angabe_bleibt_es_beim_abbruch(monkeypatch):
+    """Gegenprobe: die Lockerung darf die Prüfung nicht wirkungslos machen."""
+    for name in (
+        "DATABASE_URL", "DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL",
+        "CR_DB_URL", "PGHOST", "PGUSER", "PGPASSWORD", "PGDATABASE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    assert _diag_modul()._has_db_config() is False
