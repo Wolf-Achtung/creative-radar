@@ -297,19 +297,43 @@ class Settings(BaseSettings):
     image_proxy_timeout_seconds: float = 8.0
     image_proxy_max_bytes: int = 8 * 1024 * 1024  # 8 MiB
 
-    # Sprint Beta — cap on the number of vision calls per cron run.
-    # 50 * ~$0.015 = ~$0.75 per run; ~10 runs/month = ~$7.50/month at the
-    # default 3-day cadence. Wolf raises this in Railway ENV once stability
-    # is verified. 0 disables the auto-vision step entirely.
-    cron_vision_max_assets_per_run: int = 50
+    # Vision-Deckel je Cron-Lauf: frisch erzeugte Assets.
+    #
+    # Wartung 20.08.2026: von 50 auf 800 angehoben. Der alte Wert stammte
+    # aus dem Sprint-Beta-Plan und war an ``50 * ~$0.015 = ~$0.75 pro
+    # Lauf`` kalibriert — an einem Vision-Preis aus der gpt-4o-mini-Zeit,
+    # der seit dem Modellwechsel um Faktor 5,6 zu hoch ist (gemessen
+    # ~$0,0027, siehe api/cron.py::_VISION_COST_USD_PER_CALL).
+    #
+    # Der Deckel wurde nie nachgezogen und war damit die Ursache eines
+    # stillen Datenverlusts: bei ~680 neuen Assets pro Woche liessen 50
+    # frische + 200 Backlog rund zwei Drittel liegen. Gemessen am
+    # 20.08.2026 ueber 90 Tage: 3.228 Assets ``pending`` (nie
+    # angefasst), 3.023 ``analyzed``, 2.338 ``fetch_failed``. Der Stapel
+    # wuchs schneller, als er abgearbeitet wurde — und er verfaellt
+    # dabei, weil Instagram-CDN-Links nach 24-48h ablaufen. Was nicht
+    # zeitnah analysiert wird, ist danach nicht mehr analysierbar.
+    #
+    # 800 deckt den woechentlichen Zufluss mit Reserve. Die Kosten sind
+    # dabei nicht mehr die bindende Groesse: 800 * ~$0,0027 = ~$2,20 pro
+    # Lauf gegen einen Monatsdeckel von $50. Begrenzt wird der Lauf jetzt
+    # ueber die ZEIT (``VISION_STAGE_TIMEOUT_SECONDS``, Default 1800s,
+    # geteilt mit dem Backlog-Drain) — was nicht mehr hineinpasst, bleibt
+    # liegen und erscheint als ``skipped_budget`` im Cron-Summary.
+    # 0 deaktiviert den Schritt.
+    cron_vision_max_assets_per_run: int = 800
 
     # Vision-Backlog-Drain — neben den frisch erzeugten Assets zieht jeder
     # Cron-Lauf zusätzlich bis zu N älteste ``pending``-Assets nach, die nie
     # eine Vision-Analyse bekommen haben (feed-forward-Lücke + skipped_cap-
-    # Überlauf). 200 * ~$0.015 = ~$3/Lauf, wöchentlich ~$13/Monat, gedeckelt.
-    # 0 deaktiviert den Backlog-Drain (z.B. in Tests). Läuft NACH den
-    # created_asset_ids; deren Selektion/Cap bleibt unberührt.
-    cron_vision_backlog_max_assets_per_run: int = 200
+    # Überlauf). Läuft NACH den created_asset_ids; deren Selektion/Cap
+    # bleibt unberührt. 0 deaktiviert den Drain (z.B. in Tests).
+    #
+    # Wartung 20.08.2026: von 200 auf 800. Gleiche Begruendung wie oben.
+    # Der Altbestand von ~3.200 ``pending``-Assets braucht bei 800 pro
+    # Lauf rund vier Woechen — sofern das Zeitbudget reicht; sonst
+    # dauert es entsprechend laenger, aber sichtbar statt still.
+    cron_vision_backlog_max_assets_per_run: int = 800
 
     # Post-Analyse-Drain (Trailer-Intelligence Stufe 1) — pro Cron-Lauf bis
     # zu N Posts ohne ``last_analyzed_at`` klassifizieren (format / tone /

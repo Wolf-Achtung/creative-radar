@@ -489,7 +489,17 @@ def test_cron_run_below_cap_analyzes_all_new_assets(client_with_auth, db, monkey
         assert vision["text_fallback"] == 0
         assert vision["fetch_failed"] == 0
         assert vision["vision_error"] == 0
-        assert vision["estimated_cost_usd"] == round(3 * 0.015, 4)
+        # Bewusst gegen die Modul-Konstante geprueft, nicht gegen eine
+        # zweite Kopie der Zahl (Wartung 20.08.2026): der frueher hier
+        # eingetragene Literal-Wert 0.015 stammte aus der
+        # gpt-4o-mini-Zeit und haette die Preis-Korrektur als Testfehler
+        # getarnt. Was der Preis IST, prueft
+        # test_wartung_2026_08_20_vision.py; hier zaehlt nur, dass das
+        # Summary attempted * Konstante rechnet.
+        from app.api import cron as cron_module
+        assert vision["estimated_cost_usd"] == round(
+            3 * cron_module._VISION_COST_USD_PER_CALL, 4
+        )
         assert isinstance(vision["duration_seconds"], (int, float))
 
 
@@ -606,7 +616,9 @@ def test_vision_backlog_drains_oldest_pending_up_to_cap(db, monkeypatch):
     assert result["selected"] == 2
     assert result["attempted"] == 2
     assert result["succeeded"] == 2
-    assert result["estimated_cost_usd"] == round(2 * 0.015, 4)
+    assert result["estimated_cost_usd"] == round(
+        2 * cron_module._VISION_COST_USD_PER_CALL, 4
+    )
     # Oldest two were chosen (created_at asc ordering).
     assert sorted(call_log, key=str) == sorted(ids[:2], key=str)
 

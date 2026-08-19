@@ -20,6 +20,7 @@ skips with a structured ``reason``, the IG/TT path is unaffected.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import os
 import time
@@ -93,11 +94,60 @@ logger = logging.getLogger(__name__)
 
 CRON_RESULTS_LIMIT_PER_CHANNEL = 5
 
-# Approximate vision-call cost for cron summary reporting. Aligned with the
-# gpt-4o-mini Vision pricing ballpark used in the Sprint Beta plan; not a
-# precise per-call charge — token usage is logged separately by record_openai_call
-# (services/cost_log.py). Override via env if a different pricing model lands.
-_VISION_COST_USD_PER_CALL = 0.015
+# Naeherungswert der Vision-Call-Kosten fuer die Cron-Zusammenfassung.
+# Die echte Abrechnung steht pro Call im costlog (record_openai_call);
+# dieser Wert dient nur der Groessenordnung im Summary.
+#
+# Wartung 20.08.2026: von 0.015 auf 0.0027 korrigiert. Der alte Wert war
+# ausdruecklich die "gpt-4o-mini Vision pricing ballpark" aus dem
+# Sprint-Beta-Plan und ist seit dem Modellwechsel (gpt-4o-mini →
+# gpt-5.4-nano → gpt-5.4-mini) um Faktor 5,6 zu hoch. Gemessen am
+# costlog: 1.409 vision_calls auf gpt-5.4-mini kosteten 379,73 Cent,
+# also ~$0,0027 pro Call.
+#
+# Die Zahl war nicht nur Kosmetik: sie steht in den Kommentaren, mit
+# denen die beiden Vision-Deckel unten begruendet wurden — und hat sie
+# damit fuenfmal zu eng gerechnet.
+_VISION_COST_USD_PER_CALL = 0.0027
+
+# Zeitbudget beider Vision-Stages zusammen, in Sekunden.
+#
+# Wartung 20.08.2026. Bis dahin begrenzte AUSSCHLIESSLICH die Stueckzahl
+# (50 frisch + 200 Backlog), was zwei Probleme hatte: der Deckel war an
+# einem 5,6-fach zu hohen Preis kalibriert, und er sagt nichts ueber die
+# Laufzeit — die eigentliche Gefahr beim Hochsetzen, denn ein zu langer
+# Vision-Block frisst das Gesamtbudget (CRON_TOTAL_RUN_TIMEOUT_SECONDS,
+# produktiv 12.000s bei gemessenen ~7.200s Gesamtlaufzeit).
+#
+# Mit einem Zeitbudget begrenzt die Zeit den Lauf und nicht mehr eine
+# geratene Stueckzahl. Die Deckel duerfen dadurch grosszuegig werden:
+# was nicht mehr in die Zeit passt, bleibt liegen und wird im naechsten
+# Lauf nachgezogen — sichtbar als ``skipped_budget`` im Summary, nicht
+# still.
+#
+# 1800s wie title_sync, rematch und post_analysis. Bei den bisher
+# beobachteten Laufzeiten (Summary-Feld ``duration_seconds`` beider
+# Stages) ist das ein Vielfaches des heutigen Verbrauchs und passt auch
+# dann noch, wenn eine Umgebung den Gesamtwert nicht angehoben hat.
+_VISION_STAGE_BUDGET_DEFAULT_SECONDS = 1800
+
+
+def _vision_stage_budget_seconds() -> int:
+    raw = os.environ.get(
+        "VISION_STAGE_TIMEOUT_SECONDS", str(_VISION_STAGE_BUDGET_DEFAULT_SECONDS)
+    )
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "cron-vision-budget-unparsable; falling back to default",
+            extra={"raw": raw, "default": _VISION_STAGE_BUDGET_DEFAULT_SECONDS},
+        )
+        return _VISION_STAGE_BUDGET_DEFAULT_SECONDS
+    # 0 oder negativ = kein Budget. Bewusst erlaubt: so laesst sich das
+    # alte Verhalten (nur Stueckzahl begrenzt) ohne Code-Aenderung
+    # wiederherstellen, falls das Budget je im Weg steht.
+    return value
 
 _VISION_SUCCESS_STATUSES = frozenset({"analyzed", "done"})
 _VISION_FETCH_FAIL_STATUSES = frozenset({"fetch_failed", "no_source", "image_unreachable", "image_invalid"})
@@ -368,6 +418,8 @@ def _run_vision_after_sync(
     session: Session,
     asset_ids: list[UUID],
     cap: int,
+    *,
+    deadline: float | None = None,
 ) -> dict:
     """Sprint Beta — run the OpenAI Vision pipeline for up to ``cap`` newly
     created Assets in FIFO order (caller passes IDs in insertion order).
@@ -388,7 +440,7 @@ def _run_vision_after_sync(
     chosen = list(asset_ids[:cap]) if cap > 0 else []
 
     started = time.monotonic()
-    counters = _vision_process_ids(session, chosen)
+    counters = _vision_process_ids(session, chosen, deadline=deadline)
 
     duration_seconds = round(time.monotonic() - started, 2)
     estimated_cost_usd = round(counters["attempted"] * _VISION_COST_USD_PER_CALL, 4)
@@ -401,20 +453,48 @@ def _run_vision_after_sync(
     }
 
 
-def _vision_process_ids(session: Session, asset_ids: list[UUID]) -> dict:
+def _vision_process_ids(
+    session: Session,
+    asset_ids: list[UUID],
+    *,
+    deadline: float | None = None,
+) -> dict:
     """Run ``analyze_asset_visual`` over the given asset IDs, isolating
     per-asset failures, and return the status counters. Shared by the
     fresh-asset path (``_run_vision_after_sync``) and the backlog-drain
     path (``_run_vision_backlog``) so the counting/error-isolation rules
-    stay identical."""
+    stay identical.
+
+    ``deadline`` ist ein ``time.monotonic()``-Zeitpunkt (Wartung
+    20.08.2026). Ist er erreicht, bricht die Schleife ab und der Rest
+    landet als ``skipped_budget`` im Summary — nicht still, sondern
+    zaehlbar. Beide Stages teilen sich DENSELBEN Zeitpunkt, damit die
+    Summe begrenzt ist und nicht jede Stage ihr eigenes Budget
+    ausschoepft.
+
+    Geprueft wird VOR jedem Asset, nicht danach: ein einzelner Call kann
+    das Budget ueberziehen (er laeuft zu Ende), aber es startet keiner
+    mehr, dessen Beginn schon jenseits der Grenze liegt.
+    """
     counters = {
         "attempted": 0,
         "succeeded": 0,
         "text_fallback": 0,
         "fetch_failed": 0,
         "vision_error": 0,
+        "skipped_budget": 0,
     }
-    for asset_id in asset_ids:
+    for index, asset_id in enumerate(asset_ids):
+        if deadline is not None and time.monotonic() >= deadline:
+            counters["skipped_budget"] = len(asset_ids) - index
+            logger.warning(
+                "cron-vision-budget-exhausted",
+                extra={
+                    "processed": index,
+                    "skipped_budget": counters["skipped_budget"],
+                },
+            )
+            break
         asset = session.get(Asset, asset_id)
         if asset is None:
             # Asset disappeared between selection and vision. Should not
@@ -445,6 +525,7 @@ def _run_vision_backlog(
     backlog_cap: int,
     *,
     exclude_ids: list[UUID],
+    deadline: float | None = None,
 ) -> dict:
     """Drain up to ``backlog_cap`` oldest ``pending`` assets that the
     feed-forward vision path never reached (historical backlog + per-run
@@ -469,7 +550,7 @@ def _run_vision_backlog(
     )
     candidates = [a.id for a in session.exec(stmt).all() if a.id not in exclude][:backlog_cap]
 
-    counters = _vision_process_ids(session, candidates)
+    counters = _vision_process_ids(session, candidates, deadline=deadline)
     duration_seconds = round(time.monotonic() - started, 2)
     estimated_cost_usd = round(counters["attempted"] * _VISION_COST_USD_PER_CALL, 4)
 
@@ -1725,6 +1806,15 @@ async def _run_cron_sync_background_impl(
             # Force-Lauf vom wöchentlichen Cron unterscheidbar macht.
             summary["run_mode"] = {"target_week": target_week, "force": force}
             cap = settings.cron_vision_max_assets_per_run
+            # Ein Zeitpunkt fuer BEIDE Vision-Stages (Wartung 20.08.2026):
+            # frisch und Backlog teilen sich das Budget, sonst koennte
+            # jede Stage es einzeln ausschoepfen und die Summe waere
+            # doppelt so gross wie gedacht.
+            vision_budget = _vision_stage_budget_seconds()
+            vision_deadline = (
+                time.monotonic() + vision_budget if vision_budget > 0 else None
+            )
+            summary["vision_budget_seconds"] = vision_budget
             if created_asset_ids:
                 # to_thread: die synchronen Langläufer-Stages (Vision/Backlog/
                 # Rematch/Briefs/Roundups) laufen blockierende I/O (OpenAI/
@@ -1736,7 +1826,13 @@ async def _run_cron_sync_background_impl(
                 # BG-Task-Session (Z. oben) — parallele Threads auf derselben
                 # Session würden kollidieren. Die Reihenfolge der Kette bleibt.
                 summary["vision"] = await asyncio.to_thread(
-                    _run_vision_after_sync, session, created_asset_ids, cap
+                    functools.partial(
+                        _run_vision_after_sync,
+                        session,
+                        created_asset_ids,
+                        cap,
+                        deadline=vision_deadline,
+                    )
                 )
             # Backlog-Drain (Dauerfix gegen feed-forward-Lücke): nach den
             # frisch erzeugten Assets bis zu N älteste ``pending``-Assets
@@ -1745,7 +1841,13 @@ async def _run_cron_sync_background_impl(
             backlog_cap = settings.cron_vision_backlog_max_assets_per_run
             if backlog_cap > 0:
                 summary["vision_backlog"] = await asyncio.to_thread(
-                    _run_vision_backlog, session, backlog_cap, exclude_ids=created_asset_ids
+                    functools.partial(
+                        _run_vision_backlog,
+                        session,
+                        backlog_cap,
+                        exclude_ids=created_asset_ids,
+                        deadline=vision_deadline,
+                    )
                 )
             # Trailer-Intelligence Stufe 1 — Post-Klassifikation (format /
             # tone / purpose / lifecycle_stage) fuer alle Posts ohne
