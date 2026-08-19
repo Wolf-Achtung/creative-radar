@@ -394,3 +394,79 @@ def test_ohne_jede_db_angabe_bleibt_es_beim_abbruch(monkeypatch):
     ):
         monkeypatch.delenv(name, raising=False)
     assert _diag_modul()._has_db_config() is False
+
+
+def _bericht_ohne_de_vs_us(ids: list[str]) -> dict:
+    """Ein lionsgate-förmiger Brief: ``cross_market_insight`` ohne
+    ``de_vs_us``. Für ein Pair ohne DE-Channel ist das gültig — der
+    Validator nimmt solche Pairs ausdrücklich aus (``insights.py``,
+    „lionsgate (kein DE-Channel) ist hier exempt")."""
+    bericht = _bericht_mit_zitaten(ids)
+    bericht["cross_market_insight"] = {
+        "de_vs_us": None, "transfer_opportunity": None, "cited_post_ids": [],
+    }
+    return bericht
+
+
+def test_pair_ohne_de_channel_wird_nicht_faelschlich_verworfen(auswerten):
+    """Der Fehler vom 20.08.: das Skript validierte ``LLMReport`` ohne
+    Context. Der Validator schaltet dann bewusst auf „Pflicht AN" —
+    und verwarf damit JEDEN lionsgate-Brief als unlesbar. 9 von 15
+    gemeldeten Ausfällen waren kerngesund; der Fehler lag im Messwerkzeug,
+    nicht in den Daten.
+
+    Der Context muss aus der Aggregation kommen, also muss die zuerst
+    validiert werden.
+    """
+    agg = _minimal_agg(["https://example.com/p1"])
+    agg["de_channel"] = None  # lionsgate-Fall: kein DE-Channel
+
+    e = auswerten([
+        _zeile("lionsgate", 2026, 33,
+               _bericht_ohne_de_vs_us(["https://example.com/p1"]), agg)
+    ])
+
+    assert not e["unlesbar"], (
+        f"Brief faelschlich verworfen: {e['unlesbar']}. Ohne Validation-"
+        f"Context greift die de_vs_us-Pflicht auch fuer Pairs, die davon "
+        f"ausgenommen sind."
+    )
+    assert e["briefs_gesamt"] == 1
+    assert e["zitiert_gesamt"] == 1
+
+
+def test_pair_mit_de_channel_braucht_de_vs_us_weiterhin(auswerten):
+    """Gegenprobe. Der Context darf die Prüfung nicht generell
+    abschalten — hat das Pair DE-Daten, bleibt ``de_vs_us`` Pflicht."""
+    agg = _minimal_agg(["https://example.com/p1"])  # mit de_channel
+    e = auswerten([
+        _zeile("warnerbros", 2026, 33,
+               _bericht_ohne_de_vs_us(["https://example.com/p1"]), agg)
+    ])
+    assert len(e["unlesbar"]) == 1
+    assert "de_vs_us" in e["unlesbar"][0]
+
+
+def test_context_wird_gebaut_wie_im_engine():
+    """Die beiden Signale stammen aus ``insight_engine`` (dort an drei
+    Stellen identisch). Eine Kopie würde auseinanderlaufen — der Test
+    hält fest, dass das Skript importiert statt nachbaut."""
+    quelle = inspect.getsource(_diag_modul().auswerten)
+    assert "_has_cross_market_lage" in quelle
+    assert '"has_de_data": agg.de_channel is not None' in quelle
+
+
+def test_fehlergrund_nennt_feld_und_meldung():
+    """Ein blosser Feldpfad (`ganz_konkret`) sagt nicht, WAS falsch ist.
+    Genau so unbrauchbar war die erste Ausgabe für die Altzeilen."""
+    from pydantic import BaseModel
+
+    class Winzig(BaseModel):
+        zahl: int
+
+    try:
+        Winzig.model_validate({"zahl": "keine zahl"})
+    except Exception as exc:
+        grund = _diag_modul()._fehlergrund(exc)
+    assert "zahl" in grund
+    assert len(grund) > len("zahl"), f"nur der Feldname: {grund!r}"

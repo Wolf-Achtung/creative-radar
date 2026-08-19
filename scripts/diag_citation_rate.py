@@ -109,6 +109,21 @@ def _has_db_config() -> bool:
     )
 
 
+def _fehlergrund(exc: Exception) -> str:
+    """Die aussagekraeftigste Zeile aus einem Pydantic-Fehler.
+
+    Pydantic schreibt "N validation errors for X", danach je Fehler zwei
+    Zeilen: Feldpfad, dann Meldung. Ein blosser Feldpfad ("ganz_konkret")
+    beantwortet nicht, WAS an ihm falsch ist — darum beide, gekuerzt.
+    """
+    zeilen = [z.strip() for z in str(exc).splitlines() if z.strip()]
+    if len(zeilen) >= 3:
+        return f"{zeilen[1]}: {zeilen[2][:120]}"
+    if len(zeilen) == 2:
+        return f"{zeilen[1][:140]}"
+    return zeilen[0][:140] if zeilen else type(exc).__name__
+
+
 def auswerten(zeilen) -> dict:
     """Rechnet die Rate ueber eine Liste von ``insight_report``-Zeilen.
 
@@ -120,6 +135,7 @@ def auswerten(zeilen) -> dict:
     from app.services.insight_engine import (
         _build_citation_allow_set,
         _collect_cited_ids,
+        _has_cross_market_lage,
     )
 
     gesamt_zitiert = 0
@@ -133,32 +149,38 @@ def auswerten(zeilen) -> dict:
 
     for zeile in zeilen:
         kennung = f"{zeile.pair_key} {zeile.iso_year}-W{zeile.iso_week:02d}"
-        # Getrennt validieren und den Grund mitschreiben. Ein blosses
-        # "ValidationError" beantwortet die entscheidende Frage nicht:
-        # ueberspringt die Auswertung eine Handvoll Altzeilen — oder
-        # systematisch ein bestimmtes Pair? Im zweiten Fall hat die
-        # ausgewiesene Rate einen blinden Fleck, und der muss sichtbar
-        # sein, bevor jemand auf Strikt umstellt.
-        bericht = agg = None
-        for feld, modell, rohwert in (
-            ("llm_output", LLMReport, zeile.llm_output),
-            ("aggregation", PairAggregation, zeile.aggregation),
-        ):
-            try:
-                geparst = modell.model_validate(rohwert)
-            except Exception as exc:  # noqa: BLE001 — Altzeilen nicht abbrechen
-                grund = str(exc).splitlines()
-                # Pydantic schreibt "N validation errors for X", dann je
-                # Fehler zwei Zeilen (Feldpfad, Meldung). Die erste
-                # Feldzeile reicht zur Einordnung.
-                detail = grund[1].strip() if len(grund) > 1 else grund[0][:80]
-                unlesbar.append(f"{kennung}: {feld} — {detail}")
-                break
-            if feld == "llm_output":
-                bericht = geparst
-            else:
-                agg = geparst
-        if bericht is None or agg is None:
+        # Reihenfolge ist hier nicht beliebig: ZUERST die Aggregation,
+        # dann daraus der Validation-Context, dann der Bericht.
+        #
+        # ``LLMReport`` prueft ``cross_market_insight`` bedingt — de_vs_us
+        # ist Pflicht, wenn das Pair DE-Daten hat, transfer_opportunity nur
+        # bei echter Cross-Market-Lage. Beide Signale stehen in der
+        # Aggregation, nicht im Bericht, und kommen ueber
+        # ``info.context``. Fehlt der Context, gilt laut Validator-Doku
+        # bewusst "Pflicht AN" — ein Aufrufer ohne Context soll nichts
+        # still durchrutschen lassen.
+        #
+        # Genau darueber ist die erste Fassung dieses Skripts gestolpert:
+        # sie validierte ohne Context und hat daraufhin JEDEN
+        # lionsgate-Brief verworfen (lionsgate hat keinen DE-Channel und
+        # ist von der de_vs_us-Pflicht ausgenommen). 9 von 15 gemeldeten
+        # "unlesbaren" Briefen waren kerngesund — der Fehler lag im
+        # Messwerkzeug. Der Context wird deshalb hier genauso gebaut wie
+        # in ``insight_engine`` (dort an drei Stellen identisch).
+        try:
+            agg = PairAggregation.model_validate(zeile.aggregation)
+        except Exception as exc:  # noqa: BLE001 — Altzeilen nicht abbrechen
+            unlesbar.append(f"{kennung}: aggregation — {_fehlergrund(exc)}")
+            continue
+
+        context = {
+            "has_de_data": agg.de_channel is not None,
+            "has_cross_market": _has_cross_market_lage(agg),
+        }
+        try:
+            bericht = LLMReport.model_validate(zeile.llm_output, context=context)
+        except Exception as exc:  # noqa: BLE001
+            unlesbar.append(f"{kennung}: llm_output — {_fehlergrund(exc)}")
             continue
 
         briefs_gesamt += 1
