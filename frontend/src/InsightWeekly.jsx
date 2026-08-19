@@ -92,7 +92,10 @@ function GlossaryBlock() {
 // (glossary.js) migriert — Coverage/Aktivierung/Cross-Market lesen jetzt von
 // dort. Eine Quelle für Info-Punkte UND den Gesamt-Glossar-Block.
 
-function CoverageBanner({ report }) {
+// Wartung 20.08.2026: unbenutzt, aber bewusst behalten — der
+// Unterstrich markiert das gegenueber eslint, statt die
+// Komponente zu loeschen.
+function _CoverageBanner({ report }) {
   const cov = report?.coverage_pct ?? 0;
   const tone = cov >= 70 ? 'good' : cov >= 30 ? 'warn' : 'bad';
   const label = cov >= 70 ? 'solide' : cov >= 30 ? 'moderat' : 'dünn';
@@ -249,7 +252,7 @@ function LLMDetailSections({ output }) {
     <>
       {output.aktuell_im_fokus?.length > 0 && (
         <div className="card">
-          <p className="section-kicker">Worum geht's diese Woche</p>
+          <p className="section-kicker">Worum geht’s diese Woche</p>
           <ul className="insight-list">
             {output.aktuell_im_fokus.map((item, i) => (
               <li key={i}>
@@ -510,7 +513,7 @@ function RolesTabSwitcher({ output, pairKey, initialActiveTab }) {
               <h4 className="roles-print-label">Für den {t.label}</h4>
               {data ? t.render(data) : (
                 <p className="roles-tab-empty-text">
-                  Für die Rolle "{t.label}" liegt in diesem Brief keine
+                  Für die Rolle „{t.label}“ liegt in diesem Brief keine
                   Empfehlung vor.
                 </p>
               )}
@@ -554,7 +557,7 @@ function RolesTabSwitcher({ output, pairKey, initialActiveTab }) {
           activeTab.render(activeData)
         ) : (
           <p className="roles-tab-empty-text">
-            Für die Rolle "{activeTab.label}" liegt in diesem Brief keine
+            Für die Rolle „{activeTab.label}“ liegt in diesem Brief keine
             Empfehlung vor.
           </p>
         )}
@@ -1932,7 +1935,7 @@ function FilmDetailSection({ fokusItems }) {
       {status === 'done' && data && (
         data.total_posts === 0 ? (
           <p className="film-detail-empty">
-            Für „{data.title_original || 'diesen Titel'}" liegen in diesem Zeitraum noch keine Posts vor.
+            Für „{data.title_original || 'diesen Titel'}“ liegen in diesem Zeitraum noch keine Posts vor.
           </p>
         ) : (
           <>
@@ -2308,8 +2311,8 @@ export default function InsightWeekly({ pair }) {
   const [printMode, setPrintMode] = useState(false);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'slow' | 'done' | 'error'
-  const [windowDays, setWindowDays] = useState(30);
-  const [dryRun, setDryRun] = useState(false);
+  const [windowDays] = useState(30);
+  const [dryRun] = useState(false);
   // UX-Audit Befund 9: Registry der gerenderten Top-Level-Sektionen für
   // die "Auf dieser Seite"-Sprungnavigation. Die API ist stabil
   // (useMemo ohne Deps), die Liste fließt als Prop in <PageNav> — nicht
@@ -2372,7 +2375,6 @@ export default function InsightWeekly({ pair }) {
     // weil moderne Browser den Event zuverlaessig feuern.
   }
 
-  const loading = status === 'loading' || status === 'slow';
 
   const label = FALLBACK_LABEL[pair] || report?.pair_label || pair;
 
