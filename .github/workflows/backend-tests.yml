@@ -1,9 +1,13 @@
 name: Backend Tests
 
-# Runs the backend pytest suite against a real Postgres-13 service so the
+# Runs the backend pytest suite against a real Postgres-18 service so the
 # advisory-lock paths and schema-qualified queries exercise the same
 # dialect that production runs on. Triggered on every PR that touches
 # ``backend/**`` and on pushes to ``main`` (baseline tracking).
+#
+# (Wartung 19.08.2026: hier stand "Postgres-13". Der Service-Container
+# laeuft seit laengerem auf ``postgres:18``, gleiche Major-Version wie
+# Railway und docker-compose.)
 #
 # Setup once (Wolf-Aktion after first green run):
 #   Settings -> Branches -> Branch protection rules -> main
@@ -45,7 +49,10 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://cr:cr@localhost:5432/creative_radar
-      PGPASSWORD: cr
+      # Wartung 19.08.2026: ``PGPASSWORD`` ist hier weg. Der Wert wurde
+      # ausschliesslich von ``psql`` gelesen, und ``psql`` gibt es in
+      # diesem Workflow nicht mehr (s.u.). Das Passwort steht ohnehin in
+      # der DATABASE_URL.
 
     steps:
       - name: Checkout
@@ -58,9 +65,6 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      - name: Install psql client
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -69,25 +73,57 @@ jobs:
           # mehr in den Prod-Requirements.
           pip install -r backend/requirements-dev.txt
 
-      - name: Wait for postgres readiness
+      - name: Auf Postgres warten und das creative_radar-Schema anlegen
+        # Wartung 19.08.2026 — vorher waren das drei Schritte:
+        # ``apt-get install postgresql-client``, dann ``pg_isready`` in einer
+        # Bash-Schleife, dann ``psql -c "CREATE SCHEMA ..."``.
+        #
+        # Am 19.08. ist der Lauf ZWEIMAL hintereinander im apt-Schritt
+        # stehengeblieben: ``azure.archive.ubuntu.com`` war nicht
+        # erreichbar, apt hat die Paketquellen viermal vergeblich
+        # angefragt und dabei 9:47 bzw. 9:52 Minuten verbraucht — das
+        # Job-Limit von 10 Minuten lief ab, bevor ein einziger Test
+        # startete. Zwei rote Laeufe, kein einziger Testfehler.
+        #
+        # ``psycopg`` steht als ``psycopg[binary]`` in requirements.txt und
+        # ist nach dem Schritt darueber installiert. Es kann beides, was
+        # hier gebraucht wird. Damit faellt die apt-Abhaengigkeit ersatzlos
+        # weg: keine fremde Paketquelle, kein Mirror, keine Wartezeit.
+        #
+        # Warum ueberhaupt gewartet wird, obwohl der Service-Container
+        # schon einen ``--health-cmd`` hat: der Healthcheck deckt den
+        # Container ab, nicht die Port-Weiterleitung auf den Runner. Die
+        # Schleife ist billig und macht den Schritt unabhaengig davon.
+        #
+        # Warum das Schema hier angelegt wird: Alembics env.py erwartet es
+        # fuer Postgres-Deployments (version_table_schema='creative_radar').
+        # Railway legt es ausserhalb an, CI macht es ausdruecklich.
         run: |
-          for i in {1..30}; do
-            if pg_isready -h localhost -p 5432 -U cr -d creative_radar; then
-              echo "postgres ready"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "postgres did not become ready in 30s"
-          exit 1
+          python - <<'PY'
+          import os
+          import sys
+          import time
 
-      - name: Create creative_radar schema
-        # Alembic's env.py expects the schema to exist for Postgres
-        # deployments (version_table_schema='creative_radar'). Railway
-        # provisions the schema out-of-band; CI does it explicitly.
-        run: |
-          psql -h localhost -U cr -d creative_radar \
-            -c "CREATE SCHEMA IF NOT EXISTS creative_radar;"
+          import psycopg
+
+          dsn = os.environ["DATABASE_URL"]
+          letzter_fehler = None
+
+          for versuch in range(1, 31):
+              try:
+                  with psycopg.connect(dsn, connect_timeout=3) as conn:
+                      conn.execute("CREATE SCHEMA IF NOT EXISTS creative_radar")
+                      conn.commit()
+              except psycopg.OperationalError as exc:
+                  letzter_fehler = exc
+                  time.sleep(1)
+                  continue
+              print(f"postgres bereit nach Versuch {versuch}; Schema angelegt")
+              sys.exit(0)
+
+          print(f"postgres war nach 30s nicht erreichbar: {letzter_fehler}", file=sys.stderr)
+          sys.exit(1)
+          PY
 
       - name: Bootstrap schema via SQLModel.metadata.create_all
         # Production was originally built via a one-shot

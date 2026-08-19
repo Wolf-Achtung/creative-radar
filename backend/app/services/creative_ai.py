@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any
 
 from openai import AsyncOpenAI, OpenAI
@@ -6,6 +7,8 @@ from openai import AsyncOpenAI, OpenAI
 from app.config import settings
 from app.models.entities import AssetType, ReviewStatus
 from app.services.cost_log import record_openai_call
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_json(text: str) -> dict[str, Any]:
@@ -186,8 +189,41 @@ def _unconfigured_response(asset_type_hint: AssetType) -> dict[str, Any]:
     }
 
 
+def _text_data_is_empty(data: dict[str, Any]) -> bool:
+    """Der Aufruf kam ohne Exception zurueck, die geparste Antwort
+    enthaelt aber nichts Verwertbares.
+
+    Wartung 2026-08-19. Gegenstueck zu
+    ``visual_analysis._vision_data_is_empty`` — dort loest derselbe
+    Zustand seit W4 den Status ``vision_empty`` aus. Auf diesem Pfad
+    fehlte die Erkennung ganz: ``_safe_json`` gibt bei unlesbarer
+    Antwort ``{}`` zurueck, ``_shape_response`` fuellt daraufhin
+    stillschweigend Platzhalter-Text ein und meldet ``ReviewStatus.NEW``
+    — von einer echten Analyse nicht zu unterscheiden.
+
+    Diese Funktion faellt kein Urteil und aendert kein Feld. Sie macht
+    den Zustand nur sichtbar (WARNING im Aufrufer), damit er zaehlbar
+    wird. Welchen ``review_status`` und welche ``confidence`` ein
+    fehlgeschlagener Aufruf tragen soll, ist eine Produktentscheidung
+    und steht im Wartungsbericht vom 19.08. — nicht hier.
+    """
+    if not data:
+        return True
+    aussagekraeftig = ('ai_summary_de', 'ai_summary_en', 'ai_trend_notes')
+    return not any(_as_text(data.get(k)).strip() for k in aussagekraeftig)
+
+
 def _shape_response(raw: str) -> dict[str, Any]:
     data = _safe_json(raw)
+    if _text_data_is_empty(data):
+        logger.warning(
+            "creative-ai-empty-response",
+            extra={
+                'model': settings.openai_model,
+                'raw_length': len(raw or ''),
+                'raw_first_300': (raw or '')[:300],
+            },
+        )
     return {
         'asset_type': _asset_type(data.get('asset_type')),
         'language': _normalize_language(data.get('language')),
