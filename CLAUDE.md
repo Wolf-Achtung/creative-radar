@@ -120,7 +120,8 @@ von der ersten Prüfung nicht erfasst:
 
 `CRON_RUN_TIMEOUT_MINUTES`, `CRON_TOTAL_RUN_TIMEOUT_SECONDS`,
 `CRON_POST_ANALYSIS_STAGE_TIMEOUT_SECONDS`, `TITLE_SYNC_STAGE_TIMEOUT_SECONDS`,
-`REMATCH_STAGE_TIMEOUT_SECONDS`, `ENABLE_TITLE_SYNC_IN_CRON`,
+`REMATCH_STAGE_TIMEOUT_SECONDS`, `VISION_STAGE_TIMEOUT_SECONDS`,
+`ENABLE_TITLE_SYNC_IN_CRON`,
 `ENABLE_BRIEF_GEN_IN_CRON`, `ENABLE_INTERNAL_CRON_SCHEDULER`,
 `FEATURE_SEGMENT_ROUNDUPS_ENABLED`, `FEATURE_CUTTER_WEEKLY_ENABLED`,
 `FEATURE_DESIGNER_WEEKLY_ENABLED`, `PG_STATEMENT_TIMEOUT_MS`,
@@ -250,6 +251,44 @@ Monatsbudget je Anbieter, Pre-Flight im Cron bricht den ganzen Lauf mit
 | Anthropic | $100 | 80 % |
 | OpenAI | $50 | 80 % |
 
+## Vision-Durchsatz — korrigiert am 20.08.2026
+
+Die beiden Vision-Deckel im Cron waren an einem Preis aus der
+gpt-4o-mini-Zeit kalibriert und nie nachgezogen worden.
+`_VISION_COST_USD_PER_CALL` stand auf `0.015` mit dem Kommentar
+„gpt-4o-mini Vision pricing ballpark"; gemessen am costlog kostet ein
+Call auf `gpt-5.4-mini` **$0,0027** (1.409 Calls, 379,73 Cent) — Faktor
+5,6. Diese Zahl stand in den Kommentaren, mit denen beide Deckel
+begründet wurden.
+
+Die Folge war kein Kostenfehler, sondern stiller Datenverlust. Bei rund
+680 neuen Assets pro Woche ließen 50 frische + 200 Backlog etwa zwei
+Drittel liegen, und Instagram-CDN-Links verfallen nach 24–48 h — was ein
+Lauf nicht anfasst, ist danach oft nicht mehr analysierbar. Gemessen
+über 90 Tage: 3.228 `pending`, 3.023 `analyzed`, 2.338 `fetch_failed`.
+
+| | vorher | jetzt |
+|---|---|---|
+| `CRON_VISION_MAX_ASSETS_PER_RUN` | 50 | 800 |
+| `CRON_VISION_BACKLOG_MAX_ASSETS_PER_RUN` | 200 | 800 |
+| `_VISION_COST_USD_PER_CALL` | 0.015 | 0.0027 |
+| Zeitgrenze | keine | `VISION_STAGE_TIMEOUT_SECONDS`, Default 1800 s |
+
+Das Anheben der Deckel wäre für sich genommen fahrlässig — ein Deckel in
+*Stück* sagt nichts über Laufzeit, genau der Fehler aus dem Vorfall
+10.08.2026 in der Post-Analyse. Deshalb begrenzt jetzt die **Zeit**:
+beide Vision-Stages teilen sich *einen* `time.monotonic()`-Zeitpunkt
+(nicht je einen, sonst wäre die Summe doppelt so groß), geprüft **vor**
+jedem Asset. Was nicht mehr hineinpasst, erscheint als `skipped_budget`
+im Cron-Summary statt still zu verschwinden. `0` stellt das alte
+Verhalten „nur Stückzahl" ohne Code-Deploy wieder her.
+
+800 · $0,0027 ≈ **$2,20 pro Lauf** gegen einen OpenAI-Monatsdeckel von
+$50. Der Altbestand von ~3.200 `pending` braucht damit rund vier Wochen.
+
+Geprüft in `app/tests/test_wartung_2026_08_20_vision.py` (14 Tests,
+sechs Mutationen verifiziert).
+
 ## Testlauf lokal
 
 ```sh
@@ -258,4 +297,4 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 ALLOW_SQLITE_FALLBACK=true .venv/bin/python -m pytest app/tests -q
 ```
 
-Stand 19.08.2026: **1518 bestanden, 10 übersprungen**, ~2 Minuten.
+Stand 20.08.2026: **1565 bestanden, 10 übersprungen**, ~2 Minuten.
