@@ -1,0 +1,109 @@
+name: Modell-Drift
+
+# Taeglicher Waechter gegen Modell- und Abhaengigkeits-Drift.
+#
+# Anlass: Der Wechsel von Sonnet 4.6 auf Sonnet 5 hat das Verhalten des
+# Post-Analyzers geaendert, ohne dass eine Zeile Code sich geaendert
+# haette — Sonnet 5 denkt ohne ``thinking``-Parameter, Sonnet 4.6 nicht.
+# Aufgefallen ist es Wochen spaeter. Diese Klasse von Fehlern soll laut
+# scheitern statt leise zu wirken.
+#
+# Der Lauf braucht weder Datenbank noch Schluessel: die Pruefungen lesen
+# die Quelltexte. Deshalb kostet er Sekunden und kann taeglich laufen.
+#
+# Ein roter Lauf heisst nicht "kaputt", sondern "es hat sich etwas
+# verschoben, sieh hin". In der Regel genuegt ein Eintrag in
+# MODELL_TABELLE — nach der Klaerung, ob das neue Modell ohne Angabe
+# denkt.
+
+on:
+  schedule:
+    # 05:20 UTC, taeglich. Bewusst nach dem Wochenlauf (03:00 UTC), damit
+    # ein roter Waechter nicht mit einem laufenden Cron zusammenfaellt.
+    - cron: "20 5 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/app/config.py"
+      - "backend/app/services/**"
+      - "backend/app/tests/test_model_defaults_drift.py"
+      - "backend/requirements.txt"
+      - ".github/workflows/model-drift.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/app/config.py"
+      - "backend/app/services/**"
+      - "backend/requirements.txt"
+      - ".github/workflows/model-drift.yml"
+
+jobs:
+  drift:
+    name: Modell-Drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: pytest installieren
+        # Nur pytest — die Pruefungen parsen Quelltext und importieren
+        # die Anwendung nicht. Kein requirements.txt, keine Minuten.
+        run: pip install pytest
+
+      - name: Modell-Waechter
+        # --noconftest ist noetig, nicht kosmetisch: app/tests/conftest.py
+        # importiert die Anwendung und zieht damit FastAPI herein. Ohne
+        # das Flag muesste dieser Lauf die vollen requirements.txt
+        # installieren — und waere keine Sekundensache mehr.
+        run: python -m pytest app/tests/test_model_defaults_drift.py --noconftest -v
+
+      - name: Abhaengigkeiten gegen PyPI halten
+        # Rein berichtend: ein veraltetes Paket ist kein Fehlschlag,
+        # sondern eine Nachricht. Nur die Pakete, bei denen Drift uns
+        # tatsaechlich weh tut.
+        continue-on-error: true
+        run: |
+          pip install --quiet --upgrade pip
+          python - <<'PY'
+          import json, urllib.request, re, pathlib
+
+          BEOBACHTET = ("anthropic", "openai", "fastapi", "sqlmodel", "alembic")
+          gepinnt = {}
+          for zeile in pathlib.Path("requirements.txt").read_text().splitlines():
+              treffer = re.match(r"^([A-Za-z0-9_.\-]+)==([^\s;]+)", zeile.strip())
+              if treffer and treffer.group(1).lower() in BEOBACHTET:
+                  gepinnt[treffer.group(1).lower()] = treffer.group(2)
+
+          zeilen = []
+          for paket, version in sorted(gepinnt.items()):
+              try:
+                  with urllib.request.urlopen(
+                      f"https://pypi.org/pypi/{paket}/json", timeout=15
+                  ) as antwort:
+                      neuste = json.load(antwort)["info"]["version"]
+              except Exception as exc:
+                  zeilen.append(f"| {paket} | {version} | nicht erreichbar | {exc} |")
+                  continue
+              stand = "aktuell" if neuste == version else "**veraltet**"
+              zeilen.append(f"| {paket} | {version} | {neuste} | {stand} |")
+
+          bericht = (
+              "### Abhaengigkeiten\n\n"
+              "| Paket | gepinnt | auf PyPI | Stand |\n|---|---|---|---|\n"
+              + "\n".join(zeilen)
+              + "\n"
+          )
+          print(bericht)
+          import os
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(bericht)
+          PY
