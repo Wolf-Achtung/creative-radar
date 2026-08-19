@@ -791,7 +791,10 @@ function PageNav({ sections }) {
   );
 }
 
-function CollapsibleCard({
+// Wartung 20.08.2026 exportiert, damit der Klapp-Zustand testbar ist
+// (siehe CollapsibleCard.test.jsx). Die Komponente wird weiterhin nur
+// innerhalb dieser Datei verwendet.
+export function CollapsibleCard({
   title,
   subtitle,
   defaultOpen = false,
@@ -815,6 +818,28 @@ function CollapsibleCard({
     window.addEventListener('cr-open-section', onOpen);
     return () => window.removeEventListener('cr-open-section', onOpen);
   }, [anchorId]);
+  // Sprint 28.05.2026 (IA-Umbau, Baustein 4): wenn der Ansichts-Modus-
+  // Umschalter den ``defaultOpen``-Prop aendert (z.B. von "all" auf
+  // "cutter"), den Klapp-Zustand neu setzen. User-Toggles innerhalb
+  // desselben ViewMode (gleicher defaultOpen-Wert) bleiben erhalten.
+  //
+  // Wartung 20.08.2026: das stand vorher in einem
+  // ``useEffect(() => setIsOpen(defaultOpen), [defaultOpen])``. Zustand
+  // aus einem Prop abzuleiten ist genau die Form, von der React
+  // abraet: die Karte rendert zuerst mit dem ALTEN Klapp-Zustand, der
+  // Effect setzt nach, React rendert ein zweites Mal. Beim Umschalten
+  // des Ansichts-Modus blitzt der vorherige Zustand also kurz auf, und
+  // bei verschachtelten Karten pflanzt sich das fort.
+  //
+  // Die dokumentierte Form ist die Anpassung waehrend des Renders:
+  // React verwirft den laufenden Durchlauf sofort und wiederholt ihn
+  // mit dem neuen Wert, ohne dass etwas ins DOM geht. Das Verhalten ist
+  // dasselbe, nur ohne Zwischenbild.
+  const [vorigerDefaultOpen, setVorigerDefaultOpen] = useState(defaultOpen);
+  if (defaultOpen !== vorigerDefaultOpen) {
+    setVorigerDefaultOpen(defaultOpen);
+    setIsOpen(defaultOpen);
+  }
   // effectiveOpen: im PrintMode IMMER offen, sonst der User-State.
   // Aenderung gegenueber #192: die Render-Bedingung unten reagiert auf
   // ``effectiveOpen``, der State-Zyklus (User-Toggle, ViewMode-Sync)
@@ -822,14 +847,6 @@ function CollapsibleCard({
   // (afterprint leert printMode), faellt die Karte automatisch in
   // ihren vorherigen User-State.
   const effectiveOpen = printMode || isOpen;
-  // Sprint 28.05.2026 (IA-Umbau, Baustein 4): wenn der Ansichts-Modus-
-  // Umschalter den ``defaultOpen``-Prop aendert (z.B. von "all" auf
-  // "cutter"), den Klapp-Zustand neu setzen. User-Toggles innerhalb
-  // desselben ViewMode (gleicher defaultOpen-Wert) bleiben erhalten —
-  // useEffect feuert nur, wenn die Dep tatsaechlich wechselt.
-  useEffect(() => {
-    setIsOpen(defaultOpen);
-  }, [defaultOpen]);
   const contentId = useId();
   const headerId = useId();
   const className = variant === 'inner'
@@ -1856,8 +1873,17 @@ function FilmDetailSection({ fokusItems }) {
   // Sort-Wahl persistiert (Pattern wie TopRankingSection); Default Engagement-Rate.
   const [sortKey, setSortKey] = useLocalStorage('filmDetailSort', 'engagement');
 
+  // Wartung 20.08.2026 — ``set-state-in-effect`` ist hier bewusst
+  // abgeschaltet. Die Regel zielt auf abgeleiteten Zustand (ein Prop in
+  // State spiegeln); das ist oben in ``CollapsibleCard`` behoben. Hier
+  // liegt der andere Fall vor: ein Ladezustand, der VOR einem
+  // asynchronen Abruf gesetzt werden muss, damit der Nutzer sofort
+  // etwas sieht. Den in den Render zu ziehen ginge nur mit einer
+  // Fetch-Bibliothek — eine Abhaengigkeits-Entscheidung, kein
+  // Lint-Fix. Die Regel bleibt fuer alle anderen Stellen scharf.
   useEffect(() => {
     if (!selectedId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setData(null);
       setStatus('idle');
       setError(null);
@@ -2151,8 +2177,17 @@ function MarketTimelineSection({ pair }) {
   const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'done' | 'error'
   const [forecast, setForecast] = useState(null);
 
+  // Wartung 20.08.2026 — ``set-state-in-effect`` ist hier bewusst
+  // abgeschaltet. Die Regel zielt auf abgeleiteten Zustand (ein Prop in
+  // State spiegeln); das ist oben in ``CollapsibleCard`` behoben. Hier
+  // liegt der andere Fall vor: ein Ladezustand, der VOR einem
+  // asynchronen Abruf gesetzt werden muss, damit der Nutzer sofort
+  // etwas sieht. Den in den Render zu ziehen ginge nur mit einer
+  // Fetch-Bibliothek — eine Abhaengigkeits-Entscheidung, kein
+  // Lint-Fix. Die Regel bleibt fuer alle anderen Stellen scharf.
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus('loading');
     endpoints
       .insightsTimeline(pair)
@@ -2215,8 +2250,17 @@ function ErForecastSection({ pair }) {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'done' | 'hidden'
 
+  // Wartung 20.08.2026 — ``set-state-in-effect`` ist hier bewusst
+  // abgeschaltet. Die Regel zielt auf abgeleiteten Zustand (ein Prop in
+  // State spiegeln); das ist oben in ``CollapsibleCard`` behoben. Hier
+  // liegt der andere Fall vor: ein Ladezustand, der VOR einem
+  // asynchronen Abruf gesetzt werden muss, damit der Nutzer sofort
+  // etwas sieht. Den in den Render zu ziehen ginge nur mit einer
+  // Fetch-Bibliothek — eine Abhaengigkeits-Entscheidung, kein
+  // Lint-Fix. Die Regel bleibt fuer alle anderen Stellen scharf.
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus('loading');
     endpoints
       .insightsForecast(pair)
@@ -2344,7 +2388,24 @@ export default function InsightWeekly({ pair }) {
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [pair]);
+  // Wartung 20.08.2026 — ``set-state-in-effect`` ist hier bewusst
+  // abgeschaltet. Die Regel zielt auf abgeleiteten Zustand (ein Prop in
+  // State spiegeln); das ist oben in ``CollapsibleCard`` behoben. Hier
+  // liegt der andere Fall vor: ein Ladezustand, der VOR einem
+  // asynchronen Abruf gesetzt werden muss, damit der Nutzer sofort
+  // etwas sieht. Den in den Render zu ziehen ginge nur mit einer
+  // Fetch-Bibliothek — eine Abhaengigkeits-Entscheidung, kein
+  // Lint-Fix. Die Regel bleibt fuer alle anderen Stellen scharf.
+  //
+  // ``load`` fehlt bewusst in den Deps: die Funktion wird bei jedem
+  // Render neu erzeugt, ein Eintrag wuerde den Abruf in eine Schleife
+  // schicken. Vorher stand hier ein regelloses
+  // ``/* eslint-disable-next-line */`` INNERHALB des Effect-Bodys —
+  // das deaktivierte die Zeile ``}, [pair]);`` und damit nichts, was
+  // eslint als "unused directive" meldete. Jetzt benannt und an der
+  // richtigen Stelle.
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [pair]);
 
   // Sprint 28.05.2026 (PDF-Baustein 2): afterprint restored den
   // normalen Modus, sobald der Druckdialog schliesst (OK oder Abbruch).
