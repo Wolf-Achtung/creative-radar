@@ -148,36 +148,69 @@ Bewusst **nicht** in Production gesetzt (laufen auf dem Code-Default):
 | `DISABLE_EMAILS`, `DOCS_PUBLIC`, `MOCK_EXTERNAL_APIS`, `STAGING_EXPECTED_DB_HOST` | nur in `staging` gesetzt — in Production korrekt aus |
 | `ALLOW_AUTH_DISABLED_IN_PRODUCTION` | `False` → Boot-Abbruch bei abgeschalteter Auth greift |
 | `OPENAI_MONTHLY_BUDGET_USD` | $50 aus dem Code. Apify und Anthropic sind dagegen ausdrücklich gesetzt — die Asymmetrie ist gewollt oder übersehen, das weiß nur Wolf |
-| `INSIGHT_CITATION_STRICT_ENFORCE` | `False`, Soft-Mode. Der im Code geplante Cutover nach „2-3 Wochen Cron-Lauf" (Sprint 28.05.) hat nie stattgefunden — Auswertung: `scripts/diag_citation_rate.py` (s.u.) |
+| `INSIGHT_CITATION_STRICT_ENFORCE` | `False`, Soft-Mode. Am 20.08.2026 gemessen: 0,19 % Falsch-Zitat-Rate, Kriterium (< 2 %) erfüllt — der Flip ist durch die Daten gedeckt (s.u.) |
 | alle `*_PER_1K_USD`, `USD_TO_EUR_RATE` | Code-Werte gelten — die Preistabelle oben beschreibt also die echte Kostenrechnung |
 | `SMTP_HOST` / `_USER` / `_PASSWORD` | **nirgends gesetzt.** Fällt Resend aus, greift der SMTP-Rückfallweg ins Leere: `MailerError` → 503, Login komplett tot. Es gibt keinen zweiten Weg |
 
 **Weiterhin nicht prüfbar:** die Netlify-Variablen (`VITE_API_BASE`,
 `VITE_API_TOKEN`, `VITE_ENVIRONMENT`).
 
-## Citation-Cutover auswerten
+## Citation-Cutover — gemessen am 20.08.2026
 
 `INSIGHT_CITATION_STRICT_ENFORCE` steht auf `False`. Das Kriterium für
 den Umstieg auf Strikt steht in `config.py`: Falsch-Zitat-Rate < 2 %.
 
-Die Auswertung braucht **keine Logs**. `_validate_citations` ist eine
-reine Funktion von `(LLMReport, PairAggregation)`, und beide liegen als
-JSON-Spalten (`llm_output`, `aggregation`) in jeder `insight_report`-
-Zeile. `scripts/diag_citation_rate.py` baut sie zurück und lässt
-denselben Validator noch einmal laufen — read-only, kein LLM-Aufruf,
-jederzeit wiederholbar, unabhängig von der Railway-Log-Aufbewahrung:
+**Gemessen: 0,19 %.** 120 Briefs, 4.186 zitierte IDs, 8 nicht belegt,
+verteilt auf 6 Briefe. Zeitraum 2026-W22 (Start der Funktion) bis W33 —
+zwölf Wochen statt der geforderten zwei bis drei. Das Kriterium ist mit
+zehnfachem Abstand erfüllt.
+
+Wo es hakt, wenn es hakt:
+
+| Sektion | Zitate | falsch | Rate |
+|---|---|---|---|
+| `cross_market_insight` | 512 | 6 | 1,17 % |
+| `ganz_konkret[6]` | 192 | 2 | 1,04 % |
+| alle übrigen 24 Sektionen | 3.482 | 0 | 0,00 % |
+
+`cross_market_insight` ist der Ausreißer — dort zitiert das Modell
+`match_key`-Werte statt Post-URLs, einen anderen ID-Raum. Die letzten
+drei Wochen (W31–W33) sind fehlerfrei.
+
+### Die Auswertung wiederholen
+
+Sie braucht **keine Logs**. `_validate_citations` ist eine reine Funktion
+von `(LLMReport, PairAggregation)`, und beide liegen als JSON-Spalten
+(`llm_output`, `aggregation`) in jeder `insight_report`-Zeile.
+`scripts/diag_citation_rate.py` baut sie zurück und lässt denselben
+Validator noch einmal laufen — read-only, kein LLM-Aufruf, jederzeit
+wiederholbar, unabhängig von der Railway-Log-Aufbewahrung:
 
 ```sh
 source ~/.creative-radar/db.env && \
-    DATABASE_URL="$CR_DB_URL" python -m scripts.diag_citation_rate --pro-sektion
+    python -m scripts.diag_citation_rate --pro-sektion
 ```
 
-Ausgabe: Rate gesamt, je ISO-Woche, je Brief-Sektion, plus ein Urteil
-gegen die 2-%-Schwelle. Einschränkung: ausgewertet wird der gespeicherte
-Stand — ein per `force=true` neu erzeugter Brief hat den alten
-überschrieben.
+Zwei Fallen, beide beim ersten Produktionslauf getreten und behoben:
 
-## Auth-Schichten
+- **Validation-Context.** `LLMReport` prüft `cross_market_insight`
+  bedingt; die Signale (`has_de_data`, `has_cross_market`) stehen in der
+  Aggregation und kommen über `info.context`. Ohne Context gilt
+  „Pflicht AN" — das verwarf jeden lionsgate-Brief (kein DE-Channel, von
+  der Pflicht ausgenommen). Erst Aggregation validieren, daraus den
+  Context bauen, dann den Bericht.
+- **Kein `$.**`-SQL als Ersatz.** Eine jsonpath-Abfrage über
+  `cited_post_ids` zählt im lax mode doppelt (Array-Unwrapping) und
+  überschätzt die Menge um rund das Doppelte.
+
+### Bekannte Altzeilen
+
+Sechs Briefe aus W19–W22 lassen sich nicht mehr validieren:
+`ganz_konkret` hat 9–10 Einträge, das Schema erlaubt heute höchstens 8.
+Die Begrenzung kam nach diesen Briefen; sie tragen ohnehin null Zitate.
+Kein Wartungsfall.
+
+## Auth-Schichten## Auth-Schichten
 
 Drei, unabhängig schaltbar:
 
