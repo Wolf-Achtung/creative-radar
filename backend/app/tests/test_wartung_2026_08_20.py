@@ -103,24 +103,58 @@ def test_leerfall_und_fehlender_schluessel_antworten_gleich():
 
 
 def test_die_pruefliste_verliert_nichts():
-    """Der Grund, warum diese Änderung risikoarm ist: das Frontend zählt
-    ``new`` UND ``needs_review`` als offene Prüfung. Umetikettieren
-    versteckt also nichts.
+    """Der Grund, warum Fund C risikoarm ist: ein Asset, dessen
+    LLM-Antwort leer blieb, bekommt ``needs_review`` statt ``new`` — und
+    muss dem Admin trotzdem vor Augen kommen. Umetikettieren darf nichts
+    verstecken.
 
-    Der Test liest das Frontend, statt es zu behaupten — fällt jemand
-    dort auf reines ``=== 'new'`` zurück, verschwinden die Fehlschläge
-    lautlos aus der Liste, und dieser Test fällt.
+    Der Test liest das Frontend, statt es zu behaupten.
+
+    KORRIGIERT am 20.08.2026. Vorher hing dieser Test an der Variablen
+    ``openReview`` in AdminApp.jsx — und belegte damit gar nichts: die
+    Zählung wurde nie gerendert (sie ist beim Aufteilen der alten
+    Admin-Datei mitgewandert, die Kopfzeile dazu nicht). Aufgefallen ist
+    es erst, als der Lint-Durchgang die tote Variable entfernte und
+    dieser Test fiel. Ein Test, der auf totem Code steht, ist schlimmer
+    als keiner: er meldet Sicherheit, wo keine geprüft wird.
+
+    Jetzt hängt er an den drei Stellen, die wirklich entscheiden, ob ein
+    ``needs_review``-Asset sichtbar ist.
     """
-    quelle = (_REPO_ROOT / "frontend" / "src" / "AdminApp.jsx").read_text(
+    admin_app = (_REPO_ROOT / "frontend" / "src" / "AdminApp.jsx").read_text(
         encoding="utf-8"
     )
-    zeilen = [z for z in quelle.splitlines() if "openReview" in z and "filter" in z]
-    assert zeilen, "Die openReview-Zählung ist verschwunden oder umbenannt."
-    for zeile in zeilen:
-        assert "needs_review" in zeile, (
-            f"{zeile.strip()!r} zählt needs_review nicht mehr mit — dann "
-            f"verschwinden fehlgeschlagene Analysen aus der Prüfliste."
-        )
+    review_panel = (
+        _REPO_ROOT / "frontend" / "src" / "panels" / "ReviewPanel.jsx"
+    ).read_text(encoding="utf-8")
+    asset_card = (
+        _REPO_ROOT / "frontend" / "src" / "components" / "AssetCard.jsx"
+    ).read_text(encoding="utf-8")
+
+    # 1. Der Status-Filter steht per Default auf "all". ``visibleAssets``
+    #    filtert nur, wenn er das NICHT tut — stünde hier ein konkreter
+    #    Status, fielen needs_review-Assets aus der Standardansicht.
+    assert "status: 'all'" in admin_app, (
+        "Der Default-Status-Filter in AdminApp.jsx ist nicht mehr 'all'. "
+        "Dann zeigt die Prüfliste beim Öffnen nur noch einen Teilbestand "
+        "— und fehlgeschlagene Analysen können unsichtbar werden."
+    )
+
+    # 2. ``needs_review`` ist als Filter wählbar, der Admin kommt also
+    #    gezielt an genau diese Fälle heran.
+    optionen = [z for z in review_panel.splitlines() if "STATUS_OPTIONS" in z]
+    assert optionen, "STATUS_OPTIONS ist verschwunden oder umbenannt."
+    assert any("needs_review" in z for z in optionen), (
+        "needs_review steht nicht mehr in STATUS_OPTIONS — dann lassen "
+        "sich fehlgeschlagene Analysen nicht mehr gezielt heraussuchen."
+    )
+
+    # 3. Der Status hat eine Beschriftung. Ohne sie stünde die Karte mit
+    #    leerem oder rohem Status da — sichtbar, aber nicht lesbar.
+    assert "needs_review:" in asset_card, (
+        "AssetCard.jsx hat keine Beschriftung mehr für needs_review — "
+        "der Status würde roh oder leer gerendert."
+    )
 
 
 # ---------------------------------------------------------------------
