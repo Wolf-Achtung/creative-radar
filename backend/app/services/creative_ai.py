@@ -201,11 +201,8 @@ def _text_data_is_empty(data: dict[str, Any]) -> bool:
     stillschweigend Platzhalter-Text ein und meldet ``ReviewStatus.NEW``
     — von einer echten Analyse nicht zu unterscheiden.
 
-    Diese Funktion faellt kein Urteil und aendert kein Feld. Sie macht
-    den Zustand nur sichtbar (WARNING im Aufrufer), damit er zaehlbar
-    wird. Welchen ``review_status`` und welche ``confidence`` ein
-    fehlgeschlagener Aufruf tragen soll, ist eine Produktentscheidung
-    und steht im Wartungsbericht vom 19.08. — nicht hier.
+    Seit dem 20.08. entscheidet das Ergebnis auch ueber ``review_status``
+    und ``confidence_score`` — siehe ``_shape_response``.
     """
     if not data:
         return True
@@ -213,9 +210,17 @@ def _text_data_is_empty(data: dict[str, Any]) -> bool:
     return not any(_as_text(data.get(k)).strip() for k in aussagekraeftig)
 
 
+# Ein Aufruf ohne verwertbare Antwort traegt dieselbe Zuversicht wie der
+# Fall "kein API-Key" in ``_unconfigured_response``: 0.2. Vorher stand
+# hier der Rueckgabewert von ``_confidence(None)`` — und der ist 0.5,
+# also mittlere Zuversicht fuer ein Nicht-Ergebnis.
+LEER_CONFIDENCE = 0.2
+
+
 def _shape_response(raw: str) -> dict[str, Any]:
     data = _safe_json(raw)
-    if _text_data_is_empty(data):
+    leer = _text_data_is_empty(data)
+    if leer:
         logger.warning(
             "creative-ai-empty-response",
             extra={
@@ -230,8 +235,25 @@ def _shape_response(raw: str) -> dict[str, Any]:
         'ai_summary_de': _as_text(data.get('ai_summary_de'), 'Keine belastbare Zusammenfassung erzeugt.'),
         'ai_summary_en': _as_text(data.get('ai_summary_en'), ''),
         'ai_trend_notes': _as_text(data.get('ai_trend_notes'), ''),
-        'confidence_score': _confidence(data.get('confidence_score')),
-        'review_status': ReviewStatus.NEW,
+        # Wartung 20.08.2026 (Fund C): ein Aufruf, aus dem nichts
+        # Verwertbares kam, traegt nicht laenger die Kennzeichen eines
+        # gelungenen. Vorher ging er als ``NEW`` mit Confidence 0.5 in die
+        # Pruefliste — von einer echten Analyse nur am deutschen
+        # Platzhaltersatz zu unterscheiden.
+        #
+        # ``NEEDS_REVIEW`` blendet nichts aus: ``AdminApp.jsx`` zaehlt
+        # ``new`` und ``needs_review`` gemeinsam als offene Pruefung, und
+        # der ReviewPanel-Filter kennt beide. Es aendert sich das
+        # Etikett, nicht die Menge Arbeit — und die Fehlschlaege werden
+        # erstmals gezielt auffindbar.
+        #
+        # Gleiche Antwort wie ``_unconfigured_response`` (kein API-Key)
+        # und wie ``ai_asset_analyzer`` bei fehlendem Titel: unfertig
+        # heisst unfertig.
+        'confidence_score': (
+            LEER_CONFIDENCE if leer else _confidence(data.get('confidence_score'))
+        ),
+        'review_status': ReviewStatus.NEEDS_REVIEW if leer else ReviewStatus.NEW,
     }
 
 

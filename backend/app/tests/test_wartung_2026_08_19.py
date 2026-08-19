@@ -205,10 +205,15 @@ def test_unlesbare_antwort_wird_geloggt(rohtext, warum, caplog):
         r for r in caplog.records if "creative-ai-empty-response" in r.getMessage()
     ]
     assert treffer, f"{warum}: kein WARNING — der Fehlschlag bleibt unsichtbar."
-    # Das Verhalten selbst ist bewusst unverändert (Produktentscheidung,
-    # siehe Wartungsbericht): der Platzhalter geht weiterhin durch.
     assert ergebnis["ai_summary_de"] == "Keine belastbare Zusammenfassung erzeugt."
-    assert ergebnis["review_status"] == ReviewStatus.NEW
+    # Am 19.08. stand hier ``ReviewStatus.NEW`` mit dem Vermerk, das
+    # Verhalten sei bewusst unverändert — die Bewertung war eine offene
+    # Produktentscheidung (Fund C). Wolf hat sie am 20.08. getroffen:
+    # ein Aufruf ohne verwertbare Antwort wird als ``NEEDS_REVIEW``
+    # geführt. Die Zusage dieses Tests bleibt die alte (der Fehlschlag
+    # muss sichtbar sein); nachgezogen ist nur die Bewertung.
+    # Vollständig abgesichert in ``test_wartung_2026_08_20.py``.
+    assert ergebnis["review_status"] == ReviewStatus.NEEDS_REVIEW
 
 
 @pytest.mark.parametrize(
