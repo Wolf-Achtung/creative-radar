@@ -67,11 +67,16 @@ export function AdminApp({ onLogout }) {
     });
     return [...map.values()].sort((a, b) => a.title_original.localeCompare(b.title_original));
   }, [titles]);
-  const approved = assets.filter((asset) => asset.include_in_report || asset.review_status === 'approved' || asset.review_status === 'highlight');
-  const highlights = assets.filter((asset) => asset.is_highlight || asset.review_status === 'highlight');
-  const openReview = assets.filter((asset) => asset.review_status === 'new' || asset.review_status === 'needs_review').length;
-  const missingTitles = assets.filter((asset) => !(asset.title_name || asset.placement_title_text || asset.title_id)).length;
-  const reportCandidates = assets.filter((asset) => asset.review_status === 'approved' || asset.review_status === 'highlight' || asset.include_in_report).length;
+  // Wartung 20.08.2026 — hier standen fuenf abgeleitete Kennzahlen
+  // (``approved``, ``highlights``, ``openReview``, ``missingTitles``,
+  // ``reportCandidates``). Keine davon wurde je gerendert: sie sind beim
+  // Aufteilen der alten Admin-Datei in AdminApp.jsx mitgewandert, die
+  // Kopfzeile, die sie anzeigte, nicht. Fuenf ``assets.filter()`` ueber
+  // den vollen Bestand bei JEDEM Render, ohne Empfaenger.
+  //
+  // Entfernt statt mit ``_`` stillgelegt: sie sind nicht "absichtlich
+  // ungenutzt", sie sind Rest. Kommt die Kennzahlen-Zeile zurueck, steht
+  // die Berechnung in der Historie (git log -S approved -- diese Datei).
 
   // Candidate-Review: OPEN-Candidates pro asset_id (erster gewinnt). Speist
   // sich aus der bereits geladenen ``titleCandidates``-Liste — kein Extra-
@@ -122,6 +127,21 @@ export function AdminApp({ onLogout }) {
     try { setReport(await endpoints.latestReport()); } catch (_) { setReport(null); }
   }
 
+  // Wartung 20.08.2026 — ``set-state-in-effect`` bewusst abgeschaltet,
+  // gleiche Begruendung wie an den vier Stellen in InsightWeekly.jsx:
+  // die Regel zielt auf abgeleiteten Zustand (ein Prop in State
+  // spiegeln). Der ist in dieser Runde dort behoben, wo er vorlag
+  // (``CollapsibleCard``, ``ImagePreview``). Hier liegt der andere Fall
+  // vor: ``run()`` setzt synchron ``busy`` auf true, BEVOR geladen wird,
+  // damit der Nutzer sofort "Arbeite gerade …" sieht. Das in den Render
+  // zu ziehen ginge nur mit einer Fetch-Bibliothek — eine
+  // Abhaengigkeits-Entscheidung, kein Lint-Fix. Die Regel bleibt fuer
+  // alle anderen Stellen scharf.
+  //
+  // ``load`` fehlt bewusst in den Deps: die Funktion wird bei jedem
+  // Render neu erzeugt, ein Eintrag wuerde den Abruf in eine Schleife
+  // schicken.
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { run(load); }, []);
 
   // Modus wechseln (Default-Kandidaten ↔ Alle paginiert) — lädt die Assets neu.
@@ -207,6 +227,28 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // BEFUND Wartung 20.08.2026 — toter Pfad, bewusst NICHT geloescht.
+  //
+  // ``runVisualBatch`` wird von nirgendwo aufgerufen. Es gibt keinen
+  // Button dafuer — und laut ``git log -S "onClick={runVisualBatch}"``
+  // ueber die gesamte Historie von frontend/src hat es nie einen
+  // gegeben. Damit ist auch das Ergebnis-Banner weiter unten
+  // (``{batchFeedback && (…)}``) unerreichbar: ``batchFeedback`` kann
+  // nur ``null`` sein.
+  //
+  // Der Rest der Kette steht: der Endpunkt
+  // ``POST /api/assets/analyze-visual-batch`` existiert im Backend, der
+  // Client-Wrapper ``endpoints.analyzeVisualBatch`` auch. Es fehlt genau
+  // der Knopf.
+  //
+  // Das ist keine Kosmetik: es ist der manuelle Notausgang, um den
+  // Vision-Rueckstand von Hand anzuschieben, statt auf den Montags-Cron
+  // zu warten. Ihn zu verdrahten waere neue Oberflaeche und damit Wolfs
+  // Entscheidung, nicht die eines Lint-Durchgangs — deshalb hier nur
+  // stillgelegt und im PR berichtet. Entweder Knopf nachziehen oder
+  // Funktion + State + Banner zusammen entfernen; halb ist beides
+  // schlechter als ganz.
+  // eslint-disable-next-line no-unused-vars
   async function runVisualBatch() {
     await run(async () => {
       const result = await endpoints.analyzeVisualBatch(10);

@@ -35,6 +35,12 @@ export function UsersPanel() {
     }
   }
 
+  // Wartung 20.08.2026 — ``set-state-in-effect`` bewusst abgeschaltet.
+  // ``load()`` setzt synchron ``setError('')`` zurueck, bevor der Abruf
+  // startet; eine alte Fehlermeldung soll nicht ueber dem neuen Ladevorgang
+  // stehenbleiben. Kein abgeleiteter Zustand — das ist der Fall, den die
+  // Regel nicht von einem Datenabruf beim Mounten unterscheiden kann.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, []);
 
   async function run(fn) {

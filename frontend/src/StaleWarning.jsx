@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 
 // Schwellen in Tagen, gemessen ab `generated_at` bis `Date.now()`.
 // Default-Spec (Briefing 17.05.2026 §B1, Wolf-bestätigt):
@@ -10,12 +10,29 @@ const STALE_THRESHOLD_DAYS = 14;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 export default function StaleWarning({ generatedAt }) {
+  // Wartung 20.08.2026 — ``Date.now()`` stand vorher direkt im useMemo.
+  // Das ist waehrend des Renders unrein (react-hooks/purity), und die
+  // Regel zeigt hier auf einen echten Widerspruch: der useMemo haengt an
+  // ``generatedAt``, nicht an der Zeit. Das Alter wurde also beim ersten
+  // Rendern berechnet und danach nie wieder — bei einem ueber Nacht
+  // offenen Tab blieb die Warnung auf dem Stand von gestern stehen.
+  //
+  // Der Zeitpunkt wird jetzt EINMAL beim Mounten genommen und ist damit
+  // ein ausgesprochener Stichtag statt eines zufaelligen. Die Wirkung
+  // entspricht dem bisherigen Verhalten (``generatedAt`` aendert sich
+  // waehrend einer Sitzung praktisch nie, und die Schwellen sind in
+  // TAGEN — ein paar Minuten Drift sind bedeutungslos); neu ist nur,
+  // dass es dasteht, statt sich aus der Memo-Mechanik zu ergeben.
+  //
+  // Mitwachsen waehrend die Seite offen ist waere ein Timer und damit
+  // eine andere Entscheidung — nicht Teil dieses Lint-Durchgangs.
+  const [jetzt] = useState(() => Date.now());
   const ageDays = useMemo(() => {
     if (!generatedAt) return null;
     const ts = new Date(generatedAt).getTime();
     if (Number.isNaN(ts)) return null;
-    return Math.floor((Date.now() - ts) / MS_PER_DAY);
-  }, [generatedAt]);
+    return Math.floor((jetzt - ts) / MS_PER_DAY);
+  }, [generatedAt, jetzt]);
 
   if (ageDays === null || ageDays <= AGED_THRESHOLD_DAYS) return null;
 

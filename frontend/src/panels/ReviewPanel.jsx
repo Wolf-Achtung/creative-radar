@@ -36,7 +36,7 @@ export function ReviewPanel({
     ? `${visibleAssets.length} Vorschläge zur Prüfung`
     : `${visibleAssets.length} von ${assets.length} geladen${assetsHasMore ? ' (weitere verfügbar)' : ''}`;
   return (
-    <Section title="Treffer prüfen" kicker={modeKicker} helpKey="adminReview"><p className="muted small">Standard: nur Assets mit offenem Titel-Vorschlag. „Alle Treffer" lädt den vollen Bestand seitenweise.</p>
+    <Section title="Treffer prüfen" kicker={modeKicker} helpKey="adminReview"><p className="muted small">Standard: nur Assets mit offenem Titel-Vorschlag. „Alle Treffer“ lädt den vollen Bestand seitenweise.</p>
       {/* UX-Audit Befund 11 (2026-07-14): der aktive Modus war vorher per
           ``disabled`` markiert — sah "kaputt" statt "ausgewählt" aus.
           Jetzt aria-pressed + .active-Stil; der Klick auf den bereits
@@ -107,7 +107,7 @@ export function ReviewPanel({
         );
       })}
       {assetMode === 'candidates' && assets.length === 0 && (
-        <p className="muted small">Keine offenen Titel-Vorschläge. Über „Alle Treffer" den vollen Bestand prüfen.</p>
+        <p className="muted small">Keine offenen Titel-Vorschläge. Über „Alle Treffer“ den vollen Bestand prüfen.</p>
       )}
       {assetMode === 'all' && assetsHasMore && (
         <div className="section-actions">

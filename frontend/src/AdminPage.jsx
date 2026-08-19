@@ -106,7 +106,22 @@ export default function AdminPage() {
     }
   }
 
+  // Wartung 20.08.2026 — ``set-state-in-effect`` bewusst abgeschaltet.
+  // Anders als bei den uebrigen Stellen liegt hier gar kein synchrones
+  // setState vor: ``checkSession`` ist ``async`` und beginnt mit einem
+  // ``await``, das erste ``setAuthStatus`` faellt also fruehestens im
+  // naechsten Microtask. Die Regel sieht nur "Effect ruft Funktion, die
+  // setState macht" und kann das nicht auseinanderhalten.
+  //
+  // Umbauen laesst sich das trotzdem nicht sinnvoll: der Startzustand
+  // ist ``'checking'``, und ob eine Session besteht, weiss erst der
+  // Server. Genau dafuer sind Effects da.
+  //
+  // Die Direktive steht INNERHALB des Effect-Bodys, direkt vor der
+  // gemeldeten Zeile — vor dem ``useEffect`` deaktiviert sie nichts und
+  // eslint meldet sie selbst als wirkungslos.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     checkSession();
   }, []);
 

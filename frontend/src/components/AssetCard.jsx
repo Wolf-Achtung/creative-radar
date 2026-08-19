@@ -103,11 +103,11 @@ export function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAs
             </p>
             {asset.title_id ? (
               <p className="candidate-warn" role="alert">
-                ⚠ Asset ist bereits zugeordnet zu „{getAssetDisplayTitle(asset, titles)}" — vor dem Zuordnen prüfen.
+                ⚠ Asset ist bereits zugeordnet zu „{getAssetDisplayTitle(asset, titles)}“ — vor dem Zuordnen prüfen.
               </p>
             ) : candidateMatchedTitle ? (
               <p className="candidate-match small muted">
-                Exakter Titel in der Liste: „{candidateMatchedTitle.title_original}" — wird beim Bestätigen zugeordnet.
+                Exakter Titel in der Liste: „{candidateMatchedTitle.title_original}“ — wird beim Bestätigen zugeordnet.
               </p>
             ) : (
               <p className="candidate-nomatch small muted">
