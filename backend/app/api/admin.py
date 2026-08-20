@@ -1180,7 +1180,8 @@ def pattern_briefing_latest(
     ),
     mode: str = Query(
         "genre",
-        description="Baustein-Ebene. Aktuell nur 'genre'; der Titel-Modus folgt als eigener PR.",
+        pattern="^(genre|title)$",
+        description="Baustein-Ebene: 'genre' (Genre-Muster) oder 'title' (je Titel-Kampagne).",
     ),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -1250,12 +1251,22 @@ def trigger_pattern_briefing(
             "Muster-Bericht. Audit-Wert wird pro Row persistiert."
         ),
     ),
+    mode: str = Query(
+        "genre",
+        pattern="^(genre|title)$",
+        description=(
+            "Baustein-Ebene: 'genre' (Genre-Muster) oder 'title' "
+            "(je Titel-Kampagne). Ein Aufruf generiert EINEN Modus — "
+            "fuer beide zweimal aufrufen, wie es auch der Cron je Modus "
+            "einzeln tut."
+        ),
+    ),
     session: Session = Depends(get_session),
 ):
     """Manueller Pattern-Briefing-Trigger (Trailer-Intelligence Stufe 1,
     Schritt 3). Gleiche Code-Bahn wie der Montags-Cron-Block
     (``generate_and_persist_pattern_briefing``), Last-Write-Wins auf
-    ``(mode='genre', iso_year, iso_week)``.
+    ``(mode, iso_year, iso_week)``.
 
     Bewusst NICHT hinter ``FEATURE_TRAILER_INTELLIGENCE_ENABLED``
     (Abweichung vom Roundup-Trigger): Staging hat keinen Anthropic-Key,
@@ -1272,7 +1283,7 @@ def trigger_pattern_briefing(
 
     try:
         report = generate_and_persist_pattern_briefing(
-            session, window_days=window_days
+            session, mode=mode, window_days=window_days
         )
     except (AnthropicAuthError, AnthropicRateLimitError, AnthropicAPIError) as exc:
         logger.warning("pattern-briefing failed: %s", exc)

@@ -109,24 +109,30 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
   it('zeigt die Text-Bausteine mit Hooks, Captions und Belegen', async () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
-    endpoints.insightPatternBriefing.mockResolvedValue({
-      mode: 'genre', iso_year: 2026, iso_week: 34, window_days: 90,
-      generated_at: '2026-08-24T06:30:00+00:00', model_used: true,
-      citation_dropped: 1,
-      llm_output: {
-        bausteine: [{
-          muster: 'Romance auf TikTok',
-          begruendung: '19,0 % Breakout-Quote bei erwarteten 11,0 %.',
-          hooks_de: ['Noch 3 Tage.'],
-          hooks_en: ['3 days left.'],
-          captions_de: ['[TITEL] — ab Donnerstag im Kino.'],
-          captions_en: ['[TITLE] — in theaters Thursday.'],
-          hashtags: ['kino'],
-          cited_post_ids: ['https://x.test/p/1', 'https://x.test/p/2'],
-        }],
-        data_caveats: ['Western zu dünn belegt — kein Baustein geliefert.'],
-      },
-    });
+    // Mode-scharfer Mock: NUR die Genre-Ebene liefert — die Sektion darf
+    // nicht doppelt erscheinen, nur weil das Panel zwei Ebenen abfragt.
+    endpoints.insightPatternBriefing.mockImplementation(({ mode } = {}) => (
+      mode === 'genre'
+        ? Promise.resolve({
+          mode: 'genre', iso_year: 2026, iso_week: 34, window_days: 90,
+          generated_at: '2026-08-24T06:30:00+00:00', model_used: true,
+          citation_dropped: 1,
+          llm_output: {
+            bausteine: [{
+              muster: 'Romance auf TikTok',
+              begruendung: '19,0 % Breakout-Quote bei erwarteten 11,0 %.',
+              hooks_de: ['Noch 3 Tage.'],
+              hooks_en: ['3 days left.'],
+              captions_de: ['[TITEL] — ab Donnerstag im Kino.'],
+              captions_en: ['[TITLE] — in theaters Thursday.'],
+              hashtags: ['kino'],
+              cited_post_ids: ['https://x.test/p/1', 'https://x.test/p/2'],
+            }],
+            data_caveats: ['Western zu dünn belegt — kein Baustein geliefert.'],
+          },
+        })
+        : Promise.reject(new Error('404'))
+    ));
     render(<PatternsBlock />);
 
     await screen.findByText('Text-Bausteine aus den Mustern');
@@ -139,6 +145,44 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     // Transparenz ist Teil des Ergebnisses, wie bei den notes.
     expect(screen.getByText(/Western zu dünn belegt/)).toBeTruthy();
     expect(screen.getByText(/1 Baustein\(e\) wurden verworfen/)).toBeTruthy();
+    // Die Titel-Ebene hat 404 geliefert — ihre Sektion existiert nicht.
+    expect(screen.queryByText('Text-Bausteine je Titel')).toBeNull();
+  });
+
+  it('zeigt die Titel-Bausteine als eigene Sektion', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    endpoints.insightPatternBriefing.mockImplementation(({ mode } = {}) => (
+      mode === 'title'
+        ? Promise.resolve({
+          mode: 'title', iso_year: 2026, iso_week: 34, window_days: 90,
+          generated_at: '2026-08-24T06:30:00+00:00', model_used: true,
+          citation_dropped: 0,
+          llm_output: {
+            bausteine: [{
+              muster: 'Wicked auf TikTok',
+              begruendung: '25,0 % Breakout-Quote bei erwarteten 12,0 %.',
+              hooks_de: ['Der Countdown läuft.'],
+              hooks_en: ['The countdown is on.'],
+              captions_de: ['Wicked — ab Donnerstag im Kino.'],
+              captions_en: ['Wicked — in theaters Thursday.'],
+              hashtags: ['wicked'],
+              cited_post_ids: ['https://x.test/p/9'],
+            }],
+            data_caveats: [],
+          },
+        })
+        : Promise.reject(new Error('404'))
+    ));
+    render(<PatternsBlock />);
+
+    await screen.findByText('Text-Bausteine je Titel');
+    expect(screen.getByText('Wicked auf TikTok')).toBeTruthy();
+    // Captions der Titel-Ebene tragen den ECHTEN Titel, keinen
+    // [TITEL]-Platzhalter.
+    expect(screen.getByText('Wicked — ab Donnerstag im Kino.')).toBeTruthy();
+    // Die Genre-Ebene hat 404 geliefert — ihre Sektion existiert nicht.
+    expect(screen.queryByText('Text-Bausteine aus den Mustern')).toBeNull();
   });
 
   it('blendet die Baustein-Sektion ohne Briefing still aus (404 ist kein Fehler)', async () => {

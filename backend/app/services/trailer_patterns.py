@@ -506,20 +506,14 @@ class _Dimension:
     requires_analysis: bool
 
 
-def _genre_by_post(session: Session, posts: list[Post]) -> dict[Any, str]:
-    """Post → primaeres TMDb-Genre, ueber das aelteste Asset mit
-    ``title_id`` (Trailer-Intelligence Genre-Nachrüstung, 20.08.2026).
+def _title_by_post(session: Session, posts: list[Post]) -> dict[Any, Title]:
+    """Post → ``Title``-Row, ueber das aelteste Asset mit ``title_id``.
 
-    Die Genre-Dimension ist die einzige, die nicht aus dem Post selbst
-    kommt: das Genre haengt am Titel, der Titel am Asset. "Aeltestes
-    Asset zuerst" macht die Wahl deterministisch, falls Assets desselben
-    Posts nach Review-Korrekturen auf verschiedene Titel zeigen.
-
-    Primaer = erstes Element von ``title.genres`` — der Sync erhaelt die
-    TMDb-Reihenfolge genau dafuer (title_sync, kein sorted-Merge).
-    Posts ohne Titel oder mit leerer Genre-Liste fehlen im Mapping und
-    fallen in der Cross-Tab-Schleife wie jeder ``None``-Extrakt heraus;
-    die Abdeckung steht als Note im Bericht.
+    Gemeinsame Grundlage der Genre-Dimension und des Titel-Modus im
+    Pattern-Briefing: beide haengen am Titel, der Titel am Asset.
+    "Aeltestes Asset zuerst" macht die Wahl deterministisch, falls
+    Assets desselben Posts nach Review-Korrekturen auf verschiedene
+    Titel zeigen. Posts ohne Titel fehlen im Mapping.
     """
     if not posts:
         return {}
@@ -540,12 +534,45 @@ def _genre_by_post(session: Session, posts: list[Post]) -> dict[Any, str]:
             select(Title).where(Title.id.in_(set(title_id_by_post.values())))
         ).all()
     }
+    return {
+        post_id: titles[title_id]
+        for post_id, title_id in title_id_by_post.items()
+        if title_id in titles
+    }
+
+
+def _genre_by_post(session: Session, posts: list[Post]) -> dict[Any, str]:
+    """Post → primaeres TMDb-Genre (Trailer-Intelligence
+    Genre-Nachrüstung, 20.08.2026).
+
+    Primaer = erstes Element von ``title.genres`` — der Sync erhaelt die
+    TMDb-Reihenfolge genau dafuer (title_sync, kein sorted-Merge).
+    Posts ohne Titel oder mit leerer Genre-Liste fehlen im Mapping und
+    fallen in der Cross-Tab-Schleife wie jeder ``None``-Extrakt heraus;
+    die Abdeckung steht als Note im Bericht.
+    """
     mapping: dict[Any, str] = {}
-    for post_id, title_id in title_id_by_post.items():
-        title = titles.get(title_id)
-        genres = title.genres if title else None
+    for post_id, title in _title_by_post(session, posts).items():
+        genres = title.genres
         if isinstance(genres, list) and genres and isinstance(genres[0], str) and genres[0].strip():
             mapping[post_id] = genres[0].strip()
+    return mapping
+
+
+def _title_name_by_post(session: Session, posts: list[Post]) -> dict[Any, str]:
+    """Post → Titel-Name fuer den Titel-Modus des Pattern-Briefings
+    (Stufe 1, "Beides, Genre zuerst" — zweiter Teil, 20.08.2026).
+
+    ``title_original`` als Zellen-Identitaet: der Title-Sync haelt eine
+    Row je ``tmdb_id``, der Original-Titel ist damit die kanonische,
+    marktuebergreifende Bezeichnung — ``title_local`` waere je Markt
+    verschieden und wuerde dieselbe Kampagne in zwei Zellen spalten.
+    """
+    mapping: dict[Any, str] = {}
+    for post_id, title in _title_by_post(session, posts).items():
+        name = (title.title_original or "").strip()
+        if name:
+            mapping[post_id] = name
     return mapping
 
 
@@ -656,6 +683,126 @@ def _breakout_verdict_for(z: Optional[float]) -> str:
     if z <= -BREAKOUT_Z_THRESHOLD:
         return "under"
     return "neutral"
+
+
+def _corpus_breakout_rates(
+    usable: list[Post],
+    lift_by_post: dict[Any, float],
+    platform_by_channel: dict[Any, str],
+) -> tuple[float, dict[str, float]]:
+    """Korpus- und Plattform-Trefferquoten — die Referenz, gegen die
+    jede Zelle geprueft wird. Extrahiert (20.08.2026), damit der
+    Titel-Modus des Pattern-Briefings (``compute_cells_for_mapping``)
+    exakt dieselben Quoten rechnet wie der Muster-Bericht."""
+    breakouts_total = sum(
+        1 for p in usable if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
+    )
+    baseline_breakout_rate = breakouts_total / len(usable)
+
+    posts_by_platform: dict[str, list[Post]] = defaultdict(list)
+    for p in usable:
+        posts_by_platform[platform_by_channel.get(p.channel_id, "unknown")].append(p)
+
+    platform_breakout_rates: dict[str, float] = {}
+    for platform, platform_posts in posts_by_platform.items():
+        if len(platform_posts) < MIN_POSTS_PER_PLATFORM_BASELINE:
+            continue
+        hits = sum(
+            1
+            for p in platform_posts
+            if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
+        )
+        platform_breakout_rates[platform] = hits / len(platform_posts)
+    return baseline_breakout_rate, platform_breakout_rates
+
+
+def _build_cell(
+    value: str,
+    cell_posts: list[Post],
+    *,
+    lift_by_post: dict[Any, float],
+    activation_by_post: dict[Any, float],
+    platform_by_channel: dict[Any, str],
+    platform_breakout_rates: dict[str, float],
+    baseline_breakout_rate: float,
+    min_sample: int,
+    min_channels: int,
+) -> PatternCell:
+    """Eine Zelle aus einem Bucket — Median-Lift, Trefferquote gegen die
+    eigene Plattform-Mischung, Mindest-Stichprobe/-Kanalzahl. Extrahiert
+    aus der Cross-Tab-Schleife (20.08.2026), unveraendert: der
+    Titel-Modus soll dieselben Ehrlichkeits-Regeln durchlaufen wie jede
+    Berichts-Dimension."""
+    channel_count = len({p.channel_id for p in cell_posts})
+    lifts = [lift_by_post[p.id] for p in cell_posts]
+    activations = [activation_by_post[p.id] for p in cell_posts]
+    views = [int(p.visible_views) for p in cell_posts if p.visible_views]
+    median_lift = _median(lifts)
+
+    breakout_hits = sum(1 for x in lifts if x >= BREAKOUT_LIFT_THRESHOLD)
+    breakout_rate = breakout_hits / len(lifts)
+
+    cell_platforms = [
+        platform_by_channel.get(p.channel_id, "unknown") for p in cell_posts
+    ]
+    platform_mix: dict[str, int] = defaultdict(int)
+    for pl in cell_platforms:
+        platform_mix[pl] += 1
+    expected_rate = _expected_breakout_rate(
+        cell_platforms, platform_breakout_rates, baseline_breakout_rate
+    )
+
+    reason = None
+    if len(cell_posts) < min_sample:
+        verdict = "insufficient"
+        breakout_verdict = "insufficient"
+        breakout_z = None
+        reason = f"nur {len(cell_posts)} Posts (Minimum {min_sample})"
+    elif channel_count < min_channels:
+        verdict = "insufficient"
+        breakout_verdict = "insufficient"
+        breakout_z = None
+        reason = (
+            f"nur {channel_count} Kanaele (Minimum {min_channels}) — "
+            f"ein einzelner Vielposter wuerde das Muster tragen"
+        )
+    else:
+        verdict = _verdict_for(median_lift)
+        breakout_z = _breakout_z(
+            breakout_rate, expected_rate, len(cell_posts)
+        )
+        breakout_verdict = _breakout_verdict_for(breakout_z)
+
+    return PatternCell(
+        value=value,
+        sample_size=len(cell_posts),
+        channel_count=channel_count,
+        median_lift=median_lift,
+        median_activation=_median(activations),
+        median_views=int(_median([float(v) for v in views])) if views else None,
+        verdict=verdict,
+        breakout_rate=breakout_rate,
+        expected_breakout_rate=expected_rate,
+        breakout_z=breakout_z,
+        breakout_verdict=breakout_verdict,
+        p90_lift=_percentile(lifts, 0.9),
+        platform_mix=dict(platform_mix),
+        reason=reason,
+    )
+
+
+def _sort_cells(cells: list[PatternCell]) -> None:
+    """Stabile Reihenfolge: belastbare Zellen zuerst, darin nach
+    Auffaelligkeit der Trefferquote. Sortiert wird nach breakout_z
+    statt nach median_lift, weil der Median bei Korpusgroesse gegen
+    1,0 regrediert und die Reihenfolge dann kaum noch etwas aussagt
+    (s. Modul-Docstring)."""
+    cells.sort(
+        key=lambda c: (
+            c.verdict == "insufficient",
+            -(c.breakout_z if c.breakout_z is not None else float("-inf")),
+        )
+    )
 
 
 @dataclass
@@ -824,6 +971,52 @@ def build_lift_context(
     )
 
 
+def compute_cells_for_mapping(
+    ctx: LiftContext,
+    value_by_post: dict[Any, str],
+    *,
+    min_sample: int = MIN_SAMPLE_PER_CELL,
+    min_channels: int = MIN_CHANNELS_PER_CELL,
+) -> list[PatternCell]:
+    """Zellen fuer eine externe Post→Wert-Zuordnung — dieselbe Statistik
+    wie die Berichts-Dimensionen (Korpus-Referenzquoten, z-Test gegen
+    die eigene Plattform-Mischung, Mindest-Stichprobe/-Kanalzahl,
+    breakout_z-Sortierung), nur die Gruppierung kommt von aussen.
+
+    Gebaut fuer den Titel-Modus des Pattern-Briefings (20.08.2026):
+    Titel sind keine Berichts-Dimension (hunderte Zellen wuerden jeden
+    Report aufblaehen), aber ihre Zellen muessen mit den Berichts-Zahlen
+    vergleichbar bleiben — deshalb hier, neben den geteilten Helfern,
+    statt als Zweitrechnung im Briefing-Service.
+    """
+    if not ctx.usable:
+        return []
+    buckets: dict[str, list[Post]] = defaultdict(list)
+    for p in ctx.usable:
+        value = value_by_post.get(p.id)
+        if value is not None:
+            buckets[value].append(p)
+    baseline_breakout_rate, platform_breakout_rates = _corpus_breakout_rates(
+        ctx.usable, ctx.lift_by_post, ctx.platform_by_channel
+    )
+    cells = [
+        _build_cell(
+            value,
+            cell_posts,
+            lift_by_post=ctx.lift_by_post,
+            activation_by_post=ctx.activation_by_post,
+            platform_by_channel=ctx.platform_by_channel,
+            platform_breakout_rates=platform_breakout_rates,
+            baseline_breakout_rate=baseline_breakout_rate,
+            min_sample=min_sample,
+            min_channels=min_channels,
+        )
+        for value, cell_posts in buckets.items()
+    ]
+    _sort_cells(cells)
+    return cells
+
+
 def compute_trailer_patterns(
     session: Session,
     *,
@@ -917,25 +1110,9 @@ def compute_trailer_patterns(
         )
 
     # ---- Trefferquoten als Referenz --------------------------------------
-    breakouts_total = sum(
-        1 for p in usable if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
+    baseline_breakout_rate, platform_breakout_rates = _corpus_breakout_rates(
+        usable, lift_by_post, platform_by_channel
     )
-    baseline_breakout_rate = breakouts_total / len(usable)
-
-    posts_by_platform: dict[str, list[Post]] = defaultdict(list)
-    for p in usable:
-        posts_by_platform[platform_by_channel.get(p.channel_id, "unknown")].append(p)
-
-    platform_breakout_rates: dict[str, float] = {}
-    for platform, platform_posts in posts_by_platform.items():
-        if len(platform_posts) < MIN_POSTS_PER_PLATFORM_BASELINE:
-            continue
-        hits = sum(
-            1
-            for p in platform_posts
-            if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
-        )
-        platform_breakout_rates[platform] = hits / len(platform_posts)
 
     if len(platform_breakout_rates) >= 2:
         lo = min(platform_breakout_rates.values())
@@ -991,78 +1168,21 @@ def compute_trailer_patterns(
                 continue
             buckets[value].append(p)
 
-        cells: list[PatternCell] = []
-        for value, cell_posts in buckets.items():
-            channel_count = len({p.channel_id for p in cell_posts})
-            lifts = [lift_by_post[p.id] for p in cell_posts]
-            activations = [activation_by_post[p.id] for p in cell_posts]
-            views = [int(p.visible_views) for p in cell_posts if p.visible_views]
-            median_lift = _median(lifts)
-
-            breakout_hits = sum(1 for x in lifts if x >= BREAKOUT_LIFT_THRESHOLD)
-            breakout_rate = breakout_hits / len(lifts)
-
-            cell_platforms = [
-                platform_by_channel.get(p.channel_id, "unknown") for p in cell_posts
-            ]
-            platform_mix: dict[str, int] = defaultdict(int)
-            for pl in cell_platforms:
-                platform_mix[pl] += 1
-            expected_rate = _expected_breakout_rate(
-                cell_platforms, platform_breakout_rates, baseline_breakout_rate
+        cells = [
+            _build_cell(
+                value,
+                cell_posts,
+                lift_by_post=lift_by_post,
+                activation_by_post=activation_by_post,
+                platform_by_channel=platform_by_channel,
+                platform_breakout_rates=platform_breakout_rates,
+                baseline_breakout_rate=baseline_breakout_rate,
+                min_sample=min_sample,
+                min_channels=min_channels,
             )
-
-            reason = None
-            if len(cell_posts) < min_sample:
-                verdict = "insufficient"
-                breakout_verdict = "insufficient"
-                breakout_z = None
-                reason = f"nur {len(cell_posts)} Posts (Minimum {min_sample})"
-            elif channel_count < min_channels:
-                verdict = "insufficient"
-                breakout_verdict = "insufficient"
-                breakout_z = None
-                reason = (
-                    f"nur {channel_count} Kanaele (Minimum {min_channels}) — "
-                    f"ein einzelner Vielposter wuerde das Muster tragen"
-                )
-            else:
-                verdict = _verdict_for(median_lift)
-                breakout_z = _breakout_z(
-                    breakout_rate, expected_rate, len(cell_posts)
-                )
-                breakout_verdict = _breakout_verdict_for(breakout_z)
-
-            cells.append(
-                PatternCell(
-                    value=value,
-                    sample_size=len(cell_posts),
-                    channel_count=channel_count,
-                    median_lift=median_lift,
-                    median_activation=_median(activations),
-                    median_views=int(_median([float(v) for v in views])) if views else None,
-                    verdict=verdict,
-                    breakout_rate=breakout_rate,
-                    expected_breakout_rate=expected_rate,
-                    breakout_z=breakout_z,
-                    breakout_verdict=breakout_verdict,
-                    p90_lift=_percentile(lifts, 0.9),
-                    platform_mix=dict(platform_mix),
-                    reason=reason,
-                )
-            )
-
-        # Stabile Reihenfolge: belastbare Zellen zuerst, darin nach
-        # Auffaelligkeit der Trefferquote. Sortiert wird nach breakout_z
-        # statt nach median_lift, weil der Median bei Korpusgroesse
-        # gegen 1,0 regrediert und die Reihenfolge dann kaum noch etwas
-        # aussagt (s. Modul-Docstring).
-        cells.sort(
-            key=lambda c: (
-                c.verdict == "insufficient",
-                -(c.breakout_z if c.breakout_z is not None else float("-inf")),
-            )
-        )
+            for value, cell_posts in buckets.items()
+        ]
+        _sort_cells(cells)
         dimensions[dim.name] = cells
 
     return TrailerPatternReport(

@@ -1603,18 +1603,20 @@ def _run_pattern_briefing_after_designer_weekly(
       hinter dem TI-Flag — in Production laeuft der Block erst, wenn Wolf
       das Flag nach der Abnahme setzt; Flag off = Cron exakt wie vorher).
     - Eigener F0.7-Cap-Re-Check direkt vor dem Block.
-    - Cache-Hit-Check auf PK ``(mode='genre', iso_year, iso_week)``;
-      ``force=True`` ueberspringt ihn (Persistenz ist Last-Write-Wins).
-    - Maximal EIN LLM-Call pro Woche (plus JSON-Retry-Anlaeufe); im
-      Leerlauf (keine belastbaren Genre-Muster — bis zum ersten
-      Title-Sync mit Genres der Normalfall) faellt gar KEIN Call an,
-      die Row wird mit ``model='none'`` persistiert.
+    - Beide Modi (``genre`` und ``title`` — Wolf-Entscheidung "Beides,
+      Genre zuerst") mit je eigenem Cache-Hit-Check auf den PK
+      ``(mode, iso_year, iso_week)`` und je eigener Fehler-Isolation:
+      ein Fehler im Genre-Lauf laesst den Titel-Lauf nicht sterben.
+      ``force=True`` ueberspringt die Cache-Checks (Last-Write-Wins).
+    - Maximal EIN LLM-Call je Modus pro Woche (plus JSON-Retry-
+      Anlaeufe); im Leerlauf (keine belastbaren Muster) faellt gar
+      KEIN Call an, die Row wird mit ``model='none'`` persistiert.
     """
     # Lazy import analog Cutter-/Designer-Block: haelt den Modul-Load von
     # cron.py frei von der pattern_briefing→insight_engine-Kette.
     from app.models.entities import PatternBriefing
     from app.services.pattern_briefing import (
-        BRIEFING_MODE_GENRE,
+        BRIEFING_MODES,
         generate_and_persist_pattern_briefing,
     )
 
@@ -1652,52 +1654,63 @@ def _run_pattern_briefing_after_designer_weekly(
     summary["iso_year"] = target_iso_year
     summary["iso_week"] = target_iso_week
 
-    if not force:
-        existing = session.get(
-            PatternBriefing,
-            (BRIEFING_MODE_GENRE, target_iso_year, target_iso_week),
-        )
-        if existing is not None:
-            summary["skipped_cache_hit"] = 1
-            logger.info(
-                "pattern_briefing.cache_hit iso_year=%d iso_week=%d",
-                target_iso_year, target_iso_week,
+    summary["modes"] = {}
+    cost_cents_total = 0
+    for mode in BRIEFING_MODES:
+        mode_summary: dict = {}
+        summary["modes"][mode] = mode_summary
+        if not force:
+            existing = session.get(
+                PatternBriefing, (mode, target_iso_year, target_iso_week)
             )
-            return summary
+            if existing is not None:
+                summary["skipped_cache_hit"] += 1
+                mode_summary["skipped_cache_hit"] = True
+                logger.info(
+                    "pattern_briefing.cache_hit mode=%s iso_year=%d iso_week=%d",
+                    mode, target_iso_year, target_iso_week,
+                )
+                continue
 
-    try:
-        report = generate_and_persist_pattern_briefing(session, now=brief_now)
-    except Exception as exc:  # noqa: BLE001 — Block-Isolation wie bei
-        # Cutter/Designer: ein Fehler hier darf den Cron-Run-Status nicht
-        # kippen; der naechste Lauf holt das Briefing nach.
-        logger.exception("pattern_briefing.failed")
-        summary["failed"] = 1
-        summary["error"] = {
-            "error_class": type(exc).__name__,
-            "error_message": str(exc)[:200],
-        }
-        return summary
+        try:
+            report = generate_and_persist_pattern_briefing(
+                session, mode=mode, now=brief_now
+            )
+        except Exception as exc:  # noqa: BLE001 — Block-Isolation wie bei
+            # Cutter/Designer, hier je Modus: ein Fehler darf weder den
+            # Cron-Run-Status kippen noch den anderen Modus verhindern;
+            # der naechste Lauf holt das fehlende Briefing nach.
+            logger.exception("pattern_briefing.failed mode=%s", mode)
+            summary["failed"] += 1
+            mode_summary["error"] = {
+                "error_class": type(exc).__name__,
+                "error_message": str(exc)[:200],
+            }
+            continue
 
-    summary["generated"] = 1
-    summary["model"] = report.model
-    summary["llm_output_present"] = report.llm_output is not None
-    summary["bausteine"] = (
-        len(report.llm_output.bausteine) if report.llm_output else 0
-    )
-    summary["citation_dropped"] = report.citation_dropped
-    if report.cost_usd_estimate:
-        summary["cost_usd_cents"] = int(round(report.cost_usd_estimate * 100))
-    logger.info(
-        "pattern_briefing.complete",
-        extra={
-            "iso_year": target_iso_year,
-            "iso_week": target_iso_week,
-            "model": report.model,
-            "bausteine": summary["bausteine"],
-            "citation_dropped": report.citation_dropped,
-            "llm_output_present": summary["llm_output_present"],
-        },
-    )
+        summary["generated"] += 1
+        mode_summary["model"] = report.model
+        mode_summary["llm_output_present"] = report.llm_output is not None
+        mode_summary["bausteine"] = (
+            len(report.llm_output.bausteine) if report.llm_output else 0
+        )
+        mode_summary["citation_dropped"] = report.citation_dropped
+        if report.cost_usd_estimate:
+            cost_cents_total += int(round(report.cost_usd_estimate * 100))
+        logger.info(
+            "pattern_briefing.complete",
+            extra={
+                "mode": mode,
+                "iso_year": target_iso_year,
+                "iso_week": target_iso_week,
+                "model": report.model,
+                "bausteine": mode_summary["bausteine"],
+                "citation_dropped": report.citation_dropped,
+                "llm_output_present": mode_summary["llm_output_present"],
+            },
+        )
+    if cost_cents_total:
+        summary["cost_usd_cents"] = cost_cents_total
     return summary
 
 

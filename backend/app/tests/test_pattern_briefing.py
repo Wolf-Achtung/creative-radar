@@ -315,7 +315,7 @@ def test_validator_behaelt_caveats_wenn_er_verwirft():
     evidence = pb.PatternBriefingEvidence(
         mode="genre", iso_year=2026, iso_week=34, window_days=30,
         window_start=NOW, window_end=NOW, posts_with_baseline=0,
-        channels_covered=0, genre_coverage=0.0, baseline_breakout_rate=0.0,
+        channels_covered=0, coverage=0.0, baseline_breakout_rate=0.0,
         patterns=[],
     )
     bereinigt, dropped = pb.validate_baustein_citations(report, evidence)
@@ -425,11 +425,12 @@ def test_cron_block_cache_hit_verhindert_zweiten_lauf(session, monkeypatch):
     )
     brief_now = NOW
     iso = brief_now.isocalendar()
-    session.add(PatternBriefingRow(
-        mode=pb.BRIEFING_MODE_GENRE,
-        iso_year=iso.year, iso_week=iso.week, window_days=90,
-        evidence={}, model="none",
-    ))
+    for mode in pb.BRIEFING_MODES:
+        session.add(PatternBriefingRow(
+            mode=mode,
+            iso_year=iso.year, iso_week=iso.week, window_days=90,
+            evidence={}, model="none",
+        ))
     session.commit()
     monkeypatch.setattr(
         pb, "generate_and_persist_pattern_briefing",
@@ -439,13 +440,13 @@ def test_cron_block_cache_hit_verhindert_zweiten_lauf(session, monkeypatch):
     summary = cron_mod._run_pattern_briefing_after_designer_weekly(
         session, brief_now=brief_now
     )
-    assert summary["skipped_cache_hit"] == 1
+    assert summary["skipped_cache_hit"] == len(pb.BRIEFING_MODES)
 
     # force=True überspringt den Cache-Check (Last-Write-Wins).
-    aufgerufen = {}
+    aufgerufen = []
 
-    def _fake_generate(s, *, now=None):
-        aufgerufen["now"] = now
+    def _fake_generate(s, *, mode, now=None):
+        aufgerufen.append((mode, now))
         return SimpleNamespace(
             model="none", llm_output=None, citation_dropped=0,
             cost_usd_estimate=None,
@@ -457,11 +458,56 @@ def test_cron_block_cache_hit_verhindert_zweiten_lauf(session, monkeypatch):
     summary = cron_mod._run_pattern_briefing_after_designer_weekly(
         session, brief_now=brief_now, force=True
     )
+    assert summary["generated"] == 2
+    assert aufgerufen == [
+        (pb.BRIEFING_MODE_GENRE, brief_now),
+        (pb.BRIEFING_MODE_TITLE, brief_now),
+    ]
+
+
+def test_cron_block_cache_check_ist_je_modus(session, monkeypatch):
+    """Genre-Row vorhanden, Titel-Row nicht: der Cache-Hit auf EINEM
+    Modus darf den ANDEREN nicht überspringen — sonst holt der Cron ein
+    fehlgeschlagenes Titel-Briefing nie nach, solange das Genre-Briefing
+    der Woche existiert."""
+    import app.api.cron as cron_mod
+
+    monkeypatch.setenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", "true")
+    monkeypatch.setattr(
+        cron_mod, "compute_anthropic_monthly_spend", lambda s: _cap_frei()
+    )
+    brief_now = NOW
+    iso = brief_now.isocalendar()
+    session.add(PatternBriefingRow(
+        mode=pb.BRIEFING_MODE_GENRE,
+        iso_year=iso.year, iso_week=iso.week, window_days=90,
+        evidence={}, model="none",
+    ))
+    session.commit()
+
+    aufgerufen = []
+
+    def _fake_generate(s, *, mode, now=None):
+        aufgerufen.append(mode)
+        return SimpleNamespace(
+            model="none", llm_output=None, citation_dropped=0,
+            cost_usd_estimate=None,
+        )
+
+    monkeypatch.setattr(
+        pb, "generate_and_persist_pattern_briefing", _fake_generate
+    )
+    summary = cron_mod._run_pattern_briefing_after_designer_weekly(
+        session, brief_now=brief_now
+    )
+    assert summary["skipped_cache_hit"] == 1
     assert summary["generated"] == 1
-    assert aufgerufen["now"] == brief_now
+    assert aufgerufen == [pb.BRIEFING_MODE_TITLE]
 
 
-def test_cron_block_isoliert_fehler(session, monkeypatch):
+def test_cron_block_isoliert_fehler_je_modus(session, monkeypatch):
+    """Ein Fehler im Genre-Lauf darf weder den Cron-Status kippen noch
+    den Titel-Lauf verhindern."""
     import app.api.cron as cron_mod
 
     monkeypatch.setenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", "true")
@@ -469,16 +515,25 @@ def test_cron_block_isoliert_fehler(session, monkeypatch):
         cron_mod, "compute_anthropic_monthly_spend", lambda s: _cap_frei()
     )
 
-    def _kaputt(s, *, now=None):
-        raise RuntimeError("boom")
+    def _genre_kaputt(s, *, mode, now=None):
+        if mode == pb.BRIEFING_MODE_GENRE:
+            raise RuntimeError("boom")
+        return SimpleNamespace(
+            model="none", llm_output=None, citation_dropped=0,
+            cost_usd_estimate=None,
+        )
 
     monkeypatch.setattr(
-        pb, "generate_and_persist_pattern_briefing", _kaputt
+        pb, "generate_and_persist_pattern_briefing", _genre_kaputt
     )
 
     summary = cron_mod._run_pattern_briefing_after_designer_weekly(session)
     assert summary["failed"] == 1
-    assert summary["error"]["error_class"] == "RuntimeError"
+    assert summary["generated"] == 1
+    assert (
+        summary["modes"]["genre"]["error"]["error_class"] == "RuntimeError"
+    )
+    assert summary["modes"]["title"]["model"] == "none"
 
 
 # ---------------------------------------------------------------------
@@ -581,7 +636,7 @@ def test_frontend_client_zeigt_auf_den_pattern_briefing_endpoint(
     client_js = (repo_root / "frontend" / "src" / "api" / "client.js").read_text(
         encoding="utf-8"
     )
-    assert "'/api/insights/pattern-briefing'" in client_js
+    assert "/api/insights/pattern-briefing" in client_js
 
     block = (repo_root / "frontend" / "src" / "PatternsBlock.jsx").read_text(
         encoding="utf-8"
@@ -597,3 +652,199 @@ def test_frontend_client_zeigt_auf_den_pattern_briefing_endpoint(
     monkeypatch.delenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", raising=False)
     antwort = TestClient(app).get("/api/insights/pattern-briefing")
     assert antwort.status_code == 503
+
+
+# ---------------------------------------------------------------------
+# 7 — Titel-Modus ("Beides, Genre zuerst" — zweiter Teil)
+# ---------------------------------------------------------------------
+
+
+def _seed_titel(
+    session: Session,
+    name: str,
+    *,
+    channels: int = 2,
+    posts_per_channel: int = 4,
+    breakout_likes: int = 200,
+    caption: str = "Der Countdown läuft. #kino",
+) -> Title:
+    """Eine Titel-Kampagne: EIN Title, dessen Posts über ``channels``
+    Kanäle verteilt sind — im Gegensatz zu ``_seed_genre``, das je Post
+    einen frischen Titel anlegt. Default 2 Kanäle à 4 Posts: belastbar
+    im Titel-Modus (``TITLE_MIN_CHANNELS = 2``), NICHT im Bericht (3)."""
+    titel = Title(title_original=name, genres=[])
+    session.add(titel)
+    session.commit()
+    session.refresh(titel)
+    for _ in range(channels):
+        ch = _channel(session)
+        posts = [
+            _post(session, ch, likes=10, caption=caption)
+            for _ in range(posts_per_channel - 1)
+        ]
+        posts.append(_post(session, ch, likes=breakout_likes, caption=caption))
+        for p in posts:
+            session.add(Asset(post_id=p.id, title_id=titel.id))
+    session.commit()
+    return titel
+
+
+def test_titel_evidence_belastbar_ab_zwei_kanaelen(session):
+    """Das Kanal-Minimum des Titel-Modus ist 2 (Kampagnen konzentrieren
+    sich auf die Kanäle des eigenen Studios), nicht die Berichts-3 —
+    aber EIN Kanal allein reicht weiter nicht (ein einzelner Vielposter
+    würde das Muster tragen)."""
+    _seed_titel(session, "Wicked", channels=2)
+    _seed_titel(session, "Solo-Kanal-Film", channels=1, posts_per_channel=6)
+
+    evidence = pb.build_pattern_evidence(
+        session, mode=pb.BRIEFING_MODE_TITLE, window_days=30, now=NOW
+    )
+
+    assert evidence.mode == "title"
+    werte = [c.value for c in evidence.patterns]
+    assert "Wicked" in werte, (
+        "2 Kanäle à 4 Posts müssen im Titel-Modus belastbar sein — mit "
+        "der Berichts-Schwelle (3 Kanäle) fiele fast jede echte Kampagne "
+        "heraus."
+    )
+    assert "Solo-Kanal-Film" not in werte
+    zelle = next(c for c in evidence.patterns if c.value == "Wicked")
+    assert zelle.sample_size == 8
+    assert zelle.channel_count == 2
+
+
+def test_titel_beispiele_kommen_nur_aus_der_eigenen_kampagne(session):
+    a = _seed_titel(session, "Kampagne A", caption="A-Material #a")
+    _seed_titel(session, "Kampagne B", caption="B-Material #b")
+
+    evidence = pb.build_pattern_evidence(
+        session, mode=pb.BRIEFING_MODE_TITLE, window_days=30, now=NOW
+    )
+
+    zelle_a = next(c for c in evidence.patterns if c.value == "Kampagne A")
+    assert zelle_a.examples, "Ohne Beleg-Posts gibt es nichts zu zitieren."
+    assert all("A-Material" in ex.caption for ex in zelle_a.examples), (
+        "Die Beispiel-Posts einer Titel-Zelle müssen aus GENAU dieser "
+        "Kampagne stammen — ein fremder Post als Beleg wäre eine "
+        "falsche Zuschreibung, die die Citation-Prüfung nicht mehr "
+        "fangen kann (seine URL stünde ja im Allow-Set)."
+    )
+    assert a.title_original == "Kampagne A"
+
+
+def test_titel_prompt_nennt_ebene_und_echten_titel(session):
+    _seed_titel(session, "Wicked")
+
+    evidence = pb.build_pattern_evidence(
+        session, mode=pb.BRIEFING_MODE_TITLE, window_days=30, now=NOW
+    )
+    prompt = pb._build_user_prompt(evidence)
+
+    assert 'Titel "Wicked"' in prompt
+    assert "Titel-Ebene" in prompt
+    assert "Titel-Zuordnung" in prompt
+    # Die eine inhaltliche Weiche der Modi: im Titel-Modus gehört der
+    # ECHTE Titel in die Caption, kein Platzhalter.
+    assert "ECHTEN Titel" in prompt
+    assert "[TITEL]-Platzhalter" not in prompt
+
+
+def test_genre_prompt_behaelt_den_platzhalter(session):
+    _seed_genre(session, "Romance")
+
+    evidence = pb.build_pattern_evidence(
+        session, mode=pb.BRIEFING_MODE_GENRE, window_days=30, now=NOW
+    )
+    prompt = pb._build_user_prompt(evidence)
+
+    assert 'Genre "Romance"' in prompt
+    assert "[TITEL]-Platzhalter" in prompt
+    assert "ECHTEN Titel" not in prompt
+
+
+def test_titel_leerlauf_hat_eigenen_caveat_und_eigene_row(session, monkeypatch):
+    monkeypatch.setattr(pb, "is_anthropic_configured", lambda: False)
+
+    report = pb.generate_and_persist_pattern_briefing(
+        session, mode=pb.BRIEFING_MODE_TITLE, window_days=30, now=NOW
+    )
+
+    assert report.model == "none"
+    assert any(
+        "Kein belastbares Titel-Muster" in c
+        for c in report.llm_output.data_caveats
+    )
+    row = session.get(
+        PatternBriefingRow, (pb.BRIEFING_MODE_TITLE, 2026, 34)
+    )
+    assert row is not None
+
+
+def test_beide_modi_koexistieren_in_derselben_woche(session, monkeypatch):
+    """Der PK ``(mode, iso_year, iso_week)`` trägt beide Ebenen — der
+    Titel-Lauf darf den Genre-Lauf derselben Woche nicht überschreiben."""
+    monkeypatch.setattr(pb, "is_anthropic_configured", lambda: False)
+    pb.generate_and_persist_pattern_briefing(
+        session, mode=pb.BRIEFING_MODE_GENRE, window_days=30, now=NOW
+    )
+    pb.generate_and_persist_pattern_briefing(
+        session, mode=pb.BRIEFING_MODE_TITLE, window_days=30, now=NOW
+    )
+
+    rows = session.exec(select(PatternBriefingRow)).all()
+    assert sorted(r.mode for r in rows) == ["genre", "title"]
+
+
+def test_unbekannter_modus_wird_abgelehnt(session):
+    with pytest.raises(ValueError, match="mode='ganz_falsch'"):
+        pb.build_pattern_evidence(session, mode="ganz_falsch", now=NOW)
+
+
+def test_nutzer_endpoint_trennt_die_modi(client, session, monkeypatch):
+    """``?mode=title`` liefert die Titel-Row, der Default bleibt Genre —
+    und ein unbekannter Modus ist ein 422, kein stiller Genre-Fallback."""
+    monkeypatch.setenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", "true")
+    session.add(PatternBriefingRow(
+        mode="genre", iso_year=2026, iso_week=34, window_days=90,
+        evidence={}, llm_output={"bausteine": [], "data_caveats": ["g"]},
+        model="none",
+    ))
+    session.add(PatternBriefingRow(
+        mode="title", iso_year=2026, iso_week=34, window_days=90,
+        evidence={}, llm_output={"bausteine": [], "data_caveats": ["t"]},
+        model="none",
+    ))
+    session.commit()
+
+    standard = client.get("/api/insights/pattern-briefing").json()
+    assert standard["mode"] == "genre"
+    titel = client.get("/api/insights/pattern-briefing?mode=title").json()
+    assert titel["mode"] == "title"
+    assert titel["llm_output"]["data_caveats"] == ["t"]
+    assert (
+        client.get("/api/insights/pattern-briefing?mode=quatsch").status_code
+        == 422
+    )
+
+
+def test_admin_wege_trennen_die_modi(client, session, monkeypatch):
+    monkeypatch.delenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", raising=False)
+    antwort = client.post("/api/admin/pattern-briefing/generate?mode=title")
+    assert antwort.status_code == 200
+    daten = antwort.json()
+    assert daten["mode"] == "title"
+    assert daten["model"] == "none"
+
+    latest = client.get("/api/admin/pattern-briefing/latest?mode=title")
+    assert latest.status_code == 200
+    assert latest.json()["mode"] == "title"
+    # Genre-Sicht bleibt leer — die Modi teilen keine Rows.
+    assert (
+        client.get("/api/admin/pattern-briefing/latest?mode=genre").status_code
+        == 404
+    )
+    assert (
+        client.post("/api/admin/pattern-briefing/generate?mode=quatsch").status_code
+        == 422
+    )
