@@ -51,6 +51,7 @@ from app.models.entities import (
     CostLog,
     CutterWeeklyBriefing,
     DesignerWeeklyBriefing,
+    PatternBriefing,
     Post,
     Title,
 )
@@ -1164,6 +1165,135 @@ def designer_weekly_latest(
         "llm_output": row.llm_output,
         "evidence": row.evidence,
         "raw_llm_text": row.raw_llm_text,
+    }
+
+
+@router.get("/pattern-briefing/latest")
+def pattern_briefing_latest(
+    iso_year: int | None = Query(
+        default=None,
+        description="ISO-Jahr einer konkreten Woche — nur zusammen mit iso_week.",
+    ),
+    iso_week: int | None = Query(
+        default=None, ge=1, le=53,
+        description="ISO-Woche — nur zusammen mit iso_year.",
+    ),
+    mode: str = Query(
+        "genre",
+        description="Baustein-Ebene. Aktuell nur 'genre'; der Titel-Modus folgt als eigener PR.",
+    ),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Review-Lesezugriff auf das Pattern-Briefing (Trailer-Intelligence
+    Stufe 1, Schritt 3) — mirror ``cutter_weekly_latest``. Ohne Parameter
+    die juengste Woche, mit ``iso_year`` + ``iso_week`` die exakte Row.
+
+    Bewusst NICHT hinter ``FEATURE_TRAILER_INTELLIGENCE_ENABLED``: Wolf
+    reviewt den Output in Production, BEVOR das Flag dort faellt —
+    dieselbe Logik wie beim ungegateten ``GET /api/admin/trailer-patterns``.
+    Die Antwort enthaelt den vollen ``evidence``-Blob (Muster-Auswahl +
+    Beleg-Posts), damit jeder Baustein gegen seine Datengrundlage
+    gelesen werden kann.
+    """
+    if (iso_year is None) != (iso_week is None):
+        raise HTTPException(
+            status_code=422,
+            detail="iso_year und iso_week nur zusammen angeben (oder beide weglassen).",
+        )
+
+    if iso_year is not None:
+        row = session.get(PatternBriefing, (mode, iso_year, iso_week))
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Kein Pattern-Briefing ({mode}) fuer KW {iso_week}/{iso_year}.",
+            )
+    else:
+        row = session.exec(
+            select(PatternBriefing)
+            .where(PatternBriefing.mode == mode)
+            .order_by(
+                PatternBriefing.iso_year.desc(),
+                PatternBriefing.iso_week.desc(),
+            )
+            .limit(1)
+        ).first()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Noch kein Pattern-Briefing ({mode}) persistiert.",
+            )
+
+    return {
+        "mode": row.mode,
+        "iso_year": row.iso_year,
+        "iso_week": row.iso_week,
+        "window_days": row.window_days,
+        "generated_at": row.generated_at,
+        "model": row.model,
+        "cost_usd_cents": row.cost_usd_cents,
+        "input_tokens": row.input_tokens,
+        "output_tokens": row.output_tokens,
+        "citation_dropped": row.citation_dropped,
+        "llm_output": row.llm_output,
+        "evidence": row.evidence,
+        "raw_llm_text": row.raw_llm_text,
+    }
+
+
+@router.post("/pattern-briefing/generate")
+def trigger_pattern_briefing(
+    window_days: int = Query(
+        90, ge=7, le=365,
+        description=(
+            "Zeitfenster in Tagen. Default 90 — dasselbe Fenster wie der "
+            "Muster-Bericht. Audit-Wert wird pro Row persistiert."
+        ),
+    ),
+    session: Session = Depends(get_session),
+):
+    """Manueller Pattern-Briefing-Trigger (Trailer-Intelligence Stufe 1,
+    Schritt 3). Gleiche Code-Bahn wie der Montags-Cron-Block
+    (``generate_and_persist_pattern_briefing``), Last-Write-Wins auf
+    ``(mode='genre', iso_year, iso_week)``.
+
+    Bewusst NICHT hinter ``FEATURE_TRAILER_INTELLIGENCE_ENABLED``
+    (Abweichung vom Roundup-Trigger): Staging hat keinen Anthropic-Key,
+    echte Briefings entstehen nur in Production — und dort ist das Flag
+    bis zur Abnahme aus. Ein flag-gegateter Trigger wuerde genau den
+    Review-Lauf verhindern, fuer den er da ist. Der Schutz ist die
+    Admin-Session (Router-Gate) plus der F0.7-Anthropic-Monatsdeckel,
+    in den jeder Call via ``operation='pattern_briefing'`` einzahlt.
+
+    Leerlauf (keine belastbaren Genre-Muster): kein LLM-Call, Row mit
+    ``model='none'`` — kostenfrei wiederholbar.
+    """
+    from app.services.pattern_briefing import generate_and_persist_pattern_briefing
+
+    try:
+        report = generate_and_persist_pattern_briefing(
+            session, window_days=window_days
+        )
+    except (AnthropicAuthError, AnthropicRateLimitError, AnthropicAPIError) as exc:
+        logger.warning("pattern-briefing failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Anthropic-API: {exc}")
+
+    return {
+        "mode": report.mode,
+        "iso_year": report.iso_year,
+        "iso_week": report.iso_week,
+        "window_days": report.window_days,
+        "model": report.model,
+        "patterns_in_evidence": len(report.evidence.patterns),
+        "bausteine": len(report.llm_output.bausteine) if report.llm_output else 0,
+        "citation_dropped": report.citation_dropped,
+        "llm_output_present": report.llm_output is not None,
+        "cost_usd_cents": (
+            int(round(report.cost_usd_estimate * 100))
+            if report.cost_usd_estimate else 0
+        ),
+        "input_tokens": report.input_tokens,
+        "output_tokens": report.output_tokens,
     }
 
 

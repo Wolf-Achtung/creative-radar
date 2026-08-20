@@ -683,6 +683,55 @@ class DesignerWeeklyBriefing(SQLModel, table=True):
     output_tokens: Optional[int] = None
 
 
+class PatternBriefing(SQLModel, table=True):
+    """Persistierte Text-Bausteine aus dem Muster-Bericht — eine Row pro
+    ``(mode, iso_year, iso_week)`` (Trailer-Intelligence Stufe 1,
+    Schritt 3, 20.08.2026).
+
+    ``mode`` unterscheidet die Baustein-Ebene: ``"genre"`` (Genre-Muster
+    aus ``compute_trailer_patterns``, dieser Sprint) und spaeter
+    ``"title"`` (Titel-Modus, zweiter PR laut Wolf-Entscheidung
+    "Beides, Genre zuerst") — die Spalte steht im PK, damit der zweite
+    Modus ohne Migration dazukommt.
+
+    JSON-Blobs (Konvention wie ``cutter_weekly_briefing``):
+    - ``evidence`` (NOT NULL) ist die deterministische Muster-Auswahl:
+      belastbare Zellen mit ihren Zahlen plus die Top-Beispiel-Posts
+      (URL, Caption, Lift), aus denen der Prompt gebaut wurde. Der Blob
+      macht jeden Brief rekonstruier- und auditierbar — dieselbe Idee
+      wie ``insight_report.aggregation`` bei der Citation-Auswertung.
+    - ``llm_output`` NULLABLE: eine Woche, deren LLM-Antwort nach allen
+      Anlaeufen an Parse/Schema scheitert, wird trotzdem persistiert
+      (Evidence zaehlt); ``raw_llm_text`` traegt dann die letzte
+      verworfene Antwort.
+
+    ``model='none'`` markiert Leerlauf-Wochen ohne LLM-Call (kein
+    belastbares Muster — bei leerer Genre-Abdeckung der Normalfall,
+    bis der Title-Sync die Genres gefuellt hat).
+
+    ``citation_dropped`` zaehlt Bausteine, die die Citation-Pruefung
+    verworfen hat (cited_post_ids ausserhalb der mitgegebenen
+    Beispiel-Posts). Steht als eigene Spalte, damit die Quote ohne
+    JSON-Parsing ueber Wochen abfragbar ist — analog der
+    Citation-Auswertung vom 20.08.2026.
+    """
+    __tablename__ = "pattern_briefing"
+    __table_args__ = _CR_TABLE_ARGS
+    mode: str = Field(primary_key=True, max_length=32)
+    iso_year: int = Field(primary_key=True)
+    iso_week: int = Field(primary_key=True)
+    window_days: int = Field(nullable=False)
+    evidence: dict = Field(sa_column=Column(JSON, nullable=False))
+    llm_output: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    raw_llm_text: Optional[str] = None
+    generated_at: datetime = Field(default_factory=utc_now, index=True)
+    model: str = Field(max_length=64)
+    cost_usd_cents: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    citation_dropped: int = Field(default=0, nullable=False)
+
+
 class AppUser(SQLModel, table=True):
     """User-Allowlist fuer das E-Mail+Code-Login (Sprint User-Login 2026-07).
 
