@@ -53,8 +53,126 @@ const QUOTE_COLOR_ON_CARD = {
   neutral: '#6b6b6b',
 };
 
+// Anzeige-Namen fuer bekannte Auspraegungen — unbekannte Werte (Genres,
+// Titel) erscheinen unveraendert. Die Karten sprechen Klartext, die
+// Tabellen behalten die Rohwerte (Wiedererkennung mit Admin-Endpoint).
+const WERT_LABEL = {
+  behind_the_scenes: 'Behind-the-Scenes',
+  trailer: 'Trailer',
+  teaser: 'Teaser',
+  clip: 'Clip',
+  promo: 'Promo',
+  interview: 'Interview',
+  compilation: 'Compilation',
+  short: 'Short',
+  langform: 'Langform',
+  kurzform: 'Kurzform',
+  uebergang_60_90s: 'Übergang 60–90s',
+  emotional: 'Emotional',
+  energetic: 'Energetisch',
+  informative: 'Informativ',
+  inspirational: 'Inspirierend',
+  suspenseful: 'Spannungsgetrieben',
+  humorous: 'Humorvoll',
+  neutral: 'Neutral',
+  edgy: 'Edgy',
+  pre_launch: 'Pre-Launch (vor dem Start)',
+  launch: 'Zum Start',
+  post_launch: 'Nach dem Start',
+  evergreen: 'Evergreen',
+  unclear: 'Phase unklar',
+  licensed_track: 'Lizenzierter Track',
+  original_sound: 'Original-Sound',
+};
+
 function prozent(wert) {
   return `${(wert * 100).toFixed(1)} %`;
+}
+
+// Die staerksten Befunde ueber ALLE Dimensionen, nach Signalstaerke
+// (|z|) sortiert. Nur over/under — ein unauffaelliges Muster ist keine
+// Empfehlung, ein duennes erst recht nicht. Exportiert fuer den Test.
+export function staerksteBefunde(dimensions, max = 5) {
+  const alle = [];
+  Object.entries(dimensions || {}).forEach(([dim, cells]) => {
+    (cells || []).forEach((cell) => {
+      if (
+        (cell.breakout_verdict === 'over' || cell.breakout_verdict === 'under')
+        && cell.breakout_z !== null && cell.breakout_z !== undefined
+      ) {
+        alle.push({ dim, cell });
+      }
+    });
+  });
+  alle.sort((a, b) => Math.abs(b.cell.breakout_z) - Math.abs(a.cell.breakout_z));
+  return alle.slice(0, max);
+}
+
+function BefundKarte({ dim, cell }) {
+  const over = cell.breakout_verdict === 'over';
+  const farbe = QUOTE_COLOR_ON_CARD[cell.breakout_verdict];
+  const faktor = cell.expected_breakout_rate > 0
+    ? (cell.breakout_rate / cell.expected_breakout_rate).toFixed(1)
+    : null;
+  const satz = over
+    ? `Produziert ${faktor ? `${faktor}× so oft` : 'öfter'} Ausreißer wie erwartet `
+      + `(${prozent(cell.breakout_rate)} statt ${prozent(cell.expected_breakout_rate)}).`
+    : `Bleibt unter der erwarteten Ausreißer-Quote `
+      + `(${prozent(cell.breakout_rate)} statt ${prozent(cell.expected_breakout_rate)}).`;
+  return (
+    <div
+      className="card breakouts-card"
+      style={{ flex: '1 1 250px', maxWidth: '340px', padding: '0.85rem 1rem', borderLeft: `4px solid ${farbe}` }}
+    >
+      <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, color: '#6b6b6b' }}>
+        {DIMENSION_LABEL[dim] || dim} · <span style={{ color: farbe }}>{over ? 'Mehr davon testen' : 'Sparsam einsetzen'}</span>
+      </p>
+      <p style={{ margin: '0 0 0.35rem', fontWeight: 700, fontSize: '1em' }}>
+        {WERT_LABEL[cell.value] || cell.value}
+      </p>
+      <p style={{ margin: 0, fontSize: '0.85em', color: '#4a4a44' }}>
+        {satz} {cell.sample_size} Posts von {cell.channel_count} Kanälen.
+      </p>
+    </div>
+  );
+}
+
+function BefundKarten({ dimensions }) {
+  const befunde = staerksteBefunde(dimensions);
+  if (befunde.length === 0) return null;
+  return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      <h3 style={{ color: 'white', margin: '0 0 0.5rem', fontSize: '1em' }}>
+        Das Wichtigste zuerst
+      </h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+        {befunde.map(({ dim, cell }) => (
+          <BefundKarte key={`${dim}:${cell.value}`} dim={dim} cell={cell} />
+        ))}
+      </div>
+      <p style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.75em' }}>
+        Gemessene Korrelationen im eigenen Bestand — kein Beweis für Ursache und
+        Wirkung. Die Tabellen darunter zeigen die vollständigen Zahlen.
+      </p>
+    </div>
+  );
+}
+
+// Redundante Zweit-Kodierung der beiden Zahlenspalten: Balken = Quote,
+// Strich = erwartete Quote, Skala je Tabelle. Duenn, an der Basislinie
+// verankert; die Farbe traegt nichts Eigenes (der Befund steht als Text
+// daneben), sie wiederholt nur das Verdikt.
+function DeltaBalken({ rate, expected, verdict, skala }) {
+  const anteil = (wert) => `${((wert / skala) * 100).toFixed(1)}%`;
+  return (
+    <div
+      title={`${prozent(rate)} gegen ${prozent(expected)} erwartet`}
+      style={{ position: 'relative', width: '110px', height: '8px', background: '#e4ddd0', borderRadius: '4px' }}
+    >
+      <div style={{ position: 'absolute', left: 0, top: 0, height: '8px', width: anteil(rate), background: QUOTE_COLOR_ON_CARD[verdict] || QUOTE_COLOR_ON_CARD.neutral, borderRadius: '4px' }} />
+      <div style={{ position: 'absolute', left: anteil(expected), top: '-2px', height: '12px', width: '2px', background: '#4a4a44' }} />
+    </div>
+  );
 }
 
 function ZellenTabelle({ name, cells }) {
@@ -62,6 +180,11 @@ function ZellenTabelle({ name, cells }) {
   const duenn = cells.length - brauchbar.length;
   if (brauchbar.length === 0) return null;
   const sortiert = [...brauchbar].sort((a, b) => b.breakout_rate - a.breakout_rate);
+  // Eine Skala je Tabelle, damit die Balken einer Dimension vergleichbar
+  // sind; 1.15 laesst den laengsten Balken nicht an den Rand stossen.
+  const skala = Math.max(
+    ...sortiert.map((c) => Math.max(c.breakout_rate, c.expected_breakout_rate)),
+  ) * 1.15 || 1;
   return (
     <div style={{ marginBottom: '1.25rem' }}>
       <h3 style={{ color: 'white', margin: '0 0 0.5rem', fontSize: '1em' }}>
@@ -78,7 +201,9 @@ function ZellenTabelle({ name, cells }) {
             <thead>
               <tr>
                 <th>Ausprägung</th><th>Posts</th><th>Kanäle</th>
-                <th>Breakout-Quote</th><th>erwartet</th><th>Median-Lift</th><th>Befund</th>
+                <th>Breakout-Quote</th><th>erwartet</th>
+                <th aria-label="Quote im Vergleich zur erwarteten Quote" />
+                <th>Median-Lift</th><th>Befund</th>
               </tr>
             </thead>
             <tbody>
@@ -97,6 +222,14 @@ function ZellenTabelle({ name, cells }) {
                       {prozent(c.breakout_rate)}
                     </td>
                     <td>{prozent(c.expected_breakout_rate)}</td>
+                    <td>
+                      <DeltaBalken
+                        rate={c.breakout_rate}
+                        expected={c.expected_breakout_rate}
+                        verdict={c.breakout_verdict}
+                        skala={skala}
+                      />
+                    </td>
                     <td>{c.median_lift.toFixed(2)}x</td>
                     <td style={{ color: verdict.color }}>{verdict.text}</td>
                   </tr>
@@ -232,6 +365,7 @@ export default function PatternsBlock() {
           Cron-Lauf.
         </p>
       )}
+      {!fehler && daten !== null && <BefundKarten dimensions={dimensionen} />}
       {!fehler && sichtbare.map((name) => (
         <ZellenTabelle key={name} name={name} cells={dimensionen[name]} />
       ))}

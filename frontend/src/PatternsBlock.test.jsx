@@ -79,7 +79,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     endpoints.insightPatterns.mockResolvedValue(DATEN);
     render(<PatternsBlock />);
 
-    await screen.findByText('Romance');
+    await screen.findAllByText('Romance');
     expect(screen.getByText('läuft über Schnitt')).toBeTruthy();
     // Die duenne Zelle steht NICHT in der Tabelle — auch nicht mit
     // ihrem Traum-Lift von 4x. Sie erscheint nur im Zaehler.
@@ -127,6 +127,55 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     expect(ueber.className).not.toContain('breakouts-multiplier');
     const unter = screen.getByText('5.0 %');
     expect(unter.style.color).toBe('rgb(176, 61, 46)');
+  });
+
+  it('zeigt die staerksten Befunde als Klartext-Karten — nach Signalstaerke, ohne unauffaellige', async () => {
+    // Aufwertung A (20.08.2026): ueber den Tabellen stehen Karten mit
+    // Handlung + Zahlen. Nur over/under, |z|-sortiert ueber ALLE
+    // Dimensionen — die staerkste Karte zuerst, unauffaellige Zellen
+    // erzeugen KEINE Karte.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        genre: [
+          { ...ZELLE_OK, value: 'Romance', breakout_z: 2.4, breakout_verdict: 'over' },
+          { ...ZELLE_OK, value: 'Drama', breakout_z: 0.4, breakout_verdict: 'neutral' },
+        ],
+        lifecycle_stage: [
+          { ...ZELLE_OK, value: 'evergreen', breakout_rate: 0.05, breakout_z: -3.4, breakout_verdict: 'under' },
+        ],
+      },
+    });
+    render(<PatternsBlock />);
+
+    await screen.findByText('Das Wichtigste zuerst');
+    // evergreen (|z|=3.4) schlaegt Romance (2.4) — und traegt den
+    // Anzeige-Namen samt Sparsam-Empfehlung.
+    const karten = screen.getAllByText(/Mehr davon testen|Sparsam einsetzen/);
+    expect(karten).toHaveLength(2);
+    expect(karten[0].textContent).toBe('Sparsam einsetzen');
+    expect(screen.getByText('Evergreen')).toBeTruthy();
+    expect(screen.getByText(/1\.7× so oft Ausreißer/)).toBeTruthy();
+    expect(screen.getByText(/kein Beweis für Ursache und Wirkung/)).toBeTruthy();
+    // Drama (neutral) bekommt keine Karte — der Wert steht nur in der
+    // Tabelle.
+    expect(screen.getAllByText('Drama')).toHaveLength(1);
+  });
+
+  it('zeichnet je Zeile einen Delta-Balken: Fuellung = Quote, Strich = erwartet', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    render(<PatternsBlock />);
+
+    await screen.findAllByText('Romance');
+    const balken = screen.getByTitle('19.0 % gegen 11.0 % erwartet');
+    const [fuellung, marker] = balken.children;
+    // Skala der Genre-Tabelle: max(0.19, 0.11) * 1.15 = 0.2185 →
+    // Fuellung 19/21.85 = 87.0 %, Marker bei 11/21.85 = 50.3 %.
+    expect(fuellung.style.width).toBe('87%');
+    expect(fuellung.style.background).toBe('rgb(31, 122, 69)');
+    expect(marker.style.left).toBe('50.3%');
   });
 
   it('zeigt die Text-Bausteine mit Hooks, Captions und Belegen', async () => {
@@ -215,7 +264,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     // Montags-Cron-Lauf.
     render(<PatternsBlock />);
 
-    await screen.findByText('Romance');
+    await screen.findAllByText('Romance');
     expect(screen.queryByText('Text-Bausteine aus den Mustern')).toBeNull();
     // Und vor allem: KEIN Fehlerkasten — die Muster-Tabellen stehen.
     expect(screen.queryByText(/Muster momentan nicht verfügbar/)).toBeNull();
