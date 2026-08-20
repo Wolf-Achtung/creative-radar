@@ -27,6 +27,8 @@ const DIMENSION_LABEL = {
   lifecycle_stage: 'Kampagnenphase',
   duration_bucket: 'Länge',
   music_kind: 'Musik',
+  cover_titel: 'Cover: Titel im Bild',
+  cover_kinetik: 'Cover: Bildtext & Kinetik',
   caption_frage: 'Caption: Frage',
   caption_cta: 'Caption: Call-to-Action',
   caption_laenge: 'Caption-Länge',
@@ -38,6 +40,7 @@ const DIMENSION_LABEL = {
 const DIMENSION_ORDER = [
   'genre', 'format', 'duration_bucket', 'format_class',
   'tone', 'lifecycle_stage', 'music_kind',
+  'cover_titel', 'cover_kinetik',
   'caption_frage', 'caption_cta', 'caption_laenge', 'caption_hashtags',
 ];
 
@@ -88,6 +91,13 @@ const WERT_LABEL = {
   unclear: 'Phase unklar',
   licensed_track: 'Lizenzierter Track',
   original_sound: 'Original-Sound',
+  mit_titel: 'Titel im Bild',
+  ohne_titel: 'Ohne Titel im Bild',
+  ohne_kinetik: 'Ohne Bildtext',
+  text_overlay: 'Text-Overlay',
+  title_card: 'Title-Card',
+  animated_text: 'Animierte Schrift',
+  motion_graphic: 'Motion-Graphic',
   mit_frage: 'Caption mit Frage',
   ohne_frage: 'Caption ohne Frage',
   mit_cta: 'Mit Call-to-Action',

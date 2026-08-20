@@ -662,6 +662,82 @@ def _title_name_by_post(session: Session, posts: list[Post]) -> dict[Any, str]:
     return mapping
 
 
+def _visual_by_post(session: Session, posts: list[Post]) -> dict[Any, Asset]:
+    """Post → aeltestes Asset mit abgeschlossener Vision-Analyse.
+
+    Hook-Intelligence Teil 2 (20.08.2026): die OpenAI-Vision-Stufe
+    extrahiert ``has_title_placement`` / ``has_kinetic`` /
+    ``kinetic_type`` laengst strukturiert je Asset — gelesen hat sie
+    fuer die Muster-Aggregation bislang niemand. "Aeltestes zuerst"
+    wie bei ``_title_by_post``: deterministische Wahl bei mehreren
+    Assets je Post.
+    """
+    if not posts:
+        return {}
+    post_ids = [p.id for p in posts]
+    assets = session.exec(
+        select(Asset)
+        .where(
+            Asset.post_id.in_(post_ids),
+            Asset.visual_analysis_status == "analyzed",
+        )
+        .order_by(Asset.created_at.asc())
+    ).all()
+    mapping: dict[Any, Asset] = {}
+    for asset in assets:
+        mapping.setdefault(asset.post_id, asset)
+    return mapping
+
+
+def _cover_dimensionen(
+    session: Session, posts: list[Post]
+) -> tuple[_Dimension, ...]:
+    """Die Cover-Dimensionen aus der persistierten Vision-Analyse.
+
+    Selbst-gegatet ueber ``visual_confidence_score`` >=
+    ``CONFIDENCE_THRESHOLD`` — der ``requires_analysis``-Mechanismus
+    greift hier nicht, denn er prueft die Konfidenz der POST-Analyse
+    (Haiku/Sonnet), nicht die der Asset-Vision. Heuristik-Zeilen
+    (Score ~0.35, kein echter Vision-Call) fallen damit heraus.
+
+    Werte-Logik ``cover_kinetik``: ``has_kinetic=False`` ist eine echte
+    Aussage ("ohne_kinetik"); ``has_kinetic=True`` ohne brauchbaren
+    ``kinetic_type`` ist widerspruechlich → keine Zelle statt geraten.
+    """
+    visual = _visual_by_post(session, posts)
+
+    def _asset_ok(post: Post) -> Optional[Asset]:
+        asset = visual.get(post.id)
+        if asset is None:
+            return None
+        score = asset.visual_confidence_score
+        if score is None or score < CONFIDENCE_THRESHOLD:
+            return None
+        return asset
+
+    def _titel(post: Post) -> Optional[str]:
+        asset = _asset_ok(post)
+        if asset is None:
+            return None
+        return "mit_titel" if asset.has_title_placement else "ohne_titel"
+
+    def _kinetik(post: Post) -> Optional[str]:
+        asset = _asset_ok(post)
+        if asset is None:
+            return None
+        if not asset.has_kinetic:
+            return "ohne_kinetik"
+        kind = (asset.kinetic_type or "").strip()
+        if kind in ("", "none", "unknown"):
+            return None
+        return kind
+
+    return (
+        _Dimension("cover_titel", _titel, False),
+        _Dimension("cover_kinetik", _kinetik, False),
+    )
+
+
 # ``requires_analysis`` entscheidet ueber den Konfidenz-Filter: nur
 # modell-erzeugte Werte muessen ihn passieren. duration/music sind
 # gemessen und wuerden bei 12 % Klassifikations-Abdeckung sonst
@@ -1154,6 +1230,9 @@ def posts_for_cell(
     if dimension == "genre":
         mapping = _genre_by_post(session, ctx.usable)
         dim = _Dimension("genre", lambda p: mapping.get(p.id), False)
+    elif dimension in ("cover_titel", "cover_kinetik"):
+        cover = {d.name: d for d in _cover_dimensionen(session, ctx.usable)}
+        dim = cover[dimension]
     else:
         by_name = {d.name: d for d in DIMENSIONS}
         if dimension not in by_name:
@@ -1358,9 +1437,27 @@ def compute_trailer_patterns(
         )
     genre_dimension = _Dimension("genre", lambda p: genre_by_post.get(p.id), False)
 
+    # ---- Cover-Dimensionen (Hook-Intelligence Teil 2, 20.08.2026) --------
+    #
+    # Aus der persistierten OpenAI-Vision-Analyse — kein neuer LLM-Call,
+    # rueckwirkend auf allen analysierten Assets. Abdeckung waechst mit
+    # jedem Cron-Lauf (Vision-Stage arbeitet den Backlog ab).
+    cover_dims = _cover_dimensionen(session, usable)
+    cover_titel_dim = cover_dims[0]
+    cover_coverage = (
+        len([p for p in usable if cover_titel_dim.extract(p) is not None])
+        / len(usable)
+    )
+    if cover_coverage < 0.5:
+        notes.append(
+            f"Cover-Merkmale (Vision) decken {cover_coverage:.0%} der Posts "
+            f"— die Vision-Analyse arbeitet den Bestand mit jedem Cron-Lauf "
+            f"weiter ab. Die Cover-Zellen beschreiben nur diesen Ausschnitt."
+        )
+
     # ---- Cross-Tabs -----------------------------------------------------
     dimensions: dict[str, list[PatternCell]] = {}
-    for dim in DIMENSIONS + (genre_dimension,):
+    for dim in DIMENSIONS + (genre_dimension,) + cover_dims:
         # Bei eingegrenzter Auswertung waere die Formatklassen-Dimension
         # eine einzige Zelle mit z = 0 gegen sich selbst — kein Befund,
         # nur Rauschen in der Ausgabe.
