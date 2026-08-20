@@ -4,22 +4,22 @@ Stand: 20.08.2026. Diese Liste ersetzt für den aktuellen Durchgang die
 [Abnahme-Checkliste](./STAGING_ABNAHME_CHECKLISTE.md) — die beschreibt den Aufbau
 von null, du bist aber schon deutlich weiter.
 
-## Was bereits steht ✅
+> **Alle vier Schritte sind am 20.08.2026 durchlaufen und abgenommen.**
+> Staging fährt `main`, das Feature-Flag greift, der Login funktioniert, und
+> die Daten sind eine Kopie der Produktion (49 Disney-Posts, 30 Netflix,
+> Briefe vom 17.08.).
+>
+> Das Dokument bleibt aus zwei Gründen stehen: **Schritt 4 ist der
+> Daten-Refresh und wird wiederholt**, sooft du frische Daten willst — von
+> 4d an sind es zwei Zeilen. Und die Schritte 1–3 sind das Protokoll, wie
+> die Umgebung heute aussieht.
 
-| | |
-|---|---|
-| Railway-Environment `staging` | ✅ da, mit eigenem Backend + eigener Postgres + eigenem Volume |
-| `api-staging.creative-radar.de` | ✅ online, DNS steht |
-| `staging.creative-radar.de` | ✅ lädt, gelber STAGING-Banner erscheint |
-| Netlify-Site `venerable-cendol-2a4874` | ✅ da, deployt die Staging-Domain |
-| Login auf Staging | ✅ funktioniert (`wolf@trailerhaus.de`) |
+## Der Ausgangspunkt (Stand vor dem 20.08.2026)
 
-## Was noch fehlt ❗
-
-Deine Staging-Umgebung zeigt Briefs mit dem Präfix **`[SEED]`** und dem Stand
-**06.08.** Das sind erfundene Testdaten, und sie sind zwei Wochen alt. Grund: der
-Branch, auf den Railway und Netlify zeigen, heißt `staging` — **und dieser Branch
-existiert nicht mehr.** Seither wurde nichts Neues deployt.
+Environment, Datenbank, Domains, Netlify-Site und Banner standen bereits.
+Staging zeigte aber Briefs mit dem Präfix **`[SEED]`** vom **06.08.** Grund:
+Railway und Netlify zeigten auf den Branch `staging` — **und den gab es im
+Repo nicht mehr.** Seither wurde nichts Neues deployt.
 
 Vier Schritte, ca. 25 Minuten. Nach jedem kannst du aufhören.
 
@@ -127,7 +127,9 @@ sind es zwei Zeilen.
 Terminal öffnen, einfügen, Enter:
 
 ```sh
-brew install libpq && brew link --force libpq
+brew install libpq
+echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 Prüfen, dass es geklappt hat:
@@ -136,8 +138,23 @@ Prüfen, dass es geklappt hat:
 pg_dump --version
 ```
 
-Kommt eine Versionsnummer, ist alles gut. Kommt `command not found`, Terminal
-einmal schließen und neu öffnen.
+**Erwartet: `pg_dump (PostgreSQL) 18.x`.**
+
+Die Versionsnummer zählt, nicht nur dass überhaupt etwas kommt. Steht dort
+**14.x**, greift eine ältere PostgreSQL-Installation — und deren `pg_dump`
+kann eine Postgres-18-Datenbank **nicht** auslesen; es bricht mit einer
+Versions-Meldung ab. Dann steht der PATH-Eintrag oben noch nicht vorn:
+Terminal schließen, neu öffnen, nochmal prüfen.
+
+> **Warum PATH statt `brew link`** (Erfahrung 20.08.2026): `libpq` ist
+> keg-only — Homebrew verlinkt es nicht, weil `pg_dump`, `psql` &Co. mit
+> einer vorhandenen `postgresql@*`-Formel kollidieren. Auf Wolfs Mac lief
+> `brew link --force libpq` deshalb auf `Error: Could not symlink
+> bin/clusterdb`. Der in den Homebrew-Hinweisen vorgeschlagene
+> `--overwrite`-Weg würde die vorhandene PostgreSQL-Installation
+> beschädigen. Der PATH-Eintrag stellt die neuen Werkzeuge einfach davor
+> und lässt alles andere in Ruhe (ein 18er-Client redet auch mit einem
+> älteren Server).
 
 ### 4b — Einmalig: Staging-Zugangsdaten hinterlegen
 
@@ -163,16 +180,32 @@ kopieren** — sie ist gleich der Wert für `--ziel-host`.
 > nennst. Es prüft dann, ob dieser Host wirklich zur Staging-URL gehört und **nicht**
 > zur Produktions-URL. Damit kann man die beiden Datenbanken nicht verwechseln —
 > auch nicht bei vertauschten Dateien.
+>
+> **Deshalb wird der Host NICHT automatisch aus der URL abgeleitet**, obwohl das
+> bequemer wäre. Wären die beiden env-Dateien vertauscht, käme der abgeleitete
+> Host aus der falschen Datei, die Prüfung ginge glatt durch — und der Lauf
+> würde die Produktion überschreiben. Dass ein Mensch den Host nennt, ist
+> genau der Punkt, an dem die Verwechslung auffliegt.
 
 ### 4d — Trockenübung (verändert nichts)
 
-Im Repo-Verzeichnis. `<HOST>` durch die Zeile aus 4c ersetzen:
+Zuerst sicherstellen, dass der lokale Klon aktuell ist — das Skript kam erst
+am 20.08.2026 dazu:
 
 ```sh
 cd ~/creative-radar
+git checkout main
+git pull origin main
+```
+
+Dann die Trockenübung. **`DEIN-STAGING-HOST` durch die Zeile aus 4c ersetzen,
+bevor du die Zeile abschickst** — keine spitzen Klammern drumherum, die liest
+die Shell als Umleitung und antwortet mit `zsh: parse error near '\n'`:
+
+```sh
 source ~/.creative-radar/db.env
 source ~/.creative-radar/staging.env
-python3 scripts/staging_refresh.py --ziel-host <HOST>
+python3 scripts/staging_refresh.py --ziel-host DEIN-STAGING-HOST
 ```
 
 Erwartete Ausgabe:
@@ -193,7 +226,7 @@ nicht stimmt. Häufigster Fall: falscher oder zu unspezifischer Host.
 Dieselbe Zeile, `--ausfuehren` angehängt:
 
 ```sh
-python3 scripts/staging_refresh.py --ziel-host <HOST> --ausfuehren
+python3 scripts/staging_refresh.py --ziel-host DEIN-STAGING-HOST --ausfuehren
 ```
 
 Dauert je nach Datenmenge 1–3 Minuten. Am Ende steht:
@@ -237,5 +270,8 @@ frische Daten willst.
 | `health` zeigt `trailer_intelligence: false` in Staging | Variable fehlt oder Service noch nicht neu gestartet | Schritt 2b, dann in Railway **Redeploy** |
 | `ABBRUCH: --ziel-host … kommt AUCH in CR_DB_URL vor` | Host zu unspezifisch (z. B. nur `rlwy.net`) | Vollständigen Host aus 4c nehmen |
 | `Boot verweigert` im Railway-Log | `STAGING_EXPECTED_DB_HOST` passt nicht zur DB | Wert aus **postgres-creative-radar → Variables → `RAILWAY_PRIVATE_DOMAIN`** neu setzen |
-| `pg_dump: command not found` | libpq nicht verlinkt | `brew link --force libpq`, Terminal neu öffnen |
+| `pg_dump: command not found` oder gar keine Ausgabe | PATH-Eintrag fehlt (libpq ist keg-only) | Schritt 4a, danach Terminal neu öffnen |
+| `pg_dump --version` zeigt **14.x** | ältere PostgreSQL-Installation liegt im PATH davor | Schritt 4a, PATH-Zeile muss in `~/.zshrc` stehen |
+| `zsh: parse error near '\n'` | spitze Klammern um den Host mitkopiert | Host ohne `<` und `>` einsetzen |
+| `can't open file '.../staging_refresh.py'` | lokaler Klon ist älter als der 20.08.2026 | `git checkout main && git pull origin main` |
 | `permission denied` / `could not connect` in 4e | interne statt öffentlicher URL | In 2c `DATABASE_PUBLIC_URL` nehmen, nicht `DATABASE_URL` |
