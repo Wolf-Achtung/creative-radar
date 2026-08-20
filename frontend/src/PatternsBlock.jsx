@@ -293,7 +293,17 @@ function ZellenTabelle({ name, cells }) {
                       />
                     </td>
                     <td>{c.median_lift.toFixed(2)}x</td>
-                    <td style={{ color: verdict.color }}>{verdict.text}</td>
+                    <td style={{ color: verdict.color }}>
+                      {verdict.text}
+                      {c.trend === 'neu' && (
+                        <span style={{ color: '#6b6b6b', fontSize: '0.85em' }}> · neu belastbar</span>
+                      )}
+                      {c.trend === 'gewechselt' && c.vorwoche && (
+                        <span style={{ color: '#6b6b6b', fontSize: '0.85em' }}>
+                          {' '}· Vorwoche: {(VERDICT_LABEL[c.vorwoche.breakout_verdict] || VERDICT_LABEL.neutral).text}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                   {offen === c.value && (
                     <tr>

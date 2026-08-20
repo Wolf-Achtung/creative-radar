@@ -61,6 +61,8 @@ from app.core.feature_flags import is_trailer_intelligence_enabled
 from app.services.forecast import generate_er_forecast
 from app.services.insights import build_overview
 from app.services.trailer_patterns import (
+    TREND_WINDOW_SHIFT_DAYS,
+    apply_weekly_trend,
     build_lift_context,
     compute_trailer_patterns,
     posts_for_cell,
@@ -518,7 +520,17 @@ def trailer_patterns_public(
             ),
         )
     log_usage(request_user_email(request), "patterns_view", {"window_days": window_days})
-    return compute_trailer_patterns(session, window_days=window_days).to_dict()
+    # Vorwochen-Vergleich (Aufwertung C): dieselbe Rechnung mit um 7 Tage
+    # verschobenem Fenster — deterministisch, keine Persistenz. Der
+    # Admin-Endpoint bleibt bei der nackten Einzelrechnung.
+    now = datetime.now(timezone.utc)
+    current = compute_trailer_patterns(session, window_days=window_days, now=now)
+    previous = compute_trailer_patterns(
+        session,
+        window_days=window_days,
+        now=now - timedelta(days=TREND_WINDOW_SHIFT_DAYS),
+    )
+    return apply_weekly_trend(current, previous)
 
 
 @router.get("/patterns/examples")
