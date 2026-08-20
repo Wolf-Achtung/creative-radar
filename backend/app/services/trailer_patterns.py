@@ -1054,6 +1054,62 @@ def posts_for_cell(
     return members
 
 
+# Vorwochen-Vergleich (Aufwertung C, 20.08.2026): die "Vorwoche" ist
+# KEINE persistierte Zeitreihe, sondern dieselbe deterministische
+# Rechnung mit um 7 Tage verschobenem Fenster — jederzeit reproduzierbar,
+# keine Migration, keine Cron-Abhaengigkeit. Bei 90-Tage-Fenstern
+# ueberlappen sich beide Rechnungen zu ~92 %; Bewegung kommt also von
+# den Raendern (neue Posts hinein, alte heraus). Genau das ist gewollt:
+# der Trend zeigt, was sich DIESE Woche geaendert hat.
+TREND_WINDOW_SHIFT_DAYS = 7
+
+
+def apply_weekly_trend(
+    current: TrailerPatternReport,
+    previous: TrailerPatternReport,
+) -> dict:
+    """``current.to_dict()``, je belastbarer Zelle ergaenzt um:
+
+    - ``vorwoche``: ``{breakout_rate, breakout_verdict}`` der Vorwoche,
+      ``None``, wenn die Zelle dort fehlte oder ``insufficient`` war.
+    - ``trend``: ``"neu"`` (Vorwoche fehlte oder war duenn — die Zelle
+      ist neu belastbar), ``"gewechselt"`` (Verdikt hat sich geaendert),
+      ``"stabil"`` (gleiches Verdikt). ``None`` fuer Zellen, die selbst
+      ``insufficient`` sind — eine duenne Zelle hat keinen Trend.
+
+    Verglichen wird das VERDIKT, nicht die rohe Quote: die Quote wackelt
+    an den Fensterraendern von selbst, das z-Test-Verdikt erst, wenn die
+    Bewegung Signalstaerke erreicht.
+    """
+    prev_by_key = {
+        (dim, cell.value): cell
+        for dim, cells in previous.dimensions.items()
+        for cell in cells
+    }
+    data = current.to_dict()
+    for dim, cells in data["dimensions"].items():
+        for cell in cells:
+            if cell["breakout_verdict"] == "insufficient":
+                cell["vorwoche"] = None
+                cell["trend"] = None
+                continue
+            prev = prev_by_key.get((dim, cell["value"]))
+            if prev is None or prev.breakout_verdict == "insufficient":
+                cell["vorwoche"] = None
+                cell["trend"] = "neu"
+                continue
+            cell["vorwoche"] = {
+                "breakout_rate": round(prev.breakout_rate, 4),
+                "breakout_verdict": prev.breakout_verdict,
+            }
+            cell["trend"] = (
+                "stabil"
+                if prev.breakout_verdict == cell["breakout_verdict"]
+                else "gewechselt"
+            )
+    return data
+
+
 def compute_trailer_patterns(
     session: Session,
     *,

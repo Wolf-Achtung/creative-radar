@@ -208,6 +208,30 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     await screen.findByText('Keine Beispiel-Posts verfügbar.');
   });
 
+  it('zeigt den Wochen-Trend in der Befund-Spalte', async () => {
+    // Aufwertung C (20.08.2026): 'neu' = Vorwoche fehlte oder war
+    // duenn; 'gewechselt' nennt das Vorwochen-Verdikt. Zellen ohne
+    // trend-Feld (aeltere Backends) rendern unveraendert.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        genre: [
+          { ...ZELLE_OK, value: 'Romance', trend: 'neu', vorwoche: null },
+          {
+            ...ZELLE_OK, value: 'Horror', breakout_rate: 0.05,
+            trend: 'gewechselt',
+            vorwoche: { breakout_rate: 0.12, breakout_verdict: 'neutral' },
+          },
+        ],
+      },
+    });
+    render(<PatternsBlock />);
+
+    await screen.findByText(/neu belastbar/);
+    expect(screen.getByText(/Vorwoche: unauffällig/)).toBeTruthy();
+  });
+
   it('zeichnet je Zeile einen Delta-Balken: Fuellung = Quote, Strich = erwartet', async () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
