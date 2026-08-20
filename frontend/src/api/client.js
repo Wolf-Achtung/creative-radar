@@ -156,6 +156,10 @@ export const endpoints = {
   // Admin-Session. Rein lesend.
   breakoutsPublic: ({ limit = 10 } = {}) => api(`/api/breakouts?limit=${limit}`),
   insightPatterns: ({ windowDays = 90 } = {}) => api(`/api/insights/patterns?window_days=${windowDays}`),
+  // Juengstes Pattern-Briefing (Text-Bausteine aus den Mustern, Stufe 1
+  // Schritt 3). 404 = noch keins persistiert — der Block blendet die
+  // Sektion dann aus, kein Fehlerzustand.
+  insightPatternBriefing: () => api('/api/insights/pattern-briefing'),
   // Latest Segment-Roundup pro Segment. Public, kein Auth-Token noetig
   // (Backend-Whitelist analog /api/pairs). Treibt den Roundup-Block auf
   // der Landing-Page (Master-Plan-Schritt-3b, 26.05.).

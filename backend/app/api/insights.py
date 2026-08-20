@@ -20,6 +20,7 @@ from app.models.entities import (
     ChannelSegment,
     InsightReport as InsightReportRow,
     Market,
+    PatternBriefing,
     Post,
     SegmentRoundup,
     Title,
@@ -514,6 +515,64 @@ def trailer_patterns_public(
         )
     log_usage(request_user_email(request), "patterns_view", {"window_days": window_days})
     return compute_trailer_patterns(session, window_days=window_days).to_dict()
+
+
+@router.get("/pattern-briefing")
+def pattern_briefing_public(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Juengstes Pattern-Briefing (Genre-Modus) fuer eingeloggte Nutzer —
+    Trailer-Intelligence Stufe 1, Schritt 3. Rein lesend: liefert die
+    persistierte Row des Montags-Cron-Blocks (oder des Admin-Triggers),
+    loest selbst NIE einen LLM-Call aus.
+
+    Gate: ``FEATURE_TRAILER_INTELLIGENCE_ENABLED`` — gleiches Muster wie
+    ``GET /api/insights/patterns``. Off → 503; noch keine Row → 404 (das
+    Frontend blendet die Sektion dann einfach nicht ein).
+
+    Ueber den Wire geht ``llm_output`` plus Meta — der ``evidence``-Blob
+    bleibt beim Admin-Endpoint (Review-Material, nicht Nutzer-Inhalt);
+    ``citation_dropped`` geht mit, damit die Anzeige transparent machen
+    kann, wenn Bausteine an der Beleg-Pruefung gescheitert sind.
+    """
+    if not is_trailer_intelligence_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Trailer-Intelligence ist deaktiviert. "
+                "FEATURE_TRAILER_INTELLIGENCE_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    row = session.exec(
+        select(PatternBriefing)
+        .where(PatternBriefing.mode == "genre")
+        .order_by(
+            PatternBriefing.iso_year.desc(),
+            PatternBriefing.iso_week.desc(),
+        )
+        .limit(1)
+    ).first()
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Noch kein Pattern-Briefing persistiert.",
+        )
+    log_usage(
+        request_user_email(request),
+        "pattern_briefing_view",
+        {"iso_year": row.iso_year, "iso_week": row.iso_week},
+    )
+    return {
+        "mode": row.mode,
+        "iso_year": row.iso_year,
+        "iso_week": row.iso_week,
+        "window_days": row.window_days,
+        "generated_at": row.generated_at.isoformat(),
+        "model_used": row.model != "none",
+        "citation_dropped": row.citation_dropped,
+        "llm_output": row.llm_output,
+    }
 
 
 @roundups_router.get("/roundups/latest", response_model=SegmentRoundupListResponse)

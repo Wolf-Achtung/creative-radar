@@ -1580,3 +1580,113 @@ class DesignerWeeklyReport(BaseModel):
         default=None,
         description="Raw assistant text — populated only when the LLM answer was discarded (parse/schema/citation fail).",
     )
+
+
+# ---------- Pattern-Briefing (Trailer-Intelligence Stufe 1, Schritt 3) ----
+
+
+class PatternExamplePost(BaseModel):
+    """Ein Beispiel-Post im Evidence-Blob des Pattern-Briefings — das
+    Rohmaterial, aus dem das LLM Hook-/Caption-Mechanik lernt und das es
+    in ``cited_post_ids`` referenzieren MUSS. ``post_url`` ist die
+    Citation-ID (derselbe ID-Raum wie beim Wochen-Brief — die
+    Citation-Auswertung vom 20.08.2026 hat gezeigt, dass ein zweiter
+    ID-Raum wie ``match_key`` die einzige nennenswerte Fehlerquelle
+    war)."""
+    post_url: str
+    platform: str
+    channel_handle: str
+    lift: float
+    views: Optional[int] = None
+    likes: Optional[int] = None
+    duration_seconds: Optional[int] = None
+    caption: str = ""
+
+
+class PatternEvidenceCell(BaseModel):
+    """Eine belastbare Muster-Zelle mit ihren Zahlen und Belegen.
+    Zahlen kommen 1:1 aus ``compute_trailer_patterns`` (PatternCell) —
+    hier steht nur, was auch im Prompt steht."""
+    value: str
+    sample_size: int
+    channel_count: int
+    median_lift: float
+    breakout_rate: float
+    expected_breakout_rate: float
+    breakout_z: Optional[float] = None
+    breakout_verdict: str
+    platform_mix: dict[str, int] = Field(default_factory=dict)
+    examples: list[PatternExamplePost] = Field(default_factory=list)
+
+
+class PatternBriefingEvidence(BaseModel):
+    """Deterministischer Teil des Pattern-Briefings — wird als
+    ``pattern_briefing.evidence`` persistiert und macht den Prompt
+    rekonstruierbar. ``patterns`` sind die Zellen, die die
+    Code-Pruefung freigegeben hat; das LLM formuliert ausschliesslich
+    dazu (Cutter-Weekly-Prinzip)."""
+    mode: str
+    iso_year: int
+    iso_week: int
+    window_days: int
+    window_start: datetime
+    window_end: datetime
+    posts_with_baseline: int
+    channels_covered: int
+    genre_coverage: float
+    baseline_breakout_rate: float
+    patterns: list[PatternEvidenceCell] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class PatternTextBaustein(BaseModel):
+    """Ein Text-Baustein zu EINEM freigegebenen Muster: Begruendung mit
+    den mitgelieferten Zahlen, sofort verwendbare Hooks und Captions
+    DE/EN, Hashtags — und die Belege. DE ist nicht uebersetztes EN
+    (Prompt-Regel 4); die Citation-Pflicht (Regel 2) prueft der Code,
+    nicht das Modell."""
+    model_config = ConfigDict(extra="ignore")
+
+    muster: str
+    begruendung: str
+    hooks_de: list[str] = Field(min_length=1, max_length=5)
+    hooks_en: list[str] = Field(min_length=1, max_length=5)
+    captions_de: list[str] = Field(min_length=1, max_length=3)
+    captions_en: list[str] = Field(min_length=1, max_length=3)
+    hashtags: list[str] = Field(default_factory=list, max_length=10)
+    cited_post_ids: list[str] = Field(min_length=1)
+
+
+class PatternBriefingLLMReport(BaseModel):
+    """LLM-Synthese des Pattern-Briefings. ``bausteine`` darf leer sein —
+    Regel 5 erlaubt dem Modell, ein zu duennes Muster zu benennen statt
+    zu liefern; das steht dann in ``data_caveats``."""
+    model_config = ConfigDict(extra="ignore")
+
+    bausteine: list[PatternTextBaustein] = Field(default_factory=list)
+    data_caveats: list[str] = Field(default_factory=list)
+
+
+class PatternBriefingReport(BaseModel):
+    """Vollstaendiges Pattern-Briefing — Evidence + LLM-Synthese, analog
+    ``CutterWeeklyReport``. ``model = "none"`` heisst: kein LLM-Call
+    (kein belastbares Muster im Fenster — bei leerer Genre-Abdeckung
+    der Normalfall, bis der Title-Sync die Genres gefuellt hat).
+    ``citation_dropped`` zaehlt die von der Citation-Pruefung
+    verworfenen Bausteine."""
+    mode: str
+    iso_year: int
+    iso_week: int
+    window_days: int
+    generated_at: datetime
+    model: str
+    evidence: PatternBriefingEvidence
+    llm_output: Optional[PatternBriefingLLMReport] = None
+    cost_usd_estimate: Optional[float] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    citation_dropped: int = 0
+    raw_llm_text: Optional[str] = Field(
+        default=None,
+        description="Raw assistant text — nur belegt, wenn die LLM-Antwort verworfen wurde (Parse/Schema-Fail).",
+    )

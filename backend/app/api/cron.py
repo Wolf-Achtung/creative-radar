@@ -65,6 +65,7 @@ from app.core.feature_flags import (
     is_cutter_weekly_enabled,
     is_designer_weekly_enabled,
     is_segment_roundups_enabled,
+    is_trailer_intelligence_enabled,
 )
 from app.models.entities import SegmentRoundup as SegmentRoundupRow
 from app.services.forecast import generate_er_forecast
@@ -1587,6 +1588,119 @@ def _run_designer_weekly_after_cutter_weekly(
     return summary
 
 
+def _run_pattern_briefing_after_designer_weekly(
+    session: Session,
+    *,
+    brief_now: datetime | None = None,
+    force: bool = False,
+) -> dict:
+    """Pattern-Briefing-Block (Trailer-Intelligence Stufe 1, Schritt 3,
+    20.08.2026) — additiv NACH dem Designer-Wochenbriefing, Mechanik
+    Feld-fuer-Feld nach dem Cutter-/Designer-Muster:
+
+    - Feature-Flag-Gate ``FEATURE_TRAILER_INTELLIGENCE_ENABLED``
+      (Wolf-Entscheidung 20.08.: Generierung automatisch im Montags-Cron,
+      hinter dem TI-Flag — in Production laeuft der Block erst, wenn Wolf
+      das Flag nach der Abnahme setzt; Flag off = Cron exakt wie vorher).
+    - Eigener F0.7-Cap-Re-Check direkt vor dem Block.
+    - Cache-Hit-Check auf PK ``(mode='genre', iso_year, iso_week)``;
+      ``force=True`` ueberspringt ihn (Persistenz ist Last-Write-Wins).
+    - Maximal EIN LLM-Call pro Woche (plus JSON-Retry-Anlaeufe); im
+      Leerlauf (keine belastbaren Genre-Muster — bis zum ersten
+      Title-Sync mit Genres der Normalfall) faellt gar KEIN Call an,
+      die Row wird mit ``model='none'`` persistiert.
+    """
+    # Lazy import analog Cutter-/Designer-Block: haelt den Modul-Load von
+    # cron.py frei von der pattern_briefing→insight_engine-Kette.
+    from app.models.entities import PatternBriefing
+    from app.services.pattern_briefing import (
+        BRIEFING_MODE_GENRE,
+        generate_and_persist_pattern_briefing,
+    )
+
+    enabled = is_trailer_intelligence_enabled()
+    summary: dict = {
+        "enabled": enabled,
+        "skipped": False,
+        "generated": 0,
+        "skipped_cache_hit": 0,
+        "failed": 0,
+    }
+    if not enabled:
+        summary["skipped"] = True
+        summary["reason"] = "feature_flag_off"
+        logger.info("pattern_briefing.skipped reason=feature_flag_off")
+        return summary
+
+    cap_check = compute_anthropic_monthly_spend(session)
+    if cap_check.hard_cap_exceeded and cap_check.enforced:
+        summary["skipped"] = True
+        summary["reason"] = "anthropic_budget_exceeded"
+        summary["anthropic_budget"] = cap_check.to_dict()
+        logger.warning(
+            "pattern_briefing.skipped reason=anthropic_budget_exceeded "
+            "spent=%d/%d cents (%.1f%%)",
+            cap_check.spent_usd_cents, cap_check.budget_usd_cents,
+            cap_check.pct_used * 100,
+        )
+        return summary
+
+    if brief_now is None:
+        brief_now = datetime.now(timezone.utc) - timedelta(days=1)
+    iso_cal = brief_now.isocalendar()
+    target_iso_year, target_iso_week = iso_cal.year, iso_cal.week
+    summary["iso_year"] = target_iso_year
+    summary["iso_week"] = target_iso_week
+
+    if not force:
+        existing = session.get(
+            PatternBriefing,
+            (BRIEFING_MODE_GENRE, target_iso_year, target_iso_week),
+        )
+        if existing is not None:
+            summary["skipped_cache_hit"] = 1
+            logger.info(
+                "pattern_briefing.cache_hit iso_year=%d iso_week=%d",
+                target_iso_year, target_iso_week,
+            )
+            return summary
+
+    try:
+        report = generate_and_persist_pattern_briefing(session, now=brief_now)
+    except Exception as exc:  # noqa: BLE001 — Block-Isolation wie bei
+        # Cutter/Designer: ein Fehler hier darf den Cron-Run-Status nicht
+        # kippen; der naechste Lauf holt das Briefing nach.
+        logger.exception("pattern_briefing.failed")
+        summary["failed"] = 1
+        summary["error"] = {
+            "error_class": type(exc).__name__,
+            "error_message": str(exc)[:200],
+        }
+        return summary
+
+    summary["generated"] = 1
+    summary["model"] = report.model
+    summary["llm_output_present"] = report.llm_output is not None
+    summary["bausteine"] = (
+        len(report.llm_output.bausteine) if report.llm_output else 0
+    )
+    summary["citation_dropped"] = report.citation_dropped
+    if report.cost_usd_estimate:
+        summary["cost_usd_cents"] = int(round(report.cost_usd_estimate * 100))
+    logger.info(
+        "pattern_briefing.complete",
+        extra={
+            "iso_year": target_iso_year,
+            "iso_week": target_iso_week,
+            "model": report.model,
+            "bausteine": summary["bausteine"],
+            "citation_dropped": report.citation_dropped,
+            "llm_output_present": summary["llm_output_present"],
+        },
+    )
+    return summary
+
+
 def _cron_total_timeout_seconds() -> int:
     # Re-Audit 2026-07-06: mit title_sync (1800s) + rematch (1800s) beide auf
     # ihrem eigenen Timeout UND den weiterhin ungedeckelten Stages (Scrape/
@@ -1939,6 +2053,15 @@ async def _run_cron_sync_background_impl(
             # siehe Docstring von ``_run_designer_weekly_after_cutter_weekly``).
             summary["designer_weekly"] = await asyncio.to_thread(
                 _run_designer_weekly_after_cutter_weekly, session,
+                brief_now=brief_now, force=force,
+            )
+            # Trailer-Intelligence Stufe 1, Schritt 3 (20.08.2026) —
+            # Pattern-Briefing additiv NACH dem Designer-Wochenbriefing.
+            # Hinter FEATURE_TRAILER_INTELLIGENCE_ENABLED (Wolf: Cron-
+            # Ausloesung, aber Production erst nach Abnahme via Flag),
+            # eigener F0.7-Re-Check im Block.
+            summary["pattern_briefing"] = await asyncio.to_thread(
+                _run_pattern_briefing_after_designer_weekly, session,
                 brief_now=brief_now, force=force,
             )
             # Tech-Debt A5 — Apify-Cost dieses Runs ins summary_json.

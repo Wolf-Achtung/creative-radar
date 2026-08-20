@@ -93,10 +93,53 @@ function ZellenTabelle({ name, cells }) {
   );
 }
 
+function BausteinKarte({ baustein }) {
+  const listen = [
+    ['Hooks DE', baustein.hooks_de],
+    ['Hooks EN', baustein.hooks_en],
+    ['Captions DE', baustein.captions_de],
+    ['Captions EN', baustein.captions_en],
+  ];
+  return (
+    <div className="card breakouts-card" style={{ marginBottom: '1rem', padding: '1rem 1.25rem' }}>
+      <h4 style={{ color: 'white', margin: '0 0 0.35rem', fontSize: '1em' }}>{baustein.muster}</h4>
+      <p style={{ color: '#c8d6cc', margin: '0 0 0.75rem', fontSize: '0.85em' }}>{baustein.begruendung}</p>
+      {listen.map(([label, eintraege]) => (
+        (eintraege || []).length > 0 && (
+          <div key={label} style={{ marginBottom: '0.5rem' }}>
+            <p style={{ color: '#ffa294', margin: '0 0 0.15rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+              {label}
+            </p>
+            <ul style={{ color: '#e8f0ea', margin: 0, paddingLeft: '1.2rem', fontSize: '0.9em' }}>
+              {eintraege.map((text) => <li key={text}>{text}</li>)}
+            </ul>
+          </div>
+        )
+      ))}
+      {(baustein.hashtags || []).length > 0 && (
+        <p style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.8em' }}>
+          {baustein.hashtags.map((tag) => `#${tag}`).join(' ')}
+        </p>
+      )}
+      {(baustein.cited_post_ids || []).length > 0 && (
+        <p style={{ margin: '0.5rem 0 0', fontSize: '0.75em' }}>
+          <span style={{ color: '#b9c7bd' }}>Belege: </span>
+          {baustein.cited_post_ids.map((url, i) => (
+            <a key={url} href={url} target="_blank" rel="noreferrer" style={{ color: '#7ee2a8', marginRight: '0.5rem' }}>
+              Post {i + 1}
+            </a>
+          ))}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function PatternsBlock() {
   const [aktiv, setAktiv] = useState(false);
   const [daten, setDaten] = useState(null);
   const [fehler, setFehler] = useState(false);
+  const [briefing, setBriefing] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +148,13 @@ export default function PatternsBlock() {
         if (cancelled) return;
         if (health?.features?.trailer_intelligence) {
           setAktiv(true);
+          // Text-Bausteine sind ein eigener Datensatz mit eigenem
+          // Fehlerpfad: 404 (noch kein Briefing persistiert) ist ein
+          // NORMALER Zustand und blendet die Sektion still aus — er darf
+          // den Muster-Tabellen keinen Fehlerkasten bescheren.
+          endpoints.insightPatternBriefing()
+            .then((data) => { if (!cancelled) setBriefing(data); })
+            .catch(() => {});
           return endpoints.insightPatterns({ windowDays: 90 }).then((data) => {
             if (!cancelled) setDaten(data);
           });
@@ -172,6 +222,32 @@ export default function PatternsBlock() {
         <ul style={{ color: '#b9c7bd', margin: '0.5rem 0 0', paddingLeft: '1.2rem', fontSize: '0.8em' }}>
           {daten.notes.map((note) => <li key={note}>{note}</li>)}
         </ul>
+      )}
+
+      {briefing?.llm_output && (briefing.llm_output.bausteine || []).length > 0 && (
+        <div style={{ marginTop: '1.5rem' }}>
+          <h3 style={{ color: 'white', margin: '0 0 0.25rem', fontSize: '1.05em' }}>
+            Text-Bausteine aus den Mustern
+          </h3>
+          <p style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.85em' }}>
+            Hooks und Caption-Vorlagen, abgeleitet aus den stärksten Posts je Muster —
+            jede Empfehlung mit Belegen. Stand KW {briefing.iso_week}/{briefing.iso_year}.
+          </p>
+          {briefing.llm_output.bausteine.map((baustein) => (
+            <BausteinKarte key={baustein.muster} baustein={baustein} />
+          ))}
+          {(briefing.llm_output.data_caveats || []).length > 0 && (
+            <ul style={{ color: '#b9c7bd', margin: '0.25rem 0 0', paddingLeft: '1.2rem', fontSize: '0.8em' }}>
+              {briefing.llm_output.data_caveats.map((caveat) => <li key={caveat}>{caveat}</li>)}
+            </ul>
+          )}
+          {briefing.citation_dropped > 0 && (
+            <p style={{ color: '#b9c7bd', margin: '0.25rem 0 0', fontSize: '0.8em' }}>
+              {briefing.citation_dropped} Baustein(e) wurden verworfen, weil ihre Belege
+              nicht in den mitgegebenen Beispiel-Posts lagen.
+            </p>
+          )}
+        </div>
       )}
     </section>
   );
