@@ -183,6 +183,80 @@ function BefundKarten({ dimensions }) {
   );
 }
 
+// Radar (20.08.2026): was sich gegenueber der Vorwoche geaendert hat.
+// Nur echte Bewegung — ein Verdikt-WECHSEL oder eine NEU belastbare
+// Zelle mit Befund. "stabil" und duenne Zellen sind keine Nachricht.
+// Wechsel vor Neuzugaengen, innerhalb nach Signalstaerke. Exportiert
+// fuer den Test.
+export function bewegungen(dimensions, max = 4) {
+  const alle = [];
+  Object.entries(dimensions || {}).forEach(([dim, cells]) => {
+    (cells || []).forEach((cell) => {
+      if (cell.trend === 'gewechselt') {
+        alle.push({ dim, cell, art: 'gewechselt' });
+      } else if (
+        cell.trend === 'neu'
+        && (cell.breakout_verdict === 'over' || cell.breakout_verdict === 'under')
+      ) {
+        alle.push({ dim, cell, art: 'neu' });
+      }
+    });
+  });
+  alle.sort((a, b) => {
+    if (a.art !== b.art) return a.art === 'gewechselt' ? -1 : 1;
+    return Math.abs(b.cell.breakout_z ?? 0) - Math.abs(a.cell.breakout_z ?? 0);
+  });
+  return alle.slice(0, max);
+}
+
+const VERDICT_WORT = {
+  over: 'läuft über Schnitt',
+  under: 'läuft unter Schnitt',
+  neutral: 'unauffällig',
+};
+
+function BewegungsKarte({ dim, cell, art }) {
+  const farbe = QUOTE_COLOR_ON_CARD[cell.breakout_verdict] || QUOTE_COLOR_ON_CARD.neutral;
+  const satz = art === 'gewechselt'
+    ? `${VERDICT_WORT[cell.vorwoche?.breakout_verdict] || 'unauffällig'} → `
+      + `${VERDICT_WORT[cell.breakout_verdict]} `
+      + `(Quote ${prozent(cell.breakout_rate)} nach ${prozent(cell.vorwoche?.breakout_rate ?? 0)}).`
+    : `neu belastbar — ${VERDICT_WORT[cell.breakout_verdict]} (${prozent(cell.breakout_rate)}).`;
+  return (
+    <div
+      className="card breakouts-card"
+      style={{ flex: '1 1 250px', maxWidth: '340px', padding: '0.85rem 1rem', borderLeft: `4px solid ${farbe}` }}
+    >
+      <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, color: '#6b6b6b' }}>
+        {DIMENSION_LABEL[dim] || dim} · <span style={{ color: farbe }}>{art === 'gewechselt' ? 'Verdikt gewechselt' : 'Neu belastbar'}</span>
+      </p>
+      <p style={{ margin: '0 0 0.35rem', fontWeight: 700, fontSize: '1em' }}>
+        {WERT_LABEL[cell.value] || cell.value}
+      </p>
+      <p style={{ margin: 0, fontSize: '0.85em', color: '#4a4a44' }}>
+        {satz} {cell.sample_size} Posts von {cell.channel_count} Kanälen.
+      </p>
+    </div>
+  );
+}
+
+function BewegungsKarten({ dimensions }) {
+  const liste = bewegungen(dimensions);
+  if (liste.length === 0) return null;
+  return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      <h3 style={{ color: 'white', margin: '0 0 0.5rem', fontSize: '1em' }}>
+        Bewegung diese Woche
+      </h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+        {liste.map(({ dim, cell, art }) => (
+          <BewegungsKarte key={`${dim}:${cell.value}`} dim={dim} cell={cell} art={art} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Redundante Zweit-Kodierung der beiden Zahlenspalten: Balken = Quote,
 // Strich = erwartete Quote, Skala je Tabelle. Duenn, an der Basislinie
 // verankert; die Farbe traegt nichts Eigenes (der Befund steht als Text
@@ -471,6 +545,7 @@ export default function PatternsBlock() {
         </p>
       )}
       {!fehler && daten !== null && <BefundKarten dimensions={dimensionen} />}
+      {!fehler && daten !== null && <BewegungsKarten dimensions={dimensionen} />}
       {!fehler && sichtbare.map((name) => (
         <ZellenTabelle key={name} name={name} cells={dimensionen[name]} />
       ))}

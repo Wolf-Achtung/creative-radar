@@ -228,8 +228,40 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     });
     render(<PatternsBlock />);
 
-    await screen.findByText(/neu belastbar/);
+    await screen.findAllByText(/neu belastbar/);
     expect(screen.getByText(/Vorwoche: unauffällig/)).toBeTruthy();
+  });
+
+  it('zeigt Bewegung diese Woche: Verdikt-Wechsel vor Neuzugaengen, stabil und duenn nie', async () => {
+    // Radar (20.08.2026): nur echte Bewegung ist eine Nachricht. Ein
+    // Wechsel steht vor einem Neuzugang, auch wenn der Neuzugang das
+    // staerkere |z| hat; "stabil", "neu + unauffaellig" und
+    // insufficient-Zellen erscheinen nicht.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        format: [
+          { ...ZELLE_OK, value: 'behind_the_scenes', breakout_z: 2.6, breakout_verdict: 'over',
+            trend: 'gewechselt', vorwoche: { breakout_rate: 0.149, breakout_verdict: 'neutral' } },
+          { ...ZELLE_OK, value: 'clip', breakout_z: -9.9, breakout_verdict: 'under',
+            trend: 'neu', vorwoche: null },
+          { ...ZELLE_OK, value: 'promo', breakout_z: 0.2, breakout_verdict: 'neutral',
+            trend: 'neu', vorwoche: null },
+          { ...ZELLE_OK, value: 'trailer', breakout_z: 2.2, breakout_verdict: 'over',
+            trend: 'stabil', vorwoche: { breakout_rate: 0.18, breakout_verdict: 'over' } },
+        ],
+      },
+    });
+    render(<PatternsBlock />);
+
+    await screen.findByText('Bewegung diese Woche');
+    const chips = screen.getAllByText(/Verdikt gewechselt|Neu belastbar/);
+    expect(chips).toHaveLength(2);
+    // Wechsel (z=2.6) VOR Neuzugang (z=-9.9) — Sortierung nach Art, nicht |z|.
+    expect(chips[0].textContent).toBe('Verdikt gewechselt');
+    expect(screen.getByText(/unauffällig → läuft über Schnitt \(Quote 19\.0 % nach 14\.9 %\)/)).toBeTruthy();
+    expect(screen.getByText(/neu belastbar — läuft unter Schnitt/)).toBeTruthy();
   });
 
   it('zeichnet je Zeile einen Delta-Balken: Fuellung = Quote, Strich = erwartet', async () => {
