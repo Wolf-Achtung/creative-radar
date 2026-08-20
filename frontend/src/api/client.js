@@ -20,6 +20,18 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 
+// Wartung 20.08.2026 — exportiert, damit ``<a href download>``-Links
+// dieselbe Basis benutzen wie ``fetch``. Vorher verlinkte ReportsPanel
+// relativ auf ``/api/reports/...`` und lief damit ueber die
+// ``/api/*``-Weiterleitung in netlify.toml, die fest auf
+// api.creative-radar.de zeigt: auf der STAGING-Seite luden die
+// Report-Downloads den PRODUKTIONS-Report. Beide Endpunkte sind
+// oeffentlich (``PUBLIC_PATH_EXACT`` in backend/app/auth.py), ein
+// absoluter Link braucht also keinen Token.
+export function apiUrl(path) {
+  return `${API_BASE}${path}`;
+}
+
 export function proxyImageUrl(url) {
   return buildProxyImageUrl(url, { apiBase: API_BASE });
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { proxyImageUrl } from '../api/client';
+import { apiUrl, proxyImageUrl } from '../api/client';
 import { ImagePreview } from '../components/ImagePreview';
 import { Section } from '../components/Section';
 
@@ -83,7 +83,7 @@ export function ReportsPanel({ report, busy, suggestion, form, setForm, onSugges
         <div className="section-actions"><button className="primary" onClick={onGenerateSuggestedReport} disabled={busy || suggestion.assets.length===0}>Report erzeugen</button></div>
         {!hasSuggestedAssets && <p className="small muted">Report kann erst erzeugt werden, wenn ein Vorschlag Assets enthält.</p>}
       </>)}
-      {report ? <details><summary>Aktuellen Report anzeigen</summary><p className="muted small">Report wurde erstellt.</p><div className="section-actions"><a className="secondary" href="/api/reports/latest/download.html" download>HTML herunterladen</a><a className="secondary" href="/api/reports/latest/download.md" download>Markdown herunterladen</a></div><iframe title="report" srcDoc={report.html_content || ''} /></details> : <p className="muted">Noch kein Report erzeugt.</p>}
+      {report ? <details><summary>Aktuellen Report anzeigen</summary><p className="muted small">Report wurde erstellt.</p><div className="section-actions"><a className="secondary" href={apiUrl('/api/reports/latest/download.html')} download>HTML herunterladen</a><a className="secondary" href={apiUrl('/api/reports/latest/download.md')} download>Markdown herunterladen</a></div><iframe title="report" srcDoc={report.html_content || ''} /></details> : <p className="muted">Noch kein Report erzeugt.</p>}
     </Section>
   );
 }

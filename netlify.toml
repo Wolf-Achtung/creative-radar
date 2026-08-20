@@ -47,10 +47,12 @@
 # selbst — bislang kam das Prod-HTML komplett ohne aus (das Backend setzt
 # dieselben drei bereits auf allen API-Antworten, main.py). X-Frame-Options
 # DENY blockiert Clickjacking der Login-/Admin-UI per iframe; die App bettet
-# sich selbst nirgends ein. Bewusst OHNE Content-Security-Policy: eine CSP
-# muss erst gegen die real geladenen Ressourcen (API-Bilder, R2/CDN-URLs)
-# getestet werden, sonst bricht sie still die Bild-Anzeige — siehe Audit-
-# Report, als eigener Schritt vorgeschlagen.
+# sich selbst nirgends ein.
+#
+# (Hier stand bis zum 20.08.2026: "Bewusst OHNE Content-Security-Policy —
+# muss erst gegen die real geladenen Ressourcen getestet werden." Der
+# eigene Schritt kam dann noch im selben Audit; die CSP steht unten. Der
+# Kommentar behauptete seither das Gegenteil der Datei, in der er steht.)
 [[headers]]
   for = "/*"
   [headers.values]
@@ -62,11 +64,25 @@
     # app.creative-radar.de, api.* setzt seine Header selbst (main.py).
     Strict-Transport-Security = "max-age=31536000"
     # CSP nach Ressourcen-Inventur (Audit-Schritt 5): Bundle-JS/CSS sind
-    # self; Bilder kommen ueber api.creative-radar.de (storage/thumbnails/
-    # img-Proxy, siehe imageUrl.js); fetch() geht an api.* (client.js) und
-    # relativ an /api/* (Report-Downloads via Netlify-Proxy). style-src
+    # self; Bilder kommen ueber die API (storage/thumbnails/img-Proxy,
+    # siehe imageUrl.js); fetch() geht an die API (client.js). style-src
     # braucht 'unsafe-inline' fuer React-style-Attribute und die inline
     # gestylte Report-Vorschau (ReportsPanel iframe srcDoc). Kein externes
     # Font-/Script-CDN im Einsatz. Nach Aenderungen an Bildquellen hier
     # nachziehen — Verstoesse erscheinen in der Browser-Konsole.
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.creative-radar.de; connect-src 'self' https://api.creative-radar.de; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    #
+    # BEIDE API-Hosts (20.08.2026): dieselbe netlify.toml baut zwei Sites
+    # — app.creative-radar.de gegen api.* und staging.creative-radar.de
+    # gegen api-staging.* (``VITE_API_BASE`` je Site). Stand nur der
+    # Prod-Host hier, blockierte der Browser auf Staging JEDEN fetch,
+    # bevor er rausging: kein Request, kein Server-Log, im Frontend nur
+    # der Auffang-Text "Code-Versand fehlgeschlagen". Genau so ist der
+    # Staging-Login am 20.08. ausgefallen — die CSP kam mit dem Audit vom
+    # 17.08., der Staging-Build vom 06.08. hatte sie noch nicht.
+    #
+    # Netlify kann diesen Header nicht pro Site variieren (context.* trennt
+    # Branches, nicht Sites; beide bauen main als Production-Context).
+    # Beide Hosts zu erlauben weitet die Prod-CSP um genau eine Domain,
+    # die uns selbst gehoert — die Alternative waere eine zweite,
+    # auseinanderlaufende Kopie dieser Datei.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.creative-radar.de https://api-staging.creative-radar.de; connect-src 'self' https://api.creative-radar.de https://api-staging.creative-radar.de; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
