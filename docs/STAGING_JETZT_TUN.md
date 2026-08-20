@@ -47,15 +47,22 @@ notieren, hier melden.
 Immer noch im **staging**-Environment, Service **creative-radar** → Reiter
 **Variables**.
 
-### 2a — Diese Variable LÖSCHEN
+### 2a — Nachsehen: steht `SEED_DEV_ON_DEPLOY` noch da?
 
-- [ ] **`SEED_DEV_ON_DEPLOY`** löschen (Mülleimer-Symbol)
+- [ ] Liste nach **`SEED_DEV_ON_DEPLOY`** durchsehen. **Wenn ja:** löschen
+      (Mülleimer-Symbol), ebenso `SEED_DEV_PAIRS`. **Wenn nein:** nichts tun,
+      weiter mit 2b.
 
-> Warum das wichtig ist: Diese Variable füllt die Datenbank bei **jedem** Deploy
-> mit den erfundenen `[SEED]`-Daten und **löscht dabei alles andere**. Bleibt sie
-> stehen, macht sie dir in Schritt 4 die kopierten Echtdaten sofort wieder kaputt.
-
-- [ ] Falls vorhanden, auch **`SEED_DEV_PAIRS`** löschen
+> Stand 20.08.2026 ist beides **nicht** gesetzt — dieser Schritt ist dann nur
+> eine Kontrolle. Er steht trotzdem hier, weil die Variable teuer ist, wenn sie
+> unbemerkt zurückkommt: Sie füllt die Datenbank bei **jedem** Deploy mit den
+> erfundenen `[SEED]`-Daten und **löscht dabei alles andere** — die kopierten
+> Echtdaten aus Schritt 4 wären beim nächsten Deploy wieder weg.
+>
+> **Die `[SEED]`-Briefs, die Staging heute zeigt, kommen nicht von der
+> Variable.** Sie liegen als Zeilen in der Datenbank und stammen aus einem
+> früheren Deploy, bei dem die Variable noch gesetzt war. Der Refresh in
+> Schritt 4 räumt sie mit weg — dafür ist hier nichts zu tun.
 
 ### 2b — Diese Variable NEU ANLEGEN
 
@@ -225,7 +232,8 @@ frische Daten willst.
 | Symptom | Ursache | Fix |
 |---|---|---|
 | Railway-Deploy startet nicht | Branch zeigt noch auf `staging` | Schritt 1 |
-| Nach einem Deploy sind wieder `[SEED]`-Daten da | `SEED_DEV_ON_DEPLOY` steht noch | Schritt 2a, dann Schritt 4 erneut |
+| Nach einem Deploy sind wieder `[SEED]`-Daten da | `SEED_DEV_ON_DEPLOY` wurde wieder gesetzt | Schritt 2a, dann Schritt 4 erneut |
+| `[SEED]`-Daten **vor** dem ersten Refresh | Altbestand in der DB, keine Variable | normal — Schritt 4 räumt sie weg |
 | `health` zeigt `trailer_intelligence: false` in Staging | Variable fehlt oder Service noch nicht neu gestartet | Schritt 2b, dann in Railway **Redeploy** |
 | `ABBRUCH: --ziel-host … kommt AUCH in CR_DB_URL vor` | Host zu unspezifisch (z. B. nur `rlwy.net`) | Vollständigen Host aus 4c nehmen |
 | `Boot verweigert` im Railway-Log | `STAGING_EXPECTED_DB_HOST` passt nicht zur DB | Wert aus **postgres-creative-radar → Variables → `RAILWAY_PRIVATE_DOMAIN`** neu setzen |
