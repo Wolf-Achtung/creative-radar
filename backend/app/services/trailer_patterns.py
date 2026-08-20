@@ -215,6 +215,7 @@ Antwort dann immer 1,0 lautet.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -499,6 +500,91 @@ def _extract_music_kind(post: Post) -> Optional[str]:
     return "unknown"
 
 
+# ---- Caption-Mechanik (Hook-Intelligence Teil 1, 20.08.2026) --------------
+#
+# Deterministische Merkmale aus dem Caption-Text — kein Klassifikator,
+# kein LLM, deshalb rueckwirkend auf dem GESAMTEN Bestand verfuegbar
+# (im Gegensatz zu format/tone, die eine Analyse brauchen). Das sind
+# die Stellschrauben, die das Social-Team direkt aendern kann.
+#
+# Hygiene vor jeder Messung: URLs koennen '?' enthalten (Query-Strings)
+# und Hashtag-Waende blaehen die Laenge auf, ohne Text zu sein — beides
+# wird vor der jeweiligen Messung entfernt.
+
+_URL_RE = re.compile(r"https?://\S+")
+_HASHTAG_RE = re.compile(r"#\S+")
+
+# Schwellen der Laengen-Buckets (Zeichen OHNE Hashtags/URLs).
+CAPTION_SHORT_MAX_CHARS = 80
+CAPTION_LONG_MIN_CHARS = 200
+
+# Call-to-Action-Marker, DE + EN. Bewusst konservative, eindeutige
+# Phrasen: ein uebersehener CTA landet in "ohne_cta" (Untertreibung),
+# ein falsch erkannter wuerde die Zelle verfaelschen.
+_CTA_MARKER: tuple[str, ...] = (
+    "jetzt im kino", "nur im kino", "jetzt streamen", "jetzt ansehen",
+    "tickets", "link in bio", "jetzt verfügbar", "sichert euch",
+    "streamt jetzt", "ab jetzt",
+    "now playing", "in theaters", "in theatres", "in cinemas",
+    "watch now", "out now", "stream now", "get tickets", "on digital",
+    "pre-order", "don't miss", "link in bio",
+)
+
+
+def _caption_text(post: Post) -> Optional[str]:
+    """Caption ohne URLs, getrimmt — oder ``None``, wenn nach dem
+    Aufraeumen nichts uebrig bleibt (kein Merkmal statt geratenem)."""
+    caption = (post.caption or "").strip()
+    if not caption:
+        return None
+    cleaned = _URL_RE.sub("", caption).strip()
+    return cleaned or None
+
+
+def _extract_caption_frage(post: Post) -> Optional[str]:
+    text = _caption_text(post)
+    if text is None:
+        return None
+    return "mit_frage" if "?" in text else "ohne_frage"
+
+
+def _extract_caption_cta(post: Post) -> Optional[str]:
+    text = _caption_text(post)
+    if text is None:
+        return None
+    low = text.lower()
+    return "mit_cta" if any(m in low for m in _CTA_MARKER) else "ohne_cta"
+
+
+def _extract_caption_laenge(post: Post) -> Optional[str]:
+    text = _caption_text(post)
+    if text is None:
+        return None
+    kern = _HASHTAG_RE.sub("", text).strip()
+    if not kern:
+        # Nur-Hashtag-Captions: kein Text, dessen Laenge man messen
+        # koennte — die Hashtag-Dimension sieht diese Posts trotzdem.
+        return None
+    n = len(kern)
+    if n <= CAPTION_SHORT_MAX_CHARS:
+        return "kurz"
+    if n < CAPTION_LONG_MIN_CHARS:
+        return "mittel"
+    return "lang"
+
+
+def _extract_caption_hashtags(post: Post) -> Optional[str]:
+    text = _caption_text(post)
+    if text is None:
+        return None
+    n = len(_HASHTAG_RE.findall(text))
+    if n == 0:
+        return "keine"
+    if n <= 3:
+        return "1-3"
+    return "4+"
+
+
 @dataclass(frozen=True)
 class _Dimension:
     name: str
@@ -589,6 +675,12 @@ DIMENSIONS: tuple[_Dimension, ...] = (
     _Dimension("lifecycle_stage", _extract_lifecycle, True),
     _Dimension("duration_bucket", _extract_duration_bucket, False),
     _Dimension("music_kind", _extract_music_kind, False),
+    # Caption-Mechanik (Hook-Intelligence Teil 1): deterministisch aus
+    # dem Text, deshalb ohne Konfidenz-Filter und auf dem ganzen Bestand.
+    _Dimension("caption_frage", _extract_caption_frage, False),
+    _Dimension("caption_cta", _extract_caption_cta, False),
+    _Dimension("caption_laenge", _extract_caption_laenge, False),
+    _Dimension("caption_hashtags", _extract_caption_hashtags, False),
 )
 
 
@@ -1017,6 +1109,30 @@ def compute_cells_for_mapping(
     return cells
 
 
+def _mehrfachvergleichs_note(tested_cells: int) -> Optional[str]:
+    """Mehrfachvergleichs-Ehrlichkeit (Hook-Intelligence Teil 1): mit den
+    Caption-Dimensionen prueft der Bericht deutlich mehr Zellen gegen
+    dieselbe z-Schwelle. Bei N Tests und |z| >= 2 sind ~4,6 % zufaellige
+    Treffer zu erwarten — das gehoert als Zahl in den Bericht, sonst
+    liest jede over/under-Zelle sich wie ein Beweis. Unter 20 Zellen
+    bleibt die Note weg (die Erwartung laege unter einem Treffer)."""
+    if tested_cells < 20:
+        return None
+    erwartet = max(1, round(tested_cells * 0.046))
+    treffer = (
+        "einem zufaelligen Scheinbefund"
+        if erwartet == 1
+        else f"{erwartet} zufaelligen Scheinbefunden"
+    )
+    return (
+        f"{tested_cells} Zellen gegen die Schwelle |z| >= "
+        f"{BREAKOUT_Z_THRESHOLD:g} geprueft — bei dieser Schwelle ist im "
+        f"Schnitt mit {treffer} zu rechnen. Einzelne Befunde sind "
+        f"Hinweise, keine Beweise; Bestand hat, was ueber Wochen "
+        f"wiederkehrt."
+    )
+
+
 def posts_for_cell(
     session: Session,
     ctx: LiftContext,
@@ -1277,6 +1393,21 @@ def compute_trailer_patterns(
         ]
         _sort_cells(cells)
         dimensions[dim.name] = cells
+
+    # Mehrfachvergleichs-Ehrlichkeit (Hook-Intelligence Teil 1): mit den
+    # Caption-Dimensionen prueft der Bericht deutlich mehr Zellen gegen
+    # dieselbe z-Schwelle. Bei N unabhaengigen Tests und Schwelle z>=2
+    # sind ~4,6 % Zufallstreffer zu erwarten — das gehoert als Zahl in
+    # den Bericht, sonst liest jede over/under-Zelle sich wie ein Beweis.
+    tested_cells = sum(
+        1
+        for cells in dimensions.values()
+        for c in cells
+        if c.breakout_verdict != "insufficient"
+    )
+    note = _mehrfachvergleichs_note(tested_cells)
+    if note:
+        notes.append(note)
 
     return TrailerPatternReport(
         window_days=window_days,
