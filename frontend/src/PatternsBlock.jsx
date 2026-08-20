@@ -308,7 +308,7 @@ function BeispielZeile({ eintrag }) {
   );
 }
 
-function ZellenTabelle({ name, cells }) {
+function ZellenTabelle({ name, cells, ohneTitel = false }) {
   const [offen, setOffen] = useState(null);
   const [beispiele, setBeispiele] = useState({});
   const brauchbar = cells.filter((c) => c.breakout_verdict !== 'insufficient');
@@ -343,14 +343,16 @@ function ZellenTabelle({ name, cells }) {
   ) * 1.15 || 1;
   return (
     <div style={{ marginBottom: '1.25rem' }}>
-      <h3 style={{ color: 'white', margin: '0 0 0.5rem', fontSize: '1em' }}>
-        {DIMENSION_LABEL[name] || name}
-        {duenn > 0 && (
-          <span style={{ color: '#b9c7bd', fontWeight: 400, fontSize: '0.85em' }}>
-            {' '}· {duenn} weitere unter der Stichproben-Schwelle
-          </span>
-        )}
-      </h3>
+      {!ohneTitel && (
+        <h3 style={{ color: 'white', margin: '0 0 0.5rem', fontSize: '1em' }}>
+          {DIMENSION_LABEL[name] || name}
+          {duenn > 0 && (
+            <span style={{ color: '#b9c7bd', fontWeight: 400, fontSize: '0.85em' }}>
+              {' '}· {duenn} weitere unter der Stichproben-Schwelle
+            </span>
+          )}
+        </h3>
+      )}
       <div className="card breakouts-card">
         <div style={{ overflowX: 'auto' }}>
           <table className="breakouts-table">
@@ -359,7 +361,7 @@ function ZellenTabelle({ name, cells }) {
                 <th>Ausprägung</th><th>Posts</th><th>Kanäle</th>
                 <th>Breakout-Quote</th><th>erwartet</th>
                 <th aria-label="Quote im Vergleich zur erwarteten Quote" />
-                <th>Median-Lift</th><th>Befund</th>
+                <th>Befund</th>
               </tr>
             </thead>
             <tbody>
@@ -391,7 +393,6 @@ function ZellenTabelle({ name, cells }) {
                         skala={skala}
                       />
                     </td>
-                    <td>{c.median_lift.toFixed(2)}x</td>
                     <td style={{ color: verdict.color }}>
                       {verdict.text}
                       {c.trend === 'neu' && (
@@ -406,7 +407,7 @@ function ZellenTabelle({ name, cells }) {
                   </tr>
                   {offen === c.value && (
                     <tr>
-                      <td colSpan={8} style={{ background: '#faf5ea', padding: '0.5rem 0.75rem' }}>
+                      <td colSpan={7} style={{ background: '#faf5ea', padding: '0.5rem 0.75rem' }}>
                         <BeispielZeile eintrag={beispiele[c.value]} />
                       </td>
                     </tr>
@@ -464,12 +465,48 @@ function BausteinKarte({ baustein }) {
   );
 }
 
+
+// Fokus-Ansicht (20.08.2026): Dimensionen ohne einen einzigen Befund
+// klappen standardmaessig zu einer Zeile zusammen — elf Tabellen voller
+// "unauffaellig" sind Rauschen, nicht Information. Exportiert fuer den
+// Test.
+export function hatBefund(cells) {
+  return (cells || []).some(
+    (c) => c.breakout_verdict === 'over' || c.breakout_verdict === 'under',
+  );
+}
+
+function EingeklappteDimension({ name, cells }) {
+  const [offen, setOffen] = useState(false);
+  const brauchbar = cells.filter((c) => c.breakout_verdict !== 'insufficient');
+  const duenn = cells.length - brauchbar.length;
+  return (
+    <div style={{ marginBottom: offen ? '0.5rem' : '0.25rem' }}>
+      <button
+        type="button"
+        onClick={() => setOffen((v) => !v)}
+        style={{
+          background: 'none', border: 'none', padding: '0.15rem 0',
+          color: '#b9c7bd', fontSize: '0.9em', cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        {offen ? '▾' : '▸'} {DIMENSION_LABEL[name] || name}
+        {' '}— {brauchbar.length} Ausprägungen, alle unauffällig
+        {duenn > 0 && ` · ${duenn} unter der Stichproben-Schwelle`}
+      </button>
+      {offen && <ZellenTabelle name={name} cells={cells} ohneTitel />}
+    </div>
+  );
+}
+
 export default function PatternsBlock() {
   const [aktiv, setAktiv] = useState(false);
   const [daten, setDaten] = useState(null);
   const [fehler, setFehler] = useState(false);
   const [briefing, setBriefing] = useState(null);
   const [titelBriefing, setTitelBriefing] = useState(null);
+  const [alleZahlen, setAlleZahlen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -513,6 +550,8 @@ export default function PatternsBlock() {
   const sichtbare = geordnet.filter(
     (n) => dimensionen[n].some((c) => c.breakout_verdict !== 'insufficient'),
   );
+  const mitBefund = sichtbare.filter((n) => hatBefund(dimensionen[n]));
+  const ohneBefund = sichtbare.filter((n) => !hatBefund(dimensionen[n]));
 
   return (
     <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '12px' }}>
@@ -529,6 +568,30 @@ export default function PatternsBlock() {
         (mindestens 2x Kanal-Schnitt) produziert — verglichen mit der Quote, die seine
         Plattform-Mischung erwarten ließe.
       </p>
+      <details style={{ margin: '0 0 1rem' }}>
+        <summary style={{ color: '#b9c7bd', fontSize: '0.85em', cursor: 'pointer' }}>
+          Wie lese ich das?
+        </summary>
+        <div style={{ color: '#c8d6cc', fontSize: '0.85em', margin: '0.5rem 0 0', lineHeight: 1.5 }}>
+          <p style={{ margin: '0 0 0.5rem' }}>
+            <strong>Breakout-Quote:</strong> Anteil der Posts eines Merkmals, die mindestens
+            das Doppelte des üblichen Schnitts ihres eigenen Kanals erreicht haben.
+            <strong> erwartet:</strong> die Quote, die allein aus der Plattform-Mischung
+            dieser Posts zu erwarten wäre — YouTube produziert generell mehr Ausreißer
+            als TikTok, der Vergleich rechnet das heraus.
+          </p>
+          <p style={{ margin: '0 0 0.5rem' }}>
+            <strong>Balken:</strong> die Füllung ist die gemessene Quote, der Strich die
+            erwartete — Füllung rechts vom Strich heißt besser als erwartet.
+          </p>
+          <p style={{ margin: 0 }}>
+            <strong>Befund:</strong> „läuft über/unter Schnitt“ steht erst dort, wo die
+            Abweichung statistisch belastbar ist (genug Posts aus genug Kanälen, Signal
+            deutlich über dem Zufallsrauschen). Klick auf eine Zeile zeigt die stärksten
+            Beispiel-Posts dahinter.
+          </p>
+        </div>
+      </details>
 
       {fehler && (
         <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>
@@ -546,8 +609,28 @@ export default function PatternsBlock() {
       )}
       {!fehler && daten !== null && <BefundKarten dimensions={dimensionen} />}
       {!fehler && daten !== null && <BewegungsKarten dimensions={dimensionen} />}
-      {!fehler && sichtbare.map((name) => (
+      {!fehler && daten !== null && ohneBefund.length > 0 && (
+        <p style={{ textAlign: 'right', margin: '0 0 0.5rem' }}>
+          <button
+            type="button"
+            onClick={() => setAlleZahlen((v) => !v)}
+            style={{
+              background: 'none', border: 'none', padding: 0,
+              color: '#7ee2a8', fontSize: '0.85em', cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            {alleZahlen
+              ? 'Nur Befunde zeigen'
+              : `Alle Zahlen zeigen (${ohneBefund.length} weitere Dimensionen)`}
+          </button>
+        </p>
+      )}
+      {!fehler && (alleZahlen ? sichtbare : mitBefund).map((name) => (
         <ZellenTabelle key={name} name={name} cells={dimensionen[name]} />
+      ))}
+      {!fehler && !alleZahlen && ohneBefund.map((name) => (
+        <EingeklappteDimension key={name} name={name} cells={dimensionen[name]} />
       ))}
       {!fehler && daten !== null && (
         <p style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.8em' }}>

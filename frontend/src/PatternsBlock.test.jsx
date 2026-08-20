@@ -264,6 +264,71 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     expect(screen.getByText(/neu belastbar — läuft unter Schnitt/)).toBeTruthy();
   });
 
+  it('Fokus-Ansicht: Dimensionen ohne Befund klappen zu einer Zeile zusammen', async () => {
+    // UX-Runde 20.08.2026: elf Tabellen voller "unauffaellig" sind
+    // Rauschen. Ohne Befund -> eine Zeile; Klick klappt die Tabelle
+    // auf. Die Befund-Tabelle (genre) bleibt immer offen.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        genre: [ZELLE_OK],
+        tone: [
+          { ...ZELLE_OK, value: 'emotional', breakout_verdict: 'neutral', breakout_z: 1.1 },
+          { ...ZELLE_OK, value: 'edgy', breakout_verdict: 'neutral', breakout_z: -1.0 },
+        ],
+      },
+    });
+    render(<PatternsBlock />);
+
+    await screen.findAllByText('Romance');
+    expect(screen.queryByText(/emotional/)).toBeNull();
+    const zeile = screen.getByText(/Tonalität — 2 Ausprägungen, alle unauffällig/);
+    fireEvent.click(zeile);
+    expect(screen.getByText(/emotional/)).toBeTruthy();
+  });
+
+  it('Alle Zahlen zeigen stellt die Vollansicht her — und laesst sich zuruecknehmen', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        genre: [ZELLE_OK],
+        tone: [{ ...ZELLE_OK, value: 'emotional', breakout_verdict: 'neutral', breakout_z: 1.1 }],
+      },
+    });
+    render(<PatternsBlock />);
+
+    await screen.findAllByText('Romance');
+    fireEvent.click(screen.getByText('Alle Zahlen zeigen (1 weitere Dimensionen)'));
+    expect(screen.getByText(/emotional/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Nur Befunde zeigen'));
+    expect(screen.queryByText(/emotional/)).toBeNull();
+  });
+
+  it('Median-Lift steht nicht mehr in der User-Tabelle', async () => {
+    // Die Spalte zeigt konstruktionsbedingt fast ueberall 1,00x (Lift
+    // ist am Kanal-Median normiert) — fuer User nur Rauschen. Der
+    // Admin-Endpoint behaelt den Wert.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    render(<PatternsBlock />);
+
+    await screen.findAllByText('Romance');
+    expect(screen.queryByText('Median-Lift')).toBeNull();
+    expect(screen.queryByText('1.12x')).toBeNull();
+  });
+
+  it('erklaert die Lesart hinter einem "Wie lese ich das?"-Aufklapper', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    render(<PatternsBlock />);
+
+    await screen.findAllByText('Romance');
+    expect(screen.getByText('Wie lese ich das?')).toBeTruthy();
+    expect(screen.getByText(/der Strich die\s+erwartete/)).toBeTruthy();
+  });
+
   it('zeichnet je Zeile einen Delta-Balken: Fuellung = Quote, Strich = erwartet', async () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
