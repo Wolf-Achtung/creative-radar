@@ -10,7 +10,7 @@
 //
 // React wird ausdruecklich importiert: klassische JSX-Transformation.
 import React from 'react';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./api/client', () => ({
@@ -18,6 +18,7 @@ vi.mock('./api/client', () => ({
     health: vi.fn(),
     insightPatterns: vi.fn(),
     insightPatternBriefing: vi.fn(),
+    insightPatternExamples: vi.fn(),
   },
 }));
 
@@ -159,8 +160,52 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     expect(screen.getByText(/1\.7× so oft Ausreißer/)).toBeTruthy();
     expect(screen.getByText(/kein Beweis für Ursache und Wirkung/)).toBeTruthy();
     // Drama (neutral) bekommt keine Karte — der Wert steht nur in der
-    // Tabelle.
-    expect(screen.getAllByText('Drama')).toHaveLength(1);
+    // Tabelle (dort mit Aufklapp-Pfeil davor).
+    expect(screen.getAllByText(/Drama/)).toHaveLength(1);
+  });
+
+  it('klappt eine Zeile auf und laedt die Beispiel-Posts dahinter', async () => {
+    // Aufwertung B (20.08.2026): Klick auf eine Muster-Zeile zeigt die
+    // staerksten Posts der Zelle — Referenzmaterial statt nur Statistik.
+    // Geladen wird erst beim Aufklappen, mit Dimension + Auspraegung.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    endpoints.insightPatternExamples.mockResolvedValue({
+      dimension: 'genre', value: 'Romance', window_days: 90, cell_size: 42,
+      examples: [{
+        post_url: 'https://x.test/p/1', platform: 'tiktok', channel_handle: 'disneyde',
+        lift: 3.4, views: 120000, caption: 'Der Moment, wenn …', detected_at: '2026-08-01',
+      }],
+    });
+    render(<PatternsBlock />);
+
+    await screen.findAllByText(/Romance/);
+    expect(endpoints.insightPatternExamples).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText(/▸ Romance/));
+
+    await screen.findByText('Post öffnen');
+    expect(endpoints.insightPatternExamples).toHaveBeenCalledWith({
+      dimension: 'genre', value: 'Romance',
+    });
+    expect(screen.getByText('3.4x')).toBeTruthy();
+    expect(screen.getByText(/Der Moment, wenn/)).toBeTruthy();
+    expect(screen.getByText('Post öffnen').getAttribute('href')).toBe('https://x.test/p/1');
+
+    // Zweiter Klick klappt zu — ohne neuen Request.
+    fireEvent.click(screen.getByText(/▾ Romance/));
+    expect(screen.queryByText('Post öffnen')).toBeNull();
+    expect(endpoints.insightPatternExamples).toHaveBeenCalledTimes(1);
+  });
+
+  it('zeigt in der aufgeklappten Zeile eine Leer-Meldung, wenn Beispiele fehlschlagen', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    endpoints.insightPatternExamples.mockRejectedValue(new Error('boom'));
+    render(<PatternsBlock />);
+
+    await screen.findAllByText(/Romance/);
+    fireEvent.click(screen.getByText(/▸ Romance/));
+    await screen.findByText('Keine Beispiel-Posts verfügbar.');
   });
 
   it('zeichnet je Zeile einen Delta-Balken: Fuellung = Quote, Strich = erwartet', async () => {

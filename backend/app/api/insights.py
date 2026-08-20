@@ -60,7 +60,11 @@ from app.services.insight_engine import (
 from app.core.feature_flags import is_trailer_intelligence_enabled
 from app.services.forecast import generate_er_forecast
 from app.services.insights import build_overview
-from app.services.trailer_patterns import compute_trailer_patterns
+from app.services.trailer_patterns import (
+    build_lift_context,
+    compute_trailer_patterns,
+    posts_for_cell,
+)
 from app.services.market_timeline import compute_market_timeline, pair_handles
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
@@ -515,6 +519,74 @@ def trailer_patterns_public(
         )
     log_usage(request_user_email(request), "patterns_view", {"window_days": window_days})
     return compute_trailer_patterns(session, window_days=window_days).to_dict()
+
+
+@router.get("/patterns/examples")
+def trailer_pattern_examples(
+    request: Request,
+    dimension: str = Query(..., min_length=1, max_length=40),
+    value: str = Query(..., min_length=1, max_length=200),
+    window_days: int = Query(90, ge=7, le=365),
+    limit: int = Query(5, ge=1, le=10),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Die staerksten Beispiel-Posts einer Muster-Zelle (Aufwertung B,
+    20.08.2026): Klick auf eine Tabellenzeile im Panel zeigt, WELCHE
+    Posts hinter "laeuft ueber Schnitt" stehen — mit Lift, Kanal und
+    Original-Caption als Referenzmaterial.
+
+    Zugehoerigkeit kommt aus ``posts_for_cell`` — denselben Regeln wie
+    die Zellen-Zaehlung selbst (Konfidenz-Filter inklusive), sortiert
+    nach Lift absteigend. Rein lesend, kein LLM-Call; Gate und Auth wie
+    ``GET /api/insights/patterns``.
+    """
+    if not is_trailer_intelligence_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Trailer-Intelligence ist deaktiviert. "
+                "FEATURE_TRAILER_INTELLIGENCE_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    ctx = build_lift_context(session, window_days=window_days)
+    try:
+        members = posts_for_cell(session, ctx, dimension, value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    members.sort(key=lambda p: ctx.lift_by_post[p.id], reverse=True)
+    top = members[:limit]
+    handle_by_channel: dict = {}
+    if top:
+        channel_ids = {p.channel_id for p in top}
+        for ch in session.exec(
+            select(Channel).where(Channel.id.in_(channel_ids))
+        ).all():
+            handle_by_channel[ch.id] = ch.handle or ch.name
+    log_usage(
+        request_user_email(request),
+        "patterns_examples_view",
+        {"dimension": dimension, "value": value},
+    )
+    return {
+        "dimension": dimension,
+        "value": value,
+        "window_days": window_days,
+        "cell_size": len(members),
+        "examples": [
+            {
+                "post_url": p.post_url,
+                "platform": ctx.platform_by_channel.get(p.channel_id, "unknown"),
+                "channel_handle": handle_by_channel.get(p.channel_id, "?"),
+                "lift": round(ctx.lift_by_post[p.id], 2),
+                "views": int(p.visible_views) if p.visible_views else None,
+                "caption": (p.caption or "")[:240],
+                "detected_at": (
+                    p.detected_at.date().isoformat() if p.detected_at else None
+                ),
+            }
+            for p in top
+        ],
+    }
 
 
 @router.get("/pattern-briefing")
