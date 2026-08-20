@@ -1,0 +1,72 @@
+name: Vertrag Tests
+
+# Wartung 20.08.2026 — der dritte, kleine Job neben backend-tests und
+# frontend-tests.
+#
+# Anlass: #366 (reiner Frontend-Lint-Durchgang) hat auf main einen
+# Backend-Test gebrochen. backend-tests.yml triggert nur auf backend/**
+# und hat den PR gruen durchgewunken; der gebrochene Test las
+# AdminApp.jsx. Solche Tests sind Absicht — sie pruefen Zusagen, die
+# beide Seiten betreffen (Fehlertexte, Status-Labels, Filter-Defaults).
+#
+# Deshalb laufen hier genau die Tests mit @pytest.mark.vertrag, bei
+# Aenderungen an BEIDEN Seiten. Bewusst ohne Postgres-Service: keiner
+# dieser Tests braucht eine Datenbank, der Job ist in unter einer
+# Minute durch. frontend/** haengt absichtlich NICHT an
+# backend-tests.yml — sonst zahlte jeder Frontend-PR zwei Minuten
+# Postgres-Hochfahren fuer eine Handvoll dateilesender Tests.
+#
+# Welche Tests den Marker tragen muessen, erzwingt
+# backend/app/tests/test_wartung_vertrag_marker.py (AST-Wächter,
+# transitiv ueber Helfer). Er prueft auch diese Datei: dass sie
+# existiert, ``-m vertrag`` ausfuehrt und auf beide Seiten triggert.
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/vertrag-tests.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/vertrag-tests.yml"
+
+jobs:
+  test:
+    name: vertrag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      # Quote noetig: der Wert endet auf einen Doppelpunkt, den der
+      # YAML-Scanner sonst als Mapping-Trenner liest (gleiche Falle wie
+      # in backend-tests.yml dokumentiert).
+      DATABASE_URL: "sqlite:///:memory:"
+      ALLOW_SQLITE_FALLBACK: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-dev.txt
+
+      - name: Run vertrag tests
+        working-directory: backend
+        # Ohne Pfad-Argument: pytest sammelt die ganze Suite ein und
+        # filtert per Marker — ein Pfad wuerde die markierten Tests in
+        # den UEBRIGEN Dateien stillschweigend auslassen.
+        run: pytest -m vertrag -v
