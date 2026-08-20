@@ -102,6 +102,7 @@ def test_leerfall_und_fehlender_schluessel_antworten_gleich():
     assert ohne_key["confidence_score"] == leer["confidence_score"] == 0.2
 
 
+@pytest.mark.vertrag
 def test_die_pruefliste_verliert_nichts():
     """Der Grund, warum Fund C risikoarm ist: ein Asset, dessen
     LLM-Antwort leer blieb, bekommt ``needs_review`` statt ``new`` — und
@@ -539,6 +540,7 @@ def _fehlertexte_aus_dem_frontend() -> set[str]:
     return set(_re.findall(r"^  ([a-z_]+):", block[1].split("};", 1)[0], _re.M))
 
 
+@pytest.mark.vertrag
 def test_jede_fehlerart_hat_einen_text():
     """Kommt im Backend eine fünfte Fehlerart dazu, muss das Frontend sie
     benennen — sonst fällt sie auf den Sammeltext zurück und der Admin
@@ -552,6 +554,7 @@ def test_jede_fehlerart_hat_einen_text():
     )
 
 
+@pytest.mark.vertrag
 def test_nur_der_json_fall_spricht_von_json():
     """Der eigentliche Fehler: „JSON-Parsing fehlgeschlagen" stand über
     jedem Ausfall. Bei Citation-, Schema- und Truncation-Fehlern war das
@@ -572,6 +575,7 @@ def test_nur_der_json_fall_spricht_von_json():
         )
 
 
+@pytest.mark.vertrag
 def test_die_karte_bekommt_die_diagnose_gereicht():
     """Der Text nützt nichts, wenn die Komponente ihn nie sieht."""
     quelle = (_REPO_ROOT / "frontend" / "src" / "InsightWeekly.jsx").read_text(

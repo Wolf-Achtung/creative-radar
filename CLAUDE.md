@@ -233,7 +233,9 @@ allgemeine `API_TOKEN`.
 |---|---|---|
 | `test_model_defaults_drift.py` | täglich 05:20 UTC + PR | Modell-Tausch ohne Denk-Entscheidung |
 | `test_wartung_2026_08_19.py` | Testlauf | ENV-Vertrag, Klartext-Codes im Log, stille Leer-Antworten, SMTP-Rückfallweg |
-| `backend-tests.yml` | PR + push main | pytest gegen echtes Postgres 18 |
+| `backend-tests.yml` | PR + push main | pytest gegen echtes Postgres 18 — **nur bei `backend/**`-Änderungen** |
+| `vertrag-tests.yml` | PR + push main, `backend/**` UND `frontend/**` | `pytest -m vertrag`: Tests, die über die Backend/Frontend-Grenze lesen. Ohne Postgres, unter einer Minute |
+| `test_wartung_vertrag_marker.py` | Testlauf | AST-Wächter: jeder Test, der (auch über Helfer) `frontend/`-Dateien liest, trägt den `vertrag`-Marker; der Workflow existiert, filtert per Marker und triggert auf beide Seiten |
 
 Der Modell-Wächter liest die **Vorgabewerte aus `config.py`**, nicht die
 Belegung in Railway. Ein per ENV gesetztes Modell sieht er nicht — er
