@@ -106,6 +106,29 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     await screen.findByText(/Noch kein Muster mit ausreichender Stichprobe/);
   });
 
+  it('faerbt die Breakout-Quote nach Befund — nicht pauschal rot', async () => {
+    // Regression 20.08.2026: die Quote-Spalte trug die Immer-Rot-Klasse
+    // des Breakouts-Blocks — 20 % UEBER Schnitt sah aus wie eine
+    // Warnung. Gruen fuer over, Rot nur fuer under.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        genre: [
+          ZELLE_OK,
+          { ...ZELLE_OK, value: 'Horror', breakout_rate: 0.05, breakout_verdict: 'under' },
+        ],
+      },
+    });
+    render(<PatternsBlock />);
+
+    const ueber = await screen.findByText('19.0 %');
+    expect(ueber.style.color).toBe('rgb(31, 122, 69)');
+    expect(ueber.className).not.toContain('breakouts-multiplier');
+    const unter = screen.getByText('5.0 %');
+    expect(unter.style.color).toBe('rgb(176, 61, 46)');
+  });
+
   it('zeigt die Text-Bausteine mit Hooks, Captions und Belegen', async () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);

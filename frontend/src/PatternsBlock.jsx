@@ -42,6 +42,17 @@ const VERDICT_LABEL = {
   neutral: { text: 'unauffällig', color: '#c8d6cc' },
 };
 
+// Die Quote-Spalte liegt auf der hellen Karte und faerbt nach Befund —
+// NICHT die Immer-Rot-Klasse des Breakouts-Blocks (dort heisst Rot
+// "Ausreisser nach oben", hier waere Rot auf 20 % ueber Schnitt eine
+// falsche Warnung). Dunklere Toene als VERDICT_LABEL, wegen des
+// Kontrasts auf Creme statt Dunkelgruen.
+const QUOTE_COLOR_ON_CARD = {
+  over: '#1f7a45',
+  under: '#b03d2e',
+  neutral: '#6b6b6b',
+};
+
 function prozent(wert) {
   return `${(wert * 100).toFixed(1)} %`;
 }
@@ -78,7 +89,13 @@ function ZellenTabelle({ name, cells }) {
                     <td>{c.value}</td>
                     <td>{c.sample_size}</td>
                     <td>{c.channel_count}</td>
-                    <td className="breakouts-multiplier">{prozent(c.breakout_rate)}</td>
+                    <td style={{
+                      fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                      color: QUOTE_COLOR_ON_CARD[c.breakout_verdict] || QUOTE_COLOR_ON_CARD.neutral,
+                    }}>
+                      {prozent(c.breakout_rate)}
+                    </td>
                     <td>{prozent(c.expected_breakout_rate)}</td>
                     <td>{c.median_lift.toFixed(2)}x</td>
                     <td style={{ color: verdict.color }}>{verdict.text}</td>
