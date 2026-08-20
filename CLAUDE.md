@@ -124,10 +124,21 @@ von der ersten Prüfung nicht erfasst:
 `ENABLE_TITLE_SYNC_IN_CRON`,
 `ENABLE_BRIEF_GEN_IN_CRON`, `ENABLE_INTERNAL_CRON_SCHEDULER`,
 `FEATURE_SEGMENT_ROUNDUPS_ENABLED`, `FEATURE_CUTTER_WEEKLY_ENABLED`,
-`FEATURE_DESIGNER_WEEKLY_ENABLED`, `PG_STATEMENT_TIMEOUT_MS`,
+`FEATURE_DESIGNER_WEEKLY_ENABLED`, `FEATURE_TRAILER_INTELLIGENCE_ENABLED`,
+`PG_STATEMENT_TIMEOUT_MS`,
 `CRON_SYNC_INTERVAL_DAYS`, `CRON_A_CLASS_THRESHOLD`, `CRON_A_CLASS_MAX`,
 `SEED_DEV_ON_DEPLOY`, `SEED_DEV_PAIRS` (Deploy-Bootstrap),
-`CR_DB_URL` (nur lokale Diagnose-Skripte in `scripts/`).
+`CR_DB_URL` (nur lokale Diagnose-Skripte in `scripts/`),
+`CR_STAGING_DB_URL` (nur `scripts/staging_refresh.py`).
+
+### Staging (Modell-Wechsel 20.08.2026)
+
+Beide Railway-Umgebungen deployen `main`; Neues liegt hinter
+`FEATURE_*`-Flags (`app/core/feature_flags.py`), das Frontend liest den
+Zustand aus `GET /api/health → features`. Staging-Daten sind eine
+**Kopie** der Prod-DB (`scripts/staging_refresh.py`, Richtungs-Sicherung
+mutations-geprüft) — nie eine Live-Verbindung. Setup und Klick-Liste:
+`docs/STAGING_SETUP.md` + `docs/STAGING_ABNAHME_CHECKLISTE.md`.
 
 Frontend (Netlify, Build-Zeit): `VITE_API_BASE`, `VITE_API_TOKEN`,
 `VITE_ENVIRONMENT`. Stehen in keiner `.env.example` — das Beispiel deckt

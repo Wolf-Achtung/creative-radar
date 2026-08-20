@@ -5,6 +5,32 @@ Entschieden: Railway-**Environment** im bestehenden Projekt (kein separates
 Projekt), Staging-Backend unter **api-staging.creative-radar.de**, Testdaten
 **synthetisch** via `seed_dev.py`.
 
+> **Modell-Wechsel 20.08.2026** (Start Trailer-Intelligence): zwei
+> Entscheidungen ändern dieses Dokument, die Checkliste ist angepasst.
+>
+> 1. **Kein `staging`-Branch mehr — main + Feature-Flags.** Beide
+>    Umgebungen deployen `main`. Neues liegt hinter
+>    `FEATURE_*`-Env-Vars (app/core/feature_flags.py) und ist nur in
+>    Staging an; das Frontend liest den Zustand aus
+>    `GET /api/health → features`, derselbe Build zeigt je Umgebung das
+>    Richtige. Grund: das Branch-Modell hat in zwei Wochen niemand
+>    gepflegt (der Branch hing sofort hinter main), und ein Flag-Rollout
+>    ist per Railway-Variable rückholbar, ohne Deploy.
+> 2. **Echte Daten statt Seed.** Trailer-Intelligence sucht Muster im
+>    echten Bestand — synthetische Seeds können das nicht hergeben.
+>    `scripts/staging_refresh.py` kopiert die Prod-DB als Schema-Dump
+>    nach Staging (Checkliste Block 7); die Richtungs-Sicherung des
+>    Skripts und `STAGING_EXPECTED_DB_HOST` (Boot-Check unten) sind zwei
+>    unabhängige Schlösser gegen die umgekehrte Richtung. Staging liest
+>    nie live aus der Prod-DB: Kopie statt Verbindung ist der Grund,
+>    warum Staging die Produktion unter keinen Umständen stören kann.
+>    `MOCK_EXTERNAL_APIS=true` bleibt — Staging scrapt nichts und ruft
+>    keine bezahlten APIs.
+>
+> Der Rest dieses Dokuments (Environment, Variablen, Domains, Mock-Modus,
+> lokale Umgebung) gilt unverändert; `SEED_DEV_ON_DEPLOY` und der
+> `staging`-Branch sind Geschichte.
+
 Der Code-Anteil (Mock-Modus, Boot-Check, Seed-Skript, docker-compose,
 Staging-Banner) liegt im Repo. Dieses Dokument ist die Klick-Anleitung für
 die Cloud-Seite plus die Abnahme-Checkliste.

@@ -8,6 +8,9 @@ liest die neue Env auf dem naechsten Worker-Restart (~10s).
 
 Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
 
+- ``FEATURE_TRAILER_INTELLIGENCE_ENABLED`` (bool): An/Aus-Schalter fuer
+  die Trailer-Intelligence-Auswertung (Stufe 1). In Staging an, in
+  Production aus, bis die Muster-Ansicht abgenommen ist.
 - ``FEATURE_SEGMENT_ROUNDUPS_ENABLED`` (bool): An/Aus-Schalter fuer den
   Non-Pair-Segment-Roundup-Pfad (Pilot-Endpoint + Cron-Block).
 - ``FEATURE_CUTTER_WEEKLY_ENABLED`` (bool): An/Aus-Schalter fuer den
@@ -29,6 +32,25 @@ zusammen mit den Tests rausgeflogen.
 from __future__ import annotations
 
 import os
+
+
+def is_trailer_intelligence_enabled() -> bool:
+    """Returns True wenn die Trailer-Intelligence-Auswertung aktiv ist
+    (Stufe 1, Entscheidung 20.08.2026: Entwicklung auf main hinter
+    diesem Flag, an nur in Staging — Produktion bleibt unberuehrt, bis
+    Wolf das Flag dort setzt).
+
+    Env-Var: ``FEATURE_TRAILER_INTELLIGENCE_ENABLED``
+    Format: ``"true"`` oder ``"false"`` (case-insensitive). Andere Werte
+    werden defensiv als ``False`` interpretiert.
+    Default: ``"false"``.
+
+    Der Flag gate't die neuen ``/api/insights/patterns``-Endpunkte und
+    das zugehoerige Dashboard-Panel (das Frontend liest den Zustand aus
+    ``GET /api/health`` → ``features``). Kein Cron-Block und keine
+    LLM-Kosten, solange nur die SQL-Aggregation existiert.
+    """
+    return os.getenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", "false").lower() == "true"
 
 
 def is_segment_roundups_enabled() -> bool:

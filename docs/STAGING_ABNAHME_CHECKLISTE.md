@@ -3,25 +3,26 @@
 Reine Handanweisung, ohne Begründungen. Warum das alles so gebaut ist, steht in
 [`STAGING_SETUP.md`](./STAGING_SETUP.md) — hier geht es nur ums Abarbeiten.
 
+> **Modell-Wechsel 20.08.2026:** kein eigener `staging`-Branch mehr. Beide
+> Umgebungen deployen **`main`**; Neues liegt hinter Feature-Flags
+> (`FEATURE_TRAILER_INTELLIGENCE_ENABLED` usw.) und ist nur dort an, wo die
+> Flag-Variable gesetzt ist. Und statt synthetischer Seed-Daten bekommt
+> Staging eine **Kopie der Produktionsdaten** (`scripts/staging_refresh.py`,
+> Block 7). Die betroffenen Stellen unten sind angepasst; ein evtl. noch
+> existierender `staging`-Branch kann gelöscht werden.
+
 **Zeitbedarf:** 30–45 Minuten, davon ~10 Minuten Warten auf DNS und Deploys.
-**Voraussetzung:** nur der Browser. Kein Terminal, kein Docker.
+**Voraussetzung:** Browser; nur Block 7 (Daten-Refresh) braucht das Terminal.
 
 Du kannst nach jedem Block aufhören und später weitermachen. Die Blöcke bauen
 aufeinander auf, aber jeder ist für sich abgeschlossen.
 
 ---
 
-## Block 1 — `staging`-Branch aktualisieren (2 Min)
+## Block 1 — entfällt (Modell-Wechsel 20.08.2026)
 
-Der Branch existiert schon, hängt aber **4 Commits hinter `main`**. Ohne Update
-fehlen dem Staging-Deploy unter anderem die Post-Analyse-Stage und der
-Trailer-Patterns-Endpunkt.
-
-- [ ] GitHub → creative-radar → **Pull requests** → **New pull request**
-- [ ] `base: staging` ← `compare: main`
-- [ ] **Create pull request** → Titel egal (z. B. „staging auf main heben") → **Merge**
-
-> Kein Review nötig, das ist ein reiner Vorwärts-Merge.
+Hier stand: `staging`-Branch per Vorwärts-Merge auf `main` heben. Ohne
+Branch-Modell gibt es nichts zu heben — weiter mit Block 2.
 
 ---
 
@@ -36,7 +37,9 @@ Trailer-Patterns-Endpunkt.
 stehen. Wenn ja: gut, das ist eine leere Instanz mit eigenem Volume. Falls keine da
 ist: **+ New → Database → PostgreSQL**.
 
-- [ ] Backend-Service (staging) → **Settings → Source → Branch** auf `staging` stellen
+- [ ] Backend-Service (staging) → **Settings → Source → Branch**: muss auf
+      **`main`** stehen (Modell-Wechsel 20.08.2026 — steht dort noch
+      `staging`, umstellen)
 
 ---
 
@@ -78,7 +81,12 @@ stehen, schreibt Staging in den Produktions-Bucket.
 | `CORS_ORIGINS` | `https://staging.creative-radar.de` |
 | `FRONTEND_URL` | `https://staging.creative-radar.de` |
 | `BACKEND_URL` | `https://api-staging.creative-radar.de` |
-| `SEED_DEV_ON_DEPLOY` | `true` |
+| `FEATURE_TRAILER_INTELLIGENCE_ENABLED` | `true` — **nur hier**, nie in production (Modell-Wechsel 20.08.2026: neue Features laufen auf main hinter diesem Flag) |
+
+> `SEED_DEV_ON_DEPLOY` **nicht** setzen (Modell-Wechsel 20.08.2026): die
+> Daten kommen per Refresh aus der Produktion (Block 7), nicht aus dem
+> synthetischen Seed. Steht die Variable noch, löschen — sonst setzt jeder
+> Deploy die kopierten Daten wieder auf den Seed zurück.
 
 ### 3d — Diese zwei brauchen einen Blick
 
@@ -127,7 +135,8 @@ startup.resolved_config app_env=staging mock_external_apis=True cron_scheduler=o
 
 - [ ] **Add new site → Import from Git** → creative-radar → Name
       `creative-radar-staging`
-- [ ] **Branch to deploy: `staging`**
+- [ ] **Branch to deploy: `main`** (Modell-Wechsel 20.08.2026 — dieselbe
+      Quelle wie Prod, die Unterschiede kommen aus den Site-Variablen)
 - [ ] Build-Command überschreiben:
       `cd frontend && npm i && npm run build && npm run postbuild:staging`
 - [ ] Publish directory: `frontend/dist`
@@ -163,29 +172,67 @@ Die eigentliche Prüfung. Jeder Punkt ist eine Ja/Nein-Frage.
 - [ ] **Login funktioniert:** E-Mail eingeben, Code aus dem **Railway-Deploy-Log**
       holen (`DISABLE_EMAILS=true` → Code steht im Log, suche nach
       `mailer.disabled.body`)
-- [ ] **Seed ist drin:** Kanäle und Posts sichtbar
-
-> **Danach `SEED_DEV_ON_DEPLOY` wieder auf `false` setzen oder löschen.** Sonst wird
-> die Staging-DB bei **jedem** Deploy auf den Seed-Stand zurückgesetzt — inklusive
-> deiner von Hand angelegten Login-User.
+- [ ] **Daten sind drin:** Kanäle und Posts sichtbar — die kommen aus dem
+      Refresh (Block 7). Vor dem ersten Refresh ist die Liste leer; das ist
+      dann kein Fehler, sondern die Reihenfolge.
 
 ---
 
-## Block 6 — Rollback-Übung (5 Min)
+## Block 6 — Flag-Übung (5 Min)
 
-Der letzte Punkt der Abnahme: beweisen, dass ein kaputter Commit auf `staging`
-die Produktion nicht berührt.
+Der letzte Punkt der Abnahme im main+Flag-Modell: beweisen, dass ein Flag
+nur die Umgebung ändert, in der es gesetzt ist.
 
-- [ ] GitHub → Branch `staging` → eine beliebige Python-Datei im Backend öffnen →
-      **Edit** → irgendwo `SYNTAXFEHLER(((` einfügen → **Commit directly to `staging`**
-- [ ] Railway (staging): Deploy schlägt fehl ✅
-- [ ] Railway (production): unberührt, läuft weiter ✅
-- [ ] `app.creative-radar.de` funktioniert normal ✅
-- [ ] GitHub → den Commit öffnen → **Revert** → mergen
-- [ ] Staging-Deploy wird wieder grün
+- [ ] Railway (staging) → Variables: `FEATURE_TRAILER_INTELLIGENCE_ENABLED`
+      steht auf `true` (Block 3c)
+- [ ] `https://api-staging.creative-radar.de/api/health` öffnen →
+      `"trailer_intelligence": true` ✅
+- [ ] `https://api.creative-radar.de/api/health` öffnen →
+      `"trailer_intelligence": false` ✅ (die Variable ist in production
+      **nicht** gesetzt — und das bleibt so, bis zur Abnahme)
+- [ ] Zur Probe das Flag in staging auf `false` stellen → health kippt nach
+      dem Service-Restart auf `false` → wieder auf `true` stellen
 
-**Fertig.** Ab hier gilt das Branch-Modell:
-`feature/* → staging → main (Prod)`.
+**Fertig.** Ab hier gilt: alles deployt `main`, neue Features liegen hinter
+Flags und sind zuerst nur in Staging an.
+
+---
+
+## Block 7 — Daten-Refresh: Prod-Kopie nach Staging (10 Min, Terminal)
+
+Staging arbeitet auf einer **Kopie** der Produktionsdaten — nie live auf der
+Prod-DB. Der Refresh ist wiederholbar; jeder Lauf setzt Staging auf den
+aktuellen Prod-Stand zurück.
+
+Einmalig vorbereiten:
+
+- [ ] `brew install libpq && brew link --force libpq` (bringt `pg_dump`/`pg_restore`)
+- [ ] Railway → Postgres-Service (**staging**) → **Variables** →
+      `DATABASE_PUBLIC_URL` kopieren
+- [ ] `echo 'export CR_STAGING_DB_URL="<kopierte URL>"' >> ~/.creative-radar/staging.env`
+
+Bei jedem Refresh (auch beim ersten):
+
+```sh
+cd ~/creative-radar
+source ~/.creative-radar/db.env          # CR_DB_URL = Produktion (hast du schon)
+source ~/.creative-radar/staging.env
+python3 scripts/staging_refresh.py --ziel-host <staging-db-host>          # Trockenübung
+python3 scripts/staging_refresh.py --ziel-host <staging-db-host> --ausfuehren
+```
+
+`<staging-db-host>` ist der Host aus der Staging-URL (z. B.
+`xyz.proxy.rlwy.net`). Das Skript bricht ab, wenn dieser Host nicht
+eindeutig die Staging-Seite bezeichnet — Quelle und Ziel lassen sich damit
+nicht verwechseln, auch nicht mit vertauschten env-Dateien.
+
+- [ ] Trockenübung zeigt die drei Schritte, kein Fehler
+- [ ] Echter Lauf endet mit „Fertig."
+- [ ] `staging.creative-radar.de` zeigt nach einem Reload die Prod-Kanäle
+      und -Briefs (gelber Banner bleibt)
+
+> Login-User werden mitkopiert — du meldest dich auf Staging mit derselben
+> E-Mail an; der Code steht wegen `DISABLE_EMAILS=true` im Railway-Log.
 
 ---
 
