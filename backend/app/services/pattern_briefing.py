@@ -29,10 +29,12 @@ ausschliesslich, was diese Pruefung freigegeben hat.** Konkret:
    20.08.2026 (0,19 % Falsch-Zitat-Rate) hat gezeigt, dass ein
    zweiter ID-Raum die einzige nennenswerte Fehlerquelle war.
 
-Modus ``"genre"``: die Muster sind die Genre-Zellen (Wolf-Entscheidung
-20.08.2026 "Beides, Genre zuerst" — der Titel-Modus folgt als eigener
-PR und bekommt einen eigenen ``mode``-Wert, die Tabelle traegt das im
-PK schon).
+Zwei Modi (Wolf-Entscheidung 20.08.2026 "Beides, Genre zuerst"):
+``"genre"`` nimmt die Genre-Zellen des Muster-Berichts; ``"title"``
+bildet Zellen je Titel-Kampagne ueber ``compute_cells_for_mapping`` —
+dieselbe Statistik, eigenes Kanal-Minimum (``TITLE_MIN_CHANNELS``,
+Begruendung dort). Beide Modi teilen Prompt-Geruest, Citation-Pruefung
+und Persistenz; ``mode`` steht im PK der Tabelle.
 
 Leerlauf ist der erwartete Anfangszustand: ``title.genres`` fuellt sich
 erst mit dem naechsten Title-Sync. Ohne belastbares Genre-Muster gibt
@@ -78,8 +80,12 @@ from app.services.insight_engine import (
 )
 from app.services.trailer_patterns import (
     DEFAULT_WINDOW_DAYS,
+    MIN_SAMPLE_PER_CELL,
+    _corpus_breakout_rates,
     _genre_by_post,
+    _title_name_by_post,
     build_lift_context,
+    compute_cells_for_mapping,
     compute_trailer_patterns,
 )
 
@@ -87,6 +93,18 @@ logger = logging.getLogger(__name__)
 
 
 BRIEFING_MODE_GENRE = "genre"
+BRIEFING_MODE_TITLE = "title"
+BRIEFING_MODES = (BRIEFING_MODE_GENRE, BRIEFING_MODE_TITLE)
+
+# Kanal-Minimum im Titel-Modus: 2 statt der Berichts-3. Ein Titel ist
+# eine Kampagne — seine Posts konzentrieren sich naturgemaess auf die
+# Kanaele des eigenen Studios (oft 2: ein DE-, ein US-Kanal, oder
+# Instagram+TikTok desselben Markts); das Berichts-Minimum von 3 wuerde
+# die Mehrzahl echter Kampagnen ausschliessen. Die Untergrenze 2 haelt
+# den Zweck des Guards ("ein einzelner Vielposter wuerde das Muster
+# tragen"): EIN Kanal allein reicht weiter nicht. Review-Punkt fuer
+# Wolf — per Konstante aenderbar, ohne die Berichts-Schwelle anzufassen.
+TITLE_MIN_CHANNELS = 2
 
 # Kosten- und Fokus-Deckel: mehr als 6 Muster verwaessern den Brief und
 # verlaengern den Prompt linear. Die Auswahl ist breakout_z-sortiert —
@@ -126,6 +144,7 @@ Regeln:
 def build_pattern_evidence(
     session: Session,
     *,
+    mode: str = BRIEFING_MODE_GENRE,
     window_days: int = DEFAULT_WINDOW_DAYS,
     now: Optional[datetime] = None,
     max_patterns: int = MAX_PATTERNS_PER_BRIEFING,
@@ -134,24 +153,49 @@ def build_pattern_evidence(
     """Deterministische Muster-Auswahl + Beleg-Posts — der Teil, der
     entscheidet, worueber das LLM ueberhaupt sprechen darf.
 
-    Freigegeben sind Genre-Zellen mit ``breakout_verdict !=
-    "insufficient"`` — also solche, die Mindest-Stichprobe (5 Posts)
-    und Mindest-Kanalzahl (3) erfuellen. Auch ``neutral``-Zellen sind
-    dabei: ein Genre, das durchschnittlich laeuft, traegt trotzdem
-    verwertbare Hook-Mechanik in seinen staerksten Posts; die Zahlen
-    im Baustein sagen ehrlich, dass es kein Ausreisser-Muster ist.
-    Sortiert nach ``breakout_z`` absteigend (staerkstes Signal zuerst),
-    gekappt auf ``max_patterns``.
+    Freigegeben sind Zellen mit ``breakout_verdict != "insufficient"``.
+    Auch ``neutral``-Zellen sind dabei: ein Genre oder Titel, der
+    durchschnittlich laeuft, traegt trotzdem verwertbare Hook-Mechanik
+    in seinen staerksten Posts; die Zahlen im Baustein sagen ehrlich,
+    dass es kein Ausreisser-Muster ist. Sortiert nach ``breakout_z``
+    absteigend (staerkstes Signal zuerst), gekappt auf ``max_patterns``.
+
+    ``mode="genre"``: die Genre-Zellen des Muster-Berichts (Minimum 5
+    Posts / 3 Kanaele). ``mode="title"``: Zellen je Titel-Kampagne ueber
+    ``compute_cells_for_mapping`` — dieselbe Statistik, Kanal-Minimum
+    ``TITLE_MIN_CHANNELS`` (Begruendung an der Konstante).
     """
+    if mode not in BRIEFING_MODES:
+        raise ValueError(f"mode={mode!r} unbekannt, erlaubt: {BRIEFING_MODES}")
     now = now or datetime.now(timezone.utc)
     iso_year, iso_week, _ = now.isocalendar()
 
-    report = compute_trailer_patterns(session, window_days=window_days, now=now)
-
-    # Post-Ebene fuer die Beispiel-Auswahl — gleiche Parameter, gleiche
-    # deterministische Rechnung wie im Report (s. Modul-Docstring).
+    # Post-Ebene fuer Zellen (Titel-Modus) und Beispiel-Auswahl (beide
+    # Modi) — gleiche Parameter, gleiche deterministische Rechnung wie
+    # im Report (s. Modul-Docstring).
     ctx = build_lift_context(session, window_days=window_days, now=now)
-    genre_by_post = _genre_by_post(session, ctx.usable)
+
+    if mode == BRIEFING_MODE_GENRE:
+        report = compute_trailer_patterns(
+            session, window_days=window_days, now=now
+        )
+        value_by_post = _genre_by_post(session, ctx.usable)
+        cells_all = report.dimensions.get("genre", [])
+        notes = list(report.notes)
+        baseline_breakout_rate = report.baseline_breakout_rate
+    else:
+        value_by_post = _title_name_by_post(session, ctx.usable)
+        cells_all = compute_cells_for_mapping(
+            ctx, value_by_post, min_channels=TITLE_MIN_CHANNELS
+        )
+        notes = list(ctx.notes)
+        baseline_breakout_rate = (
+            _corpus_breakout_rates(
+                ctx.usable, ctx.lift_by_post, ctx.platform_by_channel
+            )[0]
+            if ctx.usable
+            else 0.0
+        )
 
     handle_by_channel: dict = {}
     if ctx.usable:
@@ -161,21 +205,19 @@ def build_pattern_evidence(
         ).all():
             handle_by_channel[ch.id] = ch.handle or ch.name
 
-    genre_cells = [
-        c
-        for c in report.dimensions.get("genre", [])
-        if c.breakout_verdict != "insufficient"
+    usable_cells = [
+        c for c in cells_all if c.breakout_verdict != "insufficient"
     ]
-    genre_cells.sort(
+    usable_cells.sort(
         key=lambda c: c.breakout_z if c.breakout_z is not None else float("-inf"),
         reverse=True,
     )
-    genre_cells = genre_cells[:max_patterns]
+    usable_cells = usable_cells[:max_patterns]
 
     patterns: list[PatternEvidenceCell] = []
-    for cell in genre_cells:
+    for cell in usable_cells:
         cell_posts = [
-            p for p in ctx.usable if genre_by_post.get(p.id) == cell.value
+            p for p in ctx.usable if value_by_post.get(p.id) == cell.value
         ]
         cell_posts.sort(key=lambda p: ctx.lift_by_post[p.id], reverse=True)
         examples = [
@@ -213,25 +255,33 @@ def build_pattern_evidence(
         )
 
     usable_count = len(ctx.usable)
-    genre_coverage = (
-        len([p for p in ctx.usable if p.id in genre_by_post]) / usable_count
+    coverage = (
+        len([p for p in ctx.usable if p.id in value_by_post]) / usable_count
         if usable_count
         else 0.0
     )
+    # Die Genre-Abdeckungs-Note bringt der Report mit; im Titel-Modus
+    # gibt es keinen Report — dieselbe Ehrlichkeits-Regel hier.
+    if mode == BRIEFING_MODE_TITLE and usable_count and coverage < 0.5:
+        notes.append(
+            f"Titel-Zuordnung liegt bei {coverage:.0%} — nur Posts mit "
+            f"Asset-Titel-Match tragen zu den Titel-Zellen bei. Die "
+            f"Zellen beschreiben nur diesen Ausschnitt."
+        )
 
     return PatternBriefingEvidence(
-        mode=BRIEFING_MODE_GENRE,
+        mode=mode,
         iso_year=iso_year,
         iso_week=iso_week,
         window_days=window_days,
-        window_start=report.window_start,
-        window_end=report.window_end,
-        posts_with_baseline=report.posts_with_baseline,
-        channels_covered=report.channels_covered,
-        genre_coverage=round(genre_coverage, 4),
-        baseline_breakout_rate=round(report.baseline_breakout_rate, 4),
+        window_start=ctx.window_start,
+        window_end=ctx.window_end,
+        posts_with_baseline=usable_count,
+        channels_covered=len(ctx.baseline_by_channel),
+        coverage=round(coverage, 4),
+        baseline_breakout_rate=round(baseline_breakout_rate, 4),
         patterns=patterns,
-        notes=list(report.notes),
+        notes=notes,
     )
 
 
@@ -255,11 +305,13 @@ def _format_example_line(idx: int, ex: PatternExamplePost) -> str:
     return line
 
 
-def _format_pattern_block(idx: int, cell: PatternEvidenceCell) -> str:
+def _format_pattern_block(
+    idx: int, cell: PatternEvidenceCell, *, ebene: str = "Genre"
+) -> str:
     mix = ", ".join(f"{pl} {n}" for pl, n in sorted(cell.platform_mix.items()))
     z = f"z={cell.breakout_z}" if cell.breakout_z is not None else "z=–"
     header = (
-        f"## Muster {idx}: Genre \"{cell.value}\" — Befund: {cell.breakout_verdict}\n"
+        f"## Muster {idx}: {ebene} \"{cell.value}\" — Befund: {cell.breakout_verdict}\n"
         f"Zahlen: {cell.sample_size} Posts von {cell.channel_count} Kanaelen, "
         f"Breakout-Quote {cell.breakout_rate * 100:.1f} % "
         f"(erwartet nach Plattform-Mischung {cell.expected_breakout_rate * 100:.1f} %, {z}), "
@@ -272,43 +324,70 @@ def _format_pattern_block(idx: int, cell: PatternEvidenceCell) -> str:
 
 
 def _build_user_prompt(evidence: PatternBriefingEvidence) -> str:
+    ist_titel = evidence.mode == BRIEFING_MODE_TITLE
+    ebene = "Titel" if ist_titel else "Genre"
+    ebene_beschreibung = (
+        "Titel-Ebene (je Kampagne)" if ist_titel else "Genre-Ebene"
+    )
+    abdeckung_label = "Titel-Zuordnung" if ist_titel else "Genre-Abdeckung"
     header = (
-        f"# Gemessene Reichweiten-Muster — Genre-Ebene, "
+        f"# Gemessene Reichweiten-Muster — {ebene_beschreibung}, "
         f"KW {evidence.iso_week}/{evidence.iso_year}\n\n"
         f"Fenster: {evidence.window_days} Tage "
         f"({evidence.window_start.date().isoformat()} bis "
         f"{evidence.window_end.date().isoformat()}). "
         f"Datenbasis: {evidence.posts_with_baseline} Posts mit Kanal-Baseline "
-        f"aus {evidence.channels_covered} Kanaelen; Genre-Abdeckung "
-        f"{evidence.genre_coverage * 100:.0f} %. "
+        f"aus {evidence.channels_covered} Kanaelen; {abdeckung_label} "
+        f"{evidence.coverage * 100:.0f} %. "
         f"Breakout = Post mit mindestens 2x der ueblichen Aktivierung "
         f"seines eigenen Kanals; Basisquote "
         f"{evidence.baseline_breakout_rate * 100:.1f} %.\n"
     )
     blocks = "\n\n".join(
-        _format_pattern_block(i + 1, cell)
+        _format_pattern_block(i + 1, cell, ebene=ebene)
         for i, cell in enumerate(evidence.patterns)
     )
-    schema = """
+    # Der einzige inhaltliche Unterschied der Modi im Output-Schema: im
+    # Genre-Modus ist der Filmtitel unbekannt → [TITEL]-Platzhalter; im
+    # Titel-Modus IST der Titel das Muster → er gehoert wortwoertlich in
+    # die Caption, ein Platzhalter waere dort ein Fehler.
+    if ist_titel:
+        muster_beispiel = "Kurzname des Musters, z. B. 'Wicked auf TikTok'"
+        captions_de_regel = (
+            "2 vollstaendige Caption-Vorlagen auf Deutsch — nutze den "
+            "ECHTEN Titel aus dem Muster-Block, keinen Platzhalter"
+        )
+        captions_en_regel = (
+            "2 full caption templates in English — use the ACTUAL title "
+            "from the pattern block, no placeholder"
+        )
+    else:
+        muster_beispiel = "Kurzname des Musters, z. B. 'Romance auf TikTok'"
+        captions_de_regel = (
+            "2 vollstaendige Caption-Vorlagen auf Deutsch, mit "
+            "[TITEL]-Platzhalter statt erfundener Filmtitel"
+        )
+        captions_en_regel = "2 full caption templates in English, [TITLE] placeholder"
+    schema = f"""
 
 OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein
 Vorspann, kein Markdown-Codefence, keine Erklaerung — nur das JSON:
 
-{
+{{
   "bausteine": [
-    {
-      "muster": "Kurzname des Musters, z. B. 'Romance auf TikTok'",
+    {{
+      "muster": "{muster_beispiel}",
       "begruendung": "2-3 Saetze mit den mitgelieferten Zahlen: warum dieses Muster, was ist der Befund. Nur Zahlen aus den Muster-Bloecken oben, wortgetreu.",
       "hooks_de": ["3 Eroeffnungszeilen auf Deutsch, je max. 1 Satz — Mechanik aus den Beispiel-Captions, nie deren Wortlaut"],
       "hooks_en": ["3 opening lines in English — same mechanics, native English social voice"],
-      "captions_de": ["2 vollstaendige Caption-Vorlagen auf Deutsch, mit [TITEL]-Platzhalter statt erfundener Filmtitel"],
-      "captions_en": ["2 full caption templates in English, [TITLE] placeholder"],
+      "captions_de": ["{captions_de_regel}"],
+      "captions_en": ["{captions_en_regel}"],
       "hashtags": ["bis zu 10 Hashtag-Vorschlaege ohne #-Praefix, gemischt DE/EN, nur thematisch zum Muster passende"],
       "cited_post_ids": ["URLs der Beispiel-Posts aus diesem Muster-Block, wortwoertlich aus den URL:-Zeilen"]
-    }
+    }}
   ],
   "data_caveats": ["Was den Brief relativiert: duenne Muster, die du deshalb NICHT beliefert hast (Regel 5), niedrige Abdeckung, Plattform-Schieflagen"]
-}
+}}
 
 Antworte ausschliesslich mit dem JSON-Objekt, ohne Markdown-Codefences."""
     return header + "\n" + blocks + schema
@@ -359,6 +438,7 @@ def validate_baustein_citations(
 def generate_pattern_briefing(
     session: Session,
     *,
+    mode: str = BRIEFING_MODE_GENRE,
     window_days: int = DEFAULT_WINDOW_DAYS,
     model: str = OPUS_MODEL_ALIAS,
     max_tokens: int = PATTERN_BRIEFING_MAX_TOKENS,
@@ -368,27 +448,40 @@ def generate_pattern_briefing(
     Schema-Validierung → Citation-Pruefung. Persistenz separat via
     ``generate_and_persist_pattern_briefing``.
 
-    Leerlauf (keine belastbaren Genre-Muster): KEIN LLM-Call,
-    ``model="none"``, deterministischer ``data_caveat`` — das ist bis
-    zum ersten Title-Sync mit Genres der Normalfall und kostet nichts.
+    Leerlauf (keine belastbaren Muster): KEIN LLM-Call, ``model="none"``,
+    deterministischer ``data_caveat`` — im Genre-Modus bis zum ersten
+    Title-Sync mit Genres der Normalfall und kostenfrei.
     """
-    evidence = build_pattern_evidence(session, window_days=window_days, now=now)
+    evidence = build_pattern_evidence(
+        session, mode=mode, window_days=window_days, now=now
+    )
     generated_at = datetime.now(timezone.utc)
 
     if not evidence.patterns:
-        caveat = (
-            f"Kein belastbares Genre-Muster im Fenster "
-            f"(Genre-Abdeckung {evidence.genre_coverage * 100:.0f} % von "
-            f"{evidence.posts_with_baseline} Posts mit Baseline). Genres "
-            f"kommen aus TMDb ueber die Titel-Zuordnung und fuellen sich "
-            f"mit jedem Title-Sync-Lauf."
-        )
+        if mode == BRIEFING_MODE_TITLE:
+            caveat = (
+                f"Kein belastbares Titel-Muster im Fenster "
+                f"(Titel-Zuordnung {evidence.coverage * 100:.0f} % von "
+                f"{evidence.posts_with_baseline} Posts mit Baseline; "
+                f"Minimum je Titel: {MIN_SAMPLE_PER_CELL} Posts von {TITLE_MIN_CHANNELS} "
+                f"Kanaelen). Die Zuordnung waechst mit jedem "
+                f"Matching-Lauf des Cron."
+            )
+        else:
+            caveat = (
+                f"Kein belastbares Genre-Muster im Fenster "
+                f"(Genre-Abdeckung {evidence.coverage * 100:.0f} % von "
+                f"{evidence.posts_with_baseline} Posts mit Baseline). Genres "
+                f"kommen aus TMDb ueber die Titel-Zuordnung und fuellen sich "
+                f"mit jedem Title-Sync-Lauf."
+            )
         logger.info(
             "pattern_briefing.idle",
             extra={
+                "mode": mode,
                 "iso_year": evidence.iso_year,
                 "iso_week": evidence.iso_week,
-                "genre_coverage": evidence.genre_coverage,
+                "coverage": evidence.coverage,
             },
         )
         return PatternBriefingReport(
@@ -413,6 +506,7 @@ def generate_pattern_briefing(
     logger.info(
         "pattern_briefing_anthropic_call_start",
         extra={
+            "mode": mode,
             "iso_year": evidence.iso_year,
             "iso_week": evidence.iso_week,
             "patterns": len(evidence.patterns),
@@ -578,6 +672,7 @@ def _persist_briefing(session: Session, report: PatternBriefingReport) -> None:
 def generate_and_persist_pattern_briefing(
     session: Session,
     *,
+    mode: str = BRIEFING_MODE_GENRE,
     window_days: int = DEFAULT_WINDOW_DAYS,
     model: str = OPUS_MODEL_ALIAS,
     now: Optional[datetime] = None,
@@ -585,7 +680,7 @@ def generate_and_persist_pattern_briefing(
     """End-to-End: Evidence → LLM (falls Muster da) → Citation-Pruefung →
     persistieren. Cron-Block und Admin-Trigger rufen das hier auf."""
     report = generate_pattern_briefing(
-        session, window_days=window_days, model=model, now=now
+        session, mode=mode, window_days=window_days, model=model, now=now
     )
     _persist_briefing(session, report)
     return report
@@ -593,9 +688,12 @@ def generate_and_persist_pattern_briefing(
 
 __all__ = [
     "BRIEFING_MODE_GENRE",
+    "BRIEFING_MODE_TITLE",
+    "BRIEFING_MODES",
     "EXAMPLES_PER_PATTERN",
     "MAX_PATTERNS_PER_BRIEFING",
     "PATTERN_BRIEFING_SYSTEM_PROMPT",
+    "TITLE_MIN_CHANNELS",
     "build_pattern_evidence",
     "generate_and_persist_pattern_briefing",
     "generate_pattern_briefing",

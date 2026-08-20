@@ -1624,7 +1624,13 @@ class PatternBriefingEvidence(BaseModel):
     ``pattern_briefing.evidence`` persistiert und macht den Prompt
     rekonstruierbar. ``patterns`` sind die Zellen, die die
     Code-Pruefung freigegeben hat; das LLM formuliert ausschliesslich
-    dazu (Cutter-Weekly-Prinzip)."""
+    dazu (Cutter-Weekly-Prinzip).
+
+    ``coverage`` ist der Anteil der Baseline-Posts, die der Ebene des
+    ``mode`` zugeordnet werden konnten — Genre-Abdeckung im
+    Genre-Modus, Titel-Zuordnung im Titel-Modus (hiess bis zum
+    Titel-Modus-PR ``genre_coverage``; persistierte Rows mit dem alten
+    Key gab es zu dem Zeitpunkt noch in keiner Umgebung)."""
     mode: str
     iso_year: int
     iso_week: int
@@ -1633,7 +1639,7 @@ class PatternBriefingEvidence(BaseModel):
     window_end: datetime
     posts_with_baseline: int
     channels_covered: int
-    genre_coverage: float
+    coverage: float
     baseline_breakout_rate: float
     patterns: list[PatternEvidenceCell] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

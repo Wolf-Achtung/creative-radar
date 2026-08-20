@@ -520,12 +520,21 @@ def trailer_patterns_public(
 @router.get("/pattern-briefing")
 def pattern_briefing_public(
     request: Request,
+    mode: str = Query(
+        "genre",
+        pattern="^(genre|title)$",
+        description=(
+            "Baustein-Ebene: 'genre' (Genre-Muster) oder 'title' "
+            "(je Titel-Kampagne). Das Panel laedt beide getrennt — "
+            "je Ebene ihre juengste Woche, 404 je Ebene ist normal."
+        ),
+    ),
     session: Session = Depends(get_session),
 ) -> dict:
-    """Juengstes Pattern-Briefing (Genre-Modus) fuer eingeloggte Nutzer —
-    Trailer-Intelligence Stufe 1, Schritt 3. Rein lesend: liefert die
-    persistierte Row des Montags-Cron-Blocks (oder des Admin-Triggers),
-    loest selbst NIE einen LLM-Call aus.
+    """Juengstes Pattern-Briefing der gewaehlten Ebene fuer eingeloggte
+    Nutzer — Trailer-Intelligence Stufe 1, Schritt 3. Rein lesend:
+    liefert die persistierte Row des Montags-Cron-Blocks (oder des
+    Admin-Triggers), loest selbst NIE einen LLM-Call aus.
 
     Gate: ``FEATURE_TRAILER_INTELLIGENCE_ENABLED`` — gleiches Muster wie
     ``GET /api/insights/patterns``. Off → 503; noch keine Row → 404 (das
@@ -546,7 +555,7 @@ def pattern_briefing_public(
         )
     row = session.exec(
         select(PatternBriefing)
-        .where(PatternBriefing.mode == "genre")
+        .where(PatternBriefing.mode == mode)
         .order_by(
             PatternBriefing.iso_year.desc(),
             PatternBriefing.iso_week.desc(),
@@ -556,12 +565,12 @@ def pattern_briefing_public(
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail="Noch kein Pattern-Briefing persistiert.",
+            detail=f"Noch kein Pattern-Briefing ({mode}) persistiert.",
         )
     log_usage(
         request_user_email(request),
         "pattern_briefing_view",
-        {"iso_year": row.iso_year, "iso_week": row.iso_week},
+        {"mode": mode, "iso_year": row.iso_year, "iso_week": row.iso_week},
     )
     return {
         "mode": row.mode,
