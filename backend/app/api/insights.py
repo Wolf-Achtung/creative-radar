@@ -56,8 +56,10 @@ from app.services.insight_engine import (
     generate_weekly_report,
     last_completed_iso_week_anchor,
 )
+from app.core.feature_flags import is_trailer_intelligence_enabled
 from app.services.forecast import generate_er_forecast
 from app.services.insights import build_overview
+from app.services.trailer_patterns import compute_trailer_patterns
 from app.services.market_timeline import compute_market_timeline, pair_handles
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
@@ -480,6 +482,38 @@ def public_breakouts(
         session, window_days=30, limit=limit, min_multiplier=2.0,
     )
     return {"count": len(entries), "entries": entries}
+
+
+@router.get("/patterns")
+def trailer_patterns_public(
+    request: Request,
+    window_days: int = Query(90, ge=7, le=365),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Trailer-Intelligence Stufe 1 fuer eingeloggte Nutzer: derselbe
+    Muster-Bericht wie ``GET /api/admin/patterns`` (Kanal-normierter
+    Lift, Breakout-Quoten, ehrliche insufficient-Zellen — Methodik in
+    ``services/trailer_patterns.py``), nur ohne Admin-Session. Rein
+    lesende Aggregation, KEIN LLM-Call; Bearer + User-Login gelten wie
+    fuer alle Inhalts-Routen.
+
+    Gate: ``FEATURE_TRAILER_INTELLIGENCE_ENABLED`` (Staging-Fundament
+    20.08.2026 — in Staging an, in Production aus). Off → 503, gleiches
+    Muster wie der Segment-Roundup-Pilot. Das Frontend blendet das
+    Panel ohnehin nur ein, wenn ``/api/health`` das Feature meldet; der
+    Admin-Endpoint bleibt bewusst UNGEGATET, damit Wolf die Auswertung
+    in Production weiter sehen kann, bevor Nutzer sie sehen.
+    """
+    if not is_trailer_intelligence_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Trailer-Intelligence ist deaktiviert. "
+                "FEATURE_TRAILER_INTELLIGENCE_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    log_usage(request_user_email(request), "patterns_view", {"window_days": window_days})
+    return compute_trailer_patterns(session, window_days=window_days).to_dict()
 
 
 @roundups_router.get("/roundups/latest", response_model=SegmentRoundupListResponse)

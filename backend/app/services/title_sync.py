@@ -105,6 +105,12 @@ def _upsert_normalized_title(
     title.tmdb_id = tmdb_id
     title.source = title.source or "TMDb"
     title.aliases = sorted(set((title.aliases or []) + (normalized.get("aliases") or [])))
+    # Genres ersetzen statt mischen: TMDb ist die einzige Quelle, und die
+    # Reihenfolge (erstes = primaeres Genre) muss erhalten bleiben — ein
+    # sorted-set-Merge wie bei den Aliassen wuerde sie zerstoeren. Eine
+    # leere Antwort ueberschreibt nichts Vorhandenes.
+    if normalized.get("genres"):
+        title.genres = list(normalized["genres"])
     if normalized.get("title_local"):
         title.title_local = normalized["title_local"]
 
