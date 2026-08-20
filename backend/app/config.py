@@ -291,6 +291,12 @@ class Settings(BaseSettings):
     mail_timeout_seconds: float = 30.0
     disable_emails: bool = False
 
+    # Playbook-Montags-Mail (Hook-Intelligence/Radar, 20.08.2026):
+    # Komma-Liste der Empfaenger. Leer = kein Versand (der Cron-Block
+    # ueberspringt still mit Log) — bewusst KEIN Default auf Wolfs
+    # Adresse, Empfaenger sind eine Deploy-Entscheidung.
+    playbook_mail_recipients: str = ""
+
     image_proxy_allowed_hosts: str = (
         "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
     )

@@ -2077,6 +2077,21 @@ async def _run_cron_sync_background_impl(
                 _run_pattern_briefing_after_designer_weekly, session,
                 brief_now=brief_now, force=force,
             )
+            # Playbook-Montags-Mail (Radar, 20.08.2026) — additiv NACH dem
+            # Pattern-Briefing, damit frische Bausteine mitgehen. Rein
+            # lesend + Mailversand, kein LLM-Call; gated im Service
+            # (TI-Flag, PLAYBOOK_MAIL_RECIPIENTS, nichts-zu-berichten).
+            # Eigene Fehler-Isolation: eine kaputte Mail darf den
+            # Cron-Status nicht kippen.
+            try:
+                from app.services.pattern_playbook import send_pattern_playbook
+
+                summary["pattern_playbook"] = await send_pattern_playbook(
+                    session, now=brief_now
+                )
+            except Exception:  # noqa: BLE001 — Block-Isolation wie oben
+                logger.exception("pattern_playbook.failed")
+                summary["pattern_playbook"] = {"failed": True}
             # Tech-Debt A5 — Apify-Cost dieses Runs ins summary_json.
             # ``record_apify_run`` läuft synchron im ``_run_actor``-Pfad ab
             # und stempelt UTC-now-Timestamps, also liegen alle Rows des
