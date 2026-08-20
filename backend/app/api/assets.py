@@ -206,6 +206,14 @@ def analyze_visual(asset_id: UUID, session: Session = Depends(get_session)):
     dependencies=[Depends(rate_limit("analyze-visual-batch", max_calls=10, window_seconds=60))],
 )
 def analyze_visual_batch(limit: int = 10, only_pending: bool = True, session: Session = Depends(get_session)):
+    # Kein Frontend-Aufrufer (Wartung 20.08.2026: der tote runVisualBatch-
+    # Pfad in AdminApp.jsx wurde entfernt — es gab nie einen Button).
+    # Der Endpunkt bleibt trotzdem: mit ``only_pending=false`` ist er der
+    # einzige Weg, ``error``/``provider_error``-Assets erneut anzustossen —
+    # der Cron fasst ausschliesslich ``pending`` an. Aufruf per Admin-
+    # Session (z.B. curl). Als Rueckstands-Drain taugt er NICHT: er nimmt
+    # neueste zuerst (desc), max. 50, synchron im Request — dafuer gibt es
+    # den Cron mit Zeitbudget (VISION_STAGE_TIMEOUT_SECONDS).
     statuses = ["pending"] if only_pending else ["pending", "error", "no_source", "text_fallback", "fetch_failed"]
     statement = select(Asset).where(Asset.visual_analysis_status.in_(statuses)).order_by(Asset.created_at.desc()).limit(max(1, min(limit, 50)))
     assets = session.exec(statement).all()

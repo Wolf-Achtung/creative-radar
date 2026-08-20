@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { endpoints } from './api/client';
-import { formatDate, normalizeHandle } from './format';
+import { normalizeHandle } from './format';
 import { ASSET_PAGE_SIZE } from './constants';
 import { MonitoringPanel } from './panels/MonitoringPanel';
 import { ReportsPanel } from './panels/ReportsPanel';
@@ -45,7 +45,6 @@ export function AdminApp({ onLogout }) {
   const [recentlyCreatedByAssetId, setRecentlyCreatedByAssetId] = useState({});
   const [titleCandidates, setTitleCandidates] = useState([]);
   const [whitelistStats, setWhitelistStats] = useState(null);
-  const [batchFeedback, setBatchFeedback] = useState(null);
   const [reportSuggestion, setReportSuggestion] = useState(null);
   const [reportForm, setReportForm] = useState({ report_type: 'weekly_overview', date_range: '30d', market: 'all', channel: 'all', limit: 10 });
   // "Jetzt komplett aktualisieren": eigener lokaler State, NICHT das globale
@@ -224,37 +223,6 @@ export function AdminApp({ onLogout }) {
       await endpoints.analyzeAssetVisual(asset.id);
       await load();
       setMessage('Bild-/Text-Prüfung aktualisiert.');
-    });
-  }
-
-  // BEFUND Wartung 20.08.2026 — toter Pfad, bewusst NICHT geloescht.
-  //
-  // ``runVisualBatch`` wird von nirgendwo aufgerufen. Es gibt keinen
-  // Button dafuer — und laut ``git log -S "onClick={runVisualBatch}"``
-  // ueber die gesamte Historie von frontend/src hat es nie einen
-  // gegeben. Damit ist auch das Ergebnis-Banner weiter unten
-  // (``{batchFeedback && (…)}``) unerreichbar: ``batchFeedback`` kann
-  // nur ``null`` sein.
-  //
-  // Der Rest der Kette steht: der Endpunkt
-  // ``POST /api/assets/analyze-visual-batch`` existiert im Backend, der
-  // Client-Wrapper ``endpoints.analyzeVisualBatch`` auch. Es fehlt genau
-  // der Knopf.
-  //
-  // Das ist keine Kosmetik: es ist der manuelle Notausgang, um den
-  // Vision-Rueckstand von Hand anzuschieben, statt auf den Montags-Cron
-  // zu warten. Ihn zu verdrahten waere neue Oberflaeche und damit Wolfs
-  // Entscheidung, nicht die eines Lint-Durchgangs — deshalb hier nur
-  // stillgelegt und im PR berichtet. Entweder Knopf nachziehen oder
-  // Funktion + State + Banner zusammen entfernen; halb ist beides
-  // schlechter als ganz.
-  // eslint-disable-next-line no-unused-vars
-  async function runVisualBatch() {
-    await run(async () => {
-      const result = await endpoints.analyzeVisualBatch(10);
-      await load();
-      setBatchFeedback({ ...result, timestamp: new Date().toISOString() });
-      setMessage(`Batchanalyse: ${result.analyzed} analysiert, ${result.no_source} ohne Bild, ${result.fetch_failed} Abrufprobleme, ${result.text_fallback} Text-Fallback, ${result.provider_error} KI-Probleme, ${result.failed} Fehler gesamt.`);
     });
   }
 
@@ -491,11 +459,6 @@ export function AdminApp({ onLogout }) {
       {error && <div className="error">{error}</div>}
       {message && <div className="success">{message}</div>}
       {busy && <div className="info">Arbeite gerade …</div>}
-      {batchFeedback && (
-        <div className="info">
-          Batch-Ergebnis: {batchFeedback.analyzed} analysiert, {batchFeedback.no_source} ohne Bild, {batchFeedback.fetch_failed} Bildquelle nicht erreichbar, {batchFeedback.text_fallback} nur Textanalyse, {batchFeedback.provider_error} KI-/Provider-Fehler, {batchFeedback.failed} Fehler gesamt (geprüft: {batchFeedback.checked}, {formatDate(batchFeedback.timestamp)}).
-        </div>
-      )}
 
       {/* UX-Audit Befunde 4+7 (2026-07-14): kein Toggle-Verhalten mehr
           (Klick auf den aktiven Tab liess vorher das Panel auf einen
