@@ -7,7 +7,8 @@ Prod-DB und schreibt erst recht nicht hinein. Was auf Staging passiert,
 kann Produktion nicht beruehren; der naechste Refresh setzt Staging
 wieder auf den Prod-Stand.
 
-Laeuft auf dem Mac, braucht die Postgres-Client-Tools:
+Laeuft auf dem Mac. Einzige Voraussetzung sind die Postgres-Client-
+Tools (pg_dump, pg_restore, psql) — kein Python-Paket:
 
     brew install libpq && brew link --force libpq
 
@@ -88,8 +89,11 @@ def pruefe_richtung(quelle: str, ziel: str, ziel_host: str) -> None:
         )
 
 
+WERKZEUGE = ("pg_dump", "pg_restore", "psql")
+
+
 def _werkzeuge_vorhanden() -> None:
-    fehlend = [w for w in ("pg_dump", "pg_restore") if shutil.which(w) is None]
+    fehlend = [w for w in WERKZEUGE if shutil.which(w) is None]
     if fehlend:
         sys.exit(
             f"Fehlt im PATH: {', '.join(fehlend)}. Installieren mit:\n"
@@ -97,13 +101,21 @@ def _werkzeuge_vorhanden() -> None:
         )
 
 
-def _schema_zuruecksetzen(ziel: str) -> None:
-    import psycopg
+def _schema_verwerfen(ziel: str) -> None:
+    """Loescht das Ziel-Schema. Angelegt wird es NICHT — der Dump bringt
+    sein eigenes ``CREATE SCHEMA`` mit, und ein vorab angelegtes Schema
+    liesse pg_restore mit "already exists" meckern.
 
-    with psycopg.connect(ziel) as conn:
-        conn.execute(f'DROP SCHEMA IF EXISTS "{SCHEMA}" CASCADE')
-        conn.execute(f'CREATE SCHEMA "{SCHEMA}"')
-        conn.commit()
+    Bewusst ueber ``psql`` statt ueber ein Python-Paket: pg_dump und
+    pg_restore braucht dieses Skript ohnehin, und ``psql`` kommt mit
+    denselben ``brew install libpq`` mit. Eine Installation, keine
+    Python-Abhaengigkeit — das Skript laeuft mit dem System-Python.
+    """
+    subprocess.run(
+        ["psql", "--quiet", "--no-psqlrc", "--set=ON_ERROR_STOP=1",
+         "--command", f'DROP SCHEMA IF EXISTS "{SCHEMA}" CASCADE', ziel],
+        check=True,
+    )
 
 
 def refresh(quelle: str, ziel: str, ziel_host: str, *, ausfuehren: bool) -> None:
@@ -111,7 +123,7 @@ def refresh(quelle: str, ziel: str, ziel_host: str, *, ausfuehren: bool) -> None
     if not ausfuehren:
         print("Trockenuebung — es passiert nichts. Der echte Lauf wuerde:")
         print(f"  1. pg_dump  --schema={SCHEMA} aus der Quelle (CR_DB_URL)")
-        print(f"  2. auf dem Ziel: DROP SCHEMA {SCHEMA} CASCADE; CREATE SCHEMA")
+        print(f"  2. auf dem Ziel: DROP SCHEMA {SCHEMA} CASCADE")
         print("  3. pg_restore in das Ziel (CR_STAGING_DB_URL)")
         print("Zum Ausfuehren: --ausfuehren anhaengen.")
         return
@@ -126,8 +138,8 @@ def refresh(quelle: str, ziel: str, ziel_host: str, *, ausfuehren: bool) -> None
             check=True,
         )
         print(f"    {dump.stat().st_size / 1_048_576:.1f} MiB")
-        print(f"2/3 Ziel-Schema {SCHEMA} verwerfen und neu anlegen …")
-        _schema_zuruecksetzen(ziel)
+        print(f"2/3 Ziel-Schema {SCHEMA} verwerfen …")
+        _schema_verwerfen(ziel)
         print("3/3 pg_restore in die Staging-DB …")
         subprocess.run(
             ["pg_restore", "--no-owner", "--no-privileges",

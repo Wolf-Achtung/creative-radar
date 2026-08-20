@@ -1,5 +1,11 @@
 # Staging-Abnahme — Klick-Checkliste
 
+> **Für den aktuellen Durchgang (20.08.2026) ist
+> [`STAGING_JETZT_TUN.md`](./STAGING_JETZT_TUN.md) die richtige Liste.** Environment,
+> Domains, Netlify-Site und Banner stehen bereits; dort stehen nur die vier
+> verbliebenen Schritte, ausgeschrieben. Dieses Dokument beschreibt den Aufbau
+> **von null** — Referenz, falls Staging je neu gebaut werden muss.
+
 Reine Handanweisung, ohne Begründungen. Warum das alles so gebaut ist, steht in
 [`STAGING_SETUP.md`](./STAGING_SETUP.md) — hier geht es nur ums Abarbeiten.
 

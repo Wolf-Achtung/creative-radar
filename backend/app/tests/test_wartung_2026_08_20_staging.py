@@ -95,6 +95,35 @@ def test_auch_die_trockenuebung_prueft_die_richtung():
         modul.refresh(PROD, PROD, "prod-db", ausfuehren=False)
 
 
+def test_das_skript_braucht_kein_python_paket():
+    """Anfaenger-Voraussetzung: EIN ``brew install libpq``, sonst nichts.
+
+    Frueher setzte der Schema-Reset ``psycopg`` voraus — ein Python-Paket,
+    das auf einem frischen Mac fehlt und das System-Python nicht mitbringt.
+    Jetzt macht ``psql`` denselben Job; psql, pg_dump und pg_restore
+    kommen alle drei aus libpq.
+    """
+    quelle = _SKRIPT.read_text(encoding="utf-8")
+    assert "import psycopg" not in quelle, (
+        "Das Skript braucht wieder ein Python-Paket — dann stimmt die "
+        "Anleitung nicht mehr (Checkliste Block 7 nennt nur libpq)."
+    )
+    assert "psql" in _refresh_modul().WERKZEUGE
+
+
+def test_das_ziel_schema_wird_nur_verworfen_nicht_angelegt():
+    """Der Dump bringt sein eigenes ``CREATE SCHEMA`` mit. Wird es vorab
+    angelegt, meldet pg_restore "already exists" — ein Fehler mitten in
+    der Ausgabe, den man beim naechsten echten Fehler uebersieht."""
+    import inspect
+
+    quelle = inspect.getsource(_refresh_modul()._schema_verwerfen)
+    assert "DROP SCHEMA" in quelle
+    assert "CREATE SCHEMA" not in quelle.split('"""')[-1], (
+        "Das Skript legt das Ziel-Schema wieder selbst an."
+    )
+
+
 def test_trockenuebung_ist_der_standard_und_tut_nichts(capsys):
     """Ohne ``--ausfuehren`` wird nur beschrieben, was passieren wuerde.
     Kein pg_dump-Aufruf, kein DB-Kontakt — belegt dadurch, dass der
