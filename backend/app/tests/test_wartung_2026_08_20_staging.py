@@ -169,3 +169,76 @@ def test_health_meldet_den_flag_zustand(monkeypatch):
     monkeypatch.setenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", "true")
     features = client.get("/api/health").json()["features"]
     assert features["trailer_intelligence"] is True
+
+
+# ---------------------------------------------------------------------
+# 3 — Die Ausliefer-Konfiguration: eine netlify.toml, zwei Sites
+# ---------------------------------------------------------------------
+#
+# Ausfall 20.08.2026: der Staging-Login war tot, ohne dass irgendein
+# Server-Log etwas zeigte. Ursache war die CSP in netlify.toml — sie
+# erlaubte unter ``connect-src`` nur den Produktions-API-Host, also
+# blockierte der Browser auf staging.creative-radar.de JEDEN fetch,
+# bevor er rausging. Kein Request, kein Log, im Frontend nur der
+# Auffang-Text. Die CSP kam mit dem Audit vom 17.08.; der Staging-Build
+# vom 06.08. hatte sie noch nicht, deshalb fiel es erst auf, als
+# Staging erstmals wieder von main baute.
+#
+# Diese Datei baut BEIDE Sites. Was hier fehlt, faellt nicht im Test
+# auf, sondern erst im Browser eines Menschen — und dort ohne Spur.
+
+_NETLIFY_TOML = _REPO_ROOT / "netlify.toml"
+_API_HOSTS = ("https://api.creative-radar.de", "https://api-staging.creative-radar.de")
+
+
+def _csp_direktive(name: str) -> str:
+    """Liest eine einzelne CSP-Direktive aus netlify.toml."""
+    inhalt = _NETLIFY_TOML.read_text(encoding="utf-8")
+    # Die Zuweisung, nicht die Erwaehnung: der Name steht auch in
+    # Kommentaren (dort ohne ``=``). Die erste Fassung dieses Helfers
+    # griff genau daneben und starb an einem IndexError statt an einer
+    # lesbaren Meldung.
+    zeilen = [
+        z for z in inhalt.splitlines()
+        if z.strip().startswith("Content-Security-Policy") and "=" in z
+    ]
+    assert zeilen, "Keine Content-Security-Policy-Zuweisung in netlify.toml."
+    policy = zeilen[0].split("=", 1)[1].strip().strip('"')
+    for teil in policy.split(";"):
+        teil = teil.strip()
+        if teil.startswith(name + " "):
+            return teil
+    raise AssertionError(f"CSP-Direktive {name!r} fehlt: {policy}")
+
+
+@pytest.mark.vertrag
+@pytest.mark.parametrize("direktive", ["connect-src", "img-src"])
+@pytest.mark.parametrize("host", _API_HOSTS)
+def test_csp_erlaubt_beide_api_hosts(direktive, host):
+    """Beide Sites fahren dieselbe netlify.toml. Fehlt ein Host, ist die
+    betroffene Umgebung im Browser tot — ohne Server-Log, ohne
+    verwertbare Fehlermeldung."""
+    wert = _csp_direktive(direktive)
+    assert host in wert, (
+        f"{host} fehlt in der CSP-Direktive {direktive!r}: {wert}. "
+        f"Auf der Site, die gegen diesen Host laeuft, blockiert der "
+        f"Browser damit alle Aufrufe — clientseitig, also unsichtbar in "
+        f"jedem Server-Log."
+    )
+
+
+@pytest.mark.vertrag
+def test_report_downloads_gehen_nicht_ueber_den_prod_proxy():
+    """``/api/*`` in netlify.toml zeigt fest auf api.creative-radar.de.
+    Ein RELATIVER Link im Frontend laedt darueber also auch auf Staging
+    den Produktions-Report — die Vermischung, die Staging ausschliessen
+    soll. Die Downloads muessen deshalb ueber ``apiUrl()`` laufen."""
+    quelle = (
+        _REPO_ROOT / "frontend" / "src" / "panels" / "ReportsPanel.jsx"
+    ).read_text(encoding="utf-8")
+    assert 'href="/api/' not in quelle, (
+        "ReportsPanel.jsx verlinkt wieder relativ auf /api/… — das laeuft "
+        "ueber die Netlify-Weiterleitung auf die PRODUKTIONS-API, auch "
+        "wenn die Seite Staging ist. Stattdessen apiUrl() benutzen."
+    )
+    assert "apiUrl(" in quelle
