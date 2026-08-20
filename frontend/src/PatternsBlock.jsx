@@ -27,6 +27,10 @@ const DIMENSION_LABEL = {
   lifecycle_stage: 'Kampagnenphase',
   duration_bucket: 'Länge',
   music_kind: 'Musik',
+  caption_frage: 'Caption: Frage',
+  caption_cta: 'Caption: Call-to-Action',
+  caption_laenge: 'Caption-Länge',
+  caption_hashtags: 'Hashtags',
 };
 
 // Reihenfolge der Anzeige: die Dimensionen, nach denen Wolf plant,
@@ -34,6 +38,7 @@ const DIMENSION_LABEL = {
 const DIMENSION_ORDER = [
   'genre', 'format', 'duration_bucket', 'format_class',
   'tone', 'lifecycle_stage', 'music_kind',
+  'caption_frage', 'caption_cta', 'caption_laenge', 'caption_hashtags',
 ];
 
 const VERDICT_LABEL = {
@@ -83,6 +88,16 @@ const WERT_LABEL = {
   unclear: 'Phase unklar',
   licensed_track: 'Lizenzierter Track',
   original_sound: 'Original-Sound',
+  mit_frage: 'Caption mit Frage',
+  ohne_frage: 'Caption ohne Frage',
+  mit_cta: 'Mit Call-to-Action',
+  ohne_cta: 'Ohne Call-to-Action',
+  kurz: 'Kurze Caption (≤80 Zeichen)',
+  mittel: 'Mittlere Caption (81–199)',
+  lang: 'Lange Caption (200+)',
+  keine: 'Keine Hashtags',
+  '1-3': '1–3 Hashtags',
+  '4+': '4+ Hashtags',
 };
 
 function prozent(wert) {
