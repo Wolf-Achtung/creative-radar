@@ -1017,6 +1017,43 @@ def compute_cells_for_mapping(
     return cells
 
 
+def posts_for_cell(
+    session: Session,
+    ctx: LiftContext,
+    dimension: str,
+    value: str,
+) -> list[Post]:
+    """Die Mitglieder einer Berichts-Zelle — mit exakt den Regeln der
+    Cross-Tab-Schleife: Konfidenz-Filter fuer modell-erzeugte
+    Dimensionen, Session-Mapping fuer Genre. Fuer den
+    Beispiel-Posts-Endpoint (Aufwertung B, 20.08.2026): "langform laeuft
+    ueber Schnitt" wird erst mit den konkreten Posts dahinter zu
+    Referenzmaterial fuer Cutter.
+
+    Bewusst KEINE Zweitimplementierung der Zugehoerigkeit im Endpoint:
+    wuerde der Konfidenz-Filter hier fehlen, zeigten die Beispiele Posts,
+    die in der Zelle gar nicht mitgezaehlt wurden. Unbekannte Dimension
+    → ``ValueError`` (der Endpoint macht 422 daraus).
+    """
+    if dimension == "genre":
+        mapping = _genre_by_post(session, ctx.usable)
+        dim = _Dimension("genre", lambda p: mapping.get(p.id), False)
+    else:
+        by_name = {d.name: d for d in DIMENSIONS}
+        if dimension not in by_name:
+            raise ValueError(f"Unbekannte Dimension: {dimension!r}")
+        dim = by_name[dimension]
+    members: list[Post] = []
+    for p in ctx.usable:
+        if dim.requires_analysis:
+            conf = _post_confidence(p)
+            if conf is None or conf < CONFIDENCE_THRESHOLD:
+                continue
+        if dim.extract(p) == value:
+            members.append(p)
+    return members
+
+
 def compute_trailer_patterns(
     session: Session,
     *,

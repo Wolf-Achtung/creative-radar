@@ -175,10 +175,67 @@ function DeltaBalken({ rate, expected, verdict, skala }) {
   );
 }
 
+// Aufgeklappte Zeile: die staerksten Posts hinter der Zelle — Lift,
+// Kanal, Original-Caption, Link. Erst mit den konkreten Posts wird aus
+// "laeuft ueber Schnitt" Referenzmaterial.
+function BeispielZeile({ eintrag }) {
+  if (!eintrag || eintrag.status === 'laden') {
+    return <p style={{ margin: 0, color: '#6b6b6b', fontSize: '0.85em' }}>Lade Beispiel-Posts …</p>;
+  }
+  const beispiele = eintrag.daten?.examples || [];
+  if (eintrag.status === 'fehler' || beispiele.length === 0) {
+    return <p style={{ margin: 0, color: '#6b6b6b', fontSize: '0.85em' }}>Keine Beispiel-Posts verfügbar.</p>;
+  }
+  return (
+    <div>
+      {beispiele.map((ex) => (
+        <div key={ex.post_url} style={{ padding: '0.35rem 0', borderBottom: '1px solid #eee6d8' }}>
+          <span style={{ fontWeight: 700 }}>{ex.lift}x</span>
+          {' '}@{ex.channel_handle} ({ex.platform})
+          {ex.views ? ` · ${ex.views.toLocaleString('de-DE')} Views` : ''}
+          {ex.detected_at ? ` · ${ex.detected_at}` : ''}
+          {' · '}
+          <a href={ex.post_url} target="_blank" rel="noreferrer" style={{ color: '#1f7a45' }}>
+            Post öffnen
+          </a>
+          {ex.caption && (
+            <div style={{ color: '#6b6b6b', fontSize: '0.85em', marginTop: '0.1rem' }}>
+              „{ex.caption}“
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ZellenTabelle({ name, cells }) {
+  const [offen, setOffen] = useState(null);
+  const [beispiele, setBeispiele] = useState({});
   const brauchbar = cells.filter((c) => c.breakout_verdict !== 'insufficient');
   const duenn = cells.length - brauchbar.length;
   if (brauchbar.length === 0) return null;
+
+  // Laden erst beim ersten Aufklappen — und nur einmal je Zelle. Ein
+  // Fehler zeigt eine Leer-Meldung in der Zeile, nie einen Fehlerkasten
+  // fuers ganze Panel.
+  const zeileKlick = (wert) => {
+    if (offen === wert) {
+      setOffen(null);
+      return;
+    }
+    setOffen(wert);
+    if (!beispiele[wert]) {
+      setBeispiele((b) => ({ ...b, [wert]: { status: 'laden' } }));
+      endpoints.insightPatternExamples({ dimension: name, value: wert })
+        .then((daten) => {
+          setBeispiele((b) => ({ ...b, [wert]: { status: 'ok', daten } }));
+        })
+        .catch(() => {
+          setBeispiele((b) => ({ ...b, [wert]: { status: 'fehler' } }));
+        });
+    }
+  };
   const sortiert = [...brauchbar].sort((a, b) => b.breakout_rate - a.breakout_rate);
   // Eine Skala je Tabelle, damit die Balken einer Dimension vergleichbar
   // sind; 1.15 laesst den laengsten Balken nicht an den Rand stossen.
@@ -210,8 +267,13 @@ function ZellenTabelle({ name, cells }) {
               {sortiert.map((c) => {
                 const verdict = VERDICT_LABEL[c.breakout_verdict] || VERDICT_LABEL.neutral;
                 return (
-                  <tr key={c.value}>
-                    <td>{c.value}</td>
+                  <React.Fragment key={c.value}>
+                  <tr
+                    onClick={() => zeileKlick(c.value)}
+                    style={{ cursor: 'pointer' }}
+                    title="Beispiel-Posts anzeigen"
+                  >
+                    <td>{offen === c.value ? '▾ ' : '▸ '}{c.value}</td>
                     <td>{c.sample_size}</td>
                     <td>{c.channel_count}</td>
                     <td style={{
@@ -233,6 +295,14 @@ function ZellenTabelle({ name, cells }) {
                     <td>{c.median_lift.toFixed(2)}x</td>
                     <td style={{ color: verdict.color }}>{verdict.text}</td>
                   </tr>
+                  {offen === c.value && (
+                    <tr>
+                      <td colSpan={8} style={{ background: '#faf5ea', padding: '0.5rem 0.75rem' }}>
+                        <BeispielZeile eintrag={beispiele[c.value]} />
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>

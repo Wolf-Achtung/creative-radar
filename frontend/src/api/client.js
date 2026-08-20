@@ -156,6 +156,15 @@ export const endpoints = {
   // Admin-Session. Rein lesend.
   breakoutsPublic: ({ limit = 10 } = {}) => api(`/api/breakouts?limit=${limit}`),
   insightPatterns: ({ windowDays = 90 } = {}) => api(`/api/insights/patterns?window_days=${windowDays}`),
+  // Beispiel-Posts einer Muster-Zelle (Aufwertung B): die staerksten
+  // Posts hinter einem Befund, sortiert nach Lift. value kann Leer-
+  // und Sonderzeichen tragen (Genres, Titel) — deshalb URLSearchParams.
+  insightPatternExamples: ({ dimension, value, windowDays = 90 } = {}) => {
+    const params = new URLSearchParams({
+      dimension, value, window_days: String(windowDays),
+    });
+    return api(`/api/insights/patterns/examples?${params.toString()}`);
+  },
   // Juengstes Pattern-Briefing (Text-Bausteine aus den Mustern, Stufe 1
   // Schritt 3). 404 = noch keins persistiert — der Block blendet die
   // Sektion dann aus, kein Fehlerzustand.
