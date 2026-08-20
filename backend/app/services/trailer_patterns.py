@@ -222,7 +222,7 @@ from typing import Any, Callable, Optional
 
 from sqlmodel import Session, select
 
-from app.models.entities import Channel, Post
+from app.models.entities import Asset, Channel, Post, Title
 from app.services.insight_engine import (
     _duration_bucket,
     _median,
@@ -506,10 +506,55 @@ class _Dimension:
     requires_analysis: bool
 
 
+def _genre_by_post(session: Session, posts: list[Post]) -> dict[Any, str]:
+    """Post → primaeres TMDb-Genre, ueber das aelteste Asset mit
+    ``title_id`` (Trailer-Intelligence Genre-Nachrüstung, 20.08.2026).
+
+    Die Genre-Dimension ist die einzige, die nicht aus dem Post selbst
+    kommt: das Genre haengt am Titel, der Titel am Asset. "Aeltestes
+    Asset zuerst" macht die Wahl deterministisch, falls Assets desselben
+    Posts nach Review-Korrekturen auf verschiedene Titel zeigen.
+
+    Primaer = erstes Element von ``title.genres`` — der Sync erhaelt die
+    TMDb-Reihenfolge genau dafuer (title_sync, kein sorted-Merge).
+    Posts ohne Titel oder mit leerer Genre-Liste fehlen im Mapping und
+    fallen in der Cross-Tab-Schleife wie jeder ``None``-Extrakt heraus;
+    die Abdeckung steht als Note im Bericht.
+    """
+    if not posts:
+        return {}
+    post_ids = [p.id for p in posts]
+    assets = session.exec(
+        select(Asset)
+        .where(Asset.post_id.in_(post_ids), Asset.title_id.is_not(None))
+        .order_by(Asset.created_at.asc())
+    ).all()
+    title_id_by_post: dict[Any, Any] = {}
+    for asset in assets:
+        title_id_by_post.setdefault(asset.post_id, asset.title_id)
+    if not title_id_by_post:
+        return {}
+    titles = {
+        t.id: t
+        for t in session.exec(
+            select(Title).where(Title.id.in_(set(title_id_by_post.values())))
+        ).all()
+    }
+    mapping: dict[Any, str] = {}
+    for post_id, title_id in title_id_by_post.items():
+        title = titles.get(title_id)
+        genres = title.genres if title else None
+        if isinstance(genres, list) and genres and isinstance(genres[0], str) and genres[0].strip():
+            mapping[post_id] = genres[0].strip()
+    return mapping
+
+
 # ``requires_analysis`` entscheidet ueber den Konfidenz-Filter: nur
 # modell-erzeugte Werte muessen ihn passieren. duration/music sind
 # gemessen und wuerden bei 12 % Klassifikations-Abdeckung sonst
-# unnoetig auf ein Achtel schrumpfen.
+# unnoetig auf ein Achtel schrumpfen. Genre (unten, dynamisch in
+# ``compute_trailer_patterns``) ist ebenfalls gemessen — es kommt aus
+# TMDb, nicht aus einem Klassifikator.
 DIMENSIONS: tuple[_Dimension, ...] = (
     _Dimension("format_class", _extract_format_class, False),
     _Dimension("format", _extract_format, True),
@@ -910,9 +955,26 @@ def compute_trailer_patterns(
                 f"Korpus-Quote von {baseline_breakout_rate:.1%}."
             )
 
+    # ---- Genre-Dimension (20.08.2026) ------------------------------------
+    #
+    # Dynamisch statt in DIMENSIONS: die sechs statischen Extraktoren
+    # lesen nur den Post, Genre braucht die Session (Asset → Titel).
+    # requires_analysis=False — TMDb-Fakt, kein Klassifikator-Ergebnis,
+    # der Konfidenz-Filter wuerde nur Abdeckung kosten.
+    genre_by_post = _genre_by_post(session, usable)
+    genre_coverage = len([p for p in usable if p.id in genre_by_post]) / len(usable)
+    if genre_coverage < 0.5:
+        notes.append(
+            f"Genre-Abdeckung liegt bei {genre_coverage:.0%} — Genres "
+            f"kommen aus TMDb ueber die Titel-Zuordnung und fuellen sich "
+            f"mit jedem Title-Sync-Lauf. Die Genre-Zellen beschreiben nur "
+            f"diesen Ausschnitt."
+        )
+    genre_dimension = _Dimension("genre", lambda p: genre_by_post.get(p.id), False)
+
     # ---- Cross-Tabs -----------------------------------------------------
     dimensions: dict[str, list[PatternCell]] = {}
-    for dim in DIMENSIONS:
+    for dim in DIMENSIONS + (genre_dimension,):
         # Bei eingegrenzter Auswertung waere die Formatklassen-Dimension
         # eine einzige Zelle mit z = 0 gegen sich selbst — kein Befund,
         # nur Rauschen in der Ausgabe.

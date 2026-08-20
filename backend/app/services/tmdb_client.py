@@ -228,6 +228,44 @@ class TMDbClient:
             params["region"] = region
         return await self._discover_paginated("/discover/tv", params)
 
+    # Trailer-Intelligence Stufe 1 (20.08.2026): TMDb liefert in jeder
+    # discover-Antwort ``genre_ids`` mit — bis heute wurden sie beim
+    # Normalisieren verworfen, und ``title`` hatte keine Genre-Spalte.
+    # Ohne Genre gibt es keine Muster-Aussage der Form "Romance-Titel:
+    # 15-Sekuender in 9:16 schlagen alles andere".
+    #
+    # Die ID→Name-Tabellen sind hier STATISCH eingebettet statt per
+    # ``/genre/movie/list`` abgerufen: die Listen sind seit Jahren stabil
+    # und offiziell dokumentiert, der Verzicht auf den Extra-Call spart
+    # Quota und funktioniert auch im Mock-Modus. Kommt eine unbekannte ID,
+    # wird sie still uebersprungen (lieber ein fehlendes Genre als ein
+    # geratenes); der naechste Wartungsdurchgang sieht das an der
+    # Coverage-Zahl des Patterns-Endpoints.
+    _MOVIE_GENRES: dict[int, str] = {
+        28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
+        80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
+        14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
+        9648: "Mystery", 10749: "Romance", 878: "Science Fiction",
+        10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western",
+    }
+    _TV_GENRES: dict[int, str] = {
+        10759: "Action & Adventure", 16: "Animation", 35: "Comedy",
+        80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
+        10762: "Kids", 9648: "Mystery", 10763: "News", 10764: "Reality",
+        10765: "Sci-Fi & Fantasy", 10766: "Soap", 10767: "Talk",
+        10768: "War & Politics", 37: "Western",
+    }
+
+    @classmethod
+    def _genre_names(cls, genre_ids: Any, *, is_series: bool) -> list[str]:
+        """ID-Liste → Namensliste, TMDb-Reihenfolge bleibt erhalten
+        (das erste Genre ist TMDbs primaeres — die Muster-Aggregation
+        gruppiert danach)."""
+        mapping = cls._TV_GENRES if is_series else cls._MOVIE_GENRES
+        if not isinstance(genre_ids, list):
+            return []
+        return [mapping[g] for g in genre_ids if isinstance(g, int) and g in mapping]
+
     def normalize_tmdb_series(self, series: dict[str, Any]) -> dict[str, Any]:
         """TV sibling of ``normalize_tmdb_movie``. Maps the TV field names
         (``name`` / ``original_name`` / ``first_air_date``) onto the same
@@ -253,6 +291,7 @@ class TMDbClient:
             "aliases": aliases,
             "overview": series.get("overview"),
             "popularity": series.get("popularity"),
+            "genres": self._genre_names(series.get("genre_ids"), is_series=True),
         }
 
     async def get_movie_release_dates(self, tmdb_id: int) -> dict[str, Any]:
@@ -282,4 +321,5 @@ class TMDbClient:
             "aliases": aliases,
             "overview": movie.get("overview"),
             "popularity": movie.get("popularity"),
+            "genres": self._genre_names(movie.get("genre_ids"), is_series=False),
         }

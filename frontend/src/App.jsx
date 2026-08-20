@@ -6,6 +6,7 @@ import RoundupBlock from './RoundupBlock';
 import AdminPage from './AdminPage';
 import AuthGate from './AuthGate';
 import BreakoutsBlock from './BreakoutsBlock';
+import PatternsBlock from './PatternsBlock';
 import GuidePage from './GuidePage';
 import LegalPage from './LegalPage';
 import UsagePage from './UsagePage';
@@ -225,6 +226,11 @@ function App() {
           schnellste "was ist gerade los?"-Einstieg direkt nach den
           Studio-Kacheln. */}
       <BreakoutsBlock />
+
+      {/* Trailer-Intelligence Stufe 1 (20.08.2026): rendert NUR, wenn
+          /api/health das Feature meldet (Flag in Staging an, in
+          Production aus) — sonst null, kein leerer Rahmen. */}
+      <PatternsBlock />
 
       <RoundupBlock />
       <SiteFooter />

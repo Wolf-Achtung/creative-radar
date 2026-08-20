@@ -155,6 +155,7 @@ export const endpoints = {
   // der Admin-Feed, aber hinter dem normalen User-Login statt der
   // Admin-Session. Rein lesend.
   breakoutsPublic: ({ limit = 10 } = {}) => api(`/api/breakouts?limit=${limit}`),
+  insightPatterns: ({ windowDays = 90 } = {}) => api(`/api/insights/patterns?window_days=${windowDays}`),
   // Latest Segment-Roundup pro Segment. Public, kein Auth-Token noetig
   // (Backend-Whitelist analog /api/pairs). Treibt den Roundup-Block auf
   // der Landing-Page (Master-Plan-Schritt-3b, 26.05.).

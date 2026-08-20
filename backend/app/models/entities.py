@@ -280,6 +280,13 @@ class Title(SQLModel, table=True):
     release_date_us: Optional[date] = None
     source: str = "Manual"
     aliases: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    # Trailer-Intelligence Stufe 1 (20.08.2026): TMDb-Genres in
+    # TMDb-Reihenfolge — das erste ist das primaere, danach gruppiert
+    # die Muster-Aggregation (services/trailer_patterns.py). Leer heisst
+    # "noch nicht befuellt": die Spalte fuellt der Title-Sync bei jedem
+    # Lauf aus den discover-Antworten; Bestandstitel bekommen ihr Genre
+    # also beim naechsten Sync, der sie wieder sieht.
+    genres: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     priority: Priority = Priority.B
     active: bool = True
     notes: Optional[str] = None
