@@ -95,9 +95,9 @@ WERT_LABEL = {
     "4+": "4+ Hashtags",
 }
 VERDICT_WORT = {
-    "over": "laeuft ueber Schnitt",
-    "under": "laeuft unter Schnitt",
-    "neutral": "unauffaellig",
+    "over": "läuft über Schnitt",
+    "under": "läuft unter Schnitt",
+    "neutral": "unauffällig",
 }
 
 
@@ -291,7 +291,7 @@ def _bewegungs_zeile(eintrag: dict) -> str:
         vorher = (cell.get("vorwoche") or {}).get("breakout_verdict", "neutral")
         return (
             f"- {_wert(cell['value'])} ({_dim(eintrag['dim'])}): "
-            f"{VERDICT_WORT.get(vorher, vorher)} -> "
+            f"{VERDICT_WORT.get(vorher, vorher)} → "
             f"{VERDICT_WORT[cell['breakout_verdict']]} "
             f"(Quote {_prozent(cell['breakout_rate'])})."
         )

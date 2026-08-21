@@ -57,6 +57,63 @@ function BudgetStatusCard({ label, status }) {
 // Antwort in einen Klartext-Satz. Auf Staging warnt er, dass der
 // Mailer abgeschaltet ist (DISABLE_EMAILS) — der echte Test gehoert
 // nach Produktion.
+
+// Text-Bausteine generieren (21.08.2026): der Review-Weg per Klick.
+// Jeder Lauf ist ein echter Opus-Call (~5-10 Cent, zahlt in den
+// Anthropic-Monatsdeckel ein); Leerlauf ohne belastbares Muster ist
+// kostenfrei (model='none'). Ergebnis landet im Muster-Panel und in
+// der naechsten Playbook-Mail.
+export function BriefingSection() {
+  const [laeuft, setLaeuft] = useState(null); // 'genre' | 'title' | null
+  const [ergebnis, setErgebnis] = useState(null);
+
+  const generieren = (mode) => {
+    setLaeuft(mode);
+    setErgebnis(null);
+    endpoints.adminPatternBriefingGenerate({ mode })
+      .then((antwort) => setErgebnis({ ok: true, antwort }))
+      .catch((err) => setErgebnis({ ok: false, fehler: String(err?.message || err) }))
+      .finally(() => setLaeuft(null));
+  };
+
+  const satz = (() => {
+    if (!ergebnis) return null;
+    if (!ergebnis.ok) return `Aufruf fehlgeschlagen: ${ergebnis.fehler}`;
+    const a = ergebnis.antwort || {};
+    if (a.model === 'none') {
+      return 'Kein belastbares Muster im Fenster — kein LLM-Aufruf, keine Kosten. '
+        + '(Genres füllen sich mit dem Title-Sync, Titel brauchen genug zugeordnete Posts.)';
+    }
+    if (!a.llm_output_present) {
+      return 'Generierung fehlgeschlagen — die Antwort hat die Prüfung nicht bestanden. Details im Log.';
+    }
+    const verworfen = a.citation_dropped
+      ? ` ${a.citation_dropped} Baustein(e) verworfen, weil Belege fehlten.`
+      : '';
+    return `${a.bausteine} Baustein(e) für KW ${a.iso_week}/${a.iso_year} erstellt `
+      + `(${a.cost_usd_cents} Cent).${verworfen} Sichtbar im Muster-Panel und in der nächsten Playbook-Mail.`;
+  })();
+
+  return (
+    <Section title="Text-Bausteine generieren" kicker="Hooks & Captions aus den Mustern — Review-Lauf">
+      <p style={{ margin: '0 0 0.5rem' }}>
+        Erstellt die Text-Bausteine dieser Woche neu. Jeder Lauf kostet etwa
+        5–10 Cent (Anthropic-Monatsdeckel greift); ohne belastbares Muster
+        ist der Lauf kostenfrei.
+      </p>
+      <div className="section-actions">
+        <button type="button" className="secondary" onClick={() => generieren('genre')} disabled={laeuft !== null}>
+          {laeuft === 'genre' ? 'Generiert …' : 'Genre-Ebene generieren'}
+        </button>
+        <button type="button" className="secondary" onClick={() => generieren('title')} disabled={laeuft !== null}>
+          {laeuft === 'title' ? 'Generiert …' : 'Titel-Ebene generieren'}
+        </button>
+      </div>
+      {satz && <p style={{ marginTop: '0.5rem' }}>{satz}</p>}
+    </Section>
+  );
+}
+
 export function PlaybookMailSection() {
   const [laeuft, setLaeuft] = useState(false);
   const [ergebnis, setErgebnis] = useState(null);
@@ -140,6 +197,7 @@ export function MonitoringPanel() {
 
   return (
     <>
+      <BriefingSection />
       <PlaybookMailSection />
       <Section title="Budgets diesen Monat" kicker="Kalendermonat, UTC">
         {status === 'error' && <p className="error">Konnte Budget-/Kostendaten nicht laden.</p>}
