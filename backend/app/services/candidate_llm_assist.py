@@ -77,8 +77,9 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt:
 
 Regeln:
 1. auswahl nur, wenn der Post eindeutig GENAU diesen Titel bewirbt.
-2. sicher=true nur, wenn kein anderer Titel (auch keiner außerhalb der Liste) plausibel ist. Im Zweifel: auswahl=null, sicher=false.
-3. Ein Post über einen Schauspieler, ein Genre oder mehrere Titel gleichzeitig bekommt auswahl=null."""
+2. sicher=true, wenn Caption oder Bildtext den Titel klar benennen oder unverwechselbar auf ihn verweisen (Teil-Titel, Hashtag, Figuren-/Franchise-Name zählen). sicher=false nur bei echtem Zweifel zwischen mehreren Titeln oder ohne Titel-Bezug.
+3. Ein Post über einen Schauspieler, ein Genre oder mehrere Titel gleichzeitig bekommt auswahl=null.
+4. begruendung: 1 kurzer Satz auf Deutsch — er wird dem Prüfer als Hinweis angezeigt, auch wenn du unsicher bist (dann: warum unsicher)."""
 
 
 @dataclass
@@ -88,6 +89,7 @@ class LlmAssistSummary:
     unsicher: int = 0
     keine_shortlist: int = 0
     fehler: int = 0
+    bereits_geprueft: int = 0
     offen_danach: int = 0
     kosten_calls: int = 0
     zugeordnete_titel: list[str] = field(default_factory=list)
@@ -100,6 +102,7 @@ class LlmAssistSummary:
             "unsicher": self.unsicher,
             "keine_shortlist": self.keine_shortlist,
             "fehler": self.fehler,
+            "bereits_geprueft": self.bereits_geprueft,
             "offen_danach": self.offen_danach,
             "kosten_calls": self.kosten_calls,
             "zugeordnete_titel": self.zugeordnete_titel[:20],
@@ -189,6 +192,9 @@ def run_candidate_llm_assist(
 
     # Nur die Faelle, die der Autopilot als no_exact_match ueberspringt:
     # unzugeordnetes Asset, Vorschlag ohne (eindeutigen) Whitelist-Namen.
+    # Bereits KI-gepruefte (``llm_checked_at``) werden uebersprungen —
+    # Wolfs Befund vom 21.08.: ohne den Marker prueften alle Klicks
+    # dieselben ersten 12 und kamen nie bei den uebrigen an.
     arbeitsvorrat: list[tuple[TitleCandidate, Asset]] = []
     for candidate in offene:
         asset = session.get(Asset, candidate.asset_id)
@@ -196,7 +202,16 @@ def run_candidate_llm_assist(
             continue
         if _normalize(candidate.suggested_title) in lookup:
             continue  # Exakt- oder Mehrdeutig-Fall — nicht unser Revier
+        if candidate.llm_checked_at is not None:
+            summary.bereits_geprueft += 1
+            continue
         arbeitsvorrat.append((candidate, asset))
+
+    def _markieren(candidate: TitleCandidate, note: str) -> None:
+        candidate.llm_checked_at = utc_now()
+        candidate.llm_note = note[:300]
+        candidate.updated_at = utc_now()
+        session.add(candidate)
 
     for candidate, asset in arbeitsvorrat[:max_candidates]:
         summary.geprueft += 1
@@ -209,6 +224,7 @@ def run_candidate_llm_assist(
         shortlist = _shortlist(katalog, text_tokens)
         if not shortlist:
             summary.keine_shortlist += 1
+            _markieren(candidate, "KI: kein passender Katalog-Titel gefunden.")
             continue
 
         retry_result = call_with_json_retry(
@@ -230,16 +246,25 @@ def run_candidate_llm_assist(
 
         parsed = retry_result.parsed
         if not isinstance(parsed, dict):
+            # KEIN Marker: ein API-/Parse-Fehler ist kein Urteil — der
+            # naechste Lauf versucht diesen Kandidaten erneut.
             summary.fehler += 1
             continue
-        auswahl = parsed.get("auswahl")
-        sicher = parsed.get("sicher") is True
-        gueltig = isinstance(auswahl, int) and 1 <= auswahl <= len(shortlist)
+        auswahl = _als_zahl(parsed.get("auswahl"))
+        sicher = _als_wahr(parsed.get("sicher"))
+        begruendung = str(parsed.get("begruendung", "")).strip()
+        gueltig = auswahl is not None and 1 <= auswahl <= len(shortlist)
         if not (sicher and gueltig):
             summary.unsicher += 1
+            _markieren(
+                candidate,
+                f"KI unsicher: {begruendung}" if begruendung
+                else "KI unsicher, ohne Begruendung.",
+            )
             continue
 
         titel = shortlist[auswahl - 1][0]
+        _markieren(candidate, f"KI zugeordnet: {begruendung}"[:300])
         # Identische Zuordnung wie Autopilot / manueller Bestaetigen-Klick.
         asset.title_id = titel.id
         asset.de_us_match_key = slugify_match_key(
@@ -257,8 +282,29 @@ def run_candidate_llm_assist(
         )
 
     session.commit()
-    summary.offen_danach = max(len(arbeitsvorrat) - summary.geprueft, 0) + (
-        summary.unsicher + summary.keine_shortlist + summary.fehler
+    # Noch UNGEPRUEFT: was diese Runde nicht erreicht hat, plus Fehler
+    # (die bleiben unmarkiert und kommen wieder dran). Unsichere und
+    # Shortlist-lose sind ERLEDIGT — sie tragen Marker + Notiz und
+    # gehoeren ab jetzt der Hand-Pruefung.
+    summary.offen_danach = (
+        max(len(arbeitsvorrat) - summary.geprueft, 0) + summary.fehler
     )
     logger.info("candidate-llm-assist done %s", summary.to_dict())
     return summary
+
+
+def _als_zahl(wert) -> int | None:
+    """Haiku antwortet die Auswahl gelegentlich als String ("1") —
+    strikte int-Pruefung liess am 21.08. JEDEN Treffer als unsicher
+    durchfallen. Booleans sind keine Auswahl (True waere sonst 1)."""
+    if isinstance(wert, bool):
+        return None
+    if isinstance(wert, int):
+        return wert
+    if isinstance(wert, str) and wert.strip().isdigit():
+        return int(wert.strip())
+    return None
+
+
+def _als_wahr(wert) -> bool:
+    return wert is True or (isinstance(wert, str) and wert.strip().lower() == "true")

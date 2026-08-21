@@ -362,11 +362,11 @@ export function AdminApp({ onLogout }) {
         return;
       }
       const rest = r.offen_danach
-        ? ` Noch ${r.offen_danach} offen — für die nächste Runde einfach erneut klicken.`
-        : ' Keine offenen Fälle mehr für die KI-Prüfung.';
+        ? ` Noch ${r.offen_danach} ungeprüft — für die nächste Runde einfach erneut klicken.`
+        : ' Alle Rest-Vorschläge sind jetzt KI-geprüft — was übrig ist, ist echte Handarbeit (mit KI-Hinweis in „Treffer prüfen").';
       setMessage(
-        `KI-Prüfung: ${r.geprueft} geprüft, ${r.zugeordnet} sicher zugeordnet, `
-        + `${r.unsicher} bleiben zur Hand-Prüfung.${rest}`
+        `KI-Prüfung: ${r.geprueft} neu geprüft, ${r.zugeordnet} sicher zugeordnet, `
+        + `${r.unsicher} zur Hand-Prüfung markiert.${rest}`
       );
     });
   }
