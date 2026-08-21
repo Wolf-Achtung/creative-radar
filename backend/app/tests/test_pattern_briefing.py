@@ -240,6 +240,12 @@ def test_leerlauf_persistiert_ohne_llm_call(session, monkeypatch):
         "Kein belastbares Genre-Muster" in c
         for c in report.llm_output.data_caveats
     )
+    # Klartext-Prinzip (#388): der Caveat nennt den Klick, der die
+    # Abdeckung sofort fuellt — nicht nur die Ursache.
+    assert any(
+        "Titelquellen aktualisieren" in c
+        for c in report.llm_output.data_caveats
+    ), "Der Leerlauf-Hinweis muss den konkreten Admin-Klick nennen."
     row = session.get(
         PatternBriefingRow, (pb.BRIEFING_MODE_GENRE, 2026, 34)
     )
