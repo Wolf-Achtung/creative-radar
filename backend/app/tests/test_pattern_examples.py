@@ -250,3 +250,34 @@ def test_beispiele_tragen_die_asset_id_des_aeltesten_bild_assets(
     # Die uebrigen Posts haben nur das bildlose Titel-Asset -> null.
     andere = [e for u, e in beispiele.items() if u != posts[0].post_url]
     assert andere and all(e["asset_id"] is None for e in andere)
+
+
+def test_gespeichertes_bild_schlaegt_aelteren_cdn_link(
+    client, session, monkeypatch
+):
+    """Bild-Vorrang (21.08.2026): die Karten zeigen die staerksten —
+    oft Wochen alten — Posts, deren Instagram-CDN-Links tot sind. Ein
+    Asset mit GESPEICHERTEM Bild (visual_evidence_url, laedt immer)
+    gewinnt deshalb gegen ein aelteres Asset mit blossem CDN-Thumbnail."""
+    monkeypatch.setenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", "true")
+    kanal = _channel(session)
+    posts = [_post(session, kanal) for _ in range(6)]
+    for p_ in posts:
+        _titel_mit_asset(session, p_, genres=["Romance"])
+
+    alt_cdn = Asset(post_id=posts[0].id, thumbnail_url="https://cdn.test/tot.jpg")
+    session.add(alt_cdn)
+    session.commit()
+    neu_gespeichert = Asset(
+        post_id=posts[0].id, visual_evidence_url="evidence/asset_1.jpg"
+    )
+    session.add(neu_gespeichert)
+    session.commit()
+    session.refresh(neu_gespeichert)
+
+    antwort = client.get(
+        "/api/insights/patterns/examples"
+        "?dimension=genre&value=Romance&window_days=30"
+    )
+    beispiele = {e["post_url"]: e for e in antwort.json()["examples"]}
+    assert beispiele[posts[0].post_url]["asset_id"] == str(neu_gespeichert.id)

@@ -24,6 +24,7 @@ Versand-Gates, in dieser Reihenfolge:
 from __future__ import annotations
 
 import logging
+from html import escape as _esc
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -98,6 +99,86 @@ VERDICT_WORT = {
     "under": "laeuft unter Schnitt",
     "neutral": "unauffaellig",
 }
+
+
+# Themen-Woerter in Alltagssprache — Zwilling von THEMA_LABEL in
+# PatternsBlock.jsx. Die Mail spricht wie die Empfehlungs-Karten.
+THEMA_LABEL = {
+    "genre": "Genre",
+    "format": "Format",
+    "format_class": "Länge",
+    "duration_bucket": "Länge",
+    "tone": "Tonfall",
+    "lifecycle_stage": "Timing",
+    "music_kind": "Musik",
+    "cover_titel": "Cover",
+    "cover_kinetik": "Cover",
+    "caption_frage": "Bildunterschrift",
+    "caption_cta": "Bildunterschrift",
+    "caption_laenge": "Bildunterschrift",
+    "caption_hashtags": "Hashtags",
+}
+
+# Werkstatt-Vorlagen — Zwilling von WERKSTATT_VORLAGEN in
+# PatternsBlock.jsx (wer dort umformuliert, formuliert hier mit um).
+# Schluessel (dimension, wert); Wert: faktor -> (titel, satz).
+_WERKSTATT_VORLAGEN = {
+    ("cover_kinetik", "title_card"): lambda f: (
+        "Cover mit Titel-Tafel bauen",
+        f"Posts mit gestalteter Titel-Tafel im Cover liegen {f}-mal öfter weit über dem Kanal-Schnitt als Posts ohne.",
+    ),
+    ("lifecycle_stage", "pre_launch"): lambda f: (
+        "Vor dem Start posten",
+        f"Die stärksten Posts entstehen vor dem Kinostart ({f}-mal öfter als erwartet). Baut die Reichweite auf, bevor der Film läuft.",
+    ),
+    ("lifecycle_stage", "launch"): lambda f: (
+        "Zum Start reicht Routine nicht",
+        "Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt. Plant für den Start einen eigenen Aufhänger.",
+    ),
+    ("lifecycle_stage", "evergreen"): lambda f: (
+        "Ohne Anlass bringt ein Post wenig",
+        "Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite. Koppelt sie an einen Termin: Start, Jubiläum, Heimkino.",
+    ),
+    ("tone", "humorous"): lambda f: (
+        "Humor zieht nicht von allein",
+        "Lustige Posts bleiben öfter unter dem Kanal-Schnitt. Nutzt Humor mit einem starken Aufhänger, nicht als Selbstläufer.",
+    ),
+    ("format", "behind_the_scenes"): lambda f: (
+        "Mehr Blicke hinter die Kulissen",
+        f"Posts vom Set oder aus der Produktion liegen {f}-mal öfter weit über dem Kanal-Schnitt. Nähe schlägt Hochglanz.",
+    ),
+    ("format", "clip"): lambda f: (
+        "Szenen-Clips brauchen einen Rahmen",
+        "Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt. Gebt dem Clip einen Einstieg: Hook, Kontext oder Anlass.",
+    ),
+    ("format_class", "langform"): lambda f: (
+        "Lange Videos funktionieren",
+        f"Videos über 90 Sekunden liegen {f}-mal öfter weit über dem Kanal-Schnitt. Länge schreckt nicht ab.",
+    ),
+}
+
+
+def _werkstatt_empfehlung(dim: str, cell: dict) -> tuple[str, str]:
+    """(titel, satz) in Werkstatt-Sprache — Vorlage falls bekannt,
+    sonst ein generischer, ehrlicher Fallback."""
+    expected = cell.get("expected_breakout_rate") or 0
+    faktor = (
+        f"{cell['breakout_rate'] / expected:.1f}" if expected else None
+    )
+    vorlage = _WERKSTATT_VORLAGEN.get((dim, cell["value"]))
+    if vorlage:
+        return vorlage(faktor)
+    wert = _wert(cell["value"])
+    if cell["breakout_verdict"] == "over":
+        oefter = f"{faktor}-mal öfter" if faktor else "öfter"
+        return (
+            f"{wert}: öfter testen",
+            f"Posts mit diesem Merkmal liegen {oefter} weit über dem Kanal-Schnitt.",
+        )
+    return (
+        f"{wert}: sparsam einsetzen",
+        "Posts mit diesem Merkmal bleiben öfter unter dem Kanal-Schnitt.",
+    )
 
 
 def _wert(value: str) -> str:
@@ -197,13 +278,10 @@ def build_playbook(session: Session, *, now: Optional[datetime] = None) -> dict:
 
 def _befund_zeile(eintrag: dict) -> str:
     cell = eintrag["cell"]
-    over = cell["breakout_verdict"] == "over"
-    richtung = "Mehr davon testen" if over else "Sparsam einsetzen"
+    titel, satz = _werkstatt_empfehlung(eintrag["dim"], cell)
     return (
-        f"- {_wert(cell['value'])} ({_dim(eintrag['dim'])}): {richtung} — "
-        f"Ausreisser-Quote {_prozent(cell['breakout_rate'])} statt erwarteter "
-        f"{_prozent(cell['expected_breakout_rate'])} "
-        f"({cell['sample_size']} Posts, {cell['channel_count']} Kanaele)."
+        f"- {titel} — {satz} "
+        f"({cell['sample_size']} Posts, {cell['channel_count']} Kanäle)"
     )
 
 
@@ -224,26 +302,34 @@ def _bewegungs_zeile(eintrag: dict) -> str:
     )
 
 
-def render_playbook(playbook: dict) -> tuple[str, str]:
-    """(subject, text) — bewusst reiner Text: jede Mail-App zeigt ihn,
-    nichts kann am HTML scheitern, und der Inhalt ist Listen-Prosa."""
+def render_playbook(playbook: dict) -> tuple[str, str, str]:
+    """(subject, text, html). Text bleibt vollstaendig — jede Mail-App
+    zeigt ihn; das HTML ist der Panel-Look fuers Postfach.
+
+    Bewusst OHNE die Berichts-Notes: die Mail traegt Handlung, die
+    Methodik und alle Einordnungen stehen im Dashboard-Tab
+    "Zahlen & Methode" (Design-Entscheidung 21.08.2026 nach Wolfs
+    erster Test-Mail — "etwas nuechtern").
+    """
     kw = f"KW {playbook['iso_week']}/{playbook['iso_year']}"
+    machen = [e for e in playbook["befunde"] if e["cell"]["breakout_verdict"] == "over"]
+    vorsicht = [e for e in playbook["befunde"] if e["cell"]["breakout_verdict"] != "over"]
+
     if playbook["befunde"]:
-        top = playbook["befunde"][0]["cell"]
-        subject = f"Creative Radar Playbook {kw}: {_wert(top['value'])} & mehr"
+        top_titel, _ = _werkstatt_empfehlung(
+            playbook["befunde"][0]["dim"], playbook["befunde"][0]["cell"]
+        )
+        subject = f"Creative Radar Playbook {kw}: {top_titel}"
     else:
         subject = f"Creative Radar Playbook {kw}"
 
-    teile: list[str] = [
-        f"Creative Radar — Playbook {kw}",
-        "",
-        f"Datenbasis: {playbook['posts_with_baseline']} Posts mit "
-        f"Kanal-Baseline aus {playbook['channels_covered']} Kanaelen, "
-        f"Fenster {playbook['window_days']} Tage.",
-    ]
-    if playbook["befunde"]:
-        teile += ["", "DIE STAERKSTEN BEFUNDE", ""]
-        teile += [_befund_zeile(e) for e in playbook["befunde"]]
+    teile: list[str] = [f"Creative Radar — Playbook {kw}"]
+    if machen:
+        teile += ["", "MACHEN", ""]
+        teile += [_befund_zeile(e) for e in machen]
+    if vorsicht:
+        teile += ["", "VORSICHT", ""]
+        teile += [_befund_zeile(e) for e in vorsicht]
     if playbook["bewegungen"]:
         teile += ["", "BEWEGUNG DIESE WOCHE", ""]
         teile += [_bewegungs_zeile(e) for e in playbook["bewegungen"]]
@@ -260,15 +346,99 @@ def render_playbook(playbook: dict) -> tuple[str, str]:
             for url in (baustein.get("cited_post_ids") or [])[:3]:
                 teile.append(f"    Beleg: {url}")
             teile.append("")
-    if playbook["notes"]:
-        teile += ["", "EINORDNUNG", ""]
-        teile += [f"- {note}" for note in playbook["notes"]]
+    dashboard = (settings.frontend_url or "https://app.creative-radar.de").rstrip("/")
     teile += [
         "",
-        "Gemessene Korrelationen im eigenen Bestand — kein Beweis fuer "
-        "Ursache und Wirkung. Details und Beispiel-Posts im Dashboard.",
+        f"Alle Zahlen, Beispiel-Posts und die Methodik: {dashboard}",
+        f"Datenbasis: {playbook['posts_with_baseline']} Posts aus "
+        f"{playbook['channels_covered']} Kanälen, Fenster {playbook['window_days']} Tage.",
+        "Gemessene Korrelationen im eigenen Bestand — kein Wirkungsbeweis.",
     ]
-    return subject, "\n".join(teile)
+    return subject, "\n".join(teile), _render_html(playbook, kw, machen, vorsicht)
+
+
+def _html_karte(eintrag: dict) -> str:
+    cell = eintrag["cell"]
+    over = cell["breakout_verdict"] == "over"
+    farbe = "#1f7a45" if over else "#b03d2e"
+    chip = "Machen" if over else "Vorsicht"
+    thema = THEMA_LABEL.get(eintrag["dim"], _dim(eintrag["dim"]))
+    titel, satz = _werkstatt_empfehlung(eintrag["dim"], cell)
+    return (
+        f'<div style="background:#fdf8ef;border-radius:10px;'
+        f'border-left:4px solid {farbe};padding:12px 16px;margin:0 0 10px;">'
+        f'<p style="margin:0 0 2px;font-size:11px;letter-spacing:.05em;'
+        f'text-transform:uppercase;font-weight:600;">'
+        f'<span style="color:{farbe};">{chip}</span>'
+        f'<span style="color:#6b6b6b;"> &middot; {_esc(thema)}</span></p>'
+        f'<p style="margin:0 0 4px;font-weight:700;font-size:15px;color:#1c1c1a;">{_esc(titel)}</p>'
+        f'<p style="margin:0;font-size:13px;color:#4a4a44;">{_esc(satz)}</p>'
+        f'<p style="margin:4px 0 0;font-size:11px;color:#6b6b6b;">'
+        f'Basis: {cell["sample_size"]} Posts von {cell["channel_count"]} Kanälen.</p>'
+        f"</div>"
+    )
+
+
+def _render_html(playbook: dict, kw: str, machen: list, vorsicht: list) -> str:
+    dashboard = (settings.frontend_url or "https://app.creative-radar.de").rstrip("/")
+    bloecke: list[str] = []
+    for eintrag in machen + vorsicht:
+        bloecke.append(_html_karte(eintrag))
+    if playbook["bewegungen"]:
+        zeilen = "".join(
+            f'<p style="margin:0 0 4px;font-size:13px;color:#4a4a44;">'
+            f"{_esc(_bewegungs_zeile(e)[2:])}</p>"
+            for e in playbook["bewegungen"]
+        )
+        bloecke.append(
+            '<p style="margin:14px 0 6px;font-weight:700;font-size:13px;'
+            'color:#1c1c1a;">Bewegung diese Woche</p>' + zeilen
+        )
+    for mode, label in (("genre", "Text-Bausteine (Genre-Muster)"),
+                        ("title", "Text-Bausteine (je Titel)")):
+        bausteine = playbook["bausteine"].get(mode) or []
+        if not bausteine:
+            continue
+        inner = ""
+        for baustein in bausteine:
+            hooks = "".join(
+                f'<li style="margin:0 0 2px;">{_esc(hook)}</li>'
+                for hook in (baustein.get("hooks_de") or [])[:3]
+            )
+            inner += (
+                f'<p style="margin:8px 0 2px;font-weight:700;font-size:13px;'
+                f'color:#1c1c1a;">{_esc(baustein.get("muster", "?"))}</p>'
+                f'<ul style="margin:0;padding-left:18px;font-size:13px;'
+                f'color:#4a4a44;">{hooks}</ul>'
+            )
+        bloecke.append(
+            f'<p style="margin:14px 0 0;font-weight:700;font-size:13px;'
+            f'color:#1c1c1a;">{label}</p>' + inner
+        )
+    inhalt = "".join(bloecke) or (
+        '<p style="margin:0;font-size:13px;color:#4a4a44;">'
+        "Diese Woche keine belastbaren Befunde.</p>"
+    )
+    return (
+        '<div style="margin:0;padding:16px;background:#efe9db;'
+        "font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;\">"
+        '<div style="max-width:560px;margin:0 auto;">'
+        '<div style="background:#1f4d4d;border-radius:12px 12px 0 0;padding:18px 20px;">'
+        f'<p style="margin:0;color:#ffa294;font-size:11px;letter-spacing:.05em;'
+        f'font-weight:600;text-transform:uppercase;">Trailer-Intelligence &middot; {kw}</p>'
+        '<p style="margin:4px 0 0;color:#ffffff;font-size:19px;font-weight:700;">'
+        "Playbook — was diese Woche zählt</p></div>"
+        '<div style="background:#f4efe4;border-radius:0 0 12px 12px;padding:14px 16px;">'
+        + inhalt
+        + f'<p style="margin:14px 0 0;font-size:12px;">'
+        f'<a href="{dashboard}" style="color:#1f7a45;font-weight:600;">'
+        "Alle Zahlen, Beispiel-Posts und die Methodik im Dashboard</a></p>"
+        f'<p style="margin:6px 0 0;font-size:11px;color:#6b6b6b;">'
+        f"Datenbasis: {playbook['posts_with_baseline']} Posts aus "
+        f"{playbook['channels_covered']} Kanälen, Fenster {playbook['window_days']} Tage. "
+        "Gemessene Korrelationen im eigenen Bestand — kein Wirkungsbeweis.</p>"
+        "</div></div></div>"
+    )
 
 
 async def send_pattern_playbook(
@@ -309,10 +479,10 @@ async def send_pattern_playbook(
         logger.info("pattern_playbook.skipped reason=nichts_zu_berichten")
         return summary
 
-    subject, text = render_playbook(playbook)
+    subject, text, html = render_playbook(playbook)
     for recipient in recipients:
         try:
-            await send_mail(to=recipient, subject=subject, text=text)
+            await send_mail(to=recipient, subject=subject, text=text, html=html)
             summary["sent"] += 1
         except Exception:  # noqa: BLE001 — ein kaputter Empfaenger darf
             # die uebrigen nicht kosten; der Mailer loggt die Details.

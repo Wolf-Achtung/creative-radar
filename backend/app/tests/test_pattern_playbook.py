@@ -93,14 +93,39 @@ def _playbook_minimal(**overrides):
     return pb
 
 
-def test_render_traegt_zahlen_und_richtung():
-    subject, text = pp.render_playbook(_playbook_minimal())
+def test_render_spricht_werkstatt_sprache():
+    """21.08.2026 nach Wolfs erster Test-Mail ("etwas nuechtern"): die
+    Mail nutzt dieselben Werkstatt-Vorlagen wie die Panel-Karten —
+    Handlung statt Mess-Sprache, MACHEN/VORSICHT-Gruppen, Fusszeile
+    mit Dashboard-Link statt Notes-Block."""
+    subject, text, html = pp.render_playbook(_playbook_minimal())
     assert "KW 34/2026" in subject
-    assert "Behind-the-Scenes" in subject
-    assert "Mehr davon testen" in text
-    assert "20.0 % statt erwarteter 13.0 %" in text
+    # Subject traegt den Werkstatt-Titel des staerksten Befunds.
+    assert "Mehr Blicke hinter die Kulissen" in subject
+    assert "MACHEN" in text
+    assert "Mehr Blicke hinter die Kulissen" in text
+    assert "1.5-mal öfter weit über dem Kanal-Schnitt" in text
+    # Mess-Sprache und rohe Werte kommen nicht mehr vor.
+    assert "Ausreisser-Quote" not in text
+    assert "behind_the_scenes" not in text
     assert "5804 Posts" in text
-    assert "kein Beweis fuer Ursache und Wirkung" in text.replace("\n", " ")
+    assert "app.creative-radar.de" in text
+    assert "kein Wirkungsbeweis" in text
+    # HTML: Panel-Look mit Karte, Chip und Dashboard-Link.
+    assert "Mehr Blicke hinter die Kulissen" in html
+    assert "Machen" in html
+    assert "app.creative-radar.de" in html
+
+
+def test_render_vorsicht_gruppe_und_fallback():
+    pb = _playbook_minimal(befunde=[{
+        "dim": "genre",
+        "cell": _zelle("Romance", verdict="under", z=-2.5),
+    }])
+    subject, text, _ = pp.render_playbook(pb)
+    assert "Romance: sparsam einsetzen" in subject
+    assert "VORSICHT" in text
+    assert "bleiben öfter unter dem Kanal-Schnitt" in text
 
 
 def test_render_bausteine_mit_hooks_und_belegen():
@@ -111,7 +136,7 @@ def test_render_bausteine_mit_hooks_und_belegen():
             "cited_post_ids": ["https://x.test/p/1"],
         }],
     })
-    _, text = pp.render_playbook(pb)
+    _, text, _ = pp.render_playbook(pb)
     assert "TEXT-BAUSTEINE (GENRE-MUSTER)" in text
     assert "Romance auf TikTok" in text
     assert "Hook: Hook eins" in text
@@ -144,7 +169,7 @@ def gesendete(monkeypatch):
     calls: list[dict] = []
 
     async def _fake_send(*, to, subject, text, html=None):
-        calls.append({"to": to, "subject": subject, "text": text})
+        calls.append({"to": to, "subject": subject, "text": text, "html": html})
 
     monkeypatch.setattr(pp, "send_mail", _fake_send)
     return calls
@@ -212,6 +237,9 @@ async def test_versand_an_alle_empfaenger_mit_bausteinen(
     assert [c["to"] for c in gesendete] == ["a@x.test", "b@x.test"]
     assert "Romance auf TikTok" in gesendete[0]["text"]
     assert "Playbook" in gesendete[0]["subject"]
+    # Die HTML-Variante geht MIT — sonst zeigt jede Mail-App nur den
+    # nuechternen Text (Wolf-Befund 21.08.).
+    assert gesendete[0]["html"] and "Romance auf TikTok" in gesendete[0]["html"]
 
 
 @pytest.mark.anyio
