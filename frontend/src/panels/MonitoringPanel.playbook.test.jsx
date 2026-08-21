@@ -3,10 +3,14 @@
 // auf Staging (emails_disabled) warnt er, dass nichts ankam.
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../api/client', () => ({
-  endpoints: { adminPlaybookMailTest: vi.fn(), adminPatternBriefingGenerate: vi.fn() },
+  endpoints: {
+    adminPlaybookMailTest: vi.fn(),
+    adminPatternBriefingGenerate: vi.fn(),
+    adminPatternBriefingLatest: vi.fn(),
+  },
 }));
 
 import { endpoints } from '../api/client';
@@ -44,6 +48,14 @@ describe('PlaybookMailSection', () => {
 });
 
 describe('BriefingSection', () => {
+  // Default: fuer die Ebene liegt noch nichts vor — der 404-Text des
+  // Endpoints. Tests mit Anzeige-Daten ueberschreiben das gezielt.
+  beforeEach(() => {
+    endpoints.adminPatternBriefingLatest.mockRejectedValue(
+      new Error('{"detail":"Noch kein Pattern-Briefing (genre) persistiert."}'),
+    );
+  });
+
   it('generiert die Titel-Ebene und meldet Bausteine samt Kosten', async () => {
     endpoints.adminPatternBriefingGenerate.mockResolvedValue({
       mode: 'title', iso_year: 2026, iso_week: 34, model: 'claude-x',
@@ -66,5 +78,56 @@ describe('BriefingSection', () => {
     render(<BriefingSection />);
     fireEvent.click(screen.getByText('Genre-Ebene generieren'));
     await screen.findByText(/kein LLM-Aufruf, keine Kosten/);
+  });
+
+  it('zeigt das Ergebnis nach der Generierung direkt an', async () => {
+    endpoints.adminPatternBriefingGenerate.mockResolvedValue({
+      mode: 'genre', iso_year: 2026, iso_week: 34, model: 'claude-x',
+      bausteine: 1, citation_dropped: 0, llm_output_present: true,
+      cost_usd_cents: 6,
+    });
+    endpoints.adminPatternBriefingLatest.mockResolvedValue({
+      mode: 'genre', iso_year: 2026, iso_week: 34, model: 'claude-x',
+      llm_output: {
+        bausteine: [{
+          muster: 'Romance × Cover mit Titel-Tafel',
+          begruendung: 'Liegt 3,2-mal öfter weit über dem Kanal-Schnitt.',
+          hooks_de: ['Dieser Blick sagt alles.'],
+          hooks_en: ['One look. That is the whole story.'],
+          captions_de: ['[TITEL] — ab Freitag im Kino.'],
+          captions_en: ['[TITLE] — in theaters Friday.'],
+          hashtags: ['romance', 'kino'],
+          cited_post_ids: ['https://x.test/p/1', 'https://x.test/p/2'],
+        }],
+        data_caveats: ['Nur 32 % Cover-Abdeckung.'],
+      },
+    });
+    render(<BriefingSection />);
+    fireEvent.click(screen.getByText('Genre-Ebene generieren'));
+    await screen.findByText('Romance × Cover mit Titel-Tafel');
+    expect(endpoints.adminPatternBriefingLatest).toHaveBeenCalledWith({ mode: 'genre' });
+    expect(screen.getByText('Dieser Blick sagt alles.')).toBeTruthy();
+    expect(screen.getByText('#romance #kino')).toBeTruthy();
+    expect(screen.getByText('Post 1').getAttribute('href')).toBe('https://x.test/p/1');
+    expect(screen.getByText(/Genre-Ebene · KW 34\/2026 · Modell: claude-x/)).toBeTruthy();
+    expect(screen.getByText(/Nur 32 % Cover-Abdeckung/)).toBeTruthy();
+  });
+
+  it('holt das letzte Ergebnis der Titel-Ebene ohne neuen Lauf', async () => {
+    endpoints.adminPatternBriefingLatest.mockResolvedValue({
+      mode: 'title', iso_year: 2026, iso_week: 33, model: 'claude-x',
+      llm_output: { bausteine: [], data_caveats: [] },
+    });
+    render(<BriefingSection />);
+    fireEvent.click(screen.getByText('Letztes Ergebnis: Titel'));
+    await screen.findByText(/keine Bausteine hinterlassen/);
+    expect(endpoints.adminPatternBriefingLatest).toHaveBeenCalledWith({ mode: 'title' });
+    expect(endpoints.adminPatternBriefingGenerate).not.toHaveBeenCalled();
+  });
+
+  it('erklaert eine Ebene ohne gespeichertes Briefing in Klartext', async () => {
+    render(<BriefingSection />);
+    fireEvent.click(screen.getByText('Letztes Ergebnis: Genre'));
+    await screen.findByText(/wurde noch kein Briefing generiert/);
   });
 });

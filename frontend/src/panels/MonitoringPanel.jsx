@@ -61,17 +61,132 @@ function BudgetStatusCard({ label, status }) {
 // Text-Bausteine generieren (21.08.2026): der Review-Weg per Klick.
 // Jeder Lauf ist ein echter Opus-Call (~5-10 Cent, zahlt in den
 // Anthropic-Monatsdeckel ein); Leerlauf ohne belastbares Muster ist
-// kostenfrei (model='none'). Ergebnis landet im Muster-Panel und in
-// der naechsten Playbook-Mail.
+// kostenfrei (model='none'). Review-Umbau am selben Tag: die Sektion
+// zeigt das Ergebnis direkt hier an — nach der Generierung laedt sie
+// GET /pattern-briefing/latest nach, die "Letztes Ergebnis"-Buttons
+// holen den Stand jederzeit ohne neuen (kostenden) Lauf. Vorher war
+// der Output in Production unsichtbar, solange das Nutzer-Panel hinter
+// FEATURE_TRAILER_INTELLIGENCE_ENABLED steckt.
+
+const EBENE_LABEL = { genre: 'Genre-Ebene', title: 'Titel-Ebene' };
+
+function BriefingAnzeige({ anzeige }) {
+  const ebene = EBENE_LABEL[anzeige.mode] || anzeige.mode;
+  if (anzeige.fehler) {
+    return (
+      <p className="error" style={{ marginTop: '0.75rem' }}>
+        Konnte das letzte Ergebnis ({ebene}) nicht laden: {anzeige.fehler}
+      </p>
+    );
+  }
+  if (anzeige.leer) {
+    return (
+      <p className="muted" style={{ marginTop: '0.75rem' }}>
+        {ebene}: Für diese Ebene wurde noch kein Briefing generiert.
+      </p>
+    );
+  }
+  const d = anzeige.daten || {};
+  const bausteine = d.llm_output?.bausteine || [];
+  const caveats = d.llm_output?.data_caveats || [];
+  return (
+    <div style={{ marginTop: '0.75rem' }}>
+      <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>
+        {ebene} · KW {d.iso_week}/{d.iso_year} · Modell: {d.model}
+      </p>
+      {bausteine.length === 0 && (
+        <p className="muted">
+          Der Lauf hat keine Bausteine hinterlassen — kein belastbares
+          Muster im Fenster, oder alle Bausteine wurden mangels Belegen
+          verworfen.
+        </p>
+      )}
+      {bausteine.map((b, i) => (
+        <div
+          key={i}
+          style={{
+            border: '1px solid rgba(127, 127, 127, 0.35)',
+            borderRadius: '8px',
+            padding: '0.75rem',
+            marginBottom: '0.75rem',
+          }}
+        >
+          <p style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>{b.muster}</p>
+          {b.begruendung && (
+            <p className="muted small" style={{ margin: '0 0 0.5rem' }}>{b.begruendung}</p>
+          )}
+          {[
+            ['Hooks (DE)', b.hooks_de],
+            ['Hooks (EN)', b.hooks_en],
+            ['Captions (DE)', b.captions_de],
+            ['Captions (EN)', b.captions_en],
+          ].map(([label, liste]) => (
+            Array.isArray(liste) && liste.length > 0 && (
+              <div key={label} style={{ marginBottom: '0.5rem' }}>
+                <p className="small" style={{ margin: '0 0 0.15rem', fontWeight: 600 }}>{label}</p>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+                  {liste.map((eintrag, j) => (
+                    <li key={j} className="small">{eintrag}</li>
+                  ))}
+                </ul>
+              </div>
+            )
+          ))}
+          {Array.isArray(b.hashtags) && b.hashtags.length > 0 && (
+            <p className="small" style={{ margin: '0 0 0.5rem' }}>
+              {b.hashtags.map((h) => `#${h}`).join(' ')}
+            </p>
+          )}
+          {Array.isArray(b.cited_post_ids) && b.cited_post_ids.length > 0 && (
+            <p className="small muted" style={{ margin: 0 }}>
+              Belege:{' '}
+              {b.cited_post_ids.map((url, j) => (
+                <a key={j} href={url} target="_blank" rel="noreferrer" style={{ marginRight: '0.5rem' }}>
+                  Post {j + 1}
+                </a>
+              ))}
+            </p>
+          )}
+        </div>
+      ))}
+      {caveats.length > 0 && (
+        <p className="muted small" style={{ margin: 0 }}>
+          Einschränkungen: {caveats.join(' · ')}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function BriefingSection() {
   const [laeuft, setLaeuft] = useState(null); // 'genre' | 'title' | null
   const [ergebnis, setErgebnis] = useState(null);
+  // { mode, daten } | { mode, leer: true } | { mode, fehler }
+  const [anzeige, setAnzeige] = useState(null);
+
+  const anzeigen = (mode) => {
+    endpoints.adminPatternBriefingLatest({ mode })
+      .then((daten) => setAnzeige({ mode, daten }))
+      .catch((err) => {
+        const fehler = String(err?.message || err);
+        // Die beiden 404-Texte des Endpoints enthalten beide
+        // "kein Pattern-Briefing" — alles andere ist ein echter Fehler.
+        if (/kein pattern-briefing/i.test(fehler)) {
+          setAnzeige({ mode, leer: true });
+        } else {
+          setAnzeige({ mode, fehler });
+        }
+      });
+  };
 
   const generieren = (mode) => {
     setLaeuft(mode);
     setErgebnis(null);
     endpoints.adminPatternBriefingGenerate({ mode })
-      .then((antwort) => setErgebnis({ ok: true, antwort }))
+      .then((antwort) => {
+        setErgebnis({ ok: true, antwort });
+        anzeigen(mode);
+      })
       .catch((err) => setErgebnis({ ok: false, fehler: String(err?.message || err) }))
       .finally(() => setLaeuft(null));
   };
@@ -91,7 +206,7 @@ export function BriefingSection() {
       ? ` ${a.citation_dropped} Baustein(e) verworfen, weil Belege fehlten.`
       : '';
     return `${a.bausteine} Baustein(e) für KW ${a.iso_week}/${a.iso_year} erstellt `
-      + `(${a.cost_usd_cents} Cent).${verworfen} Sichtbar im Muster-Panel und in der nächsten Playbook-Mail.`;
+      + `(${a.cost_usd_cents} Cent).${verworfen} Das Ergebnis steht direkt hierunter.`;
   })();
 
   return (
@@ -99,7 +214,8 @@ export function BriefingSection() {
       <p style={{ margin: '0 0 0.5rem' }}>
         Erstellt die Text-Bausteine dieser Woche neu. Jeder Lauf kostet etwa
         5–10 Cent (Anthropic-Monatsdeckel greift); ohne belastbares Muster
-        ist der Lauf kostenfrei.
+        ist der Lauf kostenfrei. Das Ergebnis erscheint direkt hier —
+        „Letztes Ergebnis“ zeigt den gespeicherten Stand ohne neuen Lauf.
       </p>
       <div className="section-actions">
         <button type="button" className="secondary" onClick={() => generieren('genre')} disabled={laeuft !== null}>
@@ -108,8 +224,15 @@ export function BriefingSection() {
         <button type="button" className="secondary" onClick={() => generieren('title')} disabled={laeuft !== null}>
           {laeuft === 'title' ? 'Generiert …' : 'Titel-Ebene generieren'}
         </button>
+        <button type="button" className="secondary" onClick={() => anzeigen('genre')} disabled={laeuft !== null}>
+          Letztes Ergebnis: Genre
+        </button>
+        <button type="button" className="secondary" onClick={() => anzeigen('title')} disabled={laeuft !== null}>
+          Letztes Ergebnis: Titel
+        </button>
       </div>
       {satz && <p style={{ marginTop: '0.5rem' }}>{satz}</p>}
+      {anzeige && <BriefingAnzeige anzeige={anzeige} />}
     </Section>
   );
 }
