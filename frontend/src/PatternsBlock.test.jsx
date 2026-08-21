@@ -401,8 +401,12 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     });
     render(<PatternsBlock />);
 
-    await screen.findByText('Cover mit Title-Card bauen');
-    expect(screen.getByText(/1\.6× öfter aus als vergleichbare ohne/)).toBeTruthy();
+    await screen.findByText('Cover mit Titel-Tafel bauen');
+    // Themen-Chip in Alltagssprache — nicht der Dimensions-Name
+    // "Cover: Bildtext & Kinetik".
+    expect(screen.getByText('· Cover')).toBeTruthy();
+    expect(screen.queryByText(/Bildtext & Kinetik/)).toBeNull();
+    expect(screen.getByText(/1\.6-mal öfter weit über dem Kanal-Schnitt/)).toBeTruthy();
     expect(screen.getByText(/Basis: 272 Posts von 118 Kanälen/)).toBeTruthy();
     // Referenz-Posts: direkt geladen (limit 3) und sichtbar.
     expect(endpoints.insightPatternExamples).toHaveBeenCalledWith(
@@ -422,8 +426,8 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
 
     // Romance (over) hat keine Werkstatt-Vorlage — Titel aus dem
     // Fallback, mit Faktor aus den Zahlen (0.19/0.11 = 1.7).
-    await screen.findByText('Romance öfter testen');
-    expect(screen.getByText(/1\.7× öfter aus als erwartet/)).toBeTruthy();
+    await screen.findByText('Romance: öfter testen');
+    expect(screen.getByText(/1\.7-mal öfter weit über dem Kanal-Schnitt/)).toBeTruthy();
   });
 
   it('Copy-Button kopiert einen Baustein-Hook in die Zwischenablage', async () => {
