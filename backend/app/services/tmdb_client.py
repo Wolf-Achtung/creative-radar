@@ -294,6 +294,15 @@ class TMDbClient:
             "genres": self._genre_names(series.get("genre_ids"), is_series=True),
         }
 
+    async def get_title_details(self, tmdb_id: int, *, is_series: bool) -> dict[str, Any]:
+        """Details-Endpoint (``/movie/{id}`` bzw. ``/tv/{id}``) — im
+        Gegensatz zu discover liefert er volle Genre-Objekte mit Namen
+        in TMDb-Reihenfolge (erstes = primaeres Genre). Grundlage des
+        Genre-Backfills (21.08.2026) fuer Titel, die nie durch einen
+        Company-Discover laufen (Streamer-Originals, Kandidaten-Titel)."""
+        kind = "tv" if is_series else "movie"
+        return await self._get(f"/{kind}/{tmdb_id}")
+
     async def get_movie_release_dates(self, tmdb_id: int) -> dict[str, Any]:
         return await self._get(f"/movie/{tmdb_id}/release_dates")
 
