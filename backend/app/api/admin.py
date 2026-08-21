@@ -1308,6 +1308,26 @@ def trigger_pattern_briefing(
     }
 
 
+@router.post("/playbook-mail/test")
+async def trigger_playbook_mail_test(
+    session: Session = Depends(get_session),
+) -> dict:
+    """Playbook-Mail sofort rendern und an ``PLAYBOOK_MAIL_RECIPIENTS``
+    senden — der Test-Weg (21.08.2026): Wolf prueft den Versand in
+    Produktion, BEVOR das TI-Flag faellt.
+
+    ``force=True`` ueberspringt nur das Flag-Gate; eine leere
+    Empfaengerliste oder ein leerer Bericht kommen als ``reason`` in
+    der Antwort zurueck — der Aufrufer sieht immer, WARUM keine Mail
+    ging. Admin-Session pflichtig (Router-Dependency), bewusst NICHT
+    flag-gegatet — dasselbe Muster wie ``/pattern-briefing/generate``.
+    ``DISABLE_EMAILS`` greift weiter im Mailer (Staging schickt nichts).
+    """
+    from app.services.pattern_playbook import send_pattern_playbook
+
+    return await send_pattern_playbook(session, force=True)
+
+
 @router.post("/roundups/generate")
 def trigger_segment_roundup(
     segment: str = Query(

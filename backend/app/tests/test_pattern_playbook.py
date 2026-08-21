@@ -234,3 +234,111 @@ async def test_briefing_aelterer_woche_zaehlt_nicht(
 
     assert summary["reason"] == "nichts_zu_berichten"
     assert gesendete == []
+
+
+@pytest.mark.anyio
+async def test_force_ueberspringt_nur_das_flag_gate(
+    session, gesendete, monkeypatch
+):
+    """Admin-Test-Trigger (21.08.2026): ``force=True`` sendet auch bei
+    ausgeschaltetem TI-Flag — so prueft Wolf den Versand in Produktion
+    vor der Freigabe. Die uebrigen Gates gelten weiter."""
+    monkeypatch.delenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", raising=False)
+    monkeypatch.setattr(settings, "playbook_mail_recipients", "wolf@x.test")
+    iso = NOW.isocalendar()
+    session.add(PatternBriefing(
+        mode="genre", iso_year=iso.year, iso_week=iso.week, window_days=90,
+        evidence={}, llm_output={
+            "bausteine": [{
+                "muster": "Romance auf TikTok",
+                "hooks_de": ["Hook eins"],
+                "cited_post_ids": ["https://x.test/p/1"],
+            }],
+            "data_caveats": [],
+        },
+        generated_at=NOW, model="test",
+    ))
+    session.commit()
+
+    summary = await pp.send_pattern_playbook(session, now=NOW, force=True)
+
+    assert summary["sent"] == 1
+    assert [c["to"] for c in gesendete] == ["wolf@x.test"]
+
+
+@pytest.mark.anyio
+async def test_force_meldet_leere_empfaengerliste_als_reason(
+    session, gesendete, monkeypatch
+):
+    """Der Test-Trigger muss Fehlkonfiguration SICHTBAR machen: keine
+    Empfaenger -> reason no_recipients in der Antwort, keine Mail."""
+    monkeypatch.delenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", raising=False)
+    monkeypatch.setattr(settings, "playbook_mail_recipients", "")
+
+    summary = await pp.send_pattern_playbook(session, now=NOW, force=True)
+
+    assert summary["skipped"] is True
+    assert summary["reason"] == "no_recipients"
+    assert gesendete == []
+
+
+def test_admin_test_endpoint_verlangt_admin_session(monkeypatch):
+    """Der Test-Trigger ist NICHT flag-gegatet — umso wichtiger, dass
+    die Router-weite Admin-Session-Pflicht ihn deckt. Mit aktivierter
+    Admin-Auth (wie in Produktion) und ohne Session-Cookie: 401."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    monkeypatch.setattr(settings, "admin_auth_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "admin_session_secret", "s" * 32, raising=False)
+    client = TestClient(app)
+    antwort = client.post("/api/admin/playbook-mail/test")
+    assert antwort.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_admin_test_endpoint_sendet_trotz_flag_aus(
+    session, gesendete, monkeypatch
+):
+    """Der Endpoint muss force=True durchreichen: TI-Flag aus, Briefing
+    da, Empfaenger gesetzt -> die Mail geht raus und die Antwort sagt
+    sent=1. Ohne force waere die Antwort skipped/feature_flag_off —
+    genau die Mutation, die dieser Test toetet."""
+    from httpx import ASGITransport, AsyncClient
+
+    from app.database import get_session
+    from app.main import app
+
+    monkeypatch.delenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", raising=False)
+    monkeypatch.setattr(settings, "playbook_mail_recipients", "wolf@x.test")
+    iso = NOW.isocalendar()
+    session.add(PatternBriefing(
+        mode="genre", iso_year=iso.year, iso_week=iso.week, window_days=90,
+        evidence={}, llm_output={
+            "bausteine": [{
+                "muster": "Romance auf TikTok",
+                "hooks_de": ["Hook eins"],
+                "cited_post_ids": ["https://x.test/p/1"],
+            }],
+            "data_caveats": [],
+        },
+        generated_at=NOW, model="test",
+    ))
+    session.commit()
+
+    def _override():
+        yield session
+
+    app.dependency_overrides[get_session] = _override
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            antwort = await client.post("/api/admin/playbook-mail/test")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert antwort.status_code == 200
+    daten = antwort.json()
+    assert daten["skipped"] is False and daten["sent"] == 1
+    assert [c["to"] for c in gesendete] == ["wolf@x.test"]

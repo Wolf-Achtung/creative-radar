@@ -272,12 +272,18 @@ def render_playbook(playbook: dict) -> tuple[str, str]:
 
 
 async def send_pattern_playbook(
-    session: Session, *, now: Optional[datetime] = None
+    session: Session, *, now: Optional[datetime] = None, force: bool = False
 ) -> dict:
     """Bauen, rendern, versenden — mit den drei Gates aus dem
-    Modul-Docstring. Rueckgabe ist das Cron-Summary-Dict."""
+    Modul-Docstring. Rueckgabe ist das Cron-Summary-Dict.
+
+    ``force=True`` ueberspringt NUR das Flag-Gate — fuer den
+    Admin-Test-Trigger (21.08.2026): Wolf prueft den Versand in
+    Produktion, BEVOR das TI-Flag faellt. Empfaenger- und Inhalts-Gate
+    gelten weiter; eine leere Empfaengerliste oder ein leerer Bericht
+    kommen als ``reason`` zurueck statt als stille Nicht-Mail."""
     summary: dict[str, Any] = {"skipped": False, "sent": 0, "failed": 0}
-    if not is_trailer_intelligence_enabled():
+    if not force and not is_trailer_intelligence_enabled():
         summary["skipped"] = True
         summary["reason"] = "feature_flag_off"
         return summary
