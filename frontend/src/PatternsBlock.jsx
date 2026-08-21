@@ -441,7 +441,7 @@ function BausteinKarte({ baustein }) {
               {label}
             </p>
             <ul style={{ color: '#e8f0ea', margin: 0, paddingLeft: '1.2rem', fontSize: '0.9em' }}>
-              {eintraege.map((text) => <li key={text}>{text}</li>)}
+              {eintraege.map((text) => <li key={text}>{text} <CopyButton text={text} /></li>)}
             </ul>
           </div>
         )
@@ -500,6 +500,175 @@ function EingeklappteDimension({ name, cells }) {
   );
 }
 
+
+// ---- Empfehlungs-Ansicht (20.08.2026) -------------------------------
+//
+// Wolfs Befund nach dem ersten Team-Blick: die Seite beantwortet
+// "stimmt das?" (Analysten-Frage), aber nicht "was mache ich am Montag
+// anders?" (Cutter-Frage). Der Empfehlungs-Tab uebersetzt die
+// staerksten Befunde deterministisch in Werkstatt-Sprache — KEIN LLM,
+// jede Karte kommt aus einer geprueften Zelle, die Referenz-Posts sind
+// dieselben wie hinter den Tabellenzeilen. Der Zahlen-Tab bleibt die
+// vollstaendige Evidenz.
+//
+// Vorlagen je (Dimension, Wert) fuer die bekannten Befunde; alles ohne
+// Vorlage bekommt einen generischen, ehrlichen Satz. Exportiert fuer
+// den Test.
+const WERKSTATT_VORLAGEN = {
+  'cover_kinetik:title_card': (f) => ({
+    titel: 'Cover mit Title-Card bauen',
+    satz: `Posts mit gestalteter Titel-Tafel im Cover reißen ${f}× öfter aus als vergleichbare ohne.`,
+  }),
+  'lifecycle_stage:pre_launch': (f) => ({
+    titel: 'Vor dem Start posten',
+    satz: `Die Ausreißer entstehen im Fenster VOR dem Start (${f}× über Erwartung) — Momentum aufbauen, bevor der Titel läuft.`,
+  }),
+  'lifecycle_stage:launch': () => ({
+    titel: 'Der Start-Tag allein trägt nicht',
+    satz: 'Rund um den Start fällt die Trefferquote unter Schnitt — Start-Posts brauchen einen eigenen Aufhänger statt Autopilot.',
+  }),
+  'lifecycle_stage:evergreen': () => ({
+    titel: 'Evergreen-Material sparsam einsetzen',
+    satz: 'Posts ohne Kampagnen-Anlass reißen am seltensten aus — besser an Anlässe koppeln.',
+  }),
+  'tone:humorous': () => ({
+    titel: 'Humor braucht einen Aufhänger',
+    satz: 'Humorige Posts laufen im Bestand klar unter Schnitt — nicht streichen, aber nicht als Selbstläufer einplanen.',
+  }),
+  'format:behind_the_scenes': (f) => ({
+    titel: 'Mehr Behind-the-Scenes zeigen',
+    satz: `Einblicke hinter die Kulissen reißen ${f}× öfter aus als erwartet — Nähe schlägt Hochglanz.`,
+  }),
+  'format:clip': () => ({
+    titel: 'Reine Szenen-Clips hinterfragen',
+    satz: 'Unbearbeitete Clips laufen unter Schnitt — ein Clip braucht einen Rahmen: Hook, Kontext, Anlass.',
+  }),
+  'format_class:langform': (f) => ({
+    titel: 'Langform nicht scheuen',
+    satz: `Lange Stücke reißen ${f}× öfter aus als erwartet — Länge ist kein Reichweiten-Killer.`,
+  }),
+};
+
+export function werkstattEmpfehlung(dim, cell) {
+  const faktor = cell.expected_breakout_rate > 0
+    ? (cell.breakout_rate / cell.expected_breakout_rate).toFixed(1)
+    : null;
+  const vorlage = WERKSTATT_VORLAGEN[`${dim}:${cell.value}`];
+  if (vorlage) return vorlage(faktor);
+  const wert = WERT_LABEL[cell.value] || cell.value;
+  if (cell.breakout_verdict === 'over') {
+    return {
+      titel: `${wert} öfter testen`,
+      satz: `Posts mit diesem Merkmal reißen ${faktor ? `${faktor}× öfter` : 'öfter'} aus als erwartet.`,
+    };
+  }
+  return {
+    titel: `${wert} sparsam einsetzen`,
+    satz: 'Posts mit diesem Merkmal bleiben unter der erwarteten Ausreißer-Quote.',
+  };
+}
+
+function ReferenzPosts({ dimension, value }) {
+  const [refs, setRefs] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.insightPatternExamples({ dimension, value, limit: 3 })
+      .then((d) => { if (!cancelled) setRefs(d.examples || []); })
+      .catch(() => { if (!cancelled) setRefs([]); });
+    return () => { cancelled = true; };
+  }, [dimension, value]);
+  if (refs === null) {
+    return <p style={{ margin: '0.5rem 0 0', fontSize: '0.8em', color: '#6b6b6b' }}>Lade Referenz-Posts …</p>;
+  }
+  if (refs.length === 0) return null;
+  return (
+    <div style={{ marginTop: '0.5rem', borderTop: '1px solid #eee6d8', paddingTop: '0.4rem' }}>
+      {refs.map((ex) => (
+        <p key={ex.post_url} style={{ margin: '0.15rem 0', fontSize: '0.8em', color: '#4a4a44' }}>
+          <span style={{ fontWeight: 700 }}>{ex.lift}x</span>
+          {' '}@{ex.channel_handle} ({ex.platform})
+          {' · '}
+          <a href={ex.post_url} target="_blank" rel="noreferrer" style={{ color: '#1f7a45' }}>
+            Post ansehen
+          </a>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function EmpfehlungsKarte({ dim, cell }) {
+  const over = cell.breakout_verdict === 'over';
+  const farbe = QUOTE_COLOR_ON_CARD[cell.breakout_verdict];
+  const { titel, satz } = werkstattEmpfehlung(dim, cell);
+  return (
+    <div
+      className="card breakouts-card"
+      style={{ flex: '1 1 300px', maxWidth: '420px', padding: '1rem 1.25rem', borderLeft: `4px solid ${farbe}` }}
+    >
+      <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+        <span style={{ color: farbe }}>{over ? 'Machen' : 'Vorsicht'}</span>
+        <span style={{ color: '#6b6b6b' }}> · {DIMENSION_LABEL[dim] || dim}</span>
+      </p>
+      <p style={{ margin: '0 0 0.35rem', fontWeight: 700, fontSize: '1.05em' }}>{titel}</p>
+      <p style={{ margin: 0, fontSize: '0.9em', color: '#4a4a44' }}>{satz}</p>
+      <p style={{ margin: '0.35rem 0 0', fontSize: '0.75em', color: '#6b6b6b' }}>
+        Basis: {cell.sample_size} Posts von {cell.channel_count} Kanälen.
+      </p>
+      <ReferenzPosts dimension={dim} value={cell.value} />
+    </div>
+  );
+}
+
+function EmpfehlungsAnsicht({ dimensions }) {
+  const befunde = staerksteBefunde(dimensions);
+  if (befunde.length === 0) {
+    return (
+      <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>
+        Noch keine belastbaren Empfehlungen — die Datenbasis wächst mit jedem Cron-Lauf.
+      </p>
+    );
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+        {befunde.map(({ dim, cell }) => (
+          <EmpfehlungsKarte key={`${dim}:${cell.value}`} dim={dim} cell={cell} />
+        ))}
+      </div>
+      <p style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.75em' }}>
+        Abgeleitet aus gemessenen Mustern im eigenen Bestand — kein Wirkungsbeweis.
+        Alle Zahlen und die Methodik stehen im Tab „Zahlen & Methode“.
+      </p>
+    </div>
+  );
+}
+
+function CopyButton({ text }) {
+  const [kopiert, setKopiert] = useState(false);
+  const kopieren = () => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        setKopiert(true);
+        setTimeout(() => setKopiert(false), 1500);
+      }).catch(() => {});
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={kopieren}
+      title="In die Zwischenablage kopieren"
+      style={{
+        background: 'none', border: 'none', cursor: 'pointer',
+        color: kopiert ? '#7ee2a8' : '#b9c7bd', fontSize: '0.8em', padding: '0 0.35rem',
+      }}
+    >
+      {kopiert ? '✓ kopiert' : 'kopieren'}
+    </button>
+  );
+}
+
 export default function PatternsBlock() {
   const [aktiv, setAktiv] = useState(false);
   const [daten, setDaten] = useState(null);
@@ -507,6 +676,7 @@ export default function PatternsBlock() {
   const [briefing, setBriefing] = useState(null);
   const [titelBriefing, setTitelBriefing] = useState(null);
   const [alleZahlen, setAlleZahlen] = useState(false);
+  const [tab, setTab] = useState('empfehlungen');
 
   useEffect(() => {
     let cancelled = false;
@@ -592,6 +762,30 @@ export default function PatternsBlock() {
           </p>
         </div>
       </details>
+      {!fehler && daten !== null && (
+        <div style={{ display: 'flex', gap: '1.25rem', margin: '0 0 1rem', borderBottom: '1px solid rgba(255,255,255,0.25)' }}>
+          {[['empfehlungen', 'Empfehlungen'], ['zahlen', 'Zahlen & Methode']].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                padding: '0 0 0.5rem', fontSize: '0.95em',
+                color: tab === id ? 'white' : '#b9c7bd',
+                fontWeight: tab === id ? 700 : 400,
+                borderBottom: tab === id ? '2px solid #ffa294' : '2px solid transparent',
+                marginBottom: '-1px',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {!fehler && daten !== null && tab === 'empfehlungen' && (
+        <EmpfehlungsAnsicht dimensions={dimensionen} />
+      )}
 
       {fehler && (
         <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>
@@ -601,15 +795,15 @@ export default function PatternsBlock() {
       {!fehler && daten === null && (
         <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>Lade Muster …</p>
       )}
-      {!fehler && daten !== null && sichtbare.length === 0 && (
+      {!fehler && daten !== null && tab === 'zahlen' && sichtbare.length === 0 && (
         <p style={{ color: '#b9c7bd', margin: 0, fontSize: '0.95em' }}>
           Noch kein Muster mit ausreichender Stichprobe. Die Datenbasis wächst mit jedem
           Cron-Lauf.
         </p>
       )}
-      {!fehler && daten !== null && <BefundKarten dimensions={dimensionen} />}
-      {!fehler && daten !== null && <BewegungsKarten dimensions={dimensionen} />}
-      {!fehler && daten !== null && ohneBefund.length > 0 && (
+      {!fehler && daten !== null && tab === 'zahlen' && <BefundKarten dimensions={dimensionen} />}
+      {!fehler && daten !== null && tab === 'zahlen' && <BewegungsKarten dimensions={dimensionen} />}
+      {!fehler && daten !== null && tab === 'zahlen' && ohneBefund.length > 0 && (
         <p style={{ textAlign: 'right', margin: '0 0 0.5rem' }}>
           <button
             type="button"
@@ -626,34 +820,38 @@ export default function PatternsBlock() {
           </button>
         </p>
       )}
-      {!fehler && (alleZahlen ? sichtbare : mitBefund).map((name) => (
+      {!fehler && tab === 'zahlen' && (alleZahlen ? sichtbare : mitBefund).map((name) => (
         <ZellenTabelle key={name} name={name} cells={dimensionen[name]} />
       ))}
-      {!fehler && !alleZahlen && ohneBefund.map((name) => (
+      {!fehler && tab === 'zahlen' && !alleZahlen && ohneBefund.map((name) => (
         <EingeklappteDimension key={name} name={name} cells={dimensionen[name]} />
       ))}
-      {!fehler && daten !== null && (
+      {!fehler && daten !== null && tab === 'zahlen' && (
         <p style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.8em' }}>
           Datenbasis: {daten.posts_with_baseline} Posts mit Kanal-Baseline
           {' '}({daten.channels_covered} Kanäle, Fenster {daten.window_days} Tage).
         </p>
       )}
-      {!fehler && daten !== null && (daten.notes || []).length > 0 && (
+      {!fehler && daten !== null && tab === 'zahlen' && (daten.notes || []).length > 0 && (
         <ul style={{ color: '#b9c7bd', margin: '0.5rem 0 0', paddingLeft: '1.2rem', fontSize: '0.8em' }}>
           {daten.notes.map((note) => <li key={note}>{note}</li>)}
         </ul>
       )}
 
-      <BausteinSektion
-        briefing={briefing}
-        titel="Text-Bausteine aus den Mustern"
-        beschreibung="Hooks und Caption-Vorlagen, abgeleitet aus den stärksten Posts je Muster — jede Empfehlung mit Belegen."
-      />
-      <BausteinSektion
-        briefing={titelBriefing}
-        titel="Text-Bausteine je Titel"
-        beschreibung="Hooks und Caption-Vorlagen je Kampagne, abgeleitet aus den stärksten Posts des jeweiligen Titels — jede Empfehlung mit Belegen."
-      />
+      {tab === 'empfehlungen' && (
+        <>
+          <BausteinSektion
+            briefing={briefing}
+            titel="Text-Bausteine aus den Mustern"
+            beschreibung="Hooks und Caption-Vorlagen, abgeleitet aus den stärksten Posts je Muster — jede Empfehlung mit Belegen."
+          />
+          <BausteinSektion
+            briefing={titelBriefing}
+            titel="Text-Bausteine je Titel"
+            beschreibung="Hooks und Caption-Vorlagen je Kampagne, abgeleitet aus den stärksten Posts des jeweiligen Titels — jede Empfehlung mit Belegen."
+          />
+        </>
+      )}
     </section>
   );
 }
