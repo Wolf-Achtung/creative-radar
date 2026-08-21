@@ -114,7 +114,6 @@ export function ReviewPanel({
               candidateMatchedTitle={candidateMatchedTitle}
               onConfirmCandidate={onConfirmCandidate}
               onDismissCandidate={onDismissCandidate}
-              onAssignTitle={onAssignTitle}
               onCreateTitleFromCandidate={onCreateTitleFromCandidate}
               onReview={onReview}
             />

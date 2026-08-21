@@ -58,7 +58,7 @@ describe('ReviewPanel Entscheidungs-Queue', () => {
     renderPanel('candidates');
 
     expect(screen.getByRole('button', { name: 'Titel anlegen + zuordnen' })).toBeTruthy();
-    const eingabe = screen.getByLabelText('Titelname für die Anlage');
+    const eingabe = screen.getByLabelText('Titelname für Suche oder Anlage');
     expect(eingabe.value).toBe('Beware Boiúna');
     // Die Report-Buttons der vollen Karte stehen NICHT offen auf der Karte.
     expect(screen.queryByRole('button', { name: 'Als Top-Fund markieren' })).toBeNull();
