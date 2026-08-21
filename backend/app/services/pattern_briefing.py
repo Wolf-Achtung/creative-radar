@@ -472,8 +472,9 @@ def generate_pattern_briefing(
                 f"Kein belastbares Genre-Muster im Fenster "
                 f"(Genre-Abdeckung {evidence.coverage * 100:.0f} % von "
                 f"{evidence.posts_with_baseline} Posts mit Baseline). Genres "
-                f"kommen aus TMDb ueber die Titel-Zuordnung und fuellen sich "
-                f"mit jedem Title-Sync-Lauf."
+                f"kommen aus TMDb ueber die Titel-Zuordnung. Sofort fuellen: "
+                f"Admin → Quellen → „Titelquellen aktualisieren“; "
+                f"sonst fuellt sie der naechste Title-Sync im Montags-Cron."
             )
         logger.info(
             "pattern_briefing.idle",
