@@ -568,12 +568,27 @@ def trailer_pattern_examples(
     members.sort(key=lambda p: ctx.lift_by_post[p.id], reverse=True)
     top = members[:limit]
     handle_by_channel: dict = {}
+    asset_by_post: dict = {}
     if top:
         channel_ids = {p.channel_id for p in top}
         for ch in session.exec(
             select(Channel).where(Channel.id.in_(channel_ids))
         ).all():
             handle_by_channel[ch.id] = ch.handle or ch.name
+        # Aeltestes Asset MIT Bildquelle je Post — der Thumbnail-Proxy
+        # (/api/thumbnails/{asset_id}) liefert daraus das Vorschaubild,
+        # inklusive CDN-Hotlink-Umgehung und Stale-Cache. Posts ohne
+        # brauchbares Asset bekommen null; das Frontend zeigt dann nur
+        # Text.
+        for a in session.exec(
+            select(Asset)
+            .where(Asset.post_id.in_([p.id for p in top]))
+            .order_by(Asset.created_at.asc())
+        ).all():
+            if a.post_id in asset_by_post:
+                continue
+            if a.visual_evidence_url or a.thumbnail_url:
+                asset_by_post[a.post_id] = str(a.id)
     log_usage(
         request_user_email(request),
         "patterns_examples_view",
@@ -587,6 +602,7 @@ def trailer_pattern_examples(
         "examples": [
             {
                 "post_url": p.post_url,
+                "asset_id": asset_by_post.get(p.id),
                 "platform": ctx.platform_by_channel.get(p.channel_id, "unknown"),
                 "channel_handle": handle_by_channel.get(p.channel_id, "?"),
                 "lift": round(ctx.lift_by_post[p.id], 2),

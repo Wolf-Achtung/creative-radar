@@ -14,6 +14,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./api/client', () => ({
+  apiUrl: (path) => `https://api.test${path}`,
   endpoints: {
     health: vi.fn(),
     insightPatterns: vi.fn(),
@@ -203,6 +204,8 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     fireEvent.click(screen.getByText(/▸ Romance/));
 
     await screen.findByText('Post öffnen');
+    // Beispiel OHNE asset_id: kein <img>, keine kaputte Platzhalter-URL.
+    expect(document.querySelector('img')).toBeNull();
     expect(endpoints.insightPatternExamples).toHaveBeenCalledWith({
       dimension: 'genre', value: 'Romance',
     });
@@ -397,6 +400,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
         post_url: 'https://x.test/p/9', platform: 'tiktok',
         channel_handle: 'disneyde', lift: 3.1, views: 90000,
         caption: 'x', detected_at: '2026-08-10',
+        asset_id: 'aaaa1111-2222-3333-4444-555566667777',
       }],
     });
     render(<PatternsBlock />);
@@ -414,6 +418,12 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     );
     await screen.findByText('Post ansehen');
     expect(screen.getByText('3.1x')).toBeTruthy();
+    // Thumbnail ueber den auth-whitelisted Proxy — und bei Ladefehler
+    // verschwindet das Bild still (kein kaputtes Icon).
+    const bild = document.querySelector('img');
+    expect(bild.src).toBe('https://api.test/api/thumbnails/aaaa1111-2222-3333-4444-555566667777');
+    fireEvent.error(bild);
+    expect(bild.style.display).toBe('none');
     // Keine Tabellen, keine Mess-Karten im Standard-Tab.
     expect(screen.queryByText('Breakout-Quote')).toBeNull();
     expect(screen.queryByText('Das Wichtigste zuerst')).toBeNull();
