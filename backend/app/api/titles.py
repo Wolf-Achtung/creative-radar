@@ -18,6 +18,7 @@ from app.schemas.dto import (
 )
 from app.admin_session import require_admin_session
 from app.services.candidate_autopilot import run_candidate_autopilot
+from app.services.candidate_llm_assist import run_candidate_llm_assist
 from app.services.seeds import seed_titles
 from app.services.title_candidates import create_candidate_from_asset
 from app.services.title_rematch import rematch_unassigned_assets
@@ -306,4 +307,16 @@ def run_candidates_autopilot(session: Session = Depends(get_session)):
     Admin-Button dafuer lebt in "Quellen" neben dem Rematch; gedacht
     v. a. fuer den initialen Abbau des Alt-Backlogs."""
     summary = run_candidate_autopilot(session)
+    return summary.to_dict()
+
+
+@router.post("/candidates/llm-assist")
+def run_candidates_llm_assist(session: Session = Depends(get_session)):
+    """Kandidaten-LLM-Assist (21.08.2026): loest die Rest-Kandidaten
+    OHNE Exakt-Treffer per Haiku auf — den Teil, den der mechanische
+    Autopilot bewusst ueberspringt ("beware" statt "Beware Boiúna").
+    Batch je Aufruf (Default 12, ~30 s synchron); die Antwort nennt
+    ``offen_danach`` — bei Bedarf einfach erneut klicken. Zuordnung nur
+    bei ``sicher: true``, identisch zum manuellen Bestaetigen-Klick."""
+    summary = run_candidate_llm_assist(session)
     return summary.to_dict()

@@ -18,6 +18,7 @@ export function SourcesPanel({
   onSyncTitleSources,
   onRematchAssets,
   onCandidateAutopilot,
+  onCandidateLlmAssist,
   onFullSync,
   cronBusy,
   cronMessage,
@@ -101,6 +102,10 @@ export function SourcesPanel({
               schließt alte schwache Vorschläge — läuft auch wöchentlich
               im Cron; der Button ist für den Backlog-Abbau on demand. */}
           <button className="secondary" onClick={onCandidateAutopilot} disabled={busy}>Offene Vorschläge automatisch bestätigen</button>
+          {/* Kandidaten-LLM-Assist (21.08.2026): der Rest OHNE Exakt-
+              Treffer („beware" statt „Beware Boiúna") — KI liest die
+              Caption und ordnet nur sichere Fälle zu, 12 je Klick. */}
+          <button className="secondary" onClick={onCandidateLlmAssist} disabled={busy}>Rest-Vorschläge mit KI prüfen</button>
         </div>
       </Section>
       <details className="card">
