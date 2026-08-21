@@ -6,6 +6,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { searchTitles } from '../format';
 import { CandidateDecisionCard, extractTitleFromNote } from './CandidateDecisionCard';
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -38,7 +39,71 @@ describe('extractTitleFromNote', () => {
   });
 });
 
+describe('searchTitles', () => {
+  const katalog = [
+    { id: 't1', title_original: 'Lügen über meine Mutter' },
+    { id: 't2', title_original: 'Beware Boiúna', aliases: ['boiuna'] },
+    { id: 't3', title_original: 'Daniel' },
+  ];
+
+  it('findet Umlaut-Titel auch ohne Umlaute in der Eingabe — Wolfs Fall', () => {
+    expect(searchTitles(katalog, 'lugen uber').map((t) => t.id)).toEqual(['t1']);
+    expect(searchTitles(katalog, 'Lügen').map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('findet ueber Aliases und akzentuierte Originale', () => {
+    expect(searchTitles(katalog, 'boiuna').map((t) => t.id)).toEqual(['t2']);
+  });
+
+  it('sucht erst ab zwei Zeichen', () => {
+    expect(searchTitles(katalog, 'l')).toEqual([]);
+  });
+});
+
 describe('CandidateDecisionCard', () => {
+  it('Live-Suche: Tippen zeigt Katalog-Treffer, Klick ordnet zu statt anzulegen', () => {
+    const onConfirm = vi.fn();
+    const onCreate = vi.fn();
+    const titel = { id: 't1', title_original: 'Lügen über meine Mutter' };
+    render(
+      <CandidateDecisionCard
+        asset={basisAsset}
+        titles={[titel]}
+        busy={false}
+        openCandidate={{ ...kandidat, llm_note: null }}
+        candidateMatchedTitle={null}
+        onConfirmCandidate={onConfirm}
+        onCreateTitleFromCandidate={onCreate}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Titelname für Suche oder Anlage'), {
+      target: { value: 'lugen uber' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '„Lügen über meine Mutter“ zuordnen' }));
+    expect(onConfirm).toHaveBeenCalledWith(basisAsset, expect.objectContaining({ id: 'c1' }), titel);
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it('bereits zugeordnet: auch dort laesst sich ein fehlender Titel anlegen', () => {
+    const onCreate = vi.fn();
+    render(
+      <CandidateDecisionCard
+        asset={{ ...basisAsset, title_id: 't-alt', title_name: 'Daniel' }}
+        titles={[{ id: 't-alt', title_original: 'Daniel' }]}
+        busy={false}
+        openCandidate={kandidat}
+        candidateMatchedTitle={null}
+        onCreateTitleFromCandidate={onCreate}
+      />
+    );
+
+    const eingabe = screen.getByLabelText('Titelname für Suche oder Anlage');
+    expect(eingabe.value).toBe('Beware Boiúna');
+    fireEvent.click(screen.getByRole('button', { name: 'Titel neu anlegen + stattdessen zuordnen' }));
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1' }), kandidat, 'Beware Boiúna');
+  });
+
   it('Titel fehlt: Eingabe ist mit dem Titel aus der KI-Notiz vorbefuellt und legt an', () => {
     const onCreate = vi.fn();
     render(
@@ -52,7 +117,7 @@ describe('CandidateDecisionCard', () => {
       />
     );
 
-    const eingabe = screen.getByLabelText('Titelname für die Anlage');
+    const eingabe = screen.getByLabelText('Titelname für Suche oder Anlage');
     expect(eingabe.value).toBe('Beware Boiúna');
     fireEvent.click(screen.getByRole('button', { name: 'Titel anlegen + zuordnen' }));
     expect(onCreate).toHaveBeenCalledWith(basisAsset, kandidat, 'Beware Boiúna');

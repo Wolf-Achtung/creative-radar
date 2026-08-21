@@ -41,6 +41,34 @@ export function clip(text, max = 260) {
   return text.length > max ? `${text.slice(0, max).trim()} …` : text;
 }
 
+// Titel-Suche in der Entscheidungs-Queue (21.08.2026, Wolfs Befund):
+// das Zuordnungs-Dropdown listete zehntausende Titel und fand „Lügen
+// über meine Mutter" nicht per Tippen — Umlaute und Teilworte brauchten
+// den exakten String. Die Suche normalisiert beide Seiten
+// akzent-unabhaengig (ü→u, é→e), sodass „lugen" den Umlaut-Titel findet.
+export function normalizeTitleForSearch(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function searchTitles(titles, query, limit = 6) {
+  const q = normalizeTitleForSearch(query);
+  if (q.length < 2) return [];
+  const treffer = [];
+  for (const title of titles || []) {
+    const felder = [title.title_original, title.title_local, title.franchise, ...(title.aliases || [])];
+    if (felder.filter(Boolean).some((feld) => normalizeTitleForSearch(feld).includes(q))) {
+      treffer.push(title);
+      if (treffer.length >= limit) break;
+    }
+  }
+  return treffer;
+}
+
 export function normalizeHandle(value) {
   const clean = (value || '').trim().replace(/^@/, '').replace(/\/$/, '');
   if (clean.includes('tiktok.com/@')) return clean.split('tiktok.com/@')[1].split('/')[0];

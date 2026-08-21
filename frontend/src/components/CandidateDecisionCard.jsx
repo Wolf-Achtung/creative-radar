@@ -1,16 +1,22 @@
 import React, { useState } from 'react';
 import { proxyImageUrl } from '../api/client';
-import { clip, formatDate, formatNumber, getAssetDisplayTitle } from '../format';
+import { clip, formatDate, formatNumber, getAssetDisplayTitle, searchTitles } from '../format';
 import { ImagePreview } from './ImagePreview';
 
 // Wolfs UX-Befund 21.08.2026: die Vorschlags-Queue zeigte jede Karte in
-// voller Review-Ansicht (Report-Buttons, Workflow-Pills, Analyse-Box,
-// Dropdown) — die eine anstehende Entscheidung ging darin unter, und
-// verfallene Instagram-CDN-Bilder standen als kaputtes Icon da. Diese
-// Karte zeigt pro offenem Vorschlag genau EINE Entscheidung mit den
-// 2–3 Aktionen, die der jeweilige Fall wirklich hat; alles andere
-// steht hinter „Mehr". Die Bildflaeche verlinkt immer auf den
-// Original-Post — auch wenn kein Bild mehr ladbar ist.
+// voller Review-Ansicht — die eine anstehende Entscheidung ging darin
+// unter. Diese Karte zeigt pro offenem Vorschlag genau EINE Entscheidung
+// mit den 2–3 Aktionen des jeweiligen Falls.
+//
+// Nachschlag (gleicher Abend): das Zuordnungs-Dropdown mit zehntausenden
+// Eintraegen war unbenutzbar, und der Fall „bereits zugeordnet" hatte
+// keinen Weg, einen fehlenden Titel anzulegen. Jetzt traegt jede Karte
+// EIN Eingabefeld, das beides ist: Umlaut-tolerante Live-Suche ueber die
+// Titelliste (Treffer als Klick-Buttons, Zuordnen loest den Vorschlag)
+// und zugleich der Name fuer „Titel anlegen + zuordnen", wenn die Suche
+// nichts findet. Hintergrund: der Titel-Sync holt nur die Slates der 6
+// Studio-Paare — Filme anderer Verleiher (Tobis, DCM, …) fehlen im
+// Katalog SYSTEMATISCH, die Anlage per Klick ist ihr vorgesehener Weg.
 
 // Die KI-Notiz nennt den echten Filmtitel meist in Anfuehrungszeichen
 // („KI unsicher: Der Post bewirbt 'Beware Boiúna', einen Titel, der
@@ -32,7 +38,6 @@ export function CandidateDecisionCard({
   candidateMatchedTitle = null,
   onConfirmCandidate = () => {},
   onDismissCandidate = () => {},
-  onAssignTitle = () => {},
   onCreateTitleFromCandidate = () => {},
   onReview = () => {},
 }) {
@@ -51,6 +56,7 @@ export function CandidateDecisionCard({
   }
 
   const bereitsZugeordnet = Boolean(asset.title_id);
+  const suchTreffer = searchTitles(titles, neuerTitel).filter((t) => t.id !== asset.title_id);
   const metaTeile = [
     asset.channel_name || 'Unbekannter Kanal',
     asset.channel_market || null,
@@ -58,6 +64,50 @@ export function CandidateDecisionCard({
     asset.visible_views != null ? `${formatNumber(asset.visible_views)} Views` : null,
     asset.visible_likes != null ? `${formatNumber(asset.visible_likes)} Likes` : null,
   ].filter(Boolean);
+
+  // EIN Feld fuer Suchen UND Anlegen: die Live-Treffer zeigen sofort, ob
+  // der getippte Titel schon im Katalog steht (Klick ordnet zu und
+  // schliesst den Vorschlag) — erst wenn nichts passt, ist Anlegen dran.
+  const sucheUndAnlage = (
+    <div className="decision-search">
+      <input
+        type="text"
+        value={neuerTitel}
+        onChange={(e) => setNeuerTitel(e.target.value)}
+        disabled={busy}
+        placeholder="Filmtitel tippen — findet auch Umlaute (lugen → Lügen)"
+        aria-label="Titelname für Suche oder Anlage"
+      />
+      {suchTreffer.length > 0 && (
+        <div className="decision-search-treffer">
+          {suchTreffer.map((title) => (
+            <button
+              key={title.id}
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => onConfirmCandidate(asset, openCandidate, title)}
+            >
+              {bereitsZugeordnet ? `Stattdessen „${title.title_original}“ zuordnen` : `„${title.title_original}“ zuordnen`}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="decision-actions">
+        <button
+          type="button"
+          className={suchTreffer.length > 0 ? 'secondary' : 'primary'}
+          disabled={busy || !neuerTitel.trim()}
+          onClick={() => onCreateTitleFromCandidate(asset, openCandidate, neuerTitel.trim())}
+        >
+          {bereitsZugeordnet ? 'Titel neu anlegen + stattdessen zuordnen' : 'Titel anlegen + zuordnen'}
+        </button>
+        <button type="button" className="secondary ghost" disabled={busy} onClick={() => onDismissCandidate(openCandidate)}>
+          Verwerfen
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <article className="decision-card">
@@ -116,6 +166,8 @@ export function CandidateDecisionCard({
                 )
               )}
             </div>
+            <p className="decision-alt">Richtiger Titel ist ein anderer oder fehlt im Katalog? Suchen oder anlegen:</p>
+            {sucheUndAnlage}
           </div>
         ) : candidateMatchedTitle ? (
           <div className="decision-verdict">
@@ -136,39 +188,19 @@ export function CandidateDecisionCard({
           </div>
         ) : (
           <div className="decision-verdict">
-            <p>Dieser Titel steht <strong>nicht in der Titelliste</strong>. Anlegen ordnet ihn sofort zu; Name vorher prüfen.</p>
-            <div className="decision-actions decision-actions--create">
-              <input
-                type="text"
-                value={neuerTitel}
-                onChange={(e) => setNeuerTitel(e.target.value)}
-                disabled={busy}
-                aria-label="Titelname für die Anlage"
-              />
-              <button
-                type="button"
-                className="primary"
-                disabled={busy || !neuerTitel.trim()}
-                onClick={() => onCreateTitleFromCandidate(asset, openCandidate, neuerTitel.trim())}
-              >
-                Titel anlegen + zuordnen
-              </button>
-              <button type="button" className="secondary ghost" disabled={busy} onClick={() => onDismissCandidate(openCandidate)}>
-                Verwerfen
-              </button>
-            </div>
+            <p>Dieser Titel steht <strong>nicht in der Titelliste</strong> — tippen zeigt sofort, ob es ihn doch schon gibt; sonst anlegen (ordnet sofort zu).</p>
+            {sucheUndAnlage}
           </div>
         )}
 
         <details className="decision-more">
-          <summary>Mehr: andere Zuordnung, Report-Aktionen, KI-Analyse</summary>
-          <label className="title-select">
-            Filmtitel-Zuordnung (ganze Liste)
-            <select value={asset.title_id || ''} onChange={(e) => onAssignTitle(asset, e.target.value)} disabled={busy}>
-              <option value="">Bitte Filmtitel auswählen</option>
-              {titles.map((title) => <option key={title.id} value={title.id}>{title.title_original}</option>)}
-            </select>
-          </label>
+          <summary>Mehr: {candidateMatchedTitle && !bereitsZugeordnet ? 'anderen Titel suchen/anlegen, ' : ''}Report-Aktionen, KI-Analyse</summary>
+          {candidateMatchedTitle && !bereitsZugeordnet && (
+            <>
+              <p className="decision-alt">Der Vorschlag passt nicht? Anderen Titel suchen oder anlegen:</p>
+              {sucheUndAnlage}
+            </>
+          )}
           <div className="decision-actions">
             <button type="button" disabled={busy} onClick={() => onReview(asset, 'approved')}>Für Report freigeben</button>
             <button type="button" disabled={busy} onClick={() => onReview(asset, 'rejected')}>Aussortieren</button>

@@ -2351,3 +2351,16 @@ a:hover { text-decoration: underline; }
   .decision-preview { width: 100%; }
   .decision-preview img, .decision-preview .preview-placeholder { width: 100%; height: auto; min-height: 170px; }
 }
+
+/* Titel-Suche in der Entscheidungs-Karte (21.08.2026, Nachschlag). */
+.decision-search { display: flex; flex-direction: column; gap: 8px; }
+.decision-search input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(20, 28, 44, 0.2);
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.decision-search-treffer { display: flex; flex-wrap: wrap; gap: 6px; }
+.decision-alt { margin: 10px 0 6px; font-size: 13px; color: #5c564b; }
