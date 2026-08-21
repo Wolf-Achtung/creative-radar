@@ -1,9 +1,13 @@
+import asyncio
+import logging
+import os
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlmodel import Session, select
 
-from app.database import get_session
+from app.database import engine, get_session
 from app.models.entities import CandidateStatus, Title, TitleCandidate, TitleKeyword, TitleSyncRun
 from app.schemas.dto import (
     KeywordCreate,
@@ -18,6 +22,8 @@ from app.services.seeds import seed_titles
 from app.services.title_candidates import create_candidate_from_asset
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.title_sync import sync_titles_from_tmdb
+
+logger = logging.getLogger(__name__)
 
 # Sprint 28.05.2026 (Admin-Login): Router-Level-Dependency.
 router = APIRouter(
@@ -91,13 +97,135 @@ def seed_mvp_titles(session: Session = Depends(get_session)):
     return {"created": created}
 
 
-@router.post("/sync/tmdb")
-async def sync_tmdb(payload: TitleSyncRequest, session: Session = Depends(get_session)):
-    return await sync_titles_from_tmdb(
-        session,
-        markets=payload.markets,
-        pairs=payload.pairs,
-    )
+# Manueller Titel-Sync als Hintergrund-Lauf (21.08.2026). Vorher wartete
+# der Handler synchron auf den kompletten Company-Discover (viele Minuten,
+# TMDb-Pagination bis Seite 100+ je Studio-Paar) — der Browser-Fetch des
+# Admin-Buttons starb dabei mit "Failed to fetch", obwohl der Sync auf dem
+# Server weiterlief. Jetzt: sofort 202, Arbeit im BackgroundTask (Muster
+# von POST /api/admin/cron/sync-all), Fortschritt steht wie bisher in
+# ``TitleSyncRun`` (GET /sync/runs — das Frontend pollt darauf).
+#
+# Der Rematch haengt hier server-seitig an: vorher kettete das Frontend
+# ihn nach der Sync-Antwort an — die es beim Hintergrund-Lauf nicht mehr
+# abwartet. Ohne Rematch wuerden frisch gesyncte Titel erst am Montag
+# zugeordnet.
+
+
+def _title_sync_timeout_seconds() -> float:
+    """Gleiche Stellschraube wie die Cron-Stage (``TITLE_SYNC_STAGE_
+    TIMEOUT_SECONDS``, Default 1800s) — der manuelle Lauf macht exakt
+    dieselbe Arbeit und verdient denselben Deckel."""
+    try:
+        return float(os.getenv("TITLE_SYNC_STAGE_TIMEOUT_SECONDS", "1800"))
+    except ValueError:
+        return 1800.0
+
+
+def _reap_stale_title_sync_runs(session: Session, *, max_age_seconds: float) -> int:
+    """``running``-Rows aelter als ``max_age_seconds`` auf ``error`` setzen.
+
+    Eine Row bleibt haengen, wenn ein Deploy-Neustart oder Absturz den
+    Lauf mitten im Discover killt (die Batch-Commits davor bleiben
+    erhalten — der Sync ist idempotent und einfach wiederholbar). Ohne
+    Aufraeumen wuerde der Doppelstart-Schutz unten jeden weiteren Sync
+    fuer immer mit 409 abweisen."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+    reaped = 0
+    for run in session.exec(
+        select(TitleSyncRun).where(TitleSyncRun.status == "running")
+    ).all():
+        created = run.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if created < cutoff:
+            run.status = "error"
+            run.error_message = (
+                f"running-Row aelter als {max_age_seconds:.0f}s aufgeraeumt "
+                f"(Deploy-Neustart oder Absturz waehrend des Laufs)"
+            )
+            session.add(run)
+            reaped += 1
+    if reaped:
+        session.commit()
+    return reaped
+
+
+def _rematch_with_own_session() -> dict:
+    """Rematch im Thread mit eigener Session — die Request-Session ist
+    beim Hintergrund-Lauf laengst geschlossen."""
+    with Session(engine) as session:
+        return rematch_unassigned_assets(session).to_dict()
+
+
+async def _run_title_sync_background(
+    markets: list[str] | None,
+    pairs: list[str] | None,
+    *,
+    session_factory=None,
+    rematch=_rematch_with_own_session,
+) -> None:
+    """Hintergrund-Koerper: Sync (mit Zeitdeckel) → Rematch. Fehler landen
+    im Log und in der ``TitleSyncRun``-Row (setzt der Service selbst);
+    ein Timeout raeumt die eigene running-Row auf."""
+    factory = session_factory or (lambda: Session(engine))
+    timeout_s = _title_sync_timeout_seconds()
+    try:
+        with factory() as session:
+            result = await asyncio.wait_for(
+                sync_titles_from_tmdb(session, markets=markets, pairs=pairs),
+                timeout=timeout_s,
+            )
+            logger.info(
+                "title_sync.manual.complete fetched=%s upserted=%s deduped=%s",
+                result.get("fetched_count"),
+                result.get("upserted_count"),
+                result.get("deduped_count"),
+            )
+        rematch_result = await asyncio.to_thread(rematch)
+        logger.info("title_sync.manual.rematch %s", rematch_result)
+    except asyncio.TimeoutError:
+        logger.error("manueller Titel-Sync nach %ss abgebrochen", timeout_s)
+        # Die eigene Row ist jetzt ~timeout_s alt; der Puffer von 120s
+        # verschont einen gerade frisch gestarteten parallelen Lauf.
+        with factory() as session:
+            _reap_stale_title_sync_runs(
+                session, max_age_seconds=max(timeout_s - 120, 0)
+            )
+    except Exception:  # noqa: BLE001 — Task-Grenze, es gibt keinen Aufrufer mehr
+        logger.exception("manueller Titel-Sync fehlgeschlagen")
+
+
+@router.post("/sync/tmdb", status_code=202)
+async def sync_tmdb(
+    payload: TitleSyncRequest,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    stale_after = _title_sync_timeout_seconds() + 300
+    _reap_stale_title_sync_runs(session, max_age_seconds=stale_after)
+
+    running = session.exec(
+        select(TitleSyncRun).where(TitleSyncRun.status == "running")
+    ).first()
+    if running:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Ein Titel-Sync läuft bereits (gestartet "
+                f"{running.created_at:%H:%M} UTC). Fortschritt unter "
+                "GET /api/titles/sync/runs."
+            ),
+        )
+
+    background_tasks.add_task(_run_title_sync_background, payload.markets, payload.pairs)
+    return {
+        "started": True,
+        "status": "running",
+        "message": (
+            "Titel-Sync läuft im Hintergrund (einige Minuten); der Rematch "
+            "folgt direkt danach. Fortschritt: GET /api/titles/sync/runs."
+        ),
+    }
 
 
 @router.get("/sync/runs")

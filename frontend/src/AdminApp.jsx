@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { endpoints } from './api/client';
 import { normalizeHandle } from './format';
+import { neuesterLauf, warteAufTitelSyncEnde } from './titelSyncWarten';
 import { ASSET_PAGE_SIZE } from './constants';
 import { MonitoringPanel } from './panels/MonitoringPanel';
 import { ReportsPanel } from './panels/ReportsPanel';
@@ -293,13 +294,35 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // Hintergrund-Umbau 21.08.2026: der Sync antwortet sofort mit 202 und
+  // laeuft server-seitig (inkl. Rematch) — vorher wartete der Fetch
+  // minutenlang und starb mit "Failed to fetch", obwohl der Sync lief.
+  // Bewusst NICHT in run(): das Polling dauert Minuten und soll die
+  // uebrigen Admin-Buttons nicht so lange sperren; Doppelstarts faengt
+  // der 409-Schutz des Endpoints.
   async function syncTitleSources() {
-    await run(async () => {
-      const result = await endpoints.syncTmdbTitles({ markets: ['DE', 'US'], lookback_weeks: 8, lookahead_weeks: 24 });
-      const rematch = await endpoints.rematchAssets();
+    setError(''); setMessage('');
+    let vorherigeLaufId = null;
+    try {
+      const vorheriger = await neuesterLauf(endpoints.titleSyncRuns).catch(() => null);
+      vorherigeLaufId = vorheriger ? vorheriger.id : null;
+      await endpoints.syncTmdbTitles({ markets: ['DE', 'US'] });
+    } catch (err) {
+      setError(err.message || String(err));
+      return;
+    }
+    setMessage('Titel-Sync läuft im Hintergrund (einige Minuten). Diese Meldung aktualisiert sich, sobald er fertig ist — die Seite kann offen bleiben.');
+    const lauf = await warteAufTitelSyncEnde(endpoints.titleSyncRuns, vorherigeLaufId);
+    if (!lauf) {
+      setMessage('Titel-Sync läuft noch — Status später unter „Letzter Sync" prüfen.');
+      return;
+    }
+    if (lauf.status === 'success') {
       await load();
-      setMessage(`Titelquellen aktualisiert: ${result.upserted_count} upserted, ${result.deduped_count} dedupliziert. Rematch: ${rematch.auto_matched} auto, ${rematch.candidates_created} Kandidaten.`);
-    });
+      setMessage(`Titelquellen aktualisiert: ${lauf.upserted_count} übernommen, ${lauf.deduped_count} dedupliziert. Die Treffer-Neuzuordnung lief direkt im Anschluss.`);
+    } else {
+      setError(`Titel-Sync fehlgeschlagen: ${lauf.error_message || lauf.status}`);
+    }
   }
 
   async function rematchAssets() {
