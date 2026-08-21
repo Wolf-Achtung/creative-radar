@@ -580,15 +580,25 @@ def trailer_pattern_examples(
         # inklusive CDN-Hotlink-Umgehung und Stale-Cache. Posts ohne
         # brauchbares Asset bekommen null; das Frontend zeigt dann nur
         # Text.
+        # Vorrang fuer GESPEICHERTE Bilder (Capture-Pipeline,
+        # visual_evidence_url -> R2/Storage, laedt immer) vor CDN-
+        # Thumbnails: die Karten zeigen die staerksten Posts, die sind
+        # oft Wochen alt — und alte Instagram-CDN-Links sind tot. Ein
+        # totes CDN-Bild verdraengt sonst ein ladbares gespeichertes
+        # (Wolf-Befund 21.08.2026: Karten ohne Bilder trotz Bildern im
+        # Admin).
+        gespeichert: dict = {}
+        cdn: dict = {}
         for a in session.exec(
             select(Asset)
             .where(Asset.post_id.in_([p.id for p in top]))
             .order_by(Asset.created_at.asc())
         ).all():
-            if a.post_id in asset_by_post:
-                continue
-            if a.visual_evidence_url or a.thumbnail_url:
-                asset_by_post[a.post_id] = str(a.id)
+            if a.visual_evidence_url:
+                gespeichert.setdefault(a.post_id, str(a.id))
+            elif a.thumbnail_url:
+                cdn.setdefault(a.post_id, str(a.id))
+        asset_by_post = {**cdn, **gespeichert}
     log_usage(
         request_user_email(request),
         "patterns_examples_view",
