@@ -341,4 +341,7 @@ async def test_admin_test_endpoint_sendet_trotz_flag_aus(
     assert antwort.status_code == 200
     daten = antwort.json()
     assert daten["skipped"] is False and daten["sent"] == 1
+    # Ehrlichkeits-Flag fuer den Admin-Button: im Test ist der Mailer
+    # nicht abgeschaltet.
+    assert daten["emails_disabled"] is False
     assert [c["to"] for c in gesendete] == ["wolf@x.test"]
