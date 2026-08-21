@@ -2,6 +2,7 @@ import React from 'react';
 import { findExactTitleForSuggestion } from '../format';
 import { ASSET_PAGE_SIZE } from '../constants';
 import { AssetCard } from '../components/AssetCard';
+import { CandidateDecisionCard } from '../components/CandidateDecisionCard';
 import { ReviewGuide } from '../components/ReviewGuide';
 import { Section } from '../components/Section';
 
@@ -27,6 +28,7 @@ export function ReviewPanel({
   openCandidatesByAssetId = {},
   onConfirmCandidate = () => {},
   onDismissCandidate = () => {},
+  onCreateTitleFromCandidate = () => {},
   assetMode = 'candidates',
   assetsHasMore = false,
   onSwitchAssetMode = () => {},
@@ -62,7 +64,17 @@ export function ReviewPanel({
           Alle Treffer (seitenweise)
         </button>
       </div>
-      <ReviewGuide />
+      {/* Entscheidungs-Queue: die lange Report-Anleitung gehoert zum
+          „Alle Treffer"-Modus — im Vorschlags-Modus reicht ein Satz. */}
+      {assetMode === 'candidates' ? (
+        <p className="muted small">
+          Jede Karte ist genau eine Entscheidung: Titel <strong>zuordnen</strong> (steht in der Liste),
+          <strong> anlegen</strong> (fehlt in der Liste) oder den Vorschlag <strong>verwerfen</strong>.
+          Report-Aktionen und KI-Analyse stehen je Karte hinter „Mehr“.
+        </p>
+      ) : (
+        <ReviewGuide />
+      )}
       <div className="filterbar">
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status === 'all' ? 'Alle Status' : status}</option>)}
@@ -88,6 +100,26 @@ export function ReviewPanel({
         const candidateMatchedTitle = openCandidate
           ? findExactTitleForSuggestion(openCandidate.suggested_title, titles)
           : null;
+        // Entscheidungs-Queue (21.08.2026): im Vorschlags-Modus zeigt jede
+        // Karte genau die eine anstehende Entscheidung — die volle
+        // Review-Karte bleibt dem „Alle Treffer"-Modus vorbehalten.
+        if (assetMode === 'candidates' && openCandidate) {
+          return (
+            <CandidateDecisionCard
+              key={asset.id}
+              asset={asset}
+              titles={titles}
+              busy={busy}
+              openCandidate={openCandidate}
+              candidateMatchedTitle={candidateMatchedTitle}
+              onConfirmCandidate={onConfirmCandidate}
+              onDismissCandidate={onDismissCandidate}
+              onAssignTitle={onAssignTitle}
+              onCreateTitleFromCandidate={onCreateTitleFromCandidate}
+              onReview={onReview}
+            />
+          );
+        }
         return (
           <AssetCard
             key={asset.id}
