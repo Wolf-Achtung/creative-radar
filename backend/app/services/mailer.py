@@ -55,7 +55,14 @@ async def send_mail(to: str, subject: str, text: str, html: Optional[str] = None
         # In production bleibt der Kill-Switch ein reiner Kill-Switch:
         # Klartext-Codes gehoeren nicht in Prod-Logs (Drittanbieter-Sinks).
         if settings.app_env != "production":
-            logger.info("mailer.disabled.body to=%s text=%s", _mask(to), text)
+            # Einzeilig loggen: Railways Log-Shipper schneidet Records an
+            # der ersten Newline ab — der Login-Code stand sonst genau
+            # HINTER dem Schnitt und war unerreichbar (21.08.2026).
+            logger.info(
+                "mailer.disabled.body to=%s text=%s",
+                _mask(to),
+                " | ".join(line for line in text.splitlines() if line.strip()),
+            )
         return
 
     provider = (settings.email_provider or "resend").strip().lower()

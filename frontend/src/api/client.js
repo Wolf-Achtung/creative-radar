@@ -225,6 +225,10 @@ export const endpoints = {
   // Frontend kann beim Page-Load checken ohne Error-Toast.
   adminLogin: (password) => api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password }) }),
   adminLogout: () => api('/api/admin/logout', { method: 'POST' }),
+  // Playbook-Test-Mail (21.08.2026): sendet sofort an
+  // PLAYBOOK_MAIL_RECIPIENTS, auch ohne TI-Flag — der Pruef-Weg vor
+  // der Freigabe. Antwort traegt sent/failed bzw. den Skip-Grund.
+  adminPlaybookMailTest: () => api('/api/admin/playbook-mail/test', { method: 'POST' }),
   adminMe: () => api('/api/admin/me'),
 
   // Sprint User-Login 2026-07: E-Mail+Code-Login fuer die gesamte

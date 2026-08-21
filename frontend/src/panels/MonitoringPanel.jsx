@@ -51,6 +51,58 @@ function BudgetStatusCard({ label, status }) {
   );
 }
 
+
+// Playbook-Test-Mail (21.08.2026): Wolfs Pruef-Weg ohne curl. Der
+// Button ruft POST /api/admin/playbook-mail/test und uebersetzt die
+// Antwort in einen Klartext-Satz. Auf Staging warnt er, dass der
+// Mailer abgeschaltet ist (DISABLE_EMAILS) — der echte Test gehoert
+// nach Produktion.
+export function PlaybookMailSection() {
+  const [laeuft, setLaeuft] = useState(false);
+  const [ergebnis, setErgebnis] = useState(null);
+
+  const senden = () => {
+    setLaeuft(true);
+    setErgebnis(null);
+    endpoints.adminPlaybookMailTest()
+      .then((antwort) => setErgebnis({ ok: true, antwort }))
+      .catch((err) => setErgebnis({ ok: false, fehler: String(err?.message || err) }))
+      .finally(() => setLaeuft(false));
+  };
+
+  const satz = (() => {
+    if (!ergebnis) return null;
+    if (!ergebnis.ok) return `Aufruf fehlgeschlagen: ${ergebnis.fehler}`;
+    const a = ergebnis.antwort || {};
+    if (a.skipped && a.reason === 'no_recipients') {
+      return 'Keine Empfänger gesetzt — PLAYBOOK_MAIL_RECIPIENTS in den Railway-Variablen pflegen.';
+    }
+    if (a.skipped && a.reason === 'nichts_zu_berichten') {
+      return 'Nichts zu berichten — aktuell keine Befunde, Bewegungen oder Bausteine.';
+    }
+    const basis = `Mail gesendet an ${a.sent ?? 0} Empfänger` + (a.failed ? `, ${a.failed} fehlgeschlagen` : '') + '.';
+    if (a.emails_disabled) {
+      return `${basis} ABER: Der Mail-Versand ist in dieser Umgebung abgeschaltet (DISABLE_EMAILS) — es kam nichts an. Diesen Test in Produktion ausführen.`;
+    }
+    return basis;
+  })();
+
+  return (
+    <Section title="Playbook-Test-Mail" kicker="Empfehlungen ins Postfach — Prüf-Lauf">
+      <p style={{ margin: '0 0 0.5rem' }}>
+        Sendet die Playbook-Mail sofort an die eingetragenen Empfänger
+        (PLAYBOOK_MAIL_RECIPIENTS) — unabhängig vom Trailer-Intelligence-Flag.
+      </p>
+      <div className="section-actions">
+        <button type="button" className="secondary" onClick={senden} disabled={laeuft}>
+          {laeuft ? 'Sendet …' : 'Test-Mail jetzt senden'}
+        </button>
+      </div>
+      {satz && <p style={{ marginTop: '0.5rem' }}>{satz}</p>}
+    </Section>
+  );
+}
+
 export function MonitoringPanel() {
   const [budgets, setBudgets] = useState({});
   const [costSummary, setCostSummary] = useState(null);
@@ -88,6 +140,7 @@ export function MonitoringPanel() {
 
   return (
     <>
+      <PlaybookMailSection />
       <Section title="Budgets diesen Monat" kicker="Kalendermonat, UTC">
         {status === 'error' && <p className="error">Konnte Budget-/Kostendaten nicht laden.</p>}
         <div className="ops-budget-grid">

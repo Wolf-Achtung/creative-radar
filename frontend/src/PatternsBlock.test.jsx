@@ -412,11 +412,14 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     expect(screen.queryByText(/Bildtext & Kinetik/)).toBeNull();
     expect(screen.getByText(/1\.6-mal öfter weit über dem Kanal-Schnitt/)).toBeTruthy();
     expect(screen.getByText(/Basis: 272 Posts von 118 Kanälen/)).toBeTruthy();
-    // Referenz-Posts: direkt geladen (limit 3) und sichtbar.
+    // Referenz-Posts: direkt geladen (limit 3) und sichtbar. Der
+    // Warte-Punkt 'Post ansehen' garantiert, dass der Effect-Fetch
+    // gelaufen ist — die Assertion davor war in CI flaky (der Karten-
+    // Titel erscheint einen Tick, bevor der Kind-Effect feuert).
+    await screen.findByText('Post ansehen');
     expect(endpoints.insightPatternExamples).toHaveBeenCalledWith(
       { dimension: 'cover_kinetik', value: 'title_card', limit: 3 },
     );
-    await screen.findByText('Post ansehen');
     expect(screen.getByText('3.1x')).toBeTruthy();
     // Thumbnail ueber den auth-whitelisted Proxy — und bei Ladefehler
     // verschwindet das Bild still (kein kaputtes Icon).

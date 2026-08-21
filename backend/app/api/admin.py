@@ -1325,7 +1325,11 @@ async def trigger_playbook_mail_test(
     """
     from app.services.pattern_playbook import send_pattern_playbook
 
-    return await send_pattern_playbook(session, force=True)
+    summary = await send_pattern_playbook(session, force=True)
+    # Ehrlichkeit fuer den Admin-Button: mit DISABLE_EMAILS zaehlt der
+    # Versand als "sent", aber der Mailer schluckt still (Staging).
+    summary["emails_disabled"] = bool(settings.disable_emails)
+    return summary
 
 
 @router.post("/roundups/generate")
