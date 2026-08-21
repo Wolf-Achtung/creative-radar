@@ -32,6 +32,9 @@ class ChannelCreate(BaseModel):
 
 
 class ChannelUpdate(BaseModel):
+    # Wir-Segment (21.08.2026): Kanal als "vom eigenen Team betreut"
+    # markieren — Checkliste in Admin → Quellen.
+    is_own: Optional[bool] = None
     name: Optional[str] = None
     url: Optional[str] = None
     handle: Optional[str] = None

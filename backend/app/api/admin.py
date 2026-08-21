@@ -76,6 +76,7 @@ from app.services.insight_engine import (
 from app.services.forecast import generate_er_forecast
 from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
+from app.services.wir_segment import compute_wir_segment
 from app.services.title_aggregation import AmbiguousTitleError
 from app.services.rate_limit import rate_limit
 from app.services.segment_roundup import (
@@ -330,6 +331,21 @@ def langform_analysis(
         min_posts_per_arm=min_posts_per_arm,
     )
     return report.to_dict()
+
+
+@router.get("/wir-segment")
+def wir_segment(
+    window_days: int = Query(90, ge=7, le=365),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Wir-Segment Schritt 1 (21.08.2026): empfohlen → gemacht → gewirkt.
+
+    Fuer jede MACHEN-Empfehlung des Muster-Berichts (``breakout_verdict
+    == "over"``): wie viele Posts der eigenen Kanaele (``channel.is_own``)
+    liegen in der Zelle, und wie ist deren Median-Lift gegenueber dem
+    Zell-Median des Gesamtbestands. Rein lesend, kein Modell-Call.
+    Ohne markierte Kanaele kommt ein Klartext-Hinweis statt Zahlen."""
+    return compute_wir_segment(session, window_days=window_days)
 
 
 @router.get("/trailer-patterns")

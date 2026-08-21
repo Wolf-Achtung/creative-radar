@@ -1,0 +1,112 @@
+"""Wir-Segment Schritt 1 (21.08.2026) — empfohlen → gemacht → gewirkt.
+
+Die Muster-Auswertung sagt bislang nur, was im Gesamt-Kanalbestand
+funktioniert. Dieser Service schliesst den Kreis fuer die EIGENEN
+Kanaele (``channel.is_own``, Checkliste in Admin → Quellen):
+
+- **empfohlen**: die ``breakout_verdict == "over"``-Zellen des
+  aktuellen Muster-Berichts — exakt die MACHEN-Empfehlungen des
+  Playbooks (gleiche Auswahlregel wie ``pattern_playbook``,
+  keine Zweitdefinition von "empfohlen").
+- **gemacht**: wie viele Posts der eigenen Kanaele im selben Fenster
+  in dieser Zelle liegen — Zugehoerigkeit ueber ``posts_for_cell``,
+  also mit denselben Regeln (Konfidenz-Gate, Genre-Mapping) wie die
+  Zellen-Zaehlung selbst.
+- **gewirkt**: der Median-Lift genau dieser eigenen Posts
+  (kanal-normiert aus dem ``LiftContext``) neben dem Median-Lift der
+  Zelle im Gesamtbestand — liegt "wir" darunter, ist das Muster bei
+  uns noch nicht angekommen oder anders umgesetzt.
+
+Bewusst dasselbe Fenster wie der Bericht (kein "seit Empfehlung"):
+die Empfehlungen sind Fenster-Aggregate, ein Posts-danach-Vergleich
+braeuchte Empfehlungs-Zeitpunkte je Zelle und ein eigenes
+Vorher/Nachher-Design — Schritt 2, wenn die Markierung erst einmal
+Daten liefert.
+
+Ohne markierte Kanaele liefert die Auswertung einen Klartext-Hinweis
+statt leerer Zahlen — derselbe Ehrlichkeits-Grundsatz wie ueberall.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+from statistics import median
+from typing import Optional
+
+from sqlmodel import Session, select
+
+from app.models.entities import Channel
+from app.services.trailer_patterns import (
+    DEFAULT_WINDOW_DAYS,
+    build_lift_context,
+    compute_trailer_patterns,
+    posts_for_cell,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def compute_wir_segment(
+    session: Session,
+    *,
+    window_days: int = DEFAULT_WINDOW_DAYS,
+    now: Optional[datetime] = None,
+) -> dict:
+    eigene_kanaele = session.exec(
+        select(Channel).where(Channel.is_own == True)  # noqa: E712
+    ).all()
+    if not eigene_kanaele:
+        return {
+            "own_channels": 0,
+            "eigene_posts_im_fenster": 0,
+            "window_days": window_days,
+            "zeilen": [],
+            "note": (
+                "Noch kein Kanal als „Wir“ markiert — in Quellen → "
+                "Wir-Kanäle die eigenen Kanäle ankreuzen."
+            ),
+        }
+    own_ids = {c.id for c in eigene_kanaele}
+
+    ctx = build_lift_context(session, window_days=window_days, now=now)
+    report = compute_trailer_patterns(session, window_days=window_days, now=now)
+    eigene_gesamt = [p for p in ctx.usable if p.channel_id in own_ids]
+
+    zeilen: list[dict] = []
+    for dimension, cells in report.dimensions.items():
+        for cell in cells:
+            if cell.breakout_verdict != "over":
+                continue
+            members = posts_for_cell(session, ctx, dimension, cell.value)
+            eigene = [p for p in members if p.channel_id in own_ids]
+            lifts = [
+                ctx.lift_by_post[p.id] for p in eigene if p.id in ctx.lift_by_post
+            ]
+            zeilen.append({
+                "dimension": dimension,
+                "value": cell.value,
+                "empfohlen_median_lift": round(cell.median_lift, 3),
+                "empfohlen_breakout_z": (
+                    round(cell.breakout_z, 2) if cell.breakout_z is not None else None
+                ),
+                "gemacht": len(eigene),
+                "gewirkt_median_lift": round(median(lifts), 3) if lifts else None,
+            })
+    # Am meisten Umgesetztes zuerst, dahinter die staerksten
+    # Empfehlungen, die "wir" noch gar nicht spielen.
+    zeilen.sort(
+        key=lambda z: (-z["gemacht"], -(z["empfohlen_breakout_z"] or 0))
+    )
+
+    ergebnis = {
+        "own_channels": len(own_ids),
+        "eigene_posts_im_fenster": len(eigene_gesamt),
+        "window_days": window_days,
+        "zeilen": zeilen,
+        "note": None,
+    }
+    logger.info(
+        "wir_segment.computed own_channels=%s eigene_posts=%s zeilen=%s",
+        len(own_ids), len(eigene_gesamt), len(zeilen),
+    )
+    return ergebnis
