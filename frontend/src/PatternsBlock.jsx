@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { endpoints } from './api/client';
+import { apiUrl, endpoints } from './api/client';
 
 // Trailer-Intelligence Stufe 1 (20.08.2026) — der Muster-Bericht aus
 // services/trailer_patterns.py fuer eingeloggte Nutzer: welches Merkmal
@@ -288,7 +288,9 @@ function BeispielZeile({ eintrag }) {
   return (
     <div>
       {beispiele.map((ex) => (
-        <div key={ex.post_url} style={{ padding: '0.35rem 0', borderBottom: '1px solid #eee6d8' }}>
+        <div key={ex.post_url} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.35rem 0', borderBottom: '1px solid #eee6d8' }}>
+          <ReferenzThumb assetId={ex.asset_id} />
+          <div>
           <span style={{ fontWeight: 700 }}>{ex.lift}x</span>
           {' '}@{ex.channel_handle} ({ex.platform})
           {ex.views ? ` · ${ex.views.toLocaleString('de-DE')} Views` : ''}
@@ -302,6 +304,7 @@ function BeispielZeile({ eintrag }) {
               „{ex.caption}“
             </div>
           )}
+          </div>
         </div>
       ))}
     </div>
@@ -568,6 +571,20 @@ export function werkstattEmpfehlung(dim, cell) {
   };
 }
 
+
+function ReferenzThumb({ assetId }) {
+  if (!assetId) return null;
+  return (
+    <img
+      src={apiUrl(`/api/thumbnails/${assetId}`)}
+      alt=""
+      loading="lazy"
+      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      style={{ width: '72px', height: '44px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }}
+    />
+  );
+}
+
 function ReferenzPosts({ dimension, value }) {
   const [refs, setRefs] = useState(null);
   useEffect(() => {
@@ -584,14 +601,17 @@ function ReferenzPosts({ dimension, value }) {
   return (
     <div style={{ marginTop: '0.5rem', borderTop: '1px solid #eee6d8', paddingTop: '0.4rem' }}>
       {refs.map((ex) => (
-        <p key={ex.post_url} style={{ margin: '0.15rem 0', fontSize: '0.8em', color: '#4a4a44' }}>
-          <span style={{ fontWeight: 700 }}>{ex.lift}x</span>
-          {' '}@{ex.channel_handle} ({ex.platform})
-          {' · '}
-          <a href={ex.post_url} target="_blank" rel="noreferrer" style={{ color: '#1f7a45' }}>
-            Post ansehen
-          </a>
-        </p>
+        <div key={ex.post_url} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.3rem 0' }}>
+          <ReferenzThumb assetId={ex.asset_id} />
+          <p style={{ margin: 0, fontSize: '0.8em', color: '#4a4a44' }}>
+            <span style={{ fontWeight: 700 }}>{ex.lift}x</span>
+            {' '}@{ex.channel_handle} ({ex.platform})
+            {' · '}
+            <a href={ex.post_url} target="_blank" rel="noreferrer" style={{ color: '#1f7a45' }}>
+              Post ansehen
+            </a>
+          </p>
+        </div>
       ))}
     </div>
   );

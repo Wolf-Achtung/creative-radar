@@ -216,3 +216,37 @@ def test_frontend_ruft_denselben_pfad_wie_das_backend_anbietet():
     # app.routes zeigt nur die Top-Level-Mounts — die eingehaengten
     # Router loest erst das OpenAPI-Schema auf.
     assert "/api/insights/patterns/examples" in app.openapi()["paths"]
+
+
+def test_beispiele_tragen_die_asset_id_des_aeltesten_bild_assets(
+    client, session, monkeypatch
+):
+    """Thumbnails (21.08.2026): jedes Beispiel nennt das aelteste Asset
+    des Posts, das eine Bildquelle traegt (Evidence-Key oder
+    CDN-Thumbnail) — der Proxy /api/thumbnails/{asset_id} macht daraus
+    das Vorschaubild. Assets OHNE Bildquelle zaehlen nicht; ein Post
+    ganz ohne brauchbares Asset bekommt null statt eines Platzhalters."""
+    monkeypatch.setenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", "true")
+    kanal = _channel(session)
+    posts = [_post(session, kanal) for _ in range(6)]
+    for p_ in posts:
+        _titel_mit_asset(session, p_, genres=["Romance"])
+
+    # posts[0]: erstes Asset ohne Bild (das Titel-Asset aus der Fixture),
+    # zweites MIT Thumbnail -> das zweite gewinnt.
+    mit_bild = Asset(post_id=posts[0].id, thumbnail_url="https://cdn.test/a.jpg")
+    session.add(mit_bild)
+    session.commit()
+    session.refresh(mit_bild)
+
+    antwort = client.get(
+        "/api/insights/patterns/examples"
+        "?dimension=genre&value=Romance&window_days=30"
+    )
+    assert antwort.status_code == 200
+    beispiele = {e["post_url"]: e for e in antwort.json()["examples"]}
+
+    assert beispiele[posts[0].post_url]["asset_id"] == str(mit_bild.id)
+    # Die uebrigen Posts haben nur das bildlose Titel-Asset -> null.
+    andere = [e for u, e in beispiele.items() if u != posts[0].post_url]
+    assert andere and all(e["asset_id"] is None for e in andere)
