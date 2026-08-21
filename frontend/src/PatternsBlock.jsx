@@ -19,7 +19,7 @@ import { apiUrl, endpoints } from './api/client';
 // Berichts (Abdeckungs-Warnungen) werden UNGEKUERZT angezeigt — sie
 // sind Teil des Ergebnisses, nicht Beiwerk.
 
-const DIMENSION_LABEL = {
+export const DIMENSION_LABEL = {
   genre: 'Genre',
   format: 'Format',
   format_class: 'Formatklasse',
@@ -64,7 +64,7 @@ const QUOTE_COLOR_ON_CARD = {
 // Anzeige-Namen fuer bekannte Auspraegungen — unbekannte Werte (Genres,
 // Titel) erscheinen unveraendert. Die Karten sprechen Klartext, die
 // Tabellen behalten die Rohwerte (Wiedererkennung mit Admin-Endpoint).
-const WERT_LABEL = {
+export const WERT_LABEL = {
   behind_the_scenes: 'Behind-the-Scenes',
   trailer: 'Trailer',
   teaser: 'Teaser',

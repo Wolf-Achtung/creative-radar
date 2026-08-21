@@ -371,6 +371,21 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // Wir-Segment Schritt 1 (21.08.2026): Kanal als "vom eigenen Team
+  // betreut" markieren — Grundlage der empfohlen→gemacht→gewirkt-
+  // Auswertung im Monitoring. Optimistisch ohne run(): ein Checkbox-
+  // Klick soll nicht die ganze Admin-UI sperren.
+  async function toggleChannelOwn(channel) {
+    const neu = !channel.is_own;
+    setChannels((alte) => alte.map((c) => (c.id === channel.id ? { ...c, is_own: neu } : c)));
+    try {
+      await endpoints.updateChannel(channel.id, { is_own: neu });
+    } catch (err) {
+      setChannels((alte) => alte.map((c) => (c.id === channel.id ? { ...c, is_own: !neu } : c)));
+      setError(err.message || String(err));
+    }
+  }
+
   // "Jetzt komplett aktualisieren": triggert den vollen Cron-Lauf (gerade
   // abgeschlossene KW + Force) und pollt dann GET /cron/runs, bis der
   // BackgroundTask fertig ist. Kein globales ``busy`` (sperrt sonst 5 Min die
@@ -578,6 +593,8 @@ export function AdminApp({ onLogout }) {
           onRematchAssets={rematchAssets}
           onCandidateAutopilot={runCandidateAutopilot}
           onCandidateLlmAssist={runCandidateLlmAssist}
+          onToggleChannelOwn={toggleChannelOwn}
+          channels={channels}
           onFullSync={triggerFullSync}
           cronBusy={cronBusy}
           cronMessage={cronMessage}

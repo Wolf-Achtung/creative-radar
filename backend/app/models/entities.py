@@ -233,6 +233,13 @@ class Channel(SQLModel, table=True):
         default=True,
         sa_column=Column(sa.Boolean(), nullable=False, server_default=sa.true()),
     )
+    # Wir-Segment (21.08.2026): vom eigenen Team betreuter Kanal — die
+    # Basis der "empfohlen → gemacht → gewirkt"-Auswertung. Wolf setzt
+    # das Flag per Checkliste in Admin → Quellen (Migration d2e5c7a91f04).
+    is_own: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean(), nullable=False, server_default=sa.false()),
+    )
     # Master-Plan-Schritt-2: Klassifizierungs-Steuerfeld fuer den
     # Non-Pair-Roundup-Pfad. Pair-Pool-Channels haben ``segment = NULL``
     # und sind aus jedem Roundup-Generator-Lauf disjunkt ausgeschlossen.

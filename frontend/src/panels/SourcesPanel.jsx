@@ -19,6 +19,8 @@ export function SourcesPanel({
   onRematchAssets,
   onCandidateAutopilot,
   onCandidateLlmAssist,
+  onToggleChannelOwn,
+  channels,
   onFullSync,
   cronBusy,
   cronMessage,
@@ -108,6 +110,29 @@ export function SourcesPanel({
           <button className="secondary" onClick={onCandidateLlmAssist} disabled={busy}>Rest-Vorschläge mit KI prüfen</button>
         </div>
       </Section>
+      {/* Wir-Segment Schritt 1 (21.08.2026): eigene Kanäle markieren —
+          Grundlage der „empfohlen → gemacht → gewirkt"-Auswertung im
+          Monitoring. Eingeklappt, weil das eine einmalige Pflege ist. */}
+      <details className="card">
+        <summary>Wir-Kanäle markieren ({(channels || []).filter((c) => c.is_own).length} markiert)</summary>
+        <p className="muted small">
+          Kreuze die Kanäle an, die euer Team selbst betreut. Das Monitoring
+          zeigt dann je Empfehlung, wie oft ihr das Muster schon spielt und
+          wie eure Posts dabei laufen.
+        </p>
+        <div style={{ maxHeight: '16rem', overflowY: 'auto' }}>
+          {(channels || []).map((channel) => (
+            <label key={channel.id} style={{ display: 'block', padding: '0.15rem 0' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(channel.is_own)}
+                onChange={() => onToggleChannelOwn(channel)}
+              />{' '}
+              {channel.name} <span className="muted small">({channel.platform}{channel.handle ? ` · @${channel.handle}` : ''})</span>
+            </label>
+          ))}
+        </div>
+      </details>
       <details className="card">
         <summary>Kanalliste importieren</summary>
         <form className="form-grid" onSubmit={onImportChannelFile}>
