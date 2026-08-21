@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timezone
 
 from sqlmodel import Session, select
@@ -245,6 +246,18 @@ async def sync_titles_from_tmdb(
         session.add(run)
         session.commit()
 
+        # Genre-Backfill (21.08.2026): der Company-Discover erreicht nur
+        # die Studio-Slates — Titel, die anders in den Katalog kamen
+        # (Streamer-Originals ueber Kandidaten, Alt-Rows von vor der
+        # Genre-Nachruestung), behalten sonst fuer immer leere Genres.
+        # Eigener try: ein Backfill-Fehler darf den gelungenen Sync
+        # nicht als error verbuchen.
+        try:
+            genre_backfill = await backfill_missing_genres(session, client=client)
+        except Exception as exc:  # noqa: BLE001 — Stage-Grenze, best effort
+            logger.exception("genre-backfill fehlgeschlagen")
+            genre_backfill = {"error": str(exc)[:200]}
+
         return {
             "markets": markets,
             "pairs": list(pair_sets.keys()),
@@ -252,6 +265,7 @@ async def sync_titles_from_tmdb(
             "fetched_count": fetched_count,
             "upserted_count": upserted_count,
             "deduped_count": deduped_count,
+            "genre_backfill": genre_backfill,
             "run_id": str(run.id),
         }
     except Exception as exc:
@@ -260,3 +274,85 @@ async def sync_titles_from_tmdb(
         session.add(run)
         session.commit()
         raise
+
+
+logger = logging.getLogger(__name__)
+
+# Deckel je Lauf: der Backfill ist ein Detail-Call PRO Titel. Der
+# Erstlauf raeumt den Altbestand in Schueben ab (uebrig steht im
+# Ergebnis); danach fallen pro Woche nur noch die wenigen neuen
+# Kandidaten-Titel an. Stueckzahl reicht hier als Grenze — anders als
+# bei Vision (Vorfall 20.08.) ist ein Details-GET in ~150 ms fertig,
+# 500 Stueck sind gut eine Minute.
+_GENRE_BACKFILL_MAX_PER_RUN = 500
+
+
+async def backfill_missing_genres(
+    session: Session,
+    *,
+    client: TMDbClient | None = None,
+    max_titles: int = _GENRE_BACKFILL_MAX_PER_RUN,
+) -> dict:
+    """Titel mit ``tmdb_id``, aber leerer Genre-Liste ueber die
+    TMDb-Details fuellen (21.08.2026).
+
+    Der Company-Discover pflegt nur die Studio-Slates; Streamer-
+    Originals und Titel aus dem Kandidaten-Flow tragen zwar eine
+    ``tmdb_id``, laufen aber durch keinen Discover — ihre Genres
+    blieben nach der Nachruestung (#376) dauerhaft leer. Der erste
+    Prod-Blick am 21.08. zeigte die Folge: Genre-Abdeckung 52 %,
+    obwohl die Titel-Zuordnung bei 67 % lag.
+
+    Nur LEERE Listen werden gefuellt — vorhandene Genres stammen aus
+    demselben TMDb und wuerden durch einen Details-Call nur ersetzt,
+    nicht verbessert; der Verzicht spart die Calls.
+
+    Die Kandidaten-Suche laedt alle Rows mit ``tmdb_id`` und filtert in
+    Python: die JSON-Spalte ``genres`` hat auf sqlite (Tests) und
+    Postgres (Prod) keinen gemeinsamen Leer-Praedikat-Ausdruck, und der
+    Katalog (~29k schmale Rows) ist fuer einen Hintergrund-Lauf
+    problemlos ladbar.
+    """
+    client = client or TMDbClient()
+    rows = session.exec(select(Title).where(Title.tmdb_id.is_not(None))).all()
+    fehlend = [
+        t for t in rows
+        if not (isinstance(t.genres, list) and len(t.genres) > 0)
+    ]
+    gefuellt = ohne_genres = fehler = 0
+    for title in fehlend[:max_titles]:
+        is_series = (title.content_type or "").strip().lower() == "series"
+        try:
+            details = await client.get_title_details(
+                title.tmdb_id, is_series=is_series
+            )
+        except Exception:  # noqa: BLE001 — ein toter Titel stoppt nicht den Lauf
+            fehler += 1
+            continue
+        namen = [
+            g["name"].strip()
+            for g in (details.get("genres") or [])
+            if isinstance(g, dict)
+            and isinstance(g.get("name"), str)
+            and g["name"].strip()
+        ]
+        if namen:
+            title.genres = namen
+            session.add(title)
+            gefuellt += 1
+            if gefuellt % _TITLE_SYNC_COMMIT_BATCH_SIZE == 0:
+                session.commit()
+        else:
+            # TMDb kennt den Titel, fuehrt aber keine Genres — merken
+            # wuerde nichts bringen, der naechste Lauf prueft erneut.
+            ohne_genres += 1
+    session.commit()
+    ergebnis = {
+        "kandidaten": len(fehlend),
+        "gefuellt": gefuellt,
+        "ohne_genres": ohne_genres,
+        "fehler": fehler,
+        "uebrig": max(len(fehlend) - max_titles, 0),
+    }
+    logger.info("genre_backfill.complete %s", ergebnis)
+    return ergebnis
