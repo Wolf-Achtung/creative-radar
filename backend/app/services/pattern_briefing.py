@@ -125,8 +125,10 @@ PATTERN_BRIEFING_MAX_TOKENS = 8000
 
 
 # Der System-Prompt ist der Entwurf aus dem Design-Review mit Wolf
-# (20.08.2026), unveraendert — vorgelegt, nicht beanstandet. Bewusst
-# OHNE BRIEF_VOICE: das hier ist kein Bericht, sondern Arbeitsmaterial
+# (20.08.2026); Regel 6 kam am 21.08.2026 dazu, nachdem der erste echte
+# Titel-Lauf die Juli-Kinostart-Daten aus den Beleg-Posts woertlich in
+# August-Empfehlungen uebernommen hatte ("Ab Mittwoch, 29.7." — laengst
+# vorbei). Bewusst OHNE BRIEF_VOICE: das hier ist kein Bericht, sondern Arbeitsmaterial
 # (Hooks/Captions zum direkten Verwenden); die Berichts-Verbotslisten
 # wuerden genau die Sprache verbieten, die Social-Captions brauchen.
 PATTERN_BRIEFING_SYSTEM_PROMPT = """Du bist Creative-Stratege für Kino-Marketing auf Social Media (DE/US/UK). Du bekommst gemessene Reichweiten-Muster aus dem eigenen Kanalbestand und die Original-Captions der stärksten Posts je Muster.
@@ -138,7 +140,8 @@ Regeln:
 2. Jede Empfehlung nennt in cited_post_ids die Beispiel-Posts (ihre URLs, wortwörtlich), aus denen sie abgeleitet ist. Ohne Beleg keine Empfehlung.
 3. Schreibe Hooks, wie sie in den belegten Captions tatsächlich klingen — übernimm die Mechanik (Frage, Zitat, Countdown, Kontrast), nie den Wortlaut. Keine Spoiler, keine erfundenen Filmtitel, keine Superlative ohne Beleg.
 4. Deutsch ist nicht übersetztes Englisch: DE-Hooks folgen deutscher Social-Sprache, EN-Hooks englischer.
-5. Wenn ein Muster zu dünn belegt ist, sag das in data_caveats statt zu liefern."""
+5. Wenn ein Muster zu dünn belegt ist, sag das in data_caveats statt zu liefern.
+6. Kalenderdaten: Die Beispiel-Posts liegen in der Vergangenheit — ihre Start- und Kinodaten sind abgelaufen. Übernimm KEINEN konkreten Termin aus den Captions; schreibe [DATUM] als Platzhalter, wo ein Datum hingehört."""
 
 
 def build_pattern_evidence(

@@ -756,6 +756,16 @@ def test_titel_prompt_nennt_ebene_und_echten_titel(session):
     assert "[TITEL]-Platzhalter" not in prompt
 
 
+def test_system_prompt_verbietet_kopierte_kalenderdaten():
+    """Befund vom ersten echten Titel-Lauf (21.08.2026): das Modell
+    uebernahm die Juli-Kinostart-Daten der Beleg-Posts woertlich in
+    August-Empfehlungen ("Ab Mittwoch, 29.7." — laengst vorbei). Regel 6
+    verlangt [DATUM] statt abgelaufener Termine — sie muss im
+    System-Prompt stehen, sonst kehrt der Fehler zurueck."""
+    assert "[DATUM]" in pb.PATTERN_BRIEFING_SYSTEM_PROMPT
+    assert "KEINEN konkreten Termin" in pb.PATTERN_BRIEFING_SYSTEM_PROMPT
+
+
 def test_genre_prompt_behaelt_den_platzhalter(session):
     _seed_genre(session, "Romance")
 
