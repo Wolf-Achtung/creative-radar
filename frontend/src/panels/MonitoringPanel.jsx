@@ -12,6 +12,7 @@ import {
 } from '../format';
 import { Section } from '../components/Section';
 import { UsageSection } from '../components/UsageSection';
+import { DIMENSION_LABEL, WERT_LABEL } from '../PatternsBlock';
 
 // Platin 2 (2026-07-13) — Admin Ops-Dashboard. Reine Anzeige-Komponente
 // auf Basis bereits bestehender Endpoints (cost-summary, die drei
@@ -67,6 +68,61 @@ function BudgetStatusCard({ label, status }) {
 // holen den Stand jederzeit ohne neuen (kostenden) Lauf. Vorher war
 // der Output in Production unsichtbar, solange das Nutzer-Panel hinter
 // FEATURE_TRAILER_INTELLIGENCE_ENABLED steckt.
+
+// Wir-Segment Schritt 1 (21.08.2026): empfohlen → gemacht → gewirkt.
+// Liest GET /api/admin/wir-segment — je MACHEN-Empfehlung des Muster-
+// Berichts, wie viele Posts der eigenen Kanäle (in Quellen →
+// „Wir-Kanäle markieren") das Muster spielen und wie sie laufen.
+export function WirSegmentSection() {
+  const [daten, setDaten] = useState(null);
+  const [fehler, setFehler] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.adminWirSegment()
+      .then((antwort) => { if (!cancelled) setDaten(antwort); })
+      .catch((err) => { if (!cancelled) setFehler(String(err?.message || err)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <Section title="Wir-Segment" kicker="Empfohlen → gemacht → gewirkt">
+      {fehler && <p className="error">Konnte das Wir-Segment nicht laden: {fehler}</p>}
+      {!fehler && !daten && <p className="muted small">Lädt …</p>}
+      {daten && daten.note && <p className="muted">{daten.note}</p>}
+      {daten && !daten.note && (
+        <>
+          <p className="muted small">
+            {daten.own_channels} eigene Kanäle · {daten.eigene_posts_im_fenster} eigene
+            Posts im {daten.window_days}-Tage-Fenster. „Gewirkt“ ist der
+            Median-Lift eurer eigenen Posts in diesem Muster — daneben der
+            Wert des Gesamtbestands zum Vergleich.
+          </p>
+          {daten.zeilen.length === 0 && (
+            <p className="muted">Aktuell gibt es keine MACHEN-Empfehlung im Muster-Bericht.</p>
+          )}
+          {daten.zeilen.map((zeile) => {
+            const dim = DIMENSION_LABEL[zeile.dimension] || zeile.dimension;
+            const wert = WERT_LABEL[zeile.value] || zeile.value;
+            return (
+              <p key={`${zeile.dimension}:${zeile.value}`} style={{ margin: '0.25rem 0' }}>
+                <strong>{dim}: {wert}</strong>
+                {' — '}
+                {zeile.gemacht === 0
+                  ? 'von uns noch nicht gespielt.'
+                  : `von uns ${zeile.gemacht}× gemacht, Median-Lift ${zeile.gewirkt_median_lift ?? '—'}x`}
+                <span className="muted small">
+                  {' '}(Gesamtbestand: {zeile.empfohlen_median_lift}x
+                  {zeile.empfohlen_breakout_z != null ? `, z=${zeile.empfohlen_breakout_z}` : ''})
+                </span>
+              </p>
+            );
+          })}
+        </>
+      )}
+    </Section>
+  );
+}
 
 const EBENE_LABEL = { genre: 'Genre-Ebene', title: 'Titel-Ebene' };
 
@@ -321,6 +377,7 @@ export function MonitoringPanel() {
   return (
     <>
       <BriefingSection />
+      <WirSegmentSection />
       <PlaybookMailSection />
       <Section title="Budgets diesen Monat" kicker="Kalendermonat, UTC">
         {status === 'error' && <p className="error">Konnte Budget-/Kostendaten nicht laden.</p>}

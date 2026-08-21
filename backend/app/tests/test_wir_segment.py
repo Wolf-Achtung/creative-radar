@@ -169,3 +169,30 @@ def test_empfehlung_ohne_eigene_posts_erscheint_mit_gemacht_null(
         "Nicht gemacht heisst: keine Wirkungs-Zahl — die Luecke IST die "
         "Aussage (Empfehlung, die wir noch nicht spielen)."
     )
+
+
+async def test_admin_endpoint_liefert_die_auswertung(session, monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+
+    from app.api import admin as admin_module
+    from app.database import get_session
+    from app.main import app
+
+    monkeypatch.setattr(
+        admin_module, "compute_wir_segment",
+        lambda session_, window_days=90: {"own_channels": 3, "zeilen": [], "note": None},
+    )
+
+    def _override():
+        yield session
+
+    app.dependency_overrides[get_session] = _override
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            antwort = await client.get("/api/admin/wir-segment")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert antwort.status_code == 200
+    assert antwort.json()["own_channels"] == 3

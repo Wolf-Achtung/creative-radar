@@ -141,6 +141,7 @@ export const endpoints = {
   // mit eindeutigem Exakt-Treffer in der Whitelist, schließt Karteileichen.
   candidatesAutopilot: () => api('/api/titles/candidates/autopilot', { method: 'POST' }),
   candidatesLlmAssist: () => api('/api/titles/candidates/llm-assist', { method: 'POST' }),
+  updateChannel: (channelId, payload) => api(`/api/channels/${channelId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   titleSyncRuns: () => api('/api/titles/sync/runs'),
   titleWhitelistStats: () => api('/api/titles/stats/whitelist'),
   titleCandidates: () => api('/api/titles/candidates'),
@@ -235,6 +236,7 @@ export const endpoints = {
   // (~5-10 Cent); Leerlauf ohne Muster ist kostenfrei.
   // Juengstes persistiertes Briefing einer Ebene — die Review-Ansicht
   // im Admin, VOR der Flag-Freigabe (das Nutzer-Panel ist in Prod aus).
+  adminWirSegment: () => api('/api/admin/wir-segment'),
   adminPatternBriefingLatest: ({ mode = 'genre' } = {}) => api(
     `/api/admin/pattern-briefing/latest?mode=${mode}`,
   ),
