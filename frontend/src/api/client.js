@@ -232,6 +232,11 @@ export const endpoints = {
   // Text-Bausteine sofort generieren (21.08.2026): Review-Weg per
   // Klick statt Endpoint-URL. Kostet je Lauf einen echten Opus-Call
   // (~5-10 Cent); Leerlauf ohne Muster ist kostenfrei.
+  // Juengstes persistiertes Briefing einer Ebene — die Review-Ansicht
+  // im Admin, VOR der Flag-Freigabe (das Nutzer-Panel ist in Prod aus).
+  adminPatternBriefingLatest: ({ mode = 'genre' } = {}) => api(
+    `/api/admin/pattern-briefing/latest?mode=${mode}`,
+  ),
   adminPatternBriefingGenerate: ({ mode = 'genre', windowDays = 90 } = {}) => api(
     `/api/admin/pattern-briefing/generate?mode=${mode}&window_days=${windowDays}`,
     { method: 'POST' },
