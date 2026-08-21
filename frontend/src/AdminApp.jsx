@@ -350,6 +350,27 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // Kandidaten-LLM-Assist (21.08.2026): löst die Rest-Kandidaten OHNE
+  // Exakt-Treffer per KI auf — Batch von 12 je Klick (~30 s), die
+  // Meldung sagt, wie viele noch offen sind.
+  async function runCandidateLlmAssist() {
+    await run(async () => {
+      const r = await endpoints.candidatesLlmAssist();
+      await load();
+      if (r.skipped === 'anthropic_not_configured') {
+        setMessage('KI-Prüfung übersprungen: kein Anthropic-API-Key in dieser Umgebung.');
+        return;
+      }
+      const rest = r.offen_danach
+        ? ` Noch ${r.offen_danach} offen — für die nächste Runde einfach erneut klicken.`
+        : ' Keine offenen Fälle mehr für die KI-Prüfung.';
+      setMessage(
+        `KI-Prüfung: ${r.geprueft} geprüft, ${r.zugeordnet} sicher zugeordnet, `
+        + `${r.unsicher} bleiben zur Hand-Prüfung.${rest}`
+      );
+    });
+  }
+
   // "Jetzt komplett aktualisieren": triggert den vollen Cron-Lauf (gerade
   // abgeschlossene KW + Force) und pollt dann GET /cron/runs, bis der
   // BackgroundTask fertig ist. Kein globales ``busy`` (sperrt sonst 5 Min die
@@ -556,6 +577,7 @@ export function AdminApp({ onLogout }) {
           onSyncTitleSources={syncTitleSources}
           onRematchAssets={rematchAssets}
           onCandidateAutopilot={runCandidateAutopilot}
+          onCandidateLlmAssist={runCandidateLlmAssist}
           onFullSync={triggerFullSync}
           cronBusy={cronBusy}
           cronMessage={cronMessage}

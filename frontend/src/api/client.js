@@ -140,6 +140,7 @@ export const endpoints = {
   // Kandidaten-Autopilot (2026-07-20): bestätigt offene Titel-Vorschläge
   // mit eindeutigem Exakt-Treffer in der Whitelist, schließt Karteileichen.
   candidatesAutopilot: () => api('/api/titles/candidates/autopilot', { method: 'POST' }),
+  candidatesLlmAssist: () => api('/api/titles/candidates/llm-assist', { method: 'POST' }),
   titleSyncRuns: () => api('/api/titles/sync/runs'),
   titleWhitelistStats: () => api('/api/titles/stats/whitelist'),
   titleCandidates: () => api('/api/titles/candidates'),
