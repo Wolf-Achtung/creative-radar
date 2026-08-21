@@ -283,6 +283,34 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // Entscheidungs-Queue 21.08.2026: der haeufigste Fall in der Queue ist
+  // „Titel fehlt in der Titelliste" (die KI-Notizen belegen das) — dafuer
+  // gab es keinen direkten Weg. Legt den Titel manuell an (Quelle:
+  // Kandidaten-Queue), ordnet das Asset ueber denselben Review-PATCH zu
+  // wie der manuelle Klick (setzt auch den de_us_match_key) und
+  // schliesst den Kandidaten.
+  async function createTitleFromCandidate(asset, candidate, titleName) {
+    const name = (titleName || '').trim();
+    if (!name || !candidate) return;
+    await run(async () => {
+      const title = await endpoints.createTitle({
+        title_original: name,
+        notes: 'Aus der Vorschlags-Queue angelegt.',
+      });
+      await endpoints.reviewAsset(asset.id, {
+        review_status: asset.review_status,
+        include_in_report: asset.include_in_report,
+        is_highlight: asset.is_highlight,
+        title_id: title.id,
+        curator_note: asset.curator_note || '',
+      });
+      await endpoints.patchTitleCandidate(candidate.id, { status: 'resolved' });
+      setRecentlyCreatedByAssetId((current) => ({ ...current, [asset.id]: name }));
+      await load();
+      setMessage(`„${name}" neu angelegt und zugeordnet, Vorschlag geschlossen.`);
+    });
+  }
+
   // Candidate-Review VERWERFEN: nur den Candidate auf ``ignored`` setzen.
   // Das Asset bleibt unassigned — die normale Zuordnung bleibt moeglich.
   async function dismissCandidate(candidate) {
@@ -569,6 +597,7 @@ export function AdminApp({ onLogout }) {
           openCandidatesByAssetId={openCandidatesByAssetId}
           onConfirmCandidate={confirmCandidate}
           onDismissCandidate={dismissCandidate}
+          onCreateTitleFromCandidate={createTitleFromCandidate}
           assetMode={assetMode}
           assetsHasMore={assetsHasMore}
           onSwitchAssetMode={switchAssetMode}
