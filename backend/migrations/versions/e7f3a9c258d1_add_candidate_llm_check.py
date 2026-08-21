@@ -1,4 +1,4 @@
-"""add llm check marker to title_candidate (KI-Assist-Fortschritt)
+"""add llm check marker to titlecandidate (KI-Assist-Fortschritt)
 
 Revision ID: e7f3a9c258d1
 Revises: d2e5c7a91f04
@@ -18,6 +18,14 @@ die Hand-Pruefung schneller geht.
 SQLite-Testpfad bootstrappt via ``SQLModel.metadata.create_all`` und
 hat die Spalten bereits aus der Entity — dort No-op (Muster
 ``title.genres``, a4b7c2e9d1f3).
+
+Korrektur 21.08.2026 (Deploy-Fehlschlag): die erste Fassung schrieb
+``title_candidate`` — die Tabelle heisst aber ``titlecandidate``, weil
+``TitleCandidate`` kein ``__tablename__`` setzt (SQLModel-Default =
+Klassenname kleingeschrieben, OHNE Unterstrich). Beide Railway-Deploys
+brachen im Pre-Deploy ab; die DDL lief transaktional, ``alembic_version``
+blieb auf d2e5c7a91f04 — deshalb darf diese Datei in place korrigiert
+werden. Wächter: ``test_wartung_2026_08_21_migrationsnamen.py``.
 """
 from __future__ import annotations
 
@@ -43,11 +51,11 @@ def upgrade() -> None:
     if not _is_postgres():
         return
     op.execute(
-        f"ALTER TABLE {SCHEMA}.title_candidate "
+        f"ALTER TABLE {SCHEMA}.titlecandidate "
         "ADD COLUMN IF NOT EXISTS llm_checked_at TIMESTAMP NULL"
     )
     op.execute(
-        f"ALTER TABLE {SCHEMA}.title_candidate "
+        f"ALTER TABLE {SCHEMA}.titlecandidate "
         "ADD COLUMN IF NOT EXISTS llm_note VARCHAR(300) NULL"
     )
 
@@ -55,5 +63,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     if not _is_postgres():
         return
-    op.execute(f"ALTER TABLE {SCHEMA}.title_candidate DROP COLUMN IF EXISTS llm_checked_at")
-    op.execute(f"ALTER TABLE {SCHEMA}.title_candidate DROP COLUMN IF EXISTS llm_note")
+    op.execute(f"ALTER TABLE {SCHEMA}.titlecandidate DROP COLUMN IF EXISTS llm_checked_at")
+    op.execute(f"ALTER TABLE {SCHEMA}.titlecandidate DROP COLUMN IF EXISTS llm_note")
