@@ -3,7 +3,7 @@
 // auf Staging (emails_disabled) warnt er, dass nichts ankam.
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, it, vi } from 'vitest';
 
 vi.mock('../api/client', () => ({
   endpoints: { adminPlaybookMailTest: vi.fn() },
