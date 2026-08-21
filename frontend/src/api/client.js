@@ -159,9 +159,9 @@ export const endpoints = {
   // Beispiel-Posts einer Muster-Zelle (Aufwertung B): die staerksten
   // Posts hinter einem Befund, sortiert nach Lift. value kann Leer-
   // und Sonderzeichen tragen (Genres, Titel) — deshalb URLSearchParams.
-  insightPatternExamples: ({ dimension, value, windowDays = 90 } = {}) => {
+  insightPatternExamples: ({ dimension, value, windowDays = 90, limit = 5 } = {}) => {
     const params = new URLSearchParams({
-      dimension, value, window_days: String(windowDays),
+      dimension, value, window_days: String(windowDays), limit: String(limit),
     });
     return api(`/api/insights/patterns/examples?${params.toString()}`);
   },

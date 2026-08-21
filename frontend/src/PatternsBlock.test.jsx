@@ -34,7 +34,15 @@ afterEach(() => {
 // solange der Montags-Cron das erste Mal noch nicht gelaufen ist.
 beforeEach(() => {
   endpoints.insightPatternBriefing.mockRejectedValue(new Error('404'));
+  endpoints.insightPatternExamples.mockResolvedValue({ examples: [] });
 });
+
+// Seit dem Empfehlungs-Tab (20.08.2026) ist die Zahlen-Ansicht der
+// ZWEITE Tab — Tests, die Tabellen oder Mess-Karten pruefen, wechseln
+// zuerst dorthin.
+async function zuZahlen() {
+  fireEvent.click(await screen.findByText('Zahlen & Methode'));
+}
 
 const ZELLE_OK = {
   value: 'Romance', sample_size: 42, channel_count: 6,
@@ -79,6 +87,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText('Romance');
     expect(screen.getByText('läuft über Schnitt')).toBeTruthy();
@@ -92,6 +101,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findByText(/Genre-Abdeckung liegt bei 12 %/);
     expect(screen.getByText(/700 Posts mit Kanal-Baseline/)).toBeTruthy();
@@ -103,6 +113,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
       ...DATEN, dimensions: { genre: [ZELLE_DUENN] }, notes: [],
     });
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findByText(/Noch kein Muster mit ausreichender Stichprobe/);
   });
@@ -122,6 +133,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
       },
     });
     render(<PatternsBlock />);
+    await zuZahlen();
 
     const ueber = await screen.findByText('19.0 %');
     expect(ueber.style.color).toBe('rgb(31, 122, 69)');
@@ -149,6 +161,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
       },
     });
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findByText('Das Wichtigste zuerst');
     // evergreen (|z|=3.4) schlaegt Romance (2.4) — und traegt den
@@ -178,9 +191,15 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
       }],
     });
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText(/Romance/);
-    expect(endpoints.insightPatternExamples).not.toHaveBeenCalled();
+    // Die Empfehlungs-Karten des ersten Tabs laden ihre Referenz-Posts
+    // mit limit 3 — ein ZEILEN-Fetch (limit 5) darf vor dem Klick nicht
+    // passiert sein.
+    expect(
+      endpoints.insightPatternExamples.mock.calls.filter(([a]) => a.limit !== 3),
+    ).toHaveLength(0);
     fireEvent.click(screen.getByText(/▸ Romance/));
 
     await screen.findByText('Post öffnen');
@@ -194,7 +213,11 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     // Zweiter Klick klappt zu — ohne neuen Request.
     fireEvent.click(screen.getByText(/▾ Romance/));
     expect(screen.queryByText('Post öffnen')).toBeNull();
-    expect(endpoints.insightPatternExamples).toHaveBeenCalledTimes(1);
+    // Genau EIN Zeilen-Fetch (limit 5) — zu- und wieder aufklappen
+    // laedt nicht erneut. Die Karten-Fetches (limit 3) zaehlen nicht.
+    expect(
+      endpoints.insightPatternExamples.mock.calls.filter(([a]) => a.limit !== 3),
+    ).toHaveLength(1);
   });
 
   it('zeigt in der aufgeklappten Zeile eine Leer-Meldung, wenn Beispiele fehlschlagen', async () => {
@@ -202,6 +225,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     endpoints.insightPatterns.mockResolvedValue(DATEN);
     endpoints.insightPatternExamples.mockRejectedValue(new Error('boom'));
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText(/Romance/);
     fireEvent.click(screen.getByText(/▸ Romance/));
@@ -227,6 +251,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
       },
     });
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText(/neu belastbar/);
     expect(screen.getByText(/Vorwoche: unauffällig/)).toBeTruthy();
@@ -254,6 +279,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
       },
     });
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findByText('Bewegung diese Woche');
     const chips = screen.getAllByText(/Verdikt gewechselt|Neu belastbar/);
@@ -280,6 +306,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
       },
     });
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText('Romance');
     expect(screen.queryByText(/emotional/)).toBeNull();
@@ -298,6 +325,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
       },
     });
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText('Romance');
     fireEvent.click(screen.getByText('Alle Zahlen zeigen (1 weitere Dimensionen)'));
@@ -313,6 +341,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText('Romance');
     expect(screen.queryByText('Median-Lift')).toBeNull();
@@ -323,6 +352,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText('Romance');
     expect(screen.getByText('Wie lese ich das?')).toBeTruthy();
@@ -333,6 +363,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText('Romance');
     const balken = screen.getByTitle('19.0 % gegen 11.0 % erwartet');
@@ -342,6 +373,89 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     expect(fuellung.style.width).toBe('87%');
     expect(fuellung.style.background).toBe('rgb(31, 122, 69)');
     expect(marker.style.left).toBe('50.3%');
+  });
+
+
+  it('Empfehlungen sind der Standard-Tab: Werkstatt-Sprache statt Mess-Sprache, Referenz-Posts direkt sichtbar', async () => {
+    // Praxis-Modus (20.08.2026): der erste Blick beantwortet "was mache
+    // ich anders?" — Titel aus der Werkstatt-Vorlage, keine Tabellen,
+    // die drei staerksten Referenz-Posts ohne weiteren Klick.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        cover_kinetik: [{
+          ...ZELLE_OK, value: 'title_card',
+          breakout_rate: 0.232, expected_breakout_rate: 0.141,
+          breakout_z: 4.3, breakout_verdict: 'over',
+          sample_size: 272, channel_count: 118,
+        }],
+      },
+    });
+    endpoints.insightPatternExamples.mockResolvedValue({
+      examples: [{
+        post_url: 'https://x.test/p/9', platform: 'tiktok',
+        channel_handle: 'disneyde', lift: 3.1, views: 90000,
+        caption: 'x', detected_at: '2026-08-10',
+      }],
+    });
+    render(<PatternsBlock />);
+
+    await screen.findByText('Cover mit Title-Card bauen');
+    expect(screen.getByText(/1\.6× öfter aus als vergleichbare ohne/)).toBeTruthy();
+    expect(screen.getByText(/Basis: 272 Posts von 118 Kanälen/)).toBeTruthy();
+    // Referenz-Posts: direkt geladen (limit 3) und sichtbar.
+    expect(endpoints.insightPatternExamples).toHaveBeenCalledWith(
+      { dimension: 'cover_kinetik', value: 'title_card', limit: 3 },
+    );
+    await screen.findByText('Post ansehen');
+    expect(screen.getByText('3.1x')).toBeTruthy();
+    // Keine Tabellen, keine Mess-Karten im Standard-Tab.
+    expect(screen.queryByText('Breakout-Quote')).toBeNull();
+    expect(screen.queryByText('Das Wichtigste zuerst')).toBeNull();
+  });
+
+  it('Werkstatt-Fallback: unbekannte Befunde bekommen einen generischen, ehrlichen Satz', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    render(<PatternsBlock />);
+
+    // Romance (over) hat keine Werkstatt-Vorlage — Titel aus dem
+    // Fallback, mit Faktor aus den Zahlen (0.19/0.11 = 1.7).
+    await screen.findByText('Romance öfter testen');
+    expect(screen.getByText(/1\.7× öfter aus als erwartet/)).toBeTruthy();
+  });
+
+  it('Copy-Button kopiert einen Baustein-Hook in die Zwischenablage', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText }, configurable: true,
+    });
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    endpoints.insightPatternBriefing.mockImplementation(({ mode } = {}) => (
+      mode === 'genre'
+        ? Promise.resolve({
+          mode: 'genre', iso_year: 2026, iso_week: 34, window_days: 90,
+          citation_dropped: 0,
+          llm_output: {
+            bausteine: [{
+              muster: 'Romance auf TikTok', begruendung: 'x',
+              hooks_de: ['Noch 3 Tage.'], hooks_en: [],
+              captions_de: [], captions_en: [], hashtags: [],
+              cited_post_ids: [],
+            }],
+            data_caveats: [],
+          },
+        })
+        : Promise.reject(new Error('404'))
+    ));
+    render(<PatternsBlock />);
+
+    await screen.findByText('Noch 3 Tage.');
+    fireEvent.click(screen.getAllByText('kopieren')[0]);
+    expect(writeText).toHaveBeenCalledWith('Noch 3 Tage.');
+    await screen.findByText('✓ kopiert');
   });
 
   it('zeigt die Text-Bausteine mit Hooks, Captions und Belegen', async () => {
@@ -429,6 +543,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     // beforeEach: insightPatternBriefing rejected — wie vor dem ersten
     // Montags-Cron-Lauf.
     render(<PatternsBlock />);
+    await zuZahlen();
 
     await screen.findAllByText('Romance');
     expect(screen.queryByText('Text-Bausteine aus den Mustern')).toBeNull();
