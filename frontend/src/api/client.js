@@ -229,6 +229,13 @@ export const endpoints = {
   // PLAYBOOK_MAIL_RECIPIENTS, auch ohne TI-Flag — der Pruef-Weg vor
   // der Freigabe. Antwort traegt sent/failed bzw. den Skip-Grund.
   adminPlaybookMailTest: () => api('/api/admin/playbook-mail/test', { method: 'POST' }),
+  // Text-Bausteine sofort generieren (21.08.2026): Review-Weg per
+  // Klick statt Endpoint-URL. Kostet je Lauf einen echten Opus-Call
+  // (~5-10 Cent); Leerlauf ohne Muster ist kostenfrei.
+  adminPatternBriefingGenerate: ({ mode = 'genre', windowDays = 90 } = {}) => api(
+    `/api/admin/pattern-briefing/generate?mode=${mode}&window_days=${windowDays}`,
+    { method: 'POST' },
+  ),
   adminMe: () => api('/api/admin/me'),
 
   // Sprint User-Login 2026-07: E-Mail+Code-Login fuer die gesamte

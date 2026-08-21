@@ -3,14 +3,14 @@
 // auf Staging (emails_disabled) warnt er, dass nichts ankam.
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../api/client', () => ({
-  endpoints: { adminPlaybookMailTest: vi.fn() },
+  endpoints: { adminPlaybookMailTest: vi.fn(), adminPatternBriefingGenerate: vi.fn() },
 }));
 
 import { endpoints } from '../api/client';
-import { PlaybookMailSection } from './MonitoringPanel';
+import { BriefingSection, PlaybookMailSection } from './MonitoringPanel';
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -40,5 +40,31 @@ describe('PlaybookMailSection', () => {
     render(<PlaybookMailSection />);
     fireEvent.click(screen.getByText('Test-Mail jetzt senden'));
     await screen.findByText(/PLAYBOOK_MAIL_RECIPIENTS in den Railway-Variablen pflegen/);
+  });
+});
+
+describe('BriefingSection', () => {
+  it('generiert die Titel-Ebene und meldet Bausteine samt Kosten', async () => {
+    endpoints.adminPatternBriefingGenerate.mockResolvedValue({
+      mode: 'title', iso_year: 2026, iso_week: 34, model: 'claude-x',
+      bausteine: 3, citation_dropped: 1, llm_output_present: true,
+      cost_usd_cents: 7,
+    });
+    render(<BriefingSection />);
+    fireEvent.click(screen.getByText('Titel-Ebene generieren'));
+    await screen.findByText(/3 Baustein\(e\) für KW 34\/2026 erstellt \(7 Cent\)/);
+    expect(screen.getByText(/1 Baustein\(e\) verworfen, weil Belege fehlten/)).toBeTruthy();
+    expect(endpoints.adminPatternBriefingGenerate).toHaveBeenCalledWith({ mode: 'title' });
+  });
+
+  it('erklaert den kostenfreien Leerlauf ohne Muster', async () => {
+    endpoints.adminPatternBriefingGenerate.mockResolvedValue({
+      mode: 'genre', iso_year: 2026, iso_week: 34, model: 'none',
+      bausteine: 0, citation_dropped: 0, llm_output_present: false,
+      cost_usd_cents: 0,
+    });
+    render(<BriefingSection />);
+    fireEvent.click(screen.getByText('Genre-Ebene generieren'));
+    await screen.findByText(/kein LLM-Aufruf, keine Kosten/);
   });
 });
