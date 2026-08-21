@@ -193,9 +193,11 @@ def test_batch_deckel_und_offen_danach(session, monkeypatch):
     summary = cla.run_candidate_llm_assist(session, max_candidates=2)
 
     assert summary.geprueft == 2
-    assert summary.offen_danach == 4, (
-        "2 nicht angefasste + 2 unsichere muessen als offen ausgewiesen "
-        "sein — stilles Liegenlassen taeuscht Vollstaendigkeit vor."
+    assert summary.offen_danach == 2, (
+        "Die 2 nicht angefassten sind noch ungeprueft; die 2 unsicheren "
+        "sind seit dem Fortschritts-Fix ERLEDIGT (Marker + Notiz) und "
+        "gehoeren der Hand-Pruefung — sie duerfen nicht mehr als offen "
+        "zaehlen, sonst verspricht die Meldung endlose Runden."
     )
 
 
@@ -217,3 +219,67 @@ def test_ohne_anthropic_key_wird_uebersprungen(session, monkeypatch):
 
     assert summary.skipped == "anthropic_not_configured"
     assert summary.geprueft == 0
+
+
+def test_gepruefte_kandidaten_werden_markiert_und_uebersprungen(
+    session, monkeypatch
+):
+    """Wolfs Befund vom 21.08.: jeder Klick prüfte dieselben 12
+    Kandidaten erneut. Ein unsicherer Kandidat muss Marker + Notiz
+    tragen und beim naechsten Lauf ohne LLM-Call uebersprungen werden."""
+    kanal = _kanal(session)
+    _titel(session, "Beware Boiúna")
+    _, cand = _fall(session, kanal, caption="beware…", vorschlag="beware")
+    prompts = _fake_llm(monkeypatch, [{
+        "auswahl": None, "sicher": False,
+        "begruendung": "Caption nennt keinen Titel.",
+    }])
+
+    erster = cla.run_candidate_llm_assist(session)
+    zweiter = cla.run_candidate_llm_assist(session)
+
+    session.refresh(cand)
+    assert erster.unsicher == 1
+    assert cand.llm_checked_at is not None
+    assert "Caption nennt keinen Titel" in (cand.llm_note or "")
+    assert len(prompts) == 1, (
+        "Der zweite Lauf darf den gepruefte Kandidaten NICHT erneut ans "
+        "LLM geben — genau das war die Endlos-Schleife."
+    )
+    assert zweiter.bereits_geprueft == 1 and zweiter.geprueft == 0
+    assert zweiter.offen_danach == 0
+
+
+def test_string_zahlen_und_string_true_werden_akzeptiert(session, monkeypatch):
+    """Haiku antwortet Auswahl/sicher gelegentlich als Strings — die
+    strikte Typ-Pruefung liess am 21.08. JEDEN Treffer durchfallen."""
+    kanal = _kanal(session)
+    titel = _titel(session, "Beware Boiúna")
+    asset, _ = _fall(
+        session, kanal, caption="BEWARE BOIÚNA — trailer.", vorschlag="beware",
+    )
+    _fake_llm(monkeypatch, [{
+        "auswahl": "1", "sicher": "true", "begruendung": "Caption nennt den Titel.",
+    }])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(asset)
+    assert summary.zugeordnet == 1
+    assert asset.title_id == titel.id
+
+
+def test_parse_fehler_setzt_keinen_marker(session, monkeypatch):
+    """Ein API-/Parse-Fehler ist kein Urteil: der Kandidat bleibt
+    unmarkiert und kommt beim naechsten Lauf wieder dran."""
+    kanal = _kanal(session)
+    _titel(session, "Beware Boiúna")
+    _, cand = _fall(session, kanal, caption="beware", vorschlag="beware")
+    _fake_llm(monkeypatch, [None])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(cand)
+    assert summary.fehler == 1
+    assert cand.llm_checked_at is None
+    assert summary.offen_danach == 1, "Fehler-Faelle zaehlen als weiterhin ungeprueft."

@@ -433,6 +433,11 @@ class TitleCandidate(SQLModel, table=True):
     source: CandidateSource = CandidateSource.TEXT
     confidence: float = 0.0
     status: CandidateStatus = CandidateStatus.OPEN
+    # KI-Assist-Fortschritt (21.08.2026, Migration e7f3a9c258d1):
+    # gepruefte Kandidaten werden markiert und beim naechsten Lauf
+    # uebersprungen; die Begruendung steht als Hinweis in der Queue.
+    llm_checked_at: Optional[datetime] = None
+    llm_note: Optional[str] = Field(default=None, max_length=300)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

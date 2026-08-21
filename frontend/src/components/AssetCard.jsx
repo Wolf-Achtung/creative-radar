@@ -101,6 +101,11 @@ export function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAs
                 <span className="candidate-conf"> · conf {Math.round(openCandidate.confidence * 100)}%</span>
               )}
             </p>
+            {/* KI-Assist (21.08.2026): die Begruendung des Modells als
+                Hinweis fuer die Hand-Pruefung — auch bei "unsicher". */}
+            {openCandidate.llm_note && (
+              <p className="candidate-llm small muted">{openCandidate.llm_note}</p>
+            )}
             {asset.title_id ? (
               <p className="candidate-warn" role="alert">
                 ⚠ Asset ist bereits zugeordnet zu „{getAssetDisplayTitle(asset, titles)}“ — vor dem Zuordnen prüfen.
