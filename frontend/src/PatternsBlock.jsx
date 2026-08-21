@@ -514,38 +514,58 @@ function EingeklappteDimension({ name, cells }) {
 // Vorlagen je (Dimension, Wert) fuer die bekannten Befunde; alles ohne
 // Vorlage bekommt einen generischen, ehrlichen Satz. Exportiert fuer
 // den Test.
+
+// Themen-Woerter fuer die Empfehlungs-Karten: Alltagssprache statt
+// Dimensions-Namen. "Cover: Bildtext & Kinetik" erklaert sich nicht
+// selbst — "Cover" schon. Der Zahlen-Tab behaelt die praezisen Labels.
+const THEMA_LABEL = {
+  genre: 'Genre',
+  format: 'Format',
+  format_class: 'Länge',
+  duration_bucket: 'Länge',
+  tone: 'Tonfall',
+  lifecycle_stage: 'Timing',
+  music_kind: 'Musik',
+  cover_titel: 'Cover',
+  cover_kinetik: 'Cover',
+  caption_frage: 'Bildunterschrift',
+  caption_cta: 'Bildunterschrift',
+  caption_laenge: 'Bildunterschrift',
+  caption_hashtags: 'Hashtags',
+};
+
 const WERKSTATT_VORLAGEN = {
   'cover_kinetik:title_card': (f) => ({
-    titel: 'Cover mit Title-Card bauen',
-    satz: `Posts mit gestalteter Titel-Tafel im Cover reißen ${f}× öfter aus als vergleichbare ohne.`,
+    titel: 'Cover mit Titel-Tafel bauen',
+    satz: `Posts mit gestalteter Titel-Tafel im Cover liegen ${f}-mal öfter weit über dem Kanal-Schnitt als Posts ohne.`,
   }),
   'lifecycle_stage:pre_launch': (f) => ({
     titel: 'Vor dem Start posten',
-    satz: `Die Ausreißer entstehen im Fenster VOR dem Start (${f}× über Erwartung) — Momentum aufbauen, bevor der Titel läuft.`,
+    satz: `Die stärksten Posts entstehen vor dem Kinostart (${f}-mal öfter als erwartet). Baut die Reichweite auf, bevor der Film läuft.`,
   }),
   'lifecycle_stage:launch': () => ({
-    titel: 'Der Start-Tag allein trägt nicht',
-    satz: 'Rund um den Start fällt die Trefferquote unter Schnitt — Start-Posts brauchen einen eigenen Aufhänger statt Autopilot.',
+    titel: 'Zum Start reicht Routine nicht',
+    satz: 'Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt. Plant für den Start einen eigenen Aufhänger.',
   }),
   'lifecycle_stage:evergreen': () => ({
-    titel: 'Evergreen-Material sparsam einsetzen',
-    satz: 'Posts ohne Kampagnen-Anlass reißen am seltensten aus — besser an Anlässe koppeln.',
+    titel: 'Ohne Anlass bringt ein Post wenig',
+    satz: 'Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite. Koppelt sie an einen Termin: Start, Jubiläum, Heimkino.',
   }),
   'tone:humorous': () => ({
-    titel: 'Humor braucht einen Aufhänger',
-    satz: 'Humorige Posts laufen im Bestand klar unter Schnitt — nicht streichen, aber nicht als Selbstläufer einplanen.',
+    titel: 'Humor zieht nicht von allein',
+    satz: 'Lustige Posts bleiben öfter unter dem Kanal-Schnitt. Nutzt Humor mit einem starken Aufhänger, nicht als Selbstläufer.',
   }),
   'format:behind_the_scenes': (f) => ({
-    titel: 'Mehr Behind-the-Scenes zeigen',
-    satz: `Einblicke hinter die Kulissen reißen ${f}× öfter aus als erwartet — Nähe schlägt Hochglanz.`,
+    titel: 'Mehr Blicke hinter die Kulissen',
+    satz: `Posts vom Set oder aus der Produktion liegen ${f}-mal öfter weit über dem Kanal-Schnitt. Nähe schlägt Hochglanz.`,
   }),
   'format:clip': () => ({
-    titel: 'Reine Szenen-Clips hinterfragen',
-    satz: 'Unbearbeitete Clips laufen unter Schnitt — ein Clip braucht einen Rahmen: Hook, Kontext, Anlass.',
+    titel: 'Szenen-Clips brauchen einen Rahmen',
+    satz: 'Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt. Gebt dem Clip einen Einstieg: Hook, Kontext oder Anlass.',
   }),
   'format_class:langform': (f) => ({
-    titel: 'Langform nicht scheuen',
-    satz: `Lange Stücke reißen ${f}× öfter aus als erwartet — Länge ist kein Reichweiten-Killer.`,
+    titel: 'Lange Videos funktionieren',
+    satz: `Videos über 90 Sekunden liegen ${f}-mal öfter weit über dem Kanal-Schnitt. Länge schreckt nicht ab.`,
   }),
 };
 
@@ -558,13 +578,13 @@ export function werkstattEmpfehlung(dim, cell) {
   const wert = WERT_LABEL[cell.value] || cell.value;
   if (cell.breakout_verdict === 'over') {
     return {
-      titel: `${wert} öfter testen`,
-      satz: `Posts mit diesem Merkmal reißen ${faktor ? `${faktor}× öfter` : 'öfter'} aus als erwartet.`,
+      titel: `${wert}: öfter testen`,
+      satz: `Posts mit diesem Merkmal liegen ${faktor ? `${faktor}-mal öfter` : 'öfter'} weit über dem Kanal-Schnitt.`,
     };
   }
   return {
-    titel: `${wert} sparsam einsetzen`,
-    satz: 'Posts mit diesem Merkmal bleiben unter der erwarteten Ausreißer-Quote.',
+    titel: `${wert}: sparsam einsetzen`,
+    satz: 'Posts mit diesem Merkmal bleiben öfter unter dem Kanal-Schnitt.',
   };
 }
 
@@ -608,7 +628,7 @@ function EmpfehlungsKarte({ dim, cell }) {
     >
       <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
         <span style={{ color: farbe }}>{over ? 'Machen' : 'Vorsicht'}</span>
-        <span style={{ color: '#6b6b6b' }}> · {DIMENSION_LABEL[dim] || dim}</span>
+        <span style={{ color: '#6b6b6b' }}> · {THEMA_LABEL[dim] || DIMENSION_LABEL[dim] || dim}</span>
       </p>
       <p style={{ margin: '0 0 0.35rem', fontWeight: 700, fontSize: '1.05em' }}>{titel}</p>
       <p style={{ margin: 0, fontSize: '0.9em', color: '#4a4a44' }}>{satz}</p>
