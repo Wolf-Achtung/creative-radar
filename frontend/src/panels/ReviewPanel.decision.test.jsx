@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../api/client', () => ({
   proxyImageUrl: (url) => url,
+  apiUrl: (path) => `https://api.test${path}`,
   endpoints: {},
 }));
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { proxyImageUrl } from '../api/client';
+import { apiUrl, proxyImageUrl } from '../api/client';
 import { clip, formatDate, getAssetDisplayTitle, inferTitleHint } from '../format';
 import { ImagePreview } from './ImagePreview';
 import { MetricStrip } from './MetricStrip';
@@ -77,7 +77,11 @@ export function AssetCard({ asset, titles, busy, onReview, onAnalyzeVisual, onAs
 
   return (
     <article className="asset-card">
-      <div className="asset-preview"><ImagePreview sources={[asset.visual_evidence_url, asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url].map(proxyImageUrl)} /></div>
+      {/* Bild-Fix 22.08.2026: /api/thumbnails-Proxy zuerst (gespeicherte
+          Evidence bzw. Referer-korrekter CDN-Fetch) — die rohen Felder
+          scheiterten am nackten Storage-Key und am 403 des /api/img-
+          Proxys. Muster: Dashboard-Referenz-Posts. */}
+      <div className="asset-preview"><ImagePreview sources={[apiUrl(`/api/thumbnails/${asset.id}`), proxyImageUrl(asset.thumbnail_url)]} /></div>
       <div className="asset-content">
         <div className="asset-topline">
           <span className="asset-title">{getAssetDisplayTitle(asset, titles)}</span>

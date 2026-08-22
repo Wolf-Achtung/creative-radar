@@ -440,6 +440,13 @@ class Settings(BaseSettings):
     # 60er-Batch kostet bei Haiku-Preisen um die 2 Cent.
     candidate_llm_assist_in_cron: bool = True
     candidate_llm_assist_cron_max: int = 60
+    # Evidence-Backfill (22.08.2026): Captures fuer junge Assets ohne
+    # gespeichertes Bild nachholen (transiente Scrape-Fehler; YouTube-
+    # Quellen verfallen nie). Zeit-Budget nach dem Vision-Muster.
+    evidence_backfill_in_cron: bool = True
+    evidence_backfill_max_assets: int = 300
+    evidence_backfill_budget_seconds: int = 600
+    evidence_backfill_max_age_days: int = 14
 
     # Sprint 28.05.2026 (Evidenz-Block / Quellen-Attribution) —
     # Stufenmodell B→A fuer den Citation-Validator im Pair-Brief-Pfad.
