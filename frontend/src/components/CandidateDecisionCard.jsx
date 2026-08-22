@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { proxyImageUrl } from '../api/client';
+import { apiUrl, proxyImageUrl } from '../api/client';
 import { clip, formatDate, formatNumber, getAssetDisplayTitle, searchTitles } from '../format';
 import { ImagePreview } from './ImagePreview';
 
@@ -122,7 +122,15 @@ export function CandidateDecisionCard({
         rel="noreferrer"
         title="Original-Post öffnen"
       >
-        <ImagePreview sources={[asset.visual_evidence_url, asset.screenshot_url, asset.thumbnail_url, asset.visual_source_url].map(proxyImageUrl)} />
+        {/* Bild-Fix 22.08.2026: PRIMAER der /api/thumbnails-Proxy — er
+            liefert die beim Scrape GESPEICHERTE Evidence (302 auf
+            signierte URL) und faellt server-seitig mit korrektem
+            Referer auf die CDN zurueck. Die rohen Felder scheiterten
+            doppelt: der nackte Storage-Key ("evidence/…") ging als
+            relative URL kaputt, und /api/img blockt Instagram per
+            Hotlink-Schutz (leerer Referer → 403). Muster: Dashboard-
+            Referenz-Posts (InsightWeekly/PatternsBlock). */}
+        <ImagePreview sources={[apiUrl(`/api/thumbnails/${asset.id}`), proxyImageUrl(asset.thumbnail_url)]} />
         <span className="decision-open">Original öffnen ↗</span>
       </a>
       <div className="decision-content">

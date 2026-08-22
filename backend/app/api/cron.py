@@ -76,6 +76,7 @@ from app.services.segment_roundup import (
 )
 from app.services.candidate_autopilot import run_candidate_autopilot
 from app.services.candidate_llm_assist import run_candidate_llm_assist
+from app.services.asset_screenshot_persistence import backfill_missing_evidence
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.title_sync import sync_titles_from_tmdb
 from app.services.visual_analysis import analyze_asset_visual
@@ -776,6 +777,29 @@ def _mark_stuck_title_sync_run_error(session: Session, timeout_s: int) -> None:
             session.commit()
     except Exception:  # noqa: BLE001 — best-effort audit cleanup
         logger.exception("failed to mark timed-out title_sync run as error")
+
+
+async def _run_evidence_backfill_stage(session: Session) -> dict:
+    """Evidence-Backfill als Cron-Stage (22.08.2026).
+
+    Der Scrape captured jedes neue Asset sofort — transiente Fehler
+    (CDN-Timeout, Storage-Schluckauf) liessen Assets aber dauerhaft
+    ohne gespeichertes Bild zurueck. Diese Stage holt Captures fuer
+    junge Assets nach, solange die Quelle noch lebt. Kill-Switch +
+    Deckel + Zeit-Budget aus den Settings; best-effort.
+    """
+    if not settings.evidence_backfill_in_cron:
+        return {"skipped": True, "reason": "disabled"}
+    try:
+        return await backfill_missing_evidence(
+            session,
+            max_assets=settings.evidence_backfill_max_assets,
+            budget_seconds=settings.evidence_backfill_budget_seconds,
+            max_age_days=settings.evidence_backfill_max_age_days,
+        )
+    except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster Autopilot
+        logger.exception("evidence-backfill stage failed")
+        return {"error": str(exc)[:500]}
 
 
 async def _run_candidate_llm_assist_stage(session: Session) -> dict:
@@ -2028,6 +2052,9 @@ async def _run_cron_sync_background_impl(
                 except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster rematch
                     logger.exception("post-analysis stage failed")
                     summary["post_analysis"] = {"error": str(exc)[:500]}
+            # Evidence-Backfill (22.08.2026): direkt nach Scrape+Vision,
+            # solange die CDN-Links der frischen Posts noch leben.
+            summary["evidence_backfill"] = await _run_evidence_backfill_stage(session)
             # Title-Katalog-Sync (Movies + TV) VOR dem Rematch, damit frisch
             # gezogene Titel im selben Lauf gematcht werden. Hinter
             # ENABLE_TITLE_SYNC_IN_CRON (Default true); eigener try/except.

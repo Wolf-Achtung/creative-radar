@@ -14,6 +14,10 @@ commits the Asset row; the sync stats still count it as ``created``.
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timedelta, timezone
+
+from sqlmodel import Session, select
 
 from app.models.entities import Asset
 from app.services.screenshot_capture import (
@@ -55,3 +59,58 @@ async def persist_asset_screenshot_async(asset: Asset) -> None:
         logger.warning("capture failed for asset %s: %s", asset.id, exc)
         return
     _apply_result(asset, result)
+
+
+# --- Evidence-Backfill (22.08.2026) ------------------------------------------
+# Der Scrape-Pfad captured jedes neue Asset sofort (Sprint 5.3.6) — aber
+# ein transienter Fehler (CDN-Timeout, kurzer Storage-Schluckauf) liess
+# das Asset dauerhaft ohne gespeichertes Bild zurueck, und Instagram-
+# CDN-Links verfallen nach 24-48 h. Dieser Backfill holt Captures fuer
+# JUNGE Assets ohne Evidence nach, solange die Quelle noch lebt
+# (YouTube-Thumbnails verfallen nie, Instagram nur kurz nach Scrape).
+#
+# Zeit-Budget VOR jedem Asset geprueft — die Lektion aus dem Vision-
+# Vorfall vom 10./20.08.: ein Stueckzahl-Deckel allein sagt nichts
+# ueber Laufzeit. Was nicht mehr passt, steht ehrlich im Ergebnis.
+async def backfill_missing_evidence(
+    session: Session,
+    *,
+    max_assets: int = 300,
+    budget_seconds: int = 600,
+    max_age_days: int = 14,
+) -> dict:
+    grenze = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    rows = session.exec(
+        select(Asset)
+        .where(
+            Asset.visual_evidence_url.is_(None),
+            Asset.created_at >= grenze,
+        )
+        .order_by(Asset.created_at.desc())
+    ).all()
+    start = time.monotonic()
+    captured = fehlgeschlagen = skipped_budget = 0
+    batch = rows[:max_assets]
+    for index, asset in enumerate(batch):
+        if time.monotonic() - start > budget_seconds:
+            skipped_budget = len(batch) - index
+            break
+        await persist_asset_screenshot_async(asset)
+        if asset.visual_evidence_url:
+            session.add(asset)
+            captured += 1
+            if captured % 50 == 0:
+                session.commit()
+        else:
+            fehlgeschlagen += 1
+    session.commit()
+    ergebnis = {
+        "kandidaten": len(rows),
+        "captured": captured,
+        "fehlgeschlagen": fehlgeschlagen,
+        "skipped_budget": skipped_budget,
+        "uebrig": max(len(rows) - max_assets, 0),
+        "duration_seconds": round(time.monotonic() - start, 1),
+    }
+    logger.info("evidence_backfill.complete %s", ergebnis)
+    return ergebnis

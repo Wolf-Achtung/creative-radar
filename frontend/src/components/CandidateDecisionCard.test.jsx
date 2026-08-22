@@ -184,4 +184,23 @@ describe('CandidateDecisionCard', () => {
     const link = screen.getByTitle('Original-Post öffnen');
     expect(link.getAttribute('href')).toBe('https://instagram.test/p/abc');
   });
+
+  it('das Vorschaubild kommt vom /api/thumbnails-Proxy, nicht aus den rohen Feldern', () => {
+    render(
+      <CandidateDecisionCard
+        asset={{ ...basisAsset, visual_evidence_url: 'evidence/a1_x.jpg', thumbnail_url: 'https://scontent.cdninstagram.com/x.jpg' }}
+        titles={[]}
+        busy={false}
+        openCandidate={kandidat}
+      />
+    );
+
+    const bild = screen.getByAltText('Creative Vorschau');
+    expect(bild.getAttribute('src')).toContain('/api/thumbnails/a1');
+    expect(bild.getAttribute('src')).not.toContain('evidence/'), (
+      'Der nackte Storage-Key ging als relative URL kaputt — die Karte '
+      + 'muss den Proxy nutzen, der gespeicherte Evidence aufloest '
+      + '(Wolfs kaputte Vorschaubilder vom 21.08.).'
+    );
+  });
 });
