@@ -144,12 +144,34 @@ Frontend (Netlify, Build-Zeit): `VITE_API_BASE`, `VITE_API_TOKEN`,
 `VITE_ENVIRONMENT`. Stehen in keiner `.env.example` — das Beispiel deckt
 nur das Backend ab.
 
-### Railway-Abgleich (Screenshot 19.08.2026, Umgebung `production`)
+### Railway-Abgleich (ENV-Listen 22.08.2026, beide Umgebungen)
 
-51 Variablen gesetzt, dazu 8 von Railway selbst. **Keine einzige
-verwaiste** — jede gesetzte Variable wird vom Code gelesen.
-`PERPLEXITY_API_KEY` und `PERPLEXITY_MODEL` sind nicht mehr da, der
-Kosten-Audit vom 01.08. ist also auch im Deployment nachvollzogen.
+Production: 44 Variablen gesetzt. Am 22.08. bereinigt — acht Variablen
+entfernt, die entweder exakt dem Code-Default entsprachen
+(`ANTHROPIC_MONTHLY_BUDGET_USD`, `APIFY_MONTHLY_BUDGET_USD`,
+`APIFY_RESULTS_LIMIT_PER_CHANNEL`, `APIFY_WAIT_SECONDS`) oder
+funktionslos waren: `BACKEND_URL` (Settings-Feld, das keine Codezeile
+liest), `CRON_A_CLASS_THRESHOLD`/`_MAX` und `CRON_SYNC_INTERVAL_DAYS`
+(seit Wegfall der B-Klassen-Rotation synct jeder Lauf ohnehin alle
+aktiven Kanäle; `run_index` ist laut `cron_channel_selection.py`
+ausdrücklich vestigial). Alle drei Kosten-Deckel laufen damit einheitlich
+auf den Code-Defaults ($50/$100/$50) — die frühere Asymmetrie ist
+aufgelöst.
+
+Geändert am selben Tag: `FRONTEND_URL` von der Zweit-Domain
+(`creative-radar.ki-sicherheit.jetzt`) auf `https://app.creative-radar.de`
+— der Wert steht im Fußtext jeder Login-Mail und in den Dashboard-Links
+der Playbook-Mail. `CRON_TOTAL_RUN_TIMEOUT_SECONDS` 12000 → **14400**
+und `CRON_RUN_TIMEOUT_MINUTES` 210 → **250** (Sicherheitsreserve für die
+neuen Cron-Stages der Woche vom 18.08.; der Reaper muss über dem harten
+Timeout bleiben, nach gemessenem Lauf wieder senkbar).
+
+Staging: 39 Variablen, unverändert und regelkonform — keine API-Keys,
+kein S3, `MOCK_EXTERNAL_APIS=true` (deckt Apify + YouTube),
+`DISABLE_EMAILS=true` (Login-Codes ins Log), TI-Flag nur hier. Bekannte
+Einschränkung: Evidence-Keys aus der Prod-DB-Kopie sind ohne S3-Zugang
+nicht auflösbar — `/api/thumbnails` 302t auf `/storage/…` ins Leere, die
+Karten fallen aufs CDN-Bild zurück.
 
 Bewusst **nicht** in Production gesetzt (laufen auf dem Code-Default):
 
@@ -159,10 +181,15 @@ Bewusst **nicht** in Production gesetzt (laufen auf dem Code-Default):
 | `ENABLE_INTERNAL_CRON_SCHEDULER` | `is_scheduler_enabled()` fällt auf `app_env == "production"` zurück → Montags-Cron **an** (`cron_scheduler.py:45`) |
 | `DISABLE_EMAILS`, `DOCS_PUBLIC`, `MOCK_EXTERNAL_APIS`, `STAGING_EXPECTED_DB_HOST` | nur in `staging` gesetzt — in Production korrekt aus |
 | `ALLOW_AUTH_DISABLED_IN_PRODUCTION` | `False` → Boot-Abbruch bei abgeschalteter Auth greift |
-| `OPENAI_MONTHLY_BUDGET_USD` | $50 aus dem Code. Apify und Anthropic sind dagegen ausdrücklich gesetzt — die Asymmetrie ist gewollt oder übersehen, das weiß nur Wolf |
+| `APIFY_MONTHLY_BUDGET_USD`, `ANTHROPIC_MONTHLY_BUDGET_USD`, `OPENAI_MONTHLY_BUDGET_USD` | $50 / $100 / $50 aus dem Code — seit 22.08. alle drei einheitlich auf Default |
+| `IMAGE_PROXY_ALLOWED_HOSTS` | Code-Default gilt — inkl. `ytimg.com,ggpht.com` seit dem Bild-Fix vom 22.08. (#410) |
 | `INSIGHT_CITATION_STRICT_ENFORCE` | `False`, Soft-Mode. Am 20.08.2026 gemessen: 0,19 % Falsch-Zitat-Rate, Kriterium (< 2 %) erfüllt — der Flip ist durch die Daten gedeckt (s.u.) |
 | alle `*_PER_1K_USD`, `USD_TO_EUR_RATE` | Code-Werte gelten — die Preistabelle oben beschreibt also die echte Kostenrechnung |
+| `FEATURE_TRAILER_INTELLIGENCE_ENABLED` | in Production aus bis zur Staging-Abnahme (Montags-Entscheidung bei Wolf) |
 | `SMTP_HOST` / `_USER` / `_PASSWORD` | **nirgends gesetzt.** Fällt Resend aus, greift der SMTP-Rückfallweg ins Leere: `MailerError` → 503, Login komplett tot. Es gibt keinen zweiten Weg |
+
+Merkposten für den nächsten Wartungs-PR: das tote Feld `backend_url`
+aus `config.py` und `.env.example` entfernen.
 
 **Weiterhin nicht prüfbar:** die Netlify-Variablen (`VITE_API_BASE`,
 `VITE_API_TOKEN`, `VITE_ENVIRONMENT`).
