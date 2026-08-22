@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { apiUrl } from '../api/client';
 import { formatCronRunStatus, formatDate, formatDateTime, searchTitles } from '../format';
 import { Section } from '../components/Section';
+import { DIMENSION_LABEL, WERT_LABEL } from '../PatternsBlock';
 
 export function SourcesPanel({
   busy,
@@ -23,6 +25,8 @@ export function SourcesPanel({
   channels,
   titles,
   onToggleTitleOwnProject,
+  startBrief = null,
+  onProjektStartBrief = () => {},
   onFullSync,
   cronBusy,
   cronMessage,
@@ -134,17 +138,93 @@ export function SourcesPanel({
         {markierteProjekte.length > 0 && (
           <div style={{ marginBottom: '0.5rem' }}>
             {markierteProjekte.map((title) => (
-              <label key={title.id} style={{ display: 'block', padding: '0.15rem 0' }}>
-                <input
-                  type="checkbox"
-                  checked
-                  onChange={() => onToggleTitleOwnProject(title)}
-                />{' '}
-                {title.title_original}
-                {title.title_local && title.title_local !== title.title_original ? (
-                  <span className="muted small"> · {title.title_local}</span>
-                ) : null}
-              </label>
+              <div key={title.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.15rem 0' }}>
+                <label style={{ flex: 1 }}>
+                  <input
+                    type="checkbox"
+                    checked
+                    onChange={() => onToggleTitleOwnProject(title)}
+                  />{' '}
+                  {title.title_original}
+                  {title.title_local && title.title_local !== title.title_original ? (
+                    <span className="muted small"> · {title.title_local}</span>
+                  ) : null}
+                </label>
+                {/* Projekt-Start-Brief (22.08.2026): das Radar VOR der
+                    Arbeit — die aktuell ueberperformenden Muster mit
+                    Referenz-Posts als Moodboard fuer genau dieses Projekt. */}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => onProjektStartBrief(title)}
+                >
+                  Start-Brief
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {startBrief?.laedt && <p className="muted small">Start-Brief wird berechnet …</p>}
+        {startBrief?.fehler && (
+          <p className="error">Start-Brief konnte nicht geladen werden: {startBrief.fehler}</p>
+        )}
+        {startBrief?.daten && (
+          <div className="card" style={{ marginTop: '0.5rem' }}>
+            <h3>Start-Brief: {startBrief.daten.title.title_original}</h3>
+            <p className="muted small">
+              {startBrief.daten.genre_standort ? (
+                <>
+                  Euer Genre <strong>{startBrief.daten.title.genre}</strong> steht aktuell auf{' '}
+                  Median-Lift {startBrief.daten.genre_standort.median_lift}x
+                  ({startBrief.daten.genre_standort.verdict}
+                  {startBrief.daten.genre_standort.breakout_z != null
+                    ? `, z=${startBrief.daten.genre_standort.breakout_z}`
+                    : ''}).{' '}
+                </>
+              ) : startBrief.daten.title.genre ? (
+                <>Für das Genre „{startBrief.daten.title.genre}“ gibt es im Fenster keine belastbare Zelle. </>
+              ) : (
+                <>Der Titel trägt noch kein Genre — der TMDb-Sync ergänzt es beim nächsten Lauf. </>
+              )}
+              Basis: {startBrief.daten.posts_im_fenster} Posts der letzten {startBrief.daten.window_days} Tage.
+            </p>
+            {startBrief.daten.empfehlungen.length === 0 && (
+              <p className="muted">Aktuell gibt es keine MACHEN-Empfehlung im Muster-Bericht.</p>
+            )}
+            {startBrief.daten.empfehlungen.map((emp) => (
+              <div key={`${emp.dimension}:${emp.value}`} style={{ margin: '0.5rem 0' }}>
+                <p style={{ margin: 0 }}>
+                  <strong>{DIMENSION_LABEL[emp.dimension] || emp.dimension}: {WERT_LABEL[emp.value] || emp.value}</strong>
+                  <span className="muted small">
+                    {' '}— Median-Lift {emp.median_lift}x
+                    {emp.breakout_z != null ? `, z=${emp.breakout_z}` : ''}, n={emp.sample_size}
+                  </span>
+                </p>
+                {emp.beispiele.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                    {emp.beispiele.map((bsp) => (
+                      <a
+                        key={bsp.post_url}
+                        href={bsp.post_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="muted small"
+                        style={{ maxWidth: '9rem' }}
+                        title={bsp.caption || bsp.post_url}
+                      >
+                        {bsp.asset_id && (
+                          <img
+                            src={apiUrl(`/api/thumbnails/${bsp.asset_id}`)}
+                            alt=""
+                            style={{ width: '100%', borderRadius: '4px', display: 'block' }}
+                          />
+                        )}
+                        {bsp.handle ? `@${bsp.handle}` : 'Post'} · {bsp.lift}x
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}

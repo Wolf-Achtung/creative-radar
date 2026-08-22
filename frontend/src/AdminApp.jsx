@@ -414,6 +414,21 @@ export function AdminApp({ onLogout }) {
     }
   }
 
+  // Projekt-Start-Brief (22.08.2026): das Radar VOR der Arbeit — fuer
+  // ein Wir-Projekt die aktuell ueberperformenden Muster mit
+  // Referenz-Posts. Deterministisch und sofort da, deshalb ohne
+  // globales busy.
+  const [startBrief, setStartBrief] = useState(null);
+  async function loadProjektStartBrief(title) {
+    setStartBrief({ titleId: title.id, laedt: true });
+    try {
+      const daten = await endpoints.projektStartBrief(title.id);
+      setStartBrief({ titleId: title.id, daten });
+    } catch (err) {
+      setStartBrief({ titleId: title.id, fehler: err.message || String(err) });
+    }
+  }
+
   // Wir-Projekte (22.08.2026): Trailerhaus arbeitet projektweise — die
   // Wir-Einheit ist der FILM, nicht der Kanal. Gleiche optimistische
   // Mechanik wie toggleChannelOwn.
@@ -640,6 +655,8 @@ export function AdminApp({ onLogout }) {
           channels={channels}
           titles={titles}
           onToggleTitleOwnProject={toggleTitleOwnProject}
+          startBrief={startBrief}
+          onProjektStartBrief={loadProjektStartBrief}
           onFullSync={triggerFullSync}
           cronBusy={cronBusy}
           cronMessage={cronMessage}
