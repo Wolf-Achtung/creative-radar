@@ -34,6 +34,10 @@ describe('extractTitleFromNote', () => {
   it('zieht den zitierten Filmtitel aus der KI-Notiz', () => {
     expect(extractTitleFromNote(kandidat.llm_note)).toBe('Beware Boiúna');
     expect(extractTitleFromNote('Der Post bewirbt „Lügen über meine Mutter“ direkt.')).toBe('Lügen über meine Mutter');
+    // 22.08.: die Low-9-Variante mit ’-Schluss (Wolfs „adaptation"-Fall —
+    // die Vorbefuellung fiel auf den verstuemmelten suggested_title zurueck).
+    expect(extractTitleFromNote('Der Post bewirbt den Film ‚H wie Habicht’, der nicht enthalten ist.')).toBe('H wie Habicht');
+    expect(extractTitleFromNote('Der Post bewirbt ‚H wie Habicht‘ direkt.')).toBe('H wie Habicht');
     expect(extractTitleFromNote('keine Zitate hier')).toBe('');
     expect(extractTitleFromNote(null)).toBe('');
   });
