@@ -133,6 +133,13 @@ class ReportStatusUpdate(BaseModel):
     status: ReportStatus
 
 
+class TitlePatch(BaseModel):
+    """Wir-Projekte (22.08.2026): bislang gibt es genau EIN nachtraeglich
+    aenderbares Titel-Feld — die Projekt-Markierung fuers Wir-Segment.
+    Bewusst schmal gehalten; weitere Felder erst, wenn ein Bedarf da ist."""
+    is_own_project: Optional[bool] = None
+
+
 class TitleCandidatePatch(BaseModel):
     status: Optional[str] = None
     suggested_title: Optional[str] = None

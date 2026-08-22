@@ -14,6 +14,7 @@ from app.schemas.dto import (
     TitleCandidateCreateFromAsset,
     TitleCandidatePatch,
     TitleCreate,
+    TitlePatch,
     TitleSyncRequest,
 )
 from app.admin_session import require_admin_session
@@ -274,6 +275,23 @@ def patch_candidate(candidate_id: UUID, payload: TitleCandidatePatch, session: S
     session.commit()
     session.refresh(candidate)
     return candidate
+
+
+# Wir-Projekte (22.08.2026): bewusst NACH den statischen Pfaden
+# (/candidates, /sync, /stats) registriert — die Route-Reihenfolge haelt
+# den {title_id}-Catch-all hinter den spezifischen Endpunkten.
+@router.patch("/{title_id}")
+def patch_title(title_id: UUID, payload: TitlePatch, session: Session = Depends(get_session)):
+    title = session.get(Title, title_id)
+    if not title:
+        raise HTTPException(status_code=404, detail="Title not found")
+    data = payload.model_dump(exclude_none=True)
+    for key, value in data.items():
+        setattr(title, key, value)
+    session.add(title)
+    session.commit()
+    session.refresh(title)
+    return title
 
 
 @router.get("/stats/whitelist")

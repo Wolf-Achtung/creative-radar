@@ -296,6 +296,17 @@ class Title(SQLModel, table=True):
     genres: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     priority: Priority = Priority.B
     active: bool = True
+    # Wir-Projekte (22.08.2026): Trailerhaus betreut keine kompletten
+    # Kunden-Kanaele, sondern liefert pro FILMPROJEKT — die Wir-Einheit
+    # ist deshalb der Titel, nicht der Kanal. ``wir_segment`` zaehlt
+    # Posts als "gemacht", wenn ihr Asset auf einen Wir-Projekt-Titel
+    # gemappt ist ODER ihr Kanal ``is_own`` traegt (Union; das
+    # Kanal-Flag bleibt fuer echte eigene Kanaele bestehen). Markierung
+    # in Admin → Quellen, Migration a9c4e7f21d05.
+    is_own_project: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean(), nullable=False, server_default=sa.false()),
+    )
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

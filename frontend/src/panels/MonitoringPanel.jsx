@@ -93,7 +93,8 @@ export function WirSegmentSection() {
       {daten && !daten.note && (
         <>
           <p className="muted small">
-            {daten.own_channels} eigene Kanäle · {daten.eigene_posts_im_fenster} eigene
+            {daten.own_project_titles || 0} Wir-Projekte · {daten.own_channels} eigene
+            Kanäle · {daten.eigene_posts_im_fenster} eigene
             Posts im {daten.window_days}-Tage-Fenster. „Gewirkt“ ist der
             Median-Lift eurer eigenen Posts in diesem Muster — daneben der
             Wert des Gesamtbestands zum Vergleich.
