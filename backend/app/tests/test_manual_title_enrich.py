@@ -176,6 +176,10 @@ async def test_titel_mit_tmdb_id_bekommen_keinen_such_call(session):
 
 
 async def test_sync_haengt_die_anreicherung_an_jeden_lauf(session, monkeypatch):
+    # Streamer-Pass (Sprint §7) aus: der Stub-Client hier kennt die
+    # Network-Achse nicht, und dieser Test beobachtet nur den Anhang.
+    from app.config import settings as _settings
+    monkeypatch.setattr(_settings, "streamer_title_sync_enabled", False, raising=False)
     aufrufe = []
 
     async def _enrich_stub(session_, *, client=None, max_titles=None):

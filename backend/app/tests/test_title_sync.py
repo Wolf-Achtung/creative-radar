@@ -15,6 +15,17 @@ from app.services import title_sync
 from app.services.tmdb_client import TMDbClient
 
 
+@pytest.fixture(autouse=True)
+def _network_achse_leer(monkeypatch):
+    """Sprint §7 (22.08.2026): der Sync hat jetzt zusaetzlich den
+    Streamer-Network-Pass. Diese Datei testet die COMPANY-Achse und
+    die Upsert-Semantik — die Network-Achse wird leer gestubbt (ihre
+    Tests: test_streamer_title_sync.py)."""
+    async def leer(self, networks, *, language, region=None):
+        return []
+    monkeypatch.setattr(TMDbClient, "discover_series_by_network", leer, raising=False)
+
+
 @pytest.fixture
 def session() -> Session:
     engine = create_engine("sqlite://")
@@ -128,9 +139,11 @@ def test_per_market_dedup_populates_both_release_dates(monkeypatch, session):
 
 
 def test_streamers_not_synced_by_default(monkeypatch, session):
-    """Streamer pairs are out of scope: a full run (pairs=None) must not touch
-    them. We assert the company-discover is only ever called with production-
-    studio company sets, never a streamer set."""
+    """Company-Achse bleibt Studio-Revier: ein voller Lauf (pairs=None)
+    ruft den Company-Discover nur mit den 6 Produktionsstudio-Sets auf,
+    nie mit einem Streamer-Set. Die Streamer laufen seit Sprint §7
+    (22.08.2026) ueber die NETWORK-Achse — getestet in
+    test_streamer_title_sync.py."""
     called_companies: list[str] = []
 
     async def rec_movies(self, company_ids, language, region=None):

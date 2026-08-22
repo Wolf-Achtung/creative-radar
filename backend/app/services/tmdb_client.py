@@ -294,6 +294,28 @@ class TMDbClient:
             "genres": self._genre_names(series.get("genre_ids"), is_series=True),
         }
 
+    async def discover_series_by_network(
+        self, network_ids: str, language: str, region: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Network-Achse fuer Streamer-Originals (Sprint §7, 22.08.2026).
+
+        TMDb kennt fuer Serien den ``with_networks``-Filter — das ist die
+        verlaessliche Originals-Achse (Netflix/Prime/Paramount+ als
+        ausstrahlendes Netzwerk). Fuer FILME gibt es keinen Network-
+        Filter; der ``with_watch_providers``-Ersatz zoege den kompletten
+        LIZENZ-Katalog (zigtausende Fremdtitel) in die Whitelist —
+        deshalb laufen Streamer-Filme weiterhin ueber kuratierbare
+        Company-Sets (siehe STREAMER_COMPANY_SETS in title_sync)."""
+        params: dict[str, Any] = {
+            "language": language,
+            "sort_by": "popularity.desc",
+            "include_adult": "false",
+            "with_networks": network_ids,
+        }
+        if region:
+            params["region"] = region
+        return await self._discover_paginated("/discover/tv", params)
+
     async def search_movies(self, query: str, *, language: str = "de-DE") -> list[dict[str, Any]]:
         """Namens-Suche ``/search/movie`` — Grundlage der Anreicherung
         manuell angelegter Titel (22.08.2026). TMDb sortiert nach
