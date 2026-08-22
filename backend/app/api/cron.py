@@ -75,6 +75,7 @@ from app.services.segment_roundup import (
     parse_cron_roundup_segments,
 )
 from app.services.candidate_autopilot import run_candidate_autopilot
+from app.services.candidate_llm_assist import run_candidate_llm_assist
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.title_sync import sync_titles_from_tmdb
 from app.services.visual_analysis import analyze_asset_visual
@@ -775,6 +776,35 @@ def _mark_stuck_title_sync_run_error(session: Session, timeout_s: int) -> None:
             session.commit()
     except Exception:  # noqa: BLE001 — best-effort audit cleanup
         logger.exception("failed to mark timed-out title_sync run as error")
+
+
+async def _run_candidate_llm_assist_stage(session: Session) -> dict:
+    """KI-Pruefung der Rest-Vorschlaege als Cron-Stage (22.08.2026).
+
+    Der Autopilot schliesst nur Exakt-Treffer; alles Uebrige blieb bis
+    heute liegen, bis Wolf im Admin den Button klickte. Diese Stage
+    laesst denselben Service (identischer Code-Pfad wie der Klick,
+    inkl. Fortschritts-Marker und Kosten-Log) einmal pro Lauf mit
+    groesserem Batch laufen.
+
+    Kill-Switch: ``settings.candidate_llm_assist_in_cron`` (Default an).
+    Batch-Deckel: ``settings.candidate_llm_assist_cron_max`` — bei
+    Haiku-Preisen kostet ein voller 60er-Batch um die 2 Cent; der
+    Anthropic-Monatsdeckel greift zusaetzlich ueber das Kosten-Log.
+    Best-effort: ein Fehler hier kippt den Lauf nicht.
+    """
+    if not settings.candidate_llm_assist_in_cron:
+        return {"skipped": True, "reason": "disabled"}
+    try:
+        ergebnis = await asyncio.to_thread(
+            run_candidate_llm_assist,
+            session,
+            max_candidates=settings.candidate_llm_assist_cron_max,
+        )
+        return ergebnis.to_dict()
+    except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster Autopilot
+        logger.exception("candidate-llm-assist stage failed")
+        return {"error": str(exc)[:500]}
 
 
 async def _run_title_sync_after_scrape(session: Session) -> dict:
@@ -2019,6 +2049,13 @@ async def _run_cron_sync_background_impl(
                     summary["candidate_autopilot"] = {"error": str(exc)[:500]}
             else:
                 summary["candidate_autopilot"] = {"skipped": True, "reason": "disabled"}
+            # KI-Pruefung der Rest-Vorschlaege (22.08.2026) — direkt NACH
+            # dem Autopiloten: was der kostenlose Exakt-Treffer-Pfad nicht
+            # schliesst, bekommt Haiku-Zuordnungen bzw. -Notizen. Die
+            # Montags-Queue kommt damit VORGEPRUEFT bei Wolf an ("Titel
+            # fehlt im Katalog: X" steht schon dran, statt erst nach
+            # manuellen Klicks). Best-effort wie der Autopilot.
+            summary["candidate_llm_assist"] = await _run_candidate_llm_assist_stage(session)
             # Cadence-Sprint 2026-05-17 — Brief-Generation für die gerade
             # abgeschlossene ISO-Woche. Vor diesem Sprint hat der Sonntag-Cron
             # nur Scrape gemacht; Briefs entstanden ausschließlich lazy beim
