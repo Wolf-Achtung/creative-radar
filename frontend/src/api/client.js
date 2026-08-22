@@ -239,6 +239,7 @@ export const endpoints = {
   // im Admin, VOR der Flag-Freigabe (das Nutzer-Panel ist in Prod aus).
   adminWirSegment: () => api('/api/admin/wir-segment'),
   projektStartBrief: (titleId) => api(`/api/admin/projekt-start-brief/${titleId}`),
+  kampagnenTiming: () => api('/api/admin/kampagnen-timing'),
   adminPatternBriefingLatest: ({ mode = 'genre' } = {}) => api(
     `/api/admin/pattern-briefing/latest?mode=${mode}`,
   ),
