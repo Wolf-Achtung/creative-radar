@@ -297,8 +297,15 @@ class Settings(BaseSettings):
     # Adresse, Empfaenger sind eine Deploy-Entscheidung.
     playbook_mail_recipients: str = ""
 
+    # Muss die Frontend-Liste PROXY_HOST_SUFFIXES (frontend/src/api/
+    # imageUrl.js) abdecken — sonst schickt das Frontend URLs durch
+    # /api/img, die der Server mit 403 ablehnt, bevor er ueberhaupt
+    # fetcht. Genau das traf am 22.08.2026 alle YouTube-Karten:
+    # ytimg.com/ggpht.com standen nur im Frontend. Paritaet wird von
+    # test_wartung_2026_08_22_bildproxy.py gehalten.
     image_proxy_allowed_hosts: str = (
-        "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com"
+        "cdninstagram.com,fbcdn.net,tiktokcdn.com,tiktokcdn-us.com,tiktokcdn-eu.com,"
+        "ytimg.com,ggpht.com"
     )
     image_proxy_timeout_seconds: float = 8.0
     image_proxy_max_bytes: int = 8 * 1024 * 1024  # 8 MiB

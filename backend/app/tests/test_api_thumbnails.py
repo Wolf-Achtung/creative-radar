@@ -73,6 +73,10 @@ class _RecordingClient:
     ):
         self.response = response or _RecordingResponse()
         self.raise_exc = raise_exc
+        # Bild-Fix 22.08.2026: die YouTube-Qualitaets-Leiter braucht
+        # unterschiedliche Antworten je URL (maxres → 404, hq → 200).
+        # ``responses_by_url`` gewinnt vor ``response``, wenn gesetzt.
+        self.responses_by_url: dict[str, _RecordingResponse] = {}
         self.calls: list[dict] = []
 
     async def __aenter__(self):
@@ -85,7 +89,7 @@ class _RecordingClient:
         self.calls.append({"url": url, "headers": dict(headers or {})})
         if self.raise_exc is not None:
             raise self.raise_exc
-        return self.response
+        return self.responses_by_url.get(url, self.response)
 
 
 @pytest.fixture
@@ -132,6 +136,7 @@ def _make_asset(
     *,
     thumbnail_url: Optional[str],
     visual_evidence_url: Optional[str] = None,
+    asset_url: Optional[str] = None,
 ) -> Asset:
     """Minimal Channel + Post + Asset chain — enough to satisfy the
     foreign-key constraints. The test only ever reads the Asset row.
@@ -163,6 +168,7 @@ def _make_asset(
         post_id=post.id,
         thumbnail_url=thumbnail_url,
         visual_evidence_url=visual_evidence_url,
+        asset_url=asset_url,
     )
     session.add(asset)
     session.commit()
@@ -388,3 +394,105 @@ def test_thumbnail_falls_back_to_cdn_proxy_when_visual_evidence_url_missing(
     # läuft unverändert weiter.
     assert len(fake_httpx.calls) == 1
     assert fake_httpx.calls[0]["url"] == src
+
+
+# ---------- YouTube-Qualitaets-Leiter (Bild-Vorfall 22.08.2026) -------------
+# Wolfs Railway-Log: viele ``thumbnail_url``-Werte zeigen auf
+# ``maxresdefault.jpg``, das bei etlichen Videos schlicht nicht existiert
+# (404). Der Endpoint gab dann 404 zurueck, das Frontend wich auf /api/img
+# aus — und lief dort in die (bis heute fehlende) ytimg-Allowlist. Die
+# Leiter probiert die Qualitaetsstufen der Capture-Pipeline der Reihe nach.
+
+
+def test_youtube_leiter_faellt_von_maxres_auf_hqdefault(client, isolated_cache_dir, fake_httpx):
+    test_client, db = client
+    vid = "dQw4w9WgXcQ"
+    maxres = f"https://i.ytimg.com/vi/{vid}/maxresdefault.jpg"
+    sd = f"https://i.ytimg.com/vi/{vid}/sddefault.jpg"
+    hq = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+    asset = _make_asset(db, thumbnail_url=maxres)
+
+    fake_httpx.responses_by_url = {
+        maxres: _RecordingResponse(status_code=404),
+        sd: _RecordingResponse(status_code=404),
+        hq: _RecordingResponse(content=b"hq-bytes"),
+    }
+
+    response = test_client.get(f"/api/thumbnails/{asset.id}")
+
+    assert response.status_code == 200, response.text
+    assert response.content == b"hq-bytes"
+    # Reihenfolge der Leiter: erst die gespeicherte URL, dann absteigend.
+    assert [c["url"] for c in fake_httpx.calls] == [maxres, sd, hq]
+
+
+def test_youtube_leiter_greift_auch_ohne_thumbnail_url(client, isolated_cache_dir, fake_httpx):
+    """Assets, die nur eine YouTube-``asset_url`` tragen, bekamen vorher
+    pauschal 404 — dabei laesst sich das Thumbnail direkt ableiten."""
+    test_client, db = client
+    vid = "abcDEF12345"
+    asset = _make_asset(
+        db,
+        thumbnail_url=None,
+        asset_url=f"https://www.youtube.com/watch?v={vid}",
+    )
+
+    fake_httpx.response = _RecordingResponse(content=b"derived-bytes")
+
+    response = test_client.get(f"/api/thumbnails/{asset.id}")
+
+    assert response.status_code == 200, response.text
+    assert response.content == b"derived-bytes"
+    assert fake_httpx.calls[0]["url"] == f"https://i.ytimg.com/vi/{vid}/maxresdefault.jpg"
+
+
+def test_nicht_youtube_asset_bekommt_keine_leiter(client, isolated_cache_dir, fake_httpx):
+    """TikTok/Instagram-URLs sind signiert — es gibt keine Varianten zu
+    probieren. Genau EIN Fetch, danach 404 wie bisher."""
+    test_client, db = client
+    src = "https://p19-common-sign.tiktokcdn-us.com/signed.jpg"
+    asset = _make_asset(db, thumbnail_url=src, asset_url="https://www.tiktok.com/@x/video/1")
+
+    fake_httpx.raise_exc = httpx.HTTPError("403 forbidden")
+
+    response = test_client.get(f"/api/thumbnails/{asset.id}")
+
+    assert response.status_code == 404
+    assert [c["url"] for c in fake_httpx.calls] == [src]
+
+
+def test_leiter_dedupliziert_und_kennt_vi_webp():
+    """Unit-Blick auf die Kandidaten-Leiter: die gespeicherte ytimg-URL
+    (auch die ``vi_webp``-Variante) liefert die Video-ID, die Leiter
+    haengt die Qualitaetsstufen ohne Doppel an."""
+    vid = "dQw4w9WgXcQ"
+    asset = Asset(
+        post_id=uuid4(),
+        thumbnail_url=f"https://i.ytimg.com/vi_webp/{vid}/maxresdefault.webp",
+        asset_url=f"https://youtu.be/{vid}",
+    )
+    kandidaten = thumbnails_module._thumbnail_source_candidates(asset)
+    assert kandidaten[0] == f"https://i.ytimg.com/vi_webp/{vid}/maxresdefault.webp"
+    assert f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" in kandidaten
+    # asset_url und thumbnail_url zeigen auf dasselbe Video — die
+    # Qualitaetsstufen erscheinen trotzdem nur einmal.
+    assert len(kandidaten) == len(set(kandidaten))
+
+
+def test_leiter_cache_hit_auf_niedriger_stufe_schlaegt_den_fetch(client, isolated_cache_dir, fake_httpx):
+    """Ist eine niedrigere Stufe bereits gecacht, darf der Endpoint nicht
+    erneut gegen das tote maxresdefault fetchen."""
+    test_client, db = client
+    vid = "dQw4w9WgXcQ"
+    maxres = f"https://i.ytimg.com/vi/{vid}/maxresdefault.jpg"
+    hq = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+    asset = _make_asset(db, thumbnail_url=maxres)
+
+    isolated_cache_dir.mkdir(parents=True, exist_ok=True)
+    _cache_path(isolated_cache_dir, hq).write_bytes(b"cached-hq")
+
+    response = test_client.get(f"/api/thumbnails/{asset.id}")
+
+    assert response.status_code == 200
+    assert response.content == b"cached-hq"
+    assert fake_httpx.calls == []
