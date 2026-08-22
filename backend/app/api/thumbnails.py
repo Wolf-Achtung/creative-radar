@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Final, Optional
@@ -45,6 +46,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.entities import Asset
+from app.services.screenshot_capture import _youtube_thumbnail_candidates
 from app.services.storage import resolve_url
 
 router = APIRouter(prefix="/api/thumbnails", tags=["thumbnails"])
@@ -80,6 +82,44 @@ PLATFORM_HEADERS: Final[dict[str, dict[str, str]]] = {
         "Accept": "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5",
     },
 }
+
+
+# Bild-Vorfall 22.08.2026: viele ``thumbnail_url``-Werte zeigen auf
+# ``…/maxresdefault.jpg`` — die hoechste Qualitaet existiert aber bei
+# vielen Videos gar nicht (404). Die Capture-Pipeline kennt die
+# Qualitaets-Leiter (maxres → sd → hq → mq) laengst; dieser Endpoint
+# probierte trotzdem nur die EINE gespeicherte URL und schickte 404,
+# worauf das Frontend auf /api/img auswich. Aus einer ytimg-URL laesst
+# sich die Video-ID direkt ziehen (``/vi/<id>/`` bzw. ``/vi_webp/``),
+# aus der Post-URL uebernimmt ``_youtube_thumbnail_candidates`` das.
+_YTIMG_VIDEO_ID_RE: Final[re.Pattern[str]] = re.compile(
+    r"i\.ytimg\.com/vi(?:_webp)?/([A-Za-z0-9_-]{11})/"
+)
+
+
+def _thumbnail_source_candidates(asset: Asset) -> list[str]:
+    """Geordnete, deduplizierte Quellen-Leiter fuer den CDN-Fallback.
+
+    Erst die gespeicherte ``thumbnail_url``, danach — nur bei YouTube-
+    Assets — die Qualitaets-Leiter aus Video-ID (aus der ytimg-URL oder
+    der ``asset_url``). Fuer TikTok/Instagram bleibt es bei der einen
+    URL: deren CDN-Links sind signiert, da gibt es keine Varianten.
+    """
+    candidates: list[str] = []
+    if asset.thumbnail_url:
+        candidates.append(asset.thumbnail_url)
+        match = _YTIMG_VIDEO_ID_RE.search(asset.thumbnail_url)
+        if match:
+            video_id = match.group(1)
+            candidates.extend(
+                _youtube_thumbnail_candidates(f"https://www.youtube.com/watch?v={video_id}")
+            )
+    candidates.extend(_youtube_thumbnail_candidates(getattr(asset, "asset_url", None)))
+    deduped: list[str] = []
+    for url in candidates:
+        if url not in deduped:
+            deduped.append(url)
+    return deduped
 
 
 def _detect_platform_key(url: str) -> Optional[str]:
@@ -159,8 +199,9 @@ async def get_thumbnail(
 
       * 200 mit ``image/jpeg``-Body bei Cache-Hit oder erfolgreichem
         Source-Fetch (oder Stale-Hit).
-      * 404 wenn das Asset nicht existiert, kein ``thumbnail_url``
-        trägt, oder der Source-Fetch fehlschlägt UND kein (stale)
+      * 404 wenn das Asset nicht existiert, keine Bildquelle ableitbar
+        ist (weder ``thumbnail_url`` noch eine YouTube-``asset_url``),
+        oder JEDE Stufe der Quellen-Leiter fehlschlägt UND kein (stale)
         Cache-Eintrag verfügbar ist. Der Frontend-``onError`` schaltet
         in dem Fall auf den Plattform-Fallback um.
       * 400 für offensichtlich invalide UUIDs — kein DB-Roundtrip.
@@ -188,22 +229,25 @@ async def get_thumbnail(
         if resolved:
             return RedirectResponse(url=resolved, status_code=302)
 
-    if not asset.thumbnail_url:
+    source_urls = _thumbnail_source_candidates(asset)
+    if not source_urls:
         raise HTTPException(status_code=404, detail="thumbnail not available")
 
-    source_url = asset.thumbnail_url
-    cache_path = _cache_path_for_url(source_url)
+    # Frischer Cache-Treffer auf irgendeiner Stufe der Leiter schlaegt
+    # jeden Fetch — auch den einer hoeheren Stufe, die eh nur 404 liefert.
+    for source_url in source_urls:
+        cache_path = _cache_path_for_url(source_url)
+        if _is_cache_fresh(cache_path):
+            try:
+                return _image_response(cache_path.read_bytes())
+            except OSError as exc:
+                # Cache-Datei wurde zwischen Stat und Read gelöscht (z. B.
+                # /tmp-Cleanup); fall through auf den Source-Fetch-Pfad.
+                logger.warning("cache read failed for %s: %s", cache_path, exc)
 
-    if _is_cache_fresh(cache_path):
-        try:
-            return _image_response(cache_path.read_bytes())
-        except OSError as exc:
-            # Cache-Datei wurde zwischen Stat und Read gelöscht (z. B.
-            # /tmp-Cleanup); fall through auf den Source-Fetch-Pfad.
-            logger.warning("cache read failed for %s: %s", cache_path, exc)
+    for source_url in source_urls:
+        data = await _fetch_and_cache(source_url, _cache_path_for_url(source_url))
+        if data is not None:
+            return _image_response(data)
 
-    data = await _fetch_and_cache(source_url, cache_path)
-    if data is None:
-        raise HTTPException(status_code=404, detail="thumbnail fetch failed")
-
-    return _image_response(data)
+    raise HTTPException(status_code=404, detail="thumbnail fetch failed")
