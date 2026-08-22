@@ -864,6 +864,30 @@ class TitleInsightReport(SQLModel, table=True):
     output_tokens: Optional[int] = None
 
 
+class RecommendationSnapshot(SQLModel, table=True):
+    """Wochen-Snapshot der MACHEN-Empfehlungen (22.08.2026).
+
+    Das Vorher/Nachher-Design der Wir-Schleife braucht eingefrorene
+    Empfehlungs-Zeitpunkte: "in KW X stand Y im Playbook — was kam
+    danach?". Bislang rechnete das System die Empfehlungen bei jedem
+    Abruf frisch und vergass, was es wann empfohlen hatte; jede Woche
+    ohne Snapshot ist eine verlorene Messwoche.
+
+    Eine Row pro ISO-Woche, ``cells`` als JSON-Liste der ``over``-Zellen
+    (dieselbe MACHEN-Auswahl wie Playbook und Wir-Segment) — der
+    JSON-Blob-Ansatz von ``insight_report``: Felder koennen dazukommen,
+    ohne dass es eine Migration braucht. Last-Write-Wins beim Re-Run
+    derselben Woche (Force-Lauf).
+    """
+    __tablename__ = "recommendation_snapshot"
+    __table_args__ = _CR_TABLE_ARGS
+    iso_year: int = Field(primary_key=True)
+    iso_week: int = Field(primary_key=True)
+    window_days: int
+    cells: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class VideoFeature(SQLModel, table=True):
     """Trailer-Intelligence Stufe 5 — Schnitt-Merkmale eines Videos.
 

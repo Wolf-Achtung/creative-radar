@@ -447,6 +447,12 @@ class Settings(BaseSettings):
     # 60er-Batch kostet bei Haiku-Preisen um die 2 Cent.
     candidate_llm_assist_in_cron: bool = True
     candidate_llm_assist_cron_max: int = 60
+
+    # Empfehlungs-Snapshots (22.08.2026): der Cron friert jede Woche die
+    # MACHEN-Empfehlungen des Muster-Berichts ein — die Grundlage fuer
+    # das Vorher/Nachher-Design der Wir-Schleife. Deterministisch und
+    # LLM-frei; der Schalter existiert nur als Not-Aus.
+    recommendation_snapshot_in_cron: bool = True
     # Evidence-Backfill (22.08.2026): Captures fuer junge Assets ohne
     # gespeichertes Bild nachholen (transiente Scrape-Fehler; YouTube-
     # Quellen verfallen nie). Zeit-Budget nach dem Vision-Muster.

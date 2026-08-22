@@ -76,6 +76,7 @@ from app.services.segment_roundup import (
 )
 from app.services.candidate_autopilot import run_candidate_autopilot
 from app.services.candidate_llm_assist import run_candidate_llm_assist
+from app.services.recommendation_snapshot import persist_recommendation_snapshot
 from app.services.asset_screenshot_persistence import backfill_missing_evidence
 from app.services.title_rematch import rematch_unassigned_assets
 from app.services.title_sync import sync_titles_from_tmdb
@@ -828,6 +829,28 @@ async def _run_candidate_llm_assist_stage(session: Session) -> dict:
         return ergebnis.to_dict()
     except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster Autopilot
         logger.exception("candidate-llm-assist stage failed")
+        return {"error": str(exc)[:500]}
+
+
+def _run_recommendation_snapshot_stage(session: Session) -> dict:
+    """Empfehlungs-Snapshot als Cron-Stage (22.08.2026).
+
+    Friert die MACHEN-Empfehlungen der Woche ein (Tabelle
+    ``recommendation_snapshot``) — die Grundlage fuer das
+    Vorher/Nachher-Design der Wir-Schleife. Jede Woche ohne Snapshot
+    ist eine verlorene Messwoche, deshalb laeuft die Stage in JEDEM
+    Lauf (Re-Run derselben Woche ueberschreibt, Last-Write-Wins).
+
+    Deterministisch und LLM-frei (nur DB-Lesen + eine JSON-Row);
+    ``settings.recommendation_snapshot_in_cron`` ist ein reiner
+    Not-Aus. Best-effort: ein Fehler hier kippt den Lauf nicht.
+    """
+    if not settings.recommendation_snapshot_in_cron:
+        return {"skipped": True, "reason": "disabled"}
+    try:
+        return persist_recommendation_snapshot(session)
+    except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster Autopilot
+        logger.exception("recommendation-snapshot stage failed")
         return {"error": str(exc)[:500]}
 
 
@@ -2083,6 +2106,11 @@ async def _run_cron_sync_background_impl(
             # fehlt im Katalog: X" steht schon dran, statt erst nach
             # manuellen Klicks). Best-effort wie der Autopilot.
             summary["candidate_llm_assist"] = await _run_candidate_llm_assist_stage(session)
+            # Empfehlungs-Snapshot (22.08.2026) — NACH Rematch/Autopilot,
+            # damit die Zellen auf den frisch zugeordneten Daten der Woche
+            # rechnen. Friert die MACHEN-Empfehlungen mit Zeitstempel ein;
+            # ohne das gibt es kein Vorher/Nachher fuer die Wir-Schleife.
+            summary["recommendation_snapshot"] = _run_recommendation_snapshot_stage(session)
             # Cadence-Sprint 2026-05-17 — Brief-Generation für die gerade
             # abgeschlossene ISO-Woche. Vor diesem Sprint hat der Sonntag-Cron
             # nur Scrape gemacht; Briefs entstanden ausschließlich lazy beim
