@@ -125,6 +125,80 @@ export function WirSegmentSection() {
   );
 }
 
+// Kampagnen-Timing (22.08.2026): wann startet welcher Kanal die
+// Trailer-Welle relativ zum Release. Rechnet ausschliesslich auf
+// vorhandenen Daten (Release-Dates + Post-Zeitstempel + Zuordnung) —
+// die Auswertung waechst mit der Zuordnungs-Arbeit in der Queue.
+export function KampagnenTimingSection() {
+  const [daten, setDaten] = useState(null);
+  const [fehler, setFehler] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.kampagnenTiming()
+      .then((antwort) => { if (!cancelled) setDaten(antwort); })
+      .catch((err) => { if (!cancelled) setFehler(String(err?.message || err)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <Section title="Kampagnen-Timing" kicker="Wann startet die Trailer-Welle?">
+      {fehler && <p className="error">Konnte das Kampagnen-Timing nicht laden: {fehler}</p>}
+      {!fehler && !daten && <p className="muted small">Lädt …</p>}
+      {daten && daten.note && <p className="muted">{daten.note}</p>}
+      {daten && !daten.note && (
+        <>
+          <p className="muted small">
+            {daten.titel_ausgewertet} Titel mit Release-Datum und genug
+            zugeordneten Posts · {daten.posts_ausgewertet} Posts im Band
+            von 26 Wochen vor bis 8 Wochen nach Release. Positive Tage =
+            vor dem Kinostart. Beschreibt das Markt-Verhalten — kein
+            Beweis, dass früher besser ist.
+          </p>
+          {daten.kanaele.length > 0 && (
+            <table>
+              <thead>
+                <tr>
+                  <th>Kanal</th><th>Markt</th><th>Titel</th><th>Posts</th>
+                  <th>Kampagnenstart (Median)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {daten.kanaele.map((k) => (
+                  <tr key={`${k.handle}:${k.market}`}>
+                    <td>@{k.handle}</td>
+                    <td>{k.market}</td>
+                    <td>{k.titel}</td>
+                    <td>{k.posts}</td>
+                    <td>{Math.round(k.median_kampagnenstart_tage / 7)} Wochen vor Release</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {daten.titel.length > 0 && (
+            <details>
+              <summary>Die {daten.titel.length} aktivsten Kampagnen im Detail</summary>
+              {daten.titel.map((t) => (
+                <p key={`${t.title_original}:${t.release}`} style={{ margin: '0.25rem 0' }}>
+                  <strong>{t.title_original}</strong>
+                  <span className="muted small">
+                    {' '}— Release {t.release}, {t.posts} Posts auf {t.kanaele} Kanälen,
+                    Start {Math.round(t.kampagnenstart_vorlauf_tage / 7)} Wochen vorher,
+                    letzter Post {t.letzter_post_vorlauf_tage >= 0
+                      ? `${t.letzter_post_vorlauf_tage} Tage vor`
+                      : `${Math.abs(t.letzter_post_vorlauf_tage)} Tage nach`} Release
+                  </span>
+                </p>
+              ))}
+            </details>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
+
 const EBENE_LABEL = { genre: 'Genre-Ebene', title: 'Titel-Ebene' };
 
 function BriefingAnzeige({ anzeige }) {
@@ -379,6 +453,7 @@ export function MonitoringPanel() {
     <>
       <BriefingSection />
       <WirSegmentSection />
+      <KampagnenTimingSection />
       <PlaybookMailSection />
       <Section title="Budgets diesen Monat" kicker="Kalendermonat, UTC">
         {status === 'error' && <p className="error">Konnte Budget-/Kostendaten nicht laden.</p>}

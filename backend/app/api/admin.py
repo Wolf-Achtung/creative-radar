@@ -76,6 +76,7 @@ from app.services.insight_engine import (
 from app.services.forecast import generate_er_forecast
 from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
+from app.services.campaign_timing import compute_campaign_timing
 from app.services.projekt_start_brief import compute_projekt_start_brief
 from app.services.wir_segment import compute_wir_segment
 from app.services.title_aggregation import AmbiguousTitleError
@@ -347,6 +348,16 @@ def wir_segment(
     Zell-Median des Gesamtbestands. Rein lesend, kein Modell-Call.
     Ohne markierte Kanaele kommt ein Klartext-Hinweis statt Zahlen."""
     return compute_wir_segment(session, window_days=window_days)
+
+
+@router.get("/kampagnen-timing")
+def kampagnen_timing(session: Session = Depends(get_session)) -> dict:
+    """Kampagnen-Timing (22.08.2026): wann startet welcher Kanal die
+    Trailer-Welle relativ zum Release, und wie sieht die
+    Eskalationskurve aus. Rein lesend, deterministisch, kein
+    Modell-Call — rechnet ausschliesslich auf vorhandenen Daten
+    (Release-Dates, Post-Zeitstempel, Titel-Zuordnung)."""
+    return compute_campaign_timing(session)
 
 
 @router.get("/projekt-start-brief/{title_id}")
