@@ -434,6 +434,12 @@ class Settings(BaseSettings):
     candidate_autopilot_min_confidence: float = 0.85
     candidate_autopilot_stale_days: int = 28
     candidate_autopilot_stale_max_confidence: float = 0.5
+    # KI-Pruefung der Rest-Vorschlaege als Cron-Stage (22.08.2026): laeuft
+    # direkt nach dem Autopiloten, damit die Montags-Queue vorgeprueft
+    # ankommt. Groesserer Batch als der 12er-Klick-Default — ein voller
+    # 60er-Batch kostet bei Haiku-Preisen um die 2 Cent.
+    candidate_llm_assist_in_cron: bool = True
+    candidate_llm_assist_cron_max: int = 60
 
     # Sprint 28.05.2026 (Evidenz-Block / Quellen-Attribution) —
     # Stufenmodell B→A fuer den Citation-Validator im Pair-Brief-Pfad.
