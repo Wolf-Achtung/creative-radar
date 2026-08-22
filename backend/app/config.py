@@ -447,6 +447,9 @@ class Settings(BaseSettings):
     evidence_backfill_max_assets: int = 300
     evidence_backfill_budget_seconds: int = 600
     evidence_backfill_max_age_days: int = 14
+    # Streamer-Originals-Sync (Sprint §7, 22.08.2026): Serien-Kataloge
+    # der 3 Streamer ueber die TMDb-Network-Achse im Titel-Sync.
+    streamer_title_sync_enabled: bool = True
 
     # Sprint 28.05.2026 (Evidenz-Block / Quellen-Attribution) —
     # Stufenmodell B→A fuer den Citation-Validator im Pair-Brief-Pfad.

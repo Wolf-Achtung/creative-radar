@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
+from app.config import settings
 from app.models.entities import Market, Title, TitleKeyword, TitleSyncRun
 from app.services.tmdb_client import TMDbClient
 
@@ -43,6 +44,28 @@ PAIR_COMPANY_SETS: dict[str, list[int]] = {
     "paramountpictures": [4],
     "lionsgate": [1632],
 }
+
+# --- Streamer-Originals (Sprint §7, 22.08.2026) -------------------------------
+# Die 3 Streamer-Pairs bekamen bis heute KEINEN Titel-Sync — die
+# Hauptursache der "Titel fehlt im Katalog"-Vorschlaege auf Streamer-
+# Kanaelen. Serien laufen ueber TMDb-NETWORK-IDs (``with_networks`` auf
+# /discover/tv) — die verlaessliche Originals-Achse. Die IDs sind die
+# kanonischen TMDb-Netzwerke (Netflix 213, Amazon Prime Video 1024,
+# Paramount+ 4330); wie bei PAIR_COMPANY_SETS ist dieses Dict die eine
+# kuratierbare Quelle.
+#
+# Streamer-FILME haben auf TMDb keinen Network-Filter, und der
+# with_watch_providers-Ersatz zoege den kompletten Lizenz-Katalog in
+# die Whitelist. Deshalb: kuratierbare Company-Sets, BEWUSST leer
+# gestartet — IDs erst nach Verifikation gegen bekannte Titel
+# eintragen (Muster scripts/diag_resolve_company_ids), keine
+# geratenen IDs in den Katalog.
+STREAMER_NETWORK_SETS: dict[str, list[int]] = {
+    "netflix": [213],
+    "primevideo": [1024],
+    "paramountplus": [4330],
+}
+STREAMER_COMPANY_SETS: dict[str, list[int]] = {}
 
 
 def _norm(value: str | None) -> str:
@@ -246,6 +269,44 @@ async def sync_titles_from_tmdb(
                     if upserted_count % _TITLE_SYNC_COMMIT_BATCH_SIZE == 0:
                         session.commit()
 
+        # Streamer-Originals (Sprint §7, 22.08.2026): Serien-Kataloge der
+        # 3 Streamer ueber die Network-Achse, beide Markt-Paesse wie beim
+        # Company-Discover (DE-Verleihtitel landet in aliases). Das
+        # seen_keys-Dedup teilt sich den Namensraum mit dem Studio-Pass:
+        # eine Sony-produzierte Netflix-Serie wird nicht doppelt
+        # upserted. Kill-Switch ohne Deploy: STREAMER_TITLE_SYNC_ENABLED.
+        streamer_summary: dict = {"enabled": settings.streamer_title_sync_enabled}
+        if settings.streamer_title_sync_enabled:
+            streamer_fetched = streamer_upserted = 0
+            for streamer_key, network_ids in STREAMER_NETWORK_SETS.items():
+                networks = "|".join(str(n) for n in network_ids)
+                for market in markets:
+                    language = region_language.get(market, "en-US")
+                    region = TMDbClient.tmdb_region(market)
+                    series = await client.discover_series_by_network(
+                        networks, language=language, region=region
+                    )
+                    for raw in series:
+                        normalized = client.normalize_tmdb_series(raw)
+                        tmdb_id = normalized.get("tmdb_id")
+                        if not tmdb_id:
+                            continue
+                        fetched_count += 1
+                        streamer_fetched += 1
+                        key = ("tv", tmdb_id, market)
+                        if key in seen_keys:
+                            deduped_count += 1
+                            continue
+                        seen_keys.add(key)
+                        _upsert_normalized_title(session, normalized, market, is_series=True)
+                        upserted_count += 1
+                        streamer_upserted += 1
+                        if upserted_count % _TITLE_SYNC_COMMIT_BATCH_SIZE == 0:
+                            session.commit()
+            streamer_summary["streamers"] = list(STREAMER_NETWORK_SETS.keys())
+            streamer_summary["fetched_count"] = streamer_fetched
+            streamer_summary["upserted_count"] = streamer_upserted
+
         run.fetched_count = fetched_count
         run.upserted_count = upserted_count
         run.deduped_count = deduped_count
@@ -281,6 +342,7 @@ async def sync_titles_from_tmdb(
             "fetched_count": fetched_count,
             "upserted_count": upserted_count,
             "deduped_count": deduped_count,
+            "streamer": streamer_summary,
             "manual_enrich": manual_enrich,
             "genre_backfill": genre_backfill,
             "run_id": str(run.id),
