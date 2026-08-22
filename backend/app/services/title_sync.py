@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+import unicodedata
+from datetime import date, datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
@@ -130,7 +131,13 @@ def _upsert_normalized_title(
     session.flush()
     session.refresh(title)
 
-    for alias in normalized.get("aliases") or []:
+    _ensure_alias_keywords(session, title, normalized.get("aliases"))
+
+
+def _ensure_alias_keywords(session: Session, title: Title, aliases: list[str] | None) -> None:
+    """Alias-Keyword-Rows idempotent pflegen — genutzt vom Discover-Upsert
+    und der Anreicherung manuell angelegter Titel (22.08.2026)."""
+    for alias in aliases or []:
         if _norm(alias) == _norm(title.title_original):
             continue
         existing_kw = session.exec(
@@ -246,6 +253,15 @@ async def sync_titles_from_tmdb(
         session.add(run)
         session.commit()
 
+        # Anreicherung manuell angelegter Titel (22.08.2026): VOR dem
+        # Genre-Backfill, damit frisch verknuepfte tmdb_ids im selben
+        # Lauf Genres bekommen koennen. Eigener try wie beim Backfill.
+        try:
+            manual_enrich = await enrich_titles_without_tmdb_id(session, client=client)
+        except Exception as exc:  # noqa: BLE001 — Stage-Grenze, best effort
+            logger.exception("manual-enrich fehlgeschlagen")
+            manual_enrich = {"error": str(exc)[:200]}
+
         # Genre-Backfill (21.08.2026): der Company-Discover erreicht nur
         # die Studio-Slates — Titel, die anders in den Katalog kamen
         # (Streamer-Originals ueber Kandidaten, Alt-Rows von vor der
@@ -265,6 +281,7 @@ async def sync_titles_from_tmdb(
             "fetched_count": fetched_count,
             "upserted_count": upserted_count,
             "deduped_count": deduped_count,
+            "manual_enrich": manual_enrich,
             "genre_backfill": genre_backfill,
             "run_id": str(run.id),
         }
@@ -355,4 +372,129 @@ async def backfill_missing_genres(
         "uebrig": max(len(fehlend) - max_titles, 0),
     }
     logger.info("genre_backfill.complete %s", ergebnis)
+    return ergebnis
+
+
+# --- Anreicherung manuell angelegter Titel (22.08.2026) -----------------------
+# Die Entscheidungs-Queue legt Titel per Klick an ("Titel anlegen +
+# zuordnen") — ohne tmdb_id. Ohne tmdb_id: keine Genres (der Backfill
+# oben greift nur MIT tmdb_id), keine Alias-Namen fuer den Auto-Matcher,
+# keine Termine. Diese Stage sucht solche Titel per TMDb-Namens-Suche
+# und verknuepft sie — bewusst KONSERVATIV:
+#
+# - Verknuepft wird nur bei GENAU EINEM exakten Namens-Treffer
+#   (akzent-tolerant: "Beware Boiuna" trifft "Beware Boiúna"). Kurze
+#   Allerweltsnamen ("Daniel") liefern viele exakte Treffer — die
+#   bleiben unangetastet, ein falsch verknuepfter Film waere schlimmer
+#   als keiner.
+# - Der Treffer muss ein aktuelles Datum tragen (juenger als
+#   ~2 Jahre oder in der Zukunft). Das Radar beobachtet laufende
+#   Kampagnen; ein Namensvetter von 1983 ist praktisch immer falsch.
+# - Kein Treffer / mehrdeutig -> Zaehler, naechster Lauf prueft erneut.
+_MANUAL_ENRICH_MAX_PER_RUN = 200
+_MANUAL_ENRICH_MAX_AGE_DAYS = 730
+
+
+def _norm_suche(value: str | None) -> str:
+    """Akzent-/Umlaut-tolerante Normalisierung (Gegenstueck zur
+    Frontend-Titel-Suche): NFD + kombinierende Zeichen entfernen."""
+    text = unicodedata.normalize("NFD", (value or "").lower())
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return " ".join(text.split())
+
+
+def _exakte_aktuelle_treffer(
+    eigene_namen: list[str | None],
+    results: list[dict],
+    *,
+    is_series: bool,
+    aeltestes: date,
+) -> list[dict]:
+    ziele = {_norm_suche(name) for name in eigene_namen if name}
+    ziele.discard("")
+    name_felder = ("name", "original_name") if is_series else ("title", "original_title")
+    datum_feld = "first_air_date" if is_series else "release_date"
+    treffer = []
+    for result in results:
+        namen = [result.get(feld) for feld in name_felder]
+        if not any(_norm_suche(name) in ziele for name in namen if name):
+            continue
+        raw = result.get(datum_feld)
+        try:
+            datum = date.fromisoformat(raw) if raw else None
+        except (TypeError, ValueError):
+            datum = None
+        # Ohne Datum keine Aktualitaets-Aussage -> nicht verknuepfen.
+        if datum is None or datum < aeltestes:
+            continue
+        treffer.append(result)
+    return treffer
+
+
+async def enrich_titles_without_tmdb_id(
+    session: Session,
+    *,
+    client: TMDbClient | None = None,
+    max_titles: int = _MANUAL_ENRICH_MAX_PER_RUN,
+) -> dict:
+    """Aktive Titel ohne ``tmdb_id`` per Namens-Suche verknuepfen und
+    mit Genres, Aliases und lokalisiertem Titel anreichern."""
+    client = client or TMDbClient()
+    rows = session.exec(
+        select(Title).where(Title.tmdb_id.is_(None), Title.active == True)  # noqa: E712
+    ).all()
+    aeltestes = datetime.now(timezone.utc).date() - timedelta(days=_MANUAL_ENRICH_MAX_AGE_DAYS)
+    verknuepft = unklar = fehler = 0
+    for title in rows[:max_titles]:
+        eigene_namen = [title.title_original, title.title_local]
+        try:
+            filme = await client.search_movies(title.title_original)
+            passende = _exakte_aktuelle_treffer(
+                eigene_namen, filme, is_series=False, aeltestes=aeltestes
+            )
+            is_series = False
+            if not passende:
+                serien = await client.search_series(title.title_original)
+                passende = _exakte_aktuelle_treffer(
+                    eigene_namen, serien, is_series=True, aeltestes=aeltestes
+                )
+                is_series = True
+        except Exception:  # noqa: BLE001 — ein zaeher Titel stoppt nicht den Lauf
+            fehler += 1
+            continue
+
+        if len(passende) != 1:
+            unklar += 1
+            continue
+
+        normalized = (
+            client.normalize_tmdb_series(passende[0])
+            if is_series
+            else client.normalize_tmdb_movie(passende[0])
+        )
+        title.tmdb_id = normalized.get("tmdb_id")
+        title.source = title.source or "TMDb"
+        title.aliases = sorted(set((title.aliases or []) + (normalized.get("aliases") or [])))
+        if is_series:
+            title.content_type = "Series"
+        if normalized.get("genres") and not title.genres:
+            title.genres = list(normalized["genres"])
+        if normalized.get("title_local") and not title.title_local:
+            title.title_local = normalized["title_local"]
+        session.add(title)
+        session.flush()
+        session.refresh(title)
+        _ensure_alias_keywords(session, title, normalized.get("aliases"))
+        verknuepft += 1
+        if verknuepft % _TITLE_SYNC_COMMIT_BATCH_SIZE == 0:
+            session.commit()
+    session.commit()
+    ergebnis = {
+        "kandidaten": len(rows),
+        "verknuepft": verknuepft,
+        "unklar": unklar,
+        "fehler": fehler,
+        "uebrig": max(len(rows) - max_titles, 0),
+    }
+    logger.info("manual_enrich.complete %s", ergebnis)
     return ergebnis

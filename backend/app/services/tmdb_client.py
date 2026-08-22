@@ -294,6 +294,19 @@ class TMDbClient:
             "genres": self._genre_names(series.get("genre_ids"), is_series=True),
         }
 
+    async def search_movies(self, query: str, *, language: str = "de-DE") -> list[dict[str, Any]]:
+        """Namens-Suche ``/search/movie`` — Grundlage der Anreicherung
+        manuell angelegter Titel (22.08.2026). TMDb sortiert nach
+        Popularitaet; ``language`` steuert den lokalisierten ``title``
+        im Ergebnis (de-DE liefert den DE-Verleihtitel)."""
+        data = await self._get("/search/movie", {"query": query, "language": language, "include_adult": "false"})
+        return data.get("results") or []
+
+    async def search_series(self, query: str, *, language: str = "de-DE") -> list[dict[str, Any]]:
+        """TV-Geschwister von ``search_movies`` (``/search/tv``)."""
+        data = await self._get("/search/tv", {"query": query, "language": language, "include_adult": "false"})
+        return data.get("results") or []
+
     async def get_title_details(self, tmdb_id: int, *, is_series: bool) -> dict[str, Any]:
         """Details-Endpoint (``/movie/{id}`` bzw. ``/tv/{id}``) — im
         Gegensatz zu discover liefert er volle Genre-Objekte mit Namen
