@@ -199,6 +199,65 @@ export function KampagnenTimingSection() {
   );
 }
 
+// TikTok-Sound-Trends (22.08.2026): welche Sounds die Posts im Fenster
+// tragen — auf TikTok ist der Sound ein eigener Trend-Faktor, und die
+// musicMeta lagen seit jeher ungenutzt im raw_payload.
+export function SoundTrendsSection() {
+  const [daten, setDaten] = useState(null);
+  const [fehler, setFehler] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.soundTrends()
+      .then((antwort) => { if (!cancelled) setDaten(antwort); })
+      .catch((err) => { if (!cancelled) setFehler(String(err?.message || err)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <Section title="Sound-Trends" kicker="Welche Sounds tragen die TikTok-Treffer?">
+      {fehler && <p className="error">Konnte die Sound-Trends nicht laden: {fehler}</p>}
+      {!fehler && !daten && <p className="muted small">Lädt …</p>}
+      {daten && daten.note && <p className="muted">{daten.note}</p>}
+      {daten && !daten.note && (
+        <>
+          <p className="muted small">
+            {daten.posts_mit_sound} von {daten.tiktok_posts_im_fenster} TikTok-Posts
+            im {daten.window_days}-Tage-Fenster tragen Sound-Metadaten.
+            „Lift“ ist derselbe kanal-normierte Wert wie im Muster-Bericht.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Sound</th><th>Posts</th><th>Kanäle</th><th>Median-Lift</th><th>Top-Beispiel</th>
+              </tr>
+            </thead>
+            <tbody>
+              {daten.sounds.map((s) => (
+                <tr key={`${s.name}:${s.author || ''}`}>
+                  <td>
+                    {s.name}
+                    {s.author ? <span className="muted small"> · {s.author}</span> : null}
+                    {s.original ? <span className="pill"> Original-Sound</span> : null}
+                  </td>
+                  <td>{s.posts}</td>
+                  <td className="muted small">{s.kanaele.map((k) => `@${k}`).join(', ')}</td>
+                  <td>{s.median_lift != null ? `${s.median_lift}x` : '—'}</td>
+                  <td>
+                    {s.beispiel_post_url ? (
+                      <a href={s.beispiel_post_url} target="_blank" rel="noreferrer">öffnen ↗</a>
+                    ) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </Section>
+  );
+}
+
 const EBENE_LABEL = { genre: 'Genre-Ebene', title: 'Titel-Ebene' };
 
 function BriefingAnzeige({ anzeige }) {
@@ -454,6 +513,7 @@ export function MonitoringPanel() {
       <BriefingSection />
       <WirSegmentSection />
       <KampagnenTimingSection />
+      <SoundTrendsSection />
       <PlaybookMailSection />
       <Section title="Budgets diesen Monat" kicker="Kalendermonat, UTC">
         {status === 'error' && <p className="error">Konnte Budget-/Kostendaten nicht laden.</p>}
