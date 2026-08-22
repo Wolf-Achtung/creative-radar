@@ -25,7 +25,11 @@ import { ImagePreview } from './ImagePreview';
 // suggested_title (z. B. „beware").
 export function extractTitleFromNote(note) {
   if (!note) return '';
-  const treffer = note.match(/„([^“]{2,80})“|'([^']{2,80})'|"([^"]{2,80})"|‚([^‘]{2,80})‘/);
+  // 22.08.: die deutsche Low-9-Variante schliesst je nach Autor mit ‘
+  // ODER ’ („‚H wie Habicht’") — beide Schlusszeichen akzeptieren,
+  // sonst faellt die Vorbefuellung auf den verstuemmelten
+  // suggested_title zurueck (Wolfs „adaptation"-Fall vom 21.08.).
+  const treffer = note.match(/„([^“]{2,80})“|'([^']{2,80})'|"([^"]{2,80})"|‚([^‘’]{2,80})[‘’]/);
   if (!treffer) return '';
   return (treffer[1] || treffer[2] || treffer[3] || treffer[4] || '').trim();
 }
