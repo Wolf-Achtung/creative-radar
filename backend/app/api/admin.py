@@ -78,6 +78,7 @@ from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
 from app.services.campaign_timing import compute_campaign_timing
 from app.services.projekt_start_brief import compute_projekt_start_brief
+from app.services.sound_trends import compute_sound_trends
 from app.services.wir_segment import compute_wir_segment
 from app.services.title_aggregation import AmbiguousTitleError
 from app.services.rate_limit import rate_limit
@@ -358,6 +359,15 @@ def kampagnen_timing(session: Session = Depends(get_session)) -> dict:
     Modell-Call — rechnet ausschliesslich auf vorhandenen Daten
     (Release-Dates, Post-Zeitstempel, Titel-Zuordnung)."""
     return compute_campaign_timing(session)
+
+
+@router.get("/sound-trends")
+def sound_trends(session: Session = Depends(get_session)) -> dict:
+    """TikTok-Sound-Trends (22.08.2026): welche Sounds die Posts im
+    Fenster tragen, mit kanal-normiertem Median-Lift je Sound. Rein
+    lesend, deterministisch — die musicMeta liegen seit jeher im
+    raw_payload, ausgewertet hat sie nur nie jemand."""
+    return compute_sound_trends(session)
 
 
 @router.get("/projekt-start-brief/{title_id}")

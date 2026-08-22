@@ -240,6 +240,7 @@ export const endpoints = {
   adminWirSegment: () => api('/api/admin/wir-segment'),
   projektStartBrief: (titleId) => api(`/api/admin/projekt-start-brief/${titleId}`),
   kampagnenTiming: () => api('/api/admin/kampagnen-timing'),
+  soundTrends: () => api('/api/admin/sound-trends'),
   adminPatternBriefingLatest: ({ mode = 'genre' } = {}) => api(
     `/api/admin/pattern-briefing/latest?mode=${mode}`,
   ),
