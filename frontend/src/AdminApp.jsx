@@ -414,6 +414,20 @@ export function AdminApp({ onLogout }) {
     }
   }
 
+  // Wir-Projekte (22.08.2026): Trailerhaus arbeitet projektweise — die
+  // Wir-Einheit ist der FILM, nicht der Kanal. Gleiche optimistische
+  // Mechanik wie toggleChannelOwn.
+  async function toggleTitleOwnProject(title) {
+    const neu = !title.is_own_project;
+    setTitles((alte) => alte.map((t) => (t.id === title.id ? { ...t, is_own_project: neu } : t)));
+    try {
+      await endpoints.updateTitle(title.id, { is_own_project: neu });
+    } catch (err) {
+      setTitles((alte) => alte.map((t) => (t.id === title.id ? { ...t, is_own_project: !neu } : t)));
+      setError(err.message || String(err));
+    }
+  }
+
   // "Jetzt komplett aktualisieren": triggert den vollen Cron-Lauf (gerade
   // abgeschlossene KW + Force) und pollt dann GET /cron/runs, bis der
   // BackgroundTask fertig ist. Kein globales ``busy`` (sperrt sonst 5 Min die
@@ -624,6 +638,8 @@ export function AdminApp({ onLogout }) {
           onCandidateLlmAssist={runCandidateLlmAssist}
           onToggleChannelOwn={toggleChannelOwn}
           channels={channels}
+          titles={titles}
+          onToggleTitleOwnProject={toggleTitleOwnProject}
           onFullSync={triggerFullSync}
           cronBusy={cronBusy}
           cronMessage={cronMessage}

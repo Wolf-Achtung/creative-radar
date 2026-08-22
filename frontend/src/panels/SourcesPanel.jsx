@@ -1,5 +1,5 @@
-import React from 'react';
-import { formatCronRunStatus, formatDate, formatDateTime } from '../format';
+import React, { useState } from 'react';
+import { formatCronRunStatus, formatDate, formatDateTime, searchTitles } from '../format';
 import { Section } from '../components/Section';
 
 export function SourcesPanel({
@@ -21,11 +21,19 @@ export function SourcesPanel({
   onCandidateLlmAssist,
   onToggleChannelOwn,
   channels,
+  titles,
+  onToggleTitleOwnProject,
   onFullSync,
   cronBusy,
   cronMessage,
   lastCronRun,
 }) {
+  // Wir-Projekte (22.08.2026): bei ~30k Titeln ist eine Checkliste
+  // unbenutzbar — dieselbe Umlaut-tolerante Live-Suche wie in der
+  // Pruef-Queue, Treffer als Checkboxen.
+  const [projektSuche, setProjektSuche] = useState('');
+  const projektTreffer = searchTitles(titles || [], projektSuche, 8);
+  const markierteProjekte = (titles || []).filter((t) => t.is_own_project);
   return (
     <>
       {/* UX-Audit Befund 2 (2026-07-14): Copy sagte "laufende Woche", der
@@ -110,6 +118,65 @@ export function SourcesPanel({
           <button className="secondary" onClick={onCandidateLlmAssist} disabled={busy}>Rest-Vorschläge mit KI prüfen</button>
         </div>
       </Section>
+      {/* Wir-Projekte (22.08.2026): Trailerhaus betreut keine kompletten
+          Kunden-Kanäle, sondern liefert pro Filmprojekt — die Wir-Einheit
+          fürs Monitoring ist deshalb der TITEL. Das Kanal-Häkchen darunter
+          bleibt für den Fall eines wirklich eigenen Kanals bestehen. */}
+      <details className="card" open={markierteProjekte.length === 0}>
+        <summary>Wir-Projekte markieren ({markierteProjekte.length} markiert)</summary>
+        <p className="muted small">
+          Kreuze die Filme an, an denen euer Team gearbeitet hat. Das
+          Monitoring zählt dann alle Posts zu diesen Titeln als „von uns“ —
+          egal auf welchem Kanal sie erschienen sind. Hinweis: Das misst
+          eure Filme, nicht das einzelne Asset — fremdes Material zum
+          selben Titel zählt mit.
+        </p>
+        {markierteProjekte.length > 0 && (
+          <div style={{ marginBottom: '0.5rem' }}>
+            {markierteProjekte.map((title) => (
+              <label key={title.id} style={{ display: 'block', padding: '0.15rem 0' }}>
+                <input
+                  type="checkbox"
+                  checked
+                  onChange={() => onToggleTitleOwnProject(title)}
+                />{' '}
+                {title.title_original}
+                {title.title_local && title.title_local !== title.title_original ? (
+                  <span className="muted small"> · {title.title_local}</span>
+                ) : null}
+              </label>
+            ))}
+          </div>
+        )}
+        <input
+          type="text"
+          value={projektSuche}
+          onChange={(event) => setProjektSuche(event.target.value)}
+          placeholder="Filmtitel tippen — findet auch Umlaute (lugen → Lügen)"
+          aria-label="Titelsuche für Wir-Projekte"
+        />
+        {projektTreffer.length > 0 && (
+          <div style={{ maxHeight: '12rem', overflowY: 'auto' }}>
+            {projektTreffer.map((title) => (
+              <label key={title.id} style={{ display: 'block', padding: '0.15rem 0' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(title.is_own_project)}
+                  onChange={() => onToggleTitleOwnProject(title)}
+                />{' '}
+                {title.title_original}
+                {title.franchise ? <span className="muted small"> · {title.franchise}</span> : null}
+              </label>
+            ))}
+          </div>
+        )}
+        {projektSuche.trim().length >= 2 && projektTreffer.length === 0 && (
+          <p className="muted small">
+            Kein Titel gefunden — fehlt er im Katalog, lässt er sich in der
+            Prüf-Queue („Treffer prüfen“) anlegen.
+          </p>
+        )}
+      </details>
       {/* Wir-Segment Schritt 1 (21.08.2026): eigene Kanäle markieren —
           Grundlage der „empfohlen → gemacht → gewirkt"-Auswertung im
           Monitoring. Eingeklappt, weil das eine einmalige Pflege ist. */}

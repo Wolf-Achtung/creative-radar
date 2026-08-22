@@ -1,8 +1,16 @@
 """Wir-Segment Schritt 1 (21.08.2026) — empfohlen → gemacht → gewirkt.
 
 Die Muster-Auswertung sagt bislang nur, was im Gesamt-Kanalbestand
-funktioniert. Dieser Service schliesst den Kreis fuer die EIGENEN
-Kanaele (``channel.is_own``, Checkliste in Admin → Quellen):
+funktioniert. Dieser Service schliesst den Kreis fuer das EIGENE:
+
+- Kanaele mit ``channel.is_own`` (Checkliste in Admin → Quellen), UND
+- seit 22.08.2026: Posts, deren Asset auf einen Titel mit
+  ``title.is_own_project`` gemappt ist — Trailerhaus arbeitet
+  projektweise, nicht kanalweise: auf einem Verleih-Kanal ist ein Post
+  von ihnen und zwanzig nicht, das Kanal-Haekchen waere dort falsch.
+  Die Titel-Zuordnung aus der Pruef-Queue wird hier ein zweites Mal
+  geerntet. Grenze, ehrlich benannt: das misst "unsere Filme", nicht
+  "unser Asset" — fremdes Material zum selben Titel zaehlt mit.
 
 - **empfohlen**: die ``breakout_verdict == "over"``-Zellen des
   aktuellen Muster-Berichts — exakt die MACHEN-Empfehlungen des
@@ -35,9 +43,10 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from app.models.entities import Channel
+from app.models.entities import Channel, Title
 from app.services.trailer_patterns import (
     DEFAULT_WINDOW_DAYS,
+    _title_by_post,
     build_lift_context,
     compute_trailer_patterns,
     posts_for_cell,
@@ -55,22 +64,41 @@ def compute_wir_segment(
     eigene_kanaele = session.exec(
         select(Channel).where(Channel.is_own == True)  # noqa: E712
     ).all()
-    if not eigene_kanaele:
+    projekt_titel = session.exec(
+        select(Title).where(Title.is_own_project == True)  # noqa: E712
+    ).all()
+    if not eigene_kanaele and not projekt_titel:
         return {
             "own_channels": 0,
+            "own_project_titles": 0,
             "eigene_posts_im_fenster": 0,
             "window_days": window_days,
             "zeilen": [],
             "note": (
-                "Noch kein Kanal als „Wir“ markiert — in Quellen → "
-                "Wir-Kanäle die eigenen Kanäle ankreuzen."
+                "Noch nichts als „Wir“ markiert — in Quellen → "
+                "Wir-Projekte die eigenen Filmprojekte ankreuzen "
+                "(oder Wir-Kanäle, falls ihr einen Kanal komplett betreut)."
             ),
         }
     own_ids = {c.id for c in eigene_kanaele}
+    projekt_titel_ids = {t.id for t in projekt_titel}
 
     ctx = build_lift_context(session, window_days=window_days, now=now)
     report = compute_trailer_patterns(session, window_days=window_days, now=now)
-    eigene_gesamt = [p for p in ctx.usable if p.channel_id in own_ids]
+
+    # Projektweise Zugehoerigkeit: Post → Titel ueber dieselbe Zuordnung
+    # (aeltestes Asset mit title_id) wie Genre-Dimension und Titel-Modus.
+    titel_by_post = (
+        _title_by_post(session, list(ctx.usable)) if projekt_titel_ids else {}
+    )
+
+    def _ist_wir(post) -> bool:
+        if post.channel_id in own_ids:
+            return True
+        titel = titel_by_post.get(post.id)
+        return titel is not None and titel.id in projekt_titel_ids
+
+    eigene_gesamt = [p for p in ctx.usable if _ist_wir(p)]
 
     zeilen: list[dict] = []
     for dimension, cells in report.dimensions.items():
@@ -78,7 +106,7 @@ def compute_wir_segment(
             if cell.breakout_verdict != "over":
                 continue
             members = posts_for_cell(session, ctx, dimension, cell.value)
-            eigene = [p for p in members if p.channel_id in own_ids]
+            eigene = [p for p in members if _ist_wir(p)]
             lifts = [
                 ctx.lift_by_post[p.id] for p in eigene if p.id in ctx.lift_by_post
             ]
@@ -100,13 +128,15 @@ def compute_wir_segment(
 
     ergebnis = {
         "own_channels": len(own_ids),
+        "own_project_titles": len(projekt_titel_ids),
         "eigene_posts_im_fenster": len(eigene_gesamt),
         "window_days": window_days,
         "zeilen": zeilen,
         "note": None,
     }
     logger.info(
-        "wir_segment.computed own_channels=%s eigene_posts=%s zeilen=%s",
-        len(own_ids), len(eigene_gesamt), len(zeilen),
+        "wir_segment.computed own_channels=%s own_project_titles=%s "
+        "eigene_posts=%s zeilen=%s",
+        len(own_ids), len(projekt_titel_ids), len(eigene_gesamt), len(zeilen),
     )
     return ergebnis

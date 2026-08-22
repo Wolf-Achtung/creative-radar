@@ -142,6 +142,7 @@ export const endpoints = {
   candidatesAutopilot: () => api('/api/titles/candidates/autopilot', { method: 'POST' }),
   candidatesLlmAssist: () => api('/api/titles/candidates/llm-assist', { method: 'POST' }),
   updateChannel: (channelId, payload) => api(`/api/channels/${channelId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  updateTitle: (titleId, payload) => api(`/api/titles/${titleId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   titleSyncRuns: () => api('/api/titles/sync/runs'),
   titleWhitelistStats: () => api('/api/titles/stats/whitelist'),
   titleCandidates: () => api('/api/titles/candidates'),
