@@ -238,6 +238,7 @@ export const endpoints = {
   // Juengstes persistiertes Briefing einer Ebene — die Review-Ansicht
   // im Admin, VOR der Flag-Freigabe (das Nutzer-Panel ist in Prod aus).
   adminWirSegment: () => api('/api/admin/wir-segment'),
+  projektStartBrief: (titleId) => api(`/api/admin/projekt-start-brief/${titleId}`),
   adminPatternBriefingLatest: ({ mode = 'genre' } = {}) => api(
     `/api/admin/pattern-briefing/latest?mode=${mode}`,
   ),

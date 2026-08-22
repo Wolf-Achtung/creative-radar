@@ -76,6 +76,7 @@ from app.services.insight_engine import (
 from app.services.forecast import generate_er_forecast
 from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
+from app.services.projekt_start_brief import compute_projekt_start_brief
 from app.services.wir_segment import compute_wir_segment
 from app.services.title_aggregation import AmbiguousTitleError
 from app.services.rate_limit import rate_limit
@@ -346,6 +347,24 @@ def wir_segment(
     Zell-Median des Gesamtbestands. Rein lesend, kein Modell-Call.
     Ohne markierte Kanaele kommt ein Klartext-Hinweis statt Zahlen."""
     return compute_wir_segment(session, window_days=window_days)
+
+
+@router.get("/projekt-start-brief/{title_id}")
+def projekt_start_brief(
+    title_id: UUID,
+    window_days: int = Query(90, ge=7, le=365),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Projekt-Start-Brief (22.08.2026): fuer ein Wir-Projekt die
+    aktuell ueberperformenden Muster mit Referenz-Posts als Moodboard —
+    das Radar VOR der Arbeit statt im Rueckspiegel. Deterministisch,
+    kein Modell-Call; dieselbe MACHEN-Auswahl wie Playbook/Wir-Segment."""
+    try:
+        return compute_projekt_start_brief(
+            session, title_id, window_days=window_days
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/trailer-patterns")
