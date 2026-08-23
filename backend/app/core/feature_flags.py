@@ -19,6 +19,20 @@ Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
   Designer-Wochenbriefing-Cron-Block (Trockenlauf, Sprint 2026-07-06).
   Default off, unabhaengig vom Cutter-Flag — Wolf review't den Prompt-
   Output separat, bevor das hier in Production Kosten verursacht.
+- ``FEATURE_WIR_PROJEKTE_ENABLED`` (bool): Titel-Markierung "Unser
+  Projekt" + projektweises Wir-Segment (PR #412).
+- ``FEATURE_PROJEKT_START_BRIEF_ENABLED`` (bool): Start-Brief-Button
+  je Wir-Projekt (PR #414, setzt Wir-Projekte voraus).
+- ``FEATURE_KAMPAGNEN_TIMING_ENABLED`` (bool): Kampagnen-Timing-
+  Auswertung im Monitoring (PR #415).
+- ``FEATURE_SOUND_TRENDS_ENABLED`` (bool): TikTok-Sound-Trends im
+  Monitoring (PR #416).
+
+Arbeitsregel seit 23.08.2026 (Wolfs Freigabe-Modell, siehe CLAUDE.md
+"Arbeitsregel Feature-Flags"): JEDES neue Feature bekommt beim Bau ein
+Flag nach diesem Schema, Default aus — in Staging an, in Production
+erst nach Wolfs Abnahme. Bugfixes, Wartung und unsichtbare
+Infrastruktur (z. B. Empfehlungs-Snapshots) sind ausgenommen.
 
 Historie: PR #155 hat das Pattern eingefuehrt, mit zwei zusaetzlichen
 Helpern ``is_uk_enabled_for_pair`` und ``is_independents_enabled``. Beide
@@ -105,3 +119,49 @@ def is_designer_weekly_enabled() -> bool:
     Frontend-Pfad bis zur Kalibrierung der Evidenzschwelle).
     """
     return os.getenv("FEATURE_DESIGNER_WEEKLY_ENABLED", "false").lower() == "true"
+
+
+def is_wir_projekte_enabled() -> bool:
+    """Returns True wenn die Wir-Projekt-Markierung aktiv ist: der
+    Quellen-Block "Wir-Projekte markieren", ``PATCH /api/titles/{id}``
+    (einziges Feld: ``is_own_project``) und der projektweise Zaehl-Weg
+    im Wir-Segment.
+
+    Env-Var: ``FEATURE_WIR_PROJEKTE_ENABLED``; ``"true"``/``"false"``
+    (case-insensitive), Default ``"false"``. Nachtraeglich geflaggt am
+    23.08.2026 — das Feature lief kurz ungeflaggt in Production (Wolfs
+    Freigabe-Modell war verletzt), Datenbestand bleibt erhalten.
+    """
+    return os.getenv("FEATURE_WIR_PROJEKTE_ENABLED", "false").lower() == "true"
+
+
+def is_projekt_start_brief_enabled() -> bool:
+    """Returns True wenn der Projekt-Start-Brief aktiv ist (Button an
+    markierten Wir-Projekten + ``GET /api/admin/projekt-start-brief``).
+    Setzt inhaltlich Wir-Projekte voraus — ohne markierte Titel gibt es
+    keinen Ankerpunkt fuer den Button.
+
+    Env-Var: ``FEATURE_PROJEKT_START_BRIEF_ENABLED``;
+    ``"true"``/``"false"`` (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_PROJEKT_START_BRIEF_ENABLED", "false").lower() == "true"
+
+
+def is_kampagnen_timing_enabled() -> bool:
+    """Returns True wenn die Kampagnen-Timing-Auswertung aktiv ist
+    (Monitoring-Sektion + ``GET /api/admin/kampagnen-timing``).
+
+    Env-Var: ``FEATURE_KAMPAGNEN_TIMING_ENABLED``;
+    ``"true"``/``"false"`` (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_KAMPAGNEN_TIMING_ENABLED", "false").lower() == "true"
+
+
+def is_sound_trends_enabled() -> bool:
+    """Returns True wenn die Sound-Trend-Auswertung aktiv ist
+    (Monitoring-Sektion + ``GET /api/admin/sound-trends``).
+
+    Env-Var: ``FEATURE_SOUND_TRENDS_ENABLED``; ``"true"``/``"false"``
+    (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_SOUND_TRENDS_ENABLED", "false").lower() == "true"

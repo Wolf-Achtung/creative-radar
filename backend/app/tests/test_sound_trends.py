@@ -142,6 +142,7 @@ async def test_admin_endpoint_liefert_die_auswertung(session, monkeypatch):
     from app.database import get_session
     from app.main import app
 
+    monkeypatch.setenv("FEATURE_SOUND_TRENDS_ENABLED", "true")
     monkeypatch.setattr(
         admin_module, "compute_sound_trends",
         lambda session_: {"sounds": [], "note": None, "posts_mit_sound": 7},
@@ -161,3 +162,27 @@ async def test_admin_endpoint_liefert_die_auswertung(session, monkeypatch):
 
     assert antwort.status_code == 200
     assert antwort.json()["posts_mit_sound"] == 7
+
+
+async def test_admin_endpoint_503_bei_abgeschaltetem_flag(session, monkeypatch):
+    """Feature-Flag-Gate (Arbeitsregel 23.08.2026)."""
+    from app.admin_session import require_admin_session
+    from app.database import get_session
+    from app.main import app
+
+    monkeypatch.delenv("FEATURE_SOUND_TRENDS_ENABLED", raising=False)
+
+    def _override():
+        yield session
+
+    app.dependency_overrides[get_session] = _override
+    app.dependency_overrides[require_admin_session] = lambda: None
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            antwort = await client.get("/api/admin/sound-trends")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert antwort.status_code == 503
+    assert "FEATURE_SOUND_TRENDS_ENABLED" in antwort.json()["detail"]

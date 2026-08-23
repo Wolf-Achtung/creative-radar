@@ -16,11 +16,15 @@ function renderPanel({
   onToggleTitleOwnProject = () => {},
   startBrief = null,
   onProjektStartBrief = () => {},
+  // Tests laufen per Default wie Staging: Flags an. Das Production-
+  // Verhalten (Flags aus -> unsichtbar) hat seinen eigenen Test.
+  features = { wir_projekte: true, projekt_start_brief: true },
 } = {}) {
   return render(
     <SourcesPanel
       startBrief={startBrief}
       onProjektStartBrief={onProjektStartBrief}
+      features={features}
       busy={false}
       channelFile={null}
       setChannelFile={() => {}}
@@ -50,6 +54,22 @@ function renderPanel({
 }
 
 describe('SourcesPanel Wir-Projekte', () => {
+  it('ohne Feature-Flags ist der Block unsichtbar — Production-Sicht', () => {
+    const markiert = { id: 't1', title_original: 'H wie Habicht', is_own_project: true };
+    renderPanel({ titles: [markiert], features: {} });
+
+    expect(screen.queryByText(/Wir-Projekte markieren/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Start-Brief' })).toBeNull();
+  });
+
+  it('mit Wir-Projekte-Flag aber ohne Start-Brief-Flag fehlt nur der Button', () => {
+    const markiert = { id: 't1', title_original: 'H wie Habicht', is_own_project: true };
+    renderPanel({ titles: [markiert], features: { wir_projekte: true } });
+
+    expect(screen.getByText(/Wir-Projekte markieren/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start-Brief' })).toBeNull();
+  });
+
   it('Umlaut-tolerante Suche findet den Titel, Checkbox markiert ihn', () => {
     const onToggle = vi.fn();
     const titel = { id: 't1', title_original: 'Lügen über meine Mutter', is_own_project: false };

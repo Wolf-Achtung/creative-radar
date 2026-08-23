@@ -657,6 +657,7 @@ export function AdminApp({ onLogout }) {
           onToggleTitleOwnProject={toggleTitleOwnProject}
           startBrief={startBrief}
           onProjektStartBrief={loadProjektStartBrief}
+          features={health?.features || {}}
           onFullSync={triggerFullSync}
           cronBusy={cronBusy}
           cronMessage={cronMessage}
@@ -664,7 +665,7 @@ export function AdminApp({ onLogout }) {
         />
       )}
       {activeTab === 'Nutzer' && <UsersPanel />}
-      {activeTab === 'Monitoring' && <MonitoringPanel />}
+      {activeTab === 'Monitoring' && <MonitoringPanel features={health?.features || {}} />}
 
       <footer className="footer-status">
         API: {health?.status || 'offen'} · Kanäle {channels.length} · Titel {titles.length} · Treffer {assets.length}

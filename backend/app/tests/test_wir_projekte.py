@@ -194,7 +194,8 @@ async def _patch_title(session, title_id, body):
         app.dependency_overrides.clear()
 
 
-async def test_patch_endpoint_setzt_und_loescht_die_projekt_markierung(session):
+async def test_patch_endpoint_setzt_und_loescht_die_projekt_markierung(session, monkeypatch):
+    monkeypatch.setenv("FEATURE_WIR_PROJEKTE_ENABLED", "true")
     titel = _titel(session)
     assert titel.is_own_project is False
 
@@ -208,6 +209,22 @@ async def test_patch_endpoint_setzt_und_loescht_die_projekt_markierung(session):
     assert antwort.json()["is_own_project"] is False
 
 
-async def test_patch_endpoint_404_fuer_unbekannten_titel(session):
+async def test_patch_endpoint_404_fuer_unbekannten_titel(session, monkeypatch):
+    monkeypatch.setenv("FEATURE_WIR_PROJEKTE_ENABLED", "true")
     antwort = await _patch_title(session, uuid4(), {"is_own_project": True})
     assert antwort.status_code == 404
+
+
+async def test_patch_endpoint_503_bei_abgeschaltetem_flag(session, monkeypatch):
+    """Feature-Flag-Gate (Arbeitsregel 23.08.2026): ohne Flag lehnt der
+    Endpoint ab, BEVOR er die DB anfasst — dieselbe 503-Semantik wie
+    Trailer Intelligence."""
+    monkeypatch.delenv("FEATURE_WIR_PROJEKTE_ENABLED", raising=False)
+    titel = _titel(session)
+
+    antwort = await _patch_title(session, titel.id, {"is_own_project": True})
+
+    assert antwort.status_code == 503
+    assert "FEATURE_WIR_PROJEKTE_ENABLED" in antwort.json()["detail"]
+    session.refresh(titel)
+    assert titel.is_own_project is False, "Das Gate muss VOR dem Schreiben greifen."

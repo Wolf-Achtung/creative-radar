@@ -473,7 +473,7 @@ export function PlaybookMailSection() {
   );
 }
 
-export function MonitoringPanel() {
+export function MonitoringPanel({ features = {} } = {}) {
   const [budgets, setBudgets] = useState({});
   const [costSummary, setCostSummary] = useState(null);
   const [cronRuns, setCronRuns] = useState(null);
@@ -512,8 +512,11 @@ export function MonitoringPanel() {
     <>
       <BriefingSection />
       <WirSegmentSection />
-      <KampagnenTimingSection />
-      <SoundTrendsSection />
+      {/* Feature-Flag-Gates (Arbeitsregel 23.08.2026): neue Auswertungen
+          erscheinen nur, wo /api/health -> features sie anbietet —
+          Staging zuerst, Production nach Wolfs Freigabe. */}
+      {features.kampagnen_timing && <KampagnenTimingSection />}
+      {features.sound_trends && <SoundTrendsSection />}
       <PlaybookMailSection />
       <Section title="Budgets diesen Monat" kicker="Kalendermonat, UTC">
         {status === 'error' && <p className="error">Konnte Budget-/Kostendaten nicht laden.</p>}

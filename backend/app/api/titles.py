@@ -18,6 +18,7 @@ from app.schemas.dto import (
     TitleSyncRequest,
 )
 from app.admin_session import require_admin_session
+from app.core.feature_flags import is_wir_projekte_enabled
 from app.services.candidate_autopilot import run_candidate_autopilot
 from app.services.candidate_llm_assist import run_candidate_llm_assist
 from app.services.seeds import seed_titles
@@ -280,8 +281,19 @@ def patch_candidate(candidate_id: UUID, payload: TitleCandidatePatch, session: S
 # Wir-Projekte (22.08.2026): bewusst NACH den statischen Pfaden
 # (/candidates, /sync, /stats) registriert — die Route-Reihenfolge haelt
 # den {title_id}-Catch-all hinter den spezifischen Endpunkten.
+# Feature-Flag-Gate (Arbeitsregel 23.08.2026): das einzige Patch-Feld
+# ist die Wir-Projekt-Markierung, deshalb gate't ihr Flag den ganzen
+# Endpoint.
 @router.patch("/{title_id}")
 def patch_title(title_id: UUID, payload: TitlePatch, session: Session = Depends(get_session)):
+    if not is_wir_projekte_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Die Wir-Projekt-Markierung ist deaktiviert. "
+                "FEATURE_WIR_PROJEKTE_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
     title = session.get(Title, title_id)
     if not title:
         raise HTTPException(status_code=404, detail="Title not found")
