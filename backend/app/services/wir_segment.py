@@ -43,6 +43,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
+from app.core.feature_flags import is_wir_projekte_enabled
 from app.models.entities import Channel, Title
 from app.services.trailer_patterns import (
     DEFAULT_WINDOW_DAYS,
@@ -68,17 +69,27 @@ def compute_wir_segment(
         select(Title).where(Title.is_own_project == True)  # noqa: E712
     ).all()
     if not eigene_kanaele and not projekt_titel:
+        # Hinweistext passend zur Umgebung: der Wir-Projekte-Block ist
+        # feature-geflaggt — wo er nicht sichtbar ist, darf der Text
+        # nicht auf ihn zeigen (Arbeitsregel 23.08.2026).
+        if is_wir_projekte_enabled():
+            hinweis = (
+                "Noch nichts als „Wir“ markiert — in Quellen → "
+                "Wir-Projekte die eigenen Filmprojekte ankreuzen "
+                "(oder Wir-Kanäle, falls ihr einen Kanal komplett betreut)."
+            )
+        else:
+            hinweis = (
+                "Noch kein Kanal als „Wir“ markiert — in Quellen → "
+                "Wir-Kanäle die eigenen Kanäle ankreuzen."
+            )
         return {
             "own_channels": 0,
             "own_project_titles": 0,
             "eigene_posts_im_fenster": 0,
             "window_days": window_days,
             "zeilen": [],
-            "note": (
-                "Noch nichts als „Wir“ markiert — in Quellen → "
-                "Wir-Projekte die eigenen Filmprojekte ankreuzen "
-                "(oder Wir-Kanäle, falls ihr einen Kanal komplett betreut)."
-            ),
+            "note": hinweis,
         }
     own_ids = {c.id for c in eigene_kanaele}
     projekt_titel_ids = {t.id for t in projekt_titel}

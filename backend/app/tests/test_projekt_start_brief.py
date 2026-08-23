@@ -199,9 +199,20 @@ async def _get_brief(session, title_id):
         app.dependency_overrides.clear()
 
 
+async def test_endpoint_503_bei_abgeschaltetem_flag(session, monkeypatch):
+    """Feature-Flag-Gate (Arbeitsregel 23.08.2026): ohne Flag kommt 503
+    mit dem Namen der Env-Var — dieselbe Semantik wie Trailer
+    Intelligence."""
+    monkeypatch.delenv("FEATURE_PROJEKT_START_BRIEF_ENABLED", raising=False)
+    antwort = await _get_brief(session, uuid4())
+    assert antwort.status_code == 503
+    assert "FEATURE_PROJEKT_START_BRIEF_ENABLED" in antwort.json()["detail"]
+
+
 async def test_endpoint_liefert_brief_und_404(session, monkeypatch):
     from app.api import admin as admin_module
 
+    monkeypatch.setenv("FEATURE_PROJEKT_START_BRIEF_ENABLED", "true")
     titel = _titel(session, genres=["Drama"])
     monkeypatch.setattr(
         admin_module, "compute_projekt_start_brief",

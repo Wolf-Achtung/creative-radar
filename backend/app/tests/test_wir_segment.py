@@ -83,18 +83,28 @@ def _stub_statistik(monkeypatch, ctx, dimensions, members_by_cell):
     )
 
 
-def test_ohne_markierte_kanaele_kommt_klartext_statt_zahlen(session):
+def test_ohne_markierte_kanaele_kommt_klartext_statt_zahlen(session, monkeypatch):
     """Seit den Wir-Projekten (22.08.2026) greift der Hinweis nur noch,
-    wenn WEDER Kanaele NOCH Projekt-Titel markiert sind — und er nennt
-    den projektweisen Weg zuerst, weil das Trailerhaus' Arbeitsmodus ist."""
+    wenn WEDER Kanaele NOCH Projekt-Titel markiert sind. Der Text folgt
+    dem Feature-Flag (Arbeitsregel 23.08.2026): wo der Wir-Projekte-
+    Block sichtbar ist, nennt er ihn zuerst — wo nicht, darf er nicht
+    auf eine unsichtbare UI zeigen."""
     _kanal(session, is_own=False)
 
+    monkeypatch.setenv("FEATURE_WIR_PROJEKTE_ENABLED", "true")
     ergebnis = ws.compute_wir_segment(session, now=NOW)
-
     assert ergebnis["own_channels"] == 0
     assert ergebnis["own_project_titles"] == 0
     assert ergebnis["zeilen"] == []
     assert "Wir-Projekte" in ergebnis["note"]
+    assert "Wir-Kanäle" in ergebnis["note"]
+
+    monkeypatch.delenv("FEATURE_WIR_PROJEKTE_ENABLED")
+    ergebnis = ws.compute_wir_segment(session, now=NOW)
+    assert "Wir-Projekte" not in ergebnis["note"], (
+        "Bei abgeschaltetem Flag darf der Hinweis nicht auf den "
+        "unsichtbaren Wir-Projekte-Block zeigen."
+    )
     assert "Wir-Kanäle" in ergebnis["note"]
 
 

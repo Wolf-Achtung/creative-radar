@@ -27,6 +27,7 @@ export function SourcesPanel({
   onToggleTitleOwnProject,
   startBrief = null,
   onProjektStartBrief = () => {},
+  features = {},
   onFullSync,
   cronBusy,
   cronMessage,
@@ -125,7 +126,10 @@ export function SourcesPanel({
       {/* Wir-Projekte (22.08.2026): Trailerhaus betreut keine kompletten
           Kunden-Kanäle, sondern liefert pro Filmprojekt — die Wir-Einheit
           fürs Monitoring ist deshalb der TITEL. Das Kanal-Häkchen darunter
-          bleibt für den Fall eines wirklich eigenen Kanals bestehen. */}
+          bleibt für den Fall eines wirklich eigenen Kanals bestehen.
+          Feature-Flag-Gate (Arbeitsregel 23.08.2026): erscheint nur, wo
+          /api/health -> features es anbietet — Staging zuerst. */}
+      {features.wir_projekte && (
       <details className="card" open={markierteProjekte.length === 0}>
         <summary>Wir-Projekte markieren ({markierteProjekte.length} markiert)</summary>
         <p className="muted small">
@@ -152,14 +156,17 @@ export function SourcesPanel({
                 </label>
                 {/* Projekt-Start-Brief (22.08.2026): das Radar VOR der
                     Arbeit — die aktuell ueberperformenden Muster mit
-                    Referenz-Posts als Moodboard fuer genau dieses Projekt. */}
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => onProjektStartBrief(title)}
-                >
-                  Start-Brief
-                </button>
+                    Referenz-Posts als Moodboard fuer genau dieses Projekt.
+                    Eigenes Flag: kann unabhaengig freigegeben werden. */}
+                {features.projekt_start_brief && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => onProjektStartBrief(title)}
+                  >
+                    Start-Brief
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -257,6 +264,7 @@ export function SourcesPanel({
           </p>
         )}
       </details>
+      )}
       {/* Wir-Segment Schritt 1 (21.08.2026): eigene Kanäle markieren —
           Grundlage der „empfohlen → gemacht → gewirkt"-Auswertung im
           Monitoring. Eingeklappt, weil das eine einmalige Pflege ist. */}

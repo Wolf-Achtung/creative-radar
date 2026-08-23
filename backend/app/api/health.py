@@ -2,7 +2,13 @@ import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from app.core.feature_flags import is_trailer_intelligence_enabled
+from app.core.feature_flags import (
+    is_kampagnen_timing_enabled,
+    is_projekt_start_brief_enabled,
+    is_sound_trends_enabled,
+    is_trailer_intelligence_enabled,
+    is_wir_projekte_enabled,
+)
 from app.database import database_diagnostics
 
 router = APIRouter(prefix="/api", tags=["health"])
@@ -37,6 +43,10 @@ def health():
         # Richtige. Nur An/Aus-Zustaende, keine Geheimnisse.
         "features": {
             "trailer_intelligence": is_trailer_intelligence_enabled(),
+            "wir_projekte": is_wir_projekte_enabled(),
+            "projekt_start_brief": is_projekt_start_brief_enabled(),
+            "kampagnen_timing": is_kampagnen_timing_enabled(),
+            "sound_trends": is_sound_trends_enabled(),
         },
     }
 

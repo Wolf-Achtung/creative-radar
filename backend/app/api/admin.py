@@ -76,6 +76,11 @@ from app.services.insight_engine import (
 from app.services.forecast import generate_er_forecast
 from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
+from app.core.feature_flags import (
+    is_kampagnen_timing_enabled,
+    is_projekt_start_brief_enabled,
+    is_sound_trends_enabled,
+)
 from app.services.campaign_timing import compute_campaign_timing
 from app.services.projekt_start_brief import compute_projekt_start_brief
 from app.services.sound_trends import compute_sound_trends
@@ -357,7 +362,20 @@ def kampagnen_timing(session: Session = Depends(get_session)) -> dict:
     Trailer-Welle relativ zum Release, und wie sieht die
     Eskalationskurve aus. Rein lesend, deterministisch, kein
     Modell-Call — rechnet ausschliesslich auf vorhandenen Daten
-    (Release-Dates, Post-Zeitstempel, Titel-Zuordnung)."""
+    (Release-Dates, Post-Zeitstempel, Titel-Zuordnung).
+
+    Feature-Flag-Gate (Arbeitsregel 23.08.2026): dieselbe 503-Semantik
+    wie Trailer Intelligence — das Frontend blendet die Sektion ueber
+    ``/api/health -> features`` aus, das Gate hier haelt auch direkte
+    Aufrufe."""
+    if not is_kampagnen_timing_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Kampagnen-Timing ist deaktiviert. "
+                "FEATURE_KAMPAGNEN_TIMING_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
     return compute_campaign_timing(session)
 
 
@@ -366,7 +384,17 @@ def sound_trends(session: Session = Depends(get_session)) -> dict:
     """TikTok-Sound-Trends (22.08.2026): welche Sounds die Posts im
     Fenster tragen, mit kanal-normiertem Median-Lift je Sound. Rein
     lesend, deterministisch — die musicMeta liegen seit jeher im
-    raw_payload, ausgewertet hat sie nur nie jemand."""
+    raw_payload, ausgewertet hat sie nur nie jemand.
+
+    Feature-Flag-Gate (Arbeitsregel 23.08.2026)."""
+    if not is_sound_trends_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Sound-Trends sind deaktiviert. "
+                "FEATURE_SOUND_TRENDS_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
     return compute_sound_trends(session)
 
 
@@ -379,7 +407,17 @@ def projekt_start_brief(
     """Projekt-Start-Brief (22.08.2026): fuer ein Wir-Projekt die
     aktuell ueberperformenden Muster mit Referenz-Posts als Moodboard —
     das Radar VOR der Arbeit statt im Rueckspiegel. Deterministisch,
-    kein Modell-Call; dieselbe MACHEN-Auswahl wie Playbook/Wir-Segment."""
+    kein Modell-Call; dieselbe MACHEN-Auswahl wie Playbook/Wir-Segment.
+
+    Feature-Flag-Gate (Arbeitsregel 23.08.2026)."""
+    if not is_projekt_start_brief_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Der Projekt-Start-Brief ist deaktiviert. "
+                "FEATURE_PROJEKT_START_BRIEF_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
     try:
         return compute_projekt_start_brief(
             session, title_id, window_days=window_days

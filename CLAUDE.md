@@ -249,7 +249,45 @@ Sechs Briefe aus W19–W22 lassen sich nicht mehr validieren:
 Die Begrenzung kam nach diesen Briefen; sie tragen ohnehin null Zitate.
 Kein Wartungsfall.
 
-## Auth-Schichten## Auth-Schichten
+## Arbeitsregel Feature-Flags — Wolfs Freigabe-Modell (23.08.2026)
+
+**Diese Regel ist verbindlich und überlebt jede Session.** Anlass: am
+Wochenende 22.08. wurden vier Features ungeflaggt gemergt und waren
+damit sofort in Production aktiv — Wolfs ausdrückliches Modell
+(„Neues zuerst in Staging ausprobieren, ohne den laufenden Stand zu
+beeinflussen") war verletzt. Die Merge-Autorisierung deckt das Mergen
+ab, NICHT das Überspringen der Staging-Erprobung.
+
+1. **Jedes neue Feature** bekommt beim Bau ein Flag nach dem
+   bestehenden Schema `FEATURE_<NAME>_ENABLED` (Helper in
+   `app/core/feature_flags.py`, Default **aus**, gelesen per
+   `os.environ`). Sichtbarkeit im Frontend ausschließlich über
+   `GET /api/health → features`; Endpoints gaten server-seitig mit
+   503 + Env-Var-Name (Muster Trailer Intelligence).
+2. **Rollout:** Flag in Staging auf `true` → Wolf probiert aus → nach
+   seiner Freigabe Flag in Production setzen. Danach beim nächsten
+   Wartungsdurchgang Flag-Cleanup erwägen (etabliertes Feature =
+   Flag raus).
+3. **Ausgenommen:** Bugfixes, Wartung, Sicherheit und unsichtbare
+   Infrastruktur ohne UI-/Verhaltensänderung (z. B. der
+   Empfehlungs-Snapshot-Cron). Im Zweifel: flaggen.
+
+Flag-Inventar (Stand 23.08.2026; Wächter
+`test_wartung_2026_08_23_flags.py` hält health-Parität und
+Default-aus):
+
+| Flag | Feature | Staging | Production |
+|---|---|---|---|
+| `FEATURE_TRAILER_INTELLIGENCE_ENABLED` | Muster-Panel (TI Stufe 1) | an | aus, Abnahme Mo 25.08. |
+| `FEATURE_SEGMENT_ROUNDUPS_ENABLED` | Segment-Roundups (Cron+Endpoint) | an | an |
+| `FEATURE_CUTTER_WEEKLY_ENABLED` | Cutter-Wochenbriefing (Cron) | an | an |
+| `FEATURE_DESIGNER_WEEKLY_ENABLED` | Designer-Wochenbriefing (Cron) | an | an |
+| `FEATURE_WIR_PROJEKTE_ENABLED` | Titel-Markierung „Unser Projekt" (#412) | zu setzen | aus bis Freigabe |
+| `FEATURE_PROJEKT_START_BRIEF_ENABLED` | Start-Brief je Wir-Projekt (#414) | zu setzen | aus bis Freigabe |
+| `FEATURE_KAMPAGNEN_TIMING_ENABLED` | Kampagnen-Timing im Monitoring (#415) | zu setzen | aus bis Freigabe |
+| `FEATURE_SOUND_TRENDS_ENABLED` | Sound-Trends im Monitoring (#416) | zu setzen | aus bis Freigabe |
+
+## Auth-Schichten
 
 Drei, unabhängig schaltbar:
 
