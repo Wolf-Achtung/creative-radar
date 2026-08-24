@@ -96,9 +96,18 @@ URTEIL_SCHEMA: dict = {
             ),
         },
         "sicher": {"type": "boolean"},
+        "beworbener_titel": {
+            "type": ["string", "null"],
+            "maxLength": 200,
+            "description": (
+                "Der Titel des Werks, das der Post tatsaechlich bewirbt — "
+                "exakt so, wie er in Caption oder Bildtext steht. null, wenn "
+                "kein bestimmtes Werk woertlich genannt ist."
+            ),
+        },
         "begruendung": {"type": "string", "maxLength": 300},
     },
-    "required": ["auswahl", "sicher", "begruendung"],
+    "required": ["auswahl", "sicher", "beworbener_titel", "begruendung"],
 }
 
 
@@ -124,7 +133,7 @@ SYSTEM_PROMPT = """Du ordnest Social-Media-Posts von Film- und Serien-Kanälen d
 Du bekommst je Post: den Vorschlag des automatischen Matchers, die Caption, ggf. im Bild erkannten Text (OCR) — und eine nummerierte Kandidatenliste aus dem Titel-Katalog.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt:
-{"auswahl": <Nummer aus der Liste oder null>, "sicher": true|false, "begruendung": "1 Satz"}
+{"auswahl": <Nummer aus der Liste oder null>, "sicher": true|false, "beworbener_titel": <String oder null>, "begruendung": "1 Satz"}
 
 Regeln:
 1. auswahl nur, wenn der Post eindeutig GENAU diesen Titel bewirbt.
@@ -132,6 +141,7 @@ Regeln:
 3. Ein Post über einen Schauspieler, ein Genre oder mehrere Titel gleichzeitig bekommt auswahl=null.
 3a. Bewirbt der Post ein ANDERES Werk, dessen Name den Kandidaten nur enthält, ist das NICHT dieser Kandidat — auswahl=null. "Sam & Cat" ist nicht "CAT", "American Hostage" ist nicht "Hostage", ein Post über eine Serie ist kein Post über ihr angebliches Spin-off. Der Kandidatenname muss der Titel des beworbenen Werks sein, nicht ein Teil davon.
 3b. Behaupte keinen Alternativtitel und keine Verwandtschaft zwischen Werken, die nicht in Caption oder Bildtext steht. Was du nicht im Text siehst, begründet keine Auswahl.
+3c. beworbener_titel: Bewirbt der Post erkennbar EIN bestimmtes Werk — auch eines, das NICHT in der Kandidatenliste steht —, nenne dessen Titel exakt so, wie er in Caption oder Bildtext steht. Sonst null. Nenne nur, was woertlich im Text steht — kein erschlossener, uebersetzter oder erinnerter Titel. sicher bezieht sich auch auf dieses Urteil.
 4. begruendung: 1 kurzer Satz auf Deutsch — er wird dem Prüfer als Hinweis angezeigt, auch wenn du unsicher bist (dann: warum unsicher)."""
 
 
@@ -145,6 +155,8 @@ class LlmAssistSummary:
     bereits_geprueft: int = 0
     ein_wort_zweifel: int = 0
     aufgegeben: int = 0
+    umgeleitet: int = 0
+    vorschlag_korrigiert: int = 0
     offen_danach: int = 0
     kosten_calls: int = 0
     zugeordnete_titel: list[str] = field(default_factory=list)
@@ -160,6 +172,8 @@ class LlmAssistSummary:
             "bereits_geprueft": self.bereits_geprueft,
             "ein_wort_zweifel": self.ein_wort_zweifel,
             "aufgegeben": self.aufgegeben,
+            "umgeleitet": self.umgeleitet,
+            "vorschlag_korrigiert": self.vorschlag_korrigiert,
             "offen_danach": self.offen_danach,
             "kosten_calls": self.kosten_calls,
             "zugeordnete_titel": self.zugeordnete_titel[:20],
@@ -199,6 +213,66 @@ def _shortlist(
             bewertet.append((title, score))
     bewertet.sort(key=lambda paar: (-paar[1], paar[0].title_original or ""))
     return bewertet[:SHORTLIST_SIZE]
+
+
+def _kompakt(value: str | None) -> str:
+    """Nur Buchstaben/Ziffern, klein — vergleicht "#RiseOfTheFootsoldier"
+    mit "Rise of the Footsoldier"."""
+    return "".join(ch for ch in (value or "").lower() if ch.isalnum())
+
+
+def _im_text_belegt(genannt: str, volltext: str) -> bool:
+    """Steht der genannte Titel woertlich im Post-Text?
+
+    Das ist der Code-Wächter gegen erfundene Verbindungen: Am 24.08.2026
+    behauptete das Modell zweimal, "#THEWAYOUT" sei ein Erkennungszeichen
+    der Serie "Classified" — eine Verknuepfung, die nirgends im Text
+    stand. Was das Modell in ``beworbener_titel`` nennt, zaehlt nur,
+    wenn es im Text nachweisbar ist; die Behauptung allein traegt nichts.
+    """
+    k = _kompakt(genannt)
+    return len(k) >= 4 and k in _kompakt(volltext)
+
+
+def _stark_belegt(genannt: str, volltext: str) -> bool:
+    """Hashtag oder Zitat — der Beleg, den eine Auto-Zuordnung braucht.
+
+    Fuer Mehrwort-Titel reicht das woertliche Vorkommen (``_im_text_belegt``):
+    "Cadet Kelly" faellt nicht zufaellig in eine Caption. Ein EINZELNES
+    Wort schon — "driven", "focus", "holiday" stehen dauernd beilaeufig im
+    Text, das ist die Fehlerklasse des ganzen Tages. Ein einzelnes Wort
+    traegt eine Auto-Zuordnung deshalb nur als Hashtag (#Lanterns) oder in
+    Anfuehrungszeichen — beides sind Werbe-Signale, kein Satzbaustein.
+    """
+    if not _im_text_belegt(genannt, volltext):
+        return False
+    name = (genannt or "").strip().lower()
+    if " " in _normalize(name):
+        return True
+    roh = (volltext or "").lower()
+    kandidaten = (
+        f"#{name}",
+        f"'{name}'",
+        f'"{name}"',
+        "„" + name + "“",  # deutsche Anfuehrungszeichen
+    )
+    return any(marke in roh for marke in kandidaten)
+
+
+def _katalog_treffer(
+    genannt: object, lookup: dict[str, "Title | None"]
+) -> "Title | None":
+    """Exakt-Abgleich des GENANNTEN Titels gegen den Katalog.
+
+    Der Code prueft, nicht das Modell: nur ein eindeutiger Treffer auf
+    Name oder Alias zaehlt (mehrdeutige Namen stehen im Lookup als None
+    und fallen hier durch). Erfundene Katalog-Zuordnungen — "Sam & Cat"
+    auf den Titel "CAT" — sind auf diesem Weg unmoeglich, weil nicht
+    mehr das Modell die Bruecke zum Katalog schlaegt.
+    """
+    if not isinstance(genannt, str) or not genannt.strip():
+        return None
+    return lookup.get(_normalize(genannt))
 
 
 def _ist_ein_wort_zweifelsfall(candidate: TitleCandidate) -> bool:
@@ -398,7 +472,54 @@ def run_candidate_llm_assist(
         begruendung = str(parsed.get("begruendung", "")).strip()
         gueltig = auswahl is not None and 1 <= auswahl <= len(shortlist)
         if not (sicher and gueltig):
+            # Der wertvollste Teil der Ablehnung ist der Titel, den der Post
+            # WIRKLICH bewirbt (Wolfs Befund 24.08.2026: "der Post bewirbt
+            # 'Lanterns'" stand zigfach in den Notizen — und niemand hat es
+            # verwertet). Drei Stufen, jede vom CODE verifiziert:
+            #   Katalog-Treffer + starker Text-Beleg + sicher -> zuordnen
+            #   Katalog-Treffer + woertlich im Text          -> Karten-Vorschlag korrigieren
+            #   kein Katalog-Treffer                          -> Name in die Notiz (fuers Anlegen)
+            genannt = parsed.get("beworbener_titel")
+            volltext = f"{post.caption if post else ''} {asset.ocr_text or ''}"
+            treffer = _katalog_treffer(genannt, lookup)
+            if treffer is not None and sicher and _stark_belegt(str(genannt), volltext):
+                alter_vorschlag = candidate.suggested_title
+                candidate.suggested_title = treffer.title_original
+                _markieren(candidate, f"KI umgeleitet: {begruendung}"[:300])
+                asset.title_id = treffer.id
+                asset.de_us_match_key = slugify_match_key(
+                    treffer.franchise or treffer.title_original
+                )
+                asset.updated_at = utc_now()
+                session.add(asset)
+                resolve_open_candidates_for_asset(session, asset.id, commit=False)
+                summary.zugeordnet += 1
+                summary.umgeleitet += 1
+                summary.zugeordnete_titel.append(treffer.title_original)
+                logger.info(
+                    "candidate-llm-assist umgeleitet asset=%s von=%s nach=%s begruendung=%s",
+                    asset.id, alter_vorschlag, treffer.title_original,
+                    begruendung,
+                )
+                continue
             summary.unsicher += 1
+            if treffer is not None and _im_text_belegt(str(genannt), volltext):
+                # Nicht sicher genug fuer die Automatik, aber der Knopf auf
+                # der Karte soll den RICHTIGEN Titel anbieten — ein Klick
+                # statt Suchen.
+                candidate.suggested_title = treffer.title_original
+                summary.vorschlag_korrigiert += 1
+                _markieren(
+                    candidate,
+                    f"KI: bewirbt wohl '{treffer.title_original}' — {begruendung}"[:300],
+                )
+                continue
+            if isinstance(genannt, str) and genannt.strip() and treffer is None:
+                _markieren(
+                    candidate,
+                    f"KI: bewirbt '{genannt.strip()}' (nicht im Katalog) — {begruendung}"[:300],
+                )
+                continue
             _markieren(
                 candidate,
                 f"KI unsicher: {begruendung}" if begruendung
