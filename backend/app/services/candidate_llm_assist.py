@@ -22,7 +22,12 @@ Arbeitsteilung, dieselbe Linie wie ueberall im Projekt:
    offene Kandidaten des Assets resolved.
 
 Exakt-Treffer bleiben Sache des (kostenlosen) Autopiloten — der Assist
-prueft nur, was der ueberspringt. Kosten: Haiku, ein Call je Kandidat
+prueft nur, was der ueberspringt. Seit dem 24.08.2026 gehoeren dazu auch
+Ein-Wort-Titel mit schwachem Treffer: der Autopilot verlangt fuer die
+Confidence >= 0.95 und laesst den Rest liegen (Vorfall: 83 Assets an
+"Driven", "Personality" & Co., weil das Wort in der Caption stand).
+Ohne diese Ausnahme fielen sie zwischen Autopilot und Assist hindurch
+und blieben komplett Handarbeit. Kosten: Haiku, ein Call je Kandidat
 (~1k Token rein, ~100 raus, deutlich unter 1 Cent); jeder Call landet
 via ``record_anthropic_call`` im Costlog und damit im Monatsdeckel.
 
@@ -90,6 +95,7 @@ class LlmAssistSummary:
     keine_shortlist: int = 0
     fehler: int = 0
     bereits_geprueft: int = 0
+    ein_wort_zweifel: int = 0
     offen_danach: int = 0
     kosten_calls: int = 0
     zugeordnete_titel: list[str] = field(default_factory=list)
@@ -103,6 +109,7 @@ class LlmAssistSummary:
             "keine_shortlist": self.keine_shortlist,
             "fehler": self.fehler,
             "bereits_geprueft": self.bereits_geprueft,
+            "ein_wort_zweifel": self.ein_wort_zweifel,
             "offen_danach": self.offen_danach,
             "kosten_calls": self.kosten_calls,
             "zugeordnete_titel": self.zugeordnete_titel[:20],
@@ -144,6 +151,26 @@ def _shortlist(
     return bewertet[:SHORTLIST_SIZE]
 
 
+def _ist_ein_wort_zweifelsfall(candidate: TitleCandidate) -> bool:
+    """Ein-Wort-Titel, den der Autopilot seit dem 24.08.2026 ablehnt.
+
+    Vorfall: 83 Assets wurden Titeln wie "Driven" oder "Personality"
+    zugeordnet, weil das Wort irgendwo in der Caption stand. Der
+    Autopilot verlangt fuer Ein-Wort-Titel jetzt Confidence >= 0.95 und
+    laesst schwache Treffer liegen.
+
+    Damit fielen sie zwischen zwei Stuehle: der Autopilot lehnt ab, und
+    dieser Assist uebersprang sie als "Exakt-Fall — nicht unser Revier".
+    Genau diese Annahme — Katalog-Treffer heisst sicher — hat der Vorfall
+    widerlegt. Ein einzelnes Alltagswort im Katalog ist ein Zweifelsfall,
+    und Zweifelsfaelle sind das Revier dieses Assists.
+    """
+    name = _normalize(candidate.suggested_title)
+    if not name or " " in name:
+        return False
+    return candidate.confidence < settings.candidate_autopilot_min_confidence_single_word
+
+
 def _user_prompt(
     candidate: TitleCandidate, post: Post | None, asset: Asset | None,
     shortlist: list[tuple[Title, float]],
@@ -153,8 +180,19 @@ def _user_prompt(
         f"Caption: {(post.caption or '')[:400] if post else ''}",
         f"OCR-Text: {(asset.ocr_text or '')[:200] if asset else ''}",
         "",
-        "Kandidaten aus dem Katalog:",
     ]
+    if _ist_ein_wort_zweifelsfall(candidate):
+        # Ohne diese Zeile liest das Modell Regel 2 ("Caption benennt den
+        # Titel") auf ein zufaelliges Wortvorkommen an — genau der Fehler,
+        # den der mechanische Matcher gemacht hat.
+        zeilen.append(
+            "ACHTUNG: Der Vorschlag ist ein einzelnes, alltaegliches Wort. "
+            "Dass es in der Caption vorkommt, heisst NICHT, dass der Post "
+            "diesen Titel bewirbt — pruefe, ob der Post wirklich von diesem "
+            "Werk handelt. Im Zweifel auswahl=null."
+        )
+        zeilen.append("")
+    zeilen.append("Kandidaten aus dem Katalog:")
     for i, (title, _score) in enumerate(shortlist, start=1):
         jahr = ""
         for datum in (title.release_date_de, title.release_date_us):
@@ -176,6 +214,10 @@ def run_candidate_llm_assist(
     Nur diese Kategorie: Exakt-Treffer gehoeren dem mechanischen
     Autopiloten (kostenlos, deterministisch), Mehrdeutigkeit und
     Niedrig-Confidence-Exakt-Treffer bleiben bewusst Menschensache.
+
+    Ausnahme seit dem 24.08.2026: Ein-Wort-Titel mit schwachem Treffer
+    (s. ``_ist_ein_wort_zweifelsfall``). Die lehnt der Autopilot ab,
+    also braucht sie jemand — sonst bleiben sie komplett liegen.
     """
     summary = LlmAssistSummary()
     if not is_anthropic_configured():
@@ -200,11 +242,16 @@ def run_candidate_llm_assist(
         asset = session.get(Asset, candidate.asset_id)
         if asset is None or asset.title_id is not None:
             continue
-        if _normalize(candidate.suggested_title) in lookup:
+        if (
+            _normalize(candidate.suggested_title) in lookup
+            and not _ist_ein_wort_zweifelsfall(candidate)
+        ):
             continue  # Exakt- oder Mehrdeutig-Fall — nicht unser Revier
         if candidate.llm_checked_at is not None:
             summary.bereits_geprueft += 1
             continue
+        if _ist_ein_wort_zweifelsfall(candidate):
+            summary.ein_wort_zweifel += 1
         arbeitsvorrat.append((candidate, asset))
 
     def _markieren(candidate: TitleCandidate, note: str) -> None:

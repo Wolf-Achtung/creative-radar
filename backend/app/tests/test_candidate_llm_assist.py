@@ -171,7 +171,12 @@ def test_auswahl_ausserhalb_der_shortlist_wird_verworfen(session, monkeypatch):
 def test_exakt_treffer_gehen_nicht_ans_llm(session, monkeypatch):
     kanal = _kanal(session)
     _titel(session, "Wicked")
-    _fall(session, kanal, caption="WICKED now.", vorschlag="Wicked")
+    # confidence=1.0: ein echter Exakt-/Hashtag-Treffer. Der Default 0.9
+    # steht seit dem 24.08.2026 fuer den schwachen Einzelwort-Substring —
+    # und "Wicked" ist ein Ein-Wort-Titel, faellt also in die neue
+    # Zweifelsfall-Ausnahme. Der Testzweck ist der sichere Treffer.
+    _fall(session, kanal, caption="WICKED now.", vorschlag="Wicked",
+          confidence=1.0)
     prompts = _fake_llm(monkeypatch, [{"auswahl": 1, "sicher": True, "begruendung": "x"}])
 
     summary = cla.run_candidate_llm_assist(session)
@@ -283,3 +288,88 @@ def test_parse_fehler_setzt_keinen_marker(session, monkeypatch):
     assert summary.fehler == 1
     assert cand.llm_checked_at is None
     assert summary.offen_danach == 1, "Fehler-Faelle zaehlen als weiterhin ungeprueft."
+
+
+# --- Ein-Wort-Zweifelsfaelle (Vorfall 24.08.2026) ------------------------
+#
+# Der Autopilot verlangt fuer Ein-Wort-Titel seit dem Vorfall Confidence
+# >= 0.95 und laesst schwache Treffer liegen. Dieser Assist uebersprang
+# sie bis dahin als "Exakt-Fall — nicht unser Revier". Damit fielen sie
+# zwischen beide Stuehle und blieben komplett Handarbeit: 83 Stueck aus
+# einem einzigen Cron-Lauf.
+
+
+def test_ein_wort_zweifelsfall_geht_ans_llm_trotz_katalog_treffer(
+    session, monkeypatch
+):
+    kanal = _kanal(session)
+    _titel(session, "Driven")
+    _fall(session, kanal, caption="so driven by the story", vorschlag="Driven",
+          confidence=0.9)
+    prompts = _fake_llm(monkeypatch, [{"auswahl": None, "sicher": False,
+                                       "begruendung": "nur ein Wort"}])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    assert summary.geprueft == 1, (
+        "Ein-Wort-Titel mit schwachem Treffer lehnt der Autopilot ab — "
+        "wenn der Assist sie auch ueberspringt, bleiben sie liegen."
+    )
+    assert summary.ein_wort_zweifel == 1
+    assert len(prompts) == 1
+
+
+def test_ein_wort_zweifelsfall_warnt_das_modell_vor_dem_zufallstreffer(
+    session, monkeypatch
+):
+    kanal = _kanal(session)
+    _titel(session, "Driven")
+    _fall(session, kanal, caption="so driven by the story", vorschlag="Driven",
+          confidence=0.9)
+    prompts = _fake_llm(monkeypatch, [{"auswahl": None, "sicher": False,
+                                       "begruendung": "x"}])
+
+    cla.run_candidate_llm_assist(session)
+
+    assert "ACHTUNG" in prompts[0], (
+        "Ohne Warnung liest das Modell Regel 2 ('Caption benennt den "
+        "Titel') auf ein zufaelliges Wortvorkommen an — genau der Fehler "
+        "des mechanischen Matchers."
+    )
+    assert "auswahl=null" in prompts[0]
+
+
+def test_sicherer_ein_wort_treffer_bleibt_beim_autopiloten(session, monkeypatch):
+    kanal = _kanal(session)
+    _titel(session, "Barbie")
+    _fall(session, kanal, caption="#Barbie", vorschlag="Barbie", confidence=1.0)
+    prompts = _fake_llm(monkeypatch, [{"auswahl": 1, "sicher": True,
+                                       "begruendung": "x"}])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    assert prompts == [], (
+        "Ein Hashtag-/Exakt-Treffer ist sicher — den ordnet der "
+        "kostenlose Autopilot zu, jeder LLM-Call waere verschwendet."
+    )
+    assert summary.ein_wort_zweifel == 0
+
+
+def test_mehrwort_kandidat_mit_katalog_treffer_bleibt_ausgeschlossen(
+    session, monkeypatch
+):
+    kanal = _kanal(session)
+    _titel(session, "Beware Boiúna")
+    _fall(session, kanal, caption="Beware Boiúna kommt", vorschlag="Beware Boiúna",
+          confidence=0.9)
+    prompts = _fake_llm(monkeypatch, [{"auswahl": 1, "sicher": True,
+                                       "begruendung": "x"}])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    assert prompts == [], (
+        "Die Ausnahme gilt nur fuer EIN-Wort-Titel. Ein Mehrwort-Treffer "
+        "ist auch bei 0.9 verlaesslich (unique_text) — der bleibt beim "
+        "Autopiloten."
+    )
+    assert summary.geprueft == 0
