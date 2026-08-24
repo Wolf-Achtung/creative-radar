@@ -53,24 +53,39 @@ def _anthropic_konfiguriert(monkeypatch):
     monkeypatch.setattr(cla, "record_anthropic_call", lambda *a, **k: None)
 
 
-class _Antwort:
-    """Nachbau von JsonRetryResult mit leeren call_attempts."""
+class _ToolBlock:
+    type = "tool_use"
 
-    def __init__(self, parsed):
-        self.parsed = parsed
-        self.call_attempts = []
+    def __init__(self, eingabe):
+        self.input = eingabe
+
+
+class _Antwort:
+    """Nachbau der Messages-Antwort mit erzwungenem Tool-Use-Block.
+
+    Seit dem 24.08.2026 laeuft der Assist ueber
+    ``messages_create_strict_json``: Anthropic validiert die Antwort
+    gegen das Schema, bevor sie zurueckkommt. Ein ``parsed``-Feld gibt
+    es nicht mehr — das Urteil steckt im ``input`` des Tool-Blocks.
+    """
+
+    usage = None
+
+    def __init__(self, eingabe):
+        # None steht fuer "kein verwertbarer Tool-Block" (API-Drift).
+        self.content = [] if eingabe is None else [_ToolBlock(eingabe)]
 
 
 def _fake_llm(monkeypatch, antworten):
-    """call_with_json_retry-Stub: liefert Antworten in Reihenfolge und
-    zeichnet die User-Prompts auf."""
+    """messages_create_strict_json-Stub: liefert Antworten in
+    Reihenfolge und zeichnet die User-Prompts auf."""
     prompts: list[str] = []
 
     def _stub(*, model, system, user_message, **kwargs):
         prompts.append(user_message)
         return _Antwort(antworten[min(len(prompts) - 1, len(antworten) - 1)])
 
-    monkeypatch.setattr(cla, "call_with_json_retry", _stub)
+    monkeypatch.setattr(cla, "messages_create_strict_json", _stub)
     return prompts
 
 
@@ -274,9 +289,10 @@ def test_string_zahlen_und_string_true_werden_akzeptiert(session, monkeypatch):
     assert asset.title_id == titel.id
 
 
-def test_parse_fehler_setzt_keinen_marker(session, monkeypatch):
-    """Ein API-/Parse-Fehler ist kein Urteil: der Kandidat bleibt
-    unmarkiert und kommt beim naechsten Lauf wieder dran."""
+def test_fehler_laesst_den_kandidaten_offen_und_zaehlt_hoch(session, monkeypatch):
+    """Ein einzelner API-Fehler ist kein Urteil: der Kandidat bleibt
+    unmarkiert und kommt beim naechsten Lauf wieder dran — aber der
+    Versuch wird vermerkt."""
     kanal = _kanal(session)
     _titel(session, "Beware Boiúna")
     _, cand = _fall(session, kanal, caption="beware", vorschlag="beware")
@@ -288,6 +304,32 @@ def test_parse_fehler_setzt_keinen_marker(session, monkeypatch):
     assert summary.fehler == 1
     assert cand.llm_checked_at is None
     assert summary.offen_danach == 1, "Fehler-Faelle zaehlen als weiterhin ungeprueft."
+    assert "Versuch 1/3" in (cand.llm_note or "")
+
+
+def test_dauerfehler_wird_nach_drei_versuchen_aufgegeben(session, monkeypatch):
+    """Der Endlos-Fall aus Wolfs Lauf vom 24.08.2026.
+
+    Ohne Abbruch versuchte jeder Klick denselben unauswertbaren
+    Kandidaten erneut; ``offen_danach`` blieb fuer immer 1 und die
+    KI-Pruefung war blockiert.
+    """
+    kanal = _kanal(session)
+    _titel(session, "Beware Boiúna")
+    _, cand = _fall(session, kanal, caption="beware", vorschlag="beware")
+    _fake_llm(monkeypatch, [None])
+
+    for _ in range(3):
+        summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(cand)
+    assert summary.aufgegeben == 1
+    assert cand.llm_checked_at is not None, (
+        "Nach drei Fehlversuchen muss der Kandidat markiert sein — sonst "
+        "blockiert er jeden weiteren Klick."
+    )
+    assert "von Hand" in (cand.llm_note or "")
+    assert summary.offen_danach == 0
 
 
 # --- Ein-Wort-Zweifelsfaelle (Vorfall 24.08.2026) ------------------------
@@ -373,3 +415,57 @@ def test_mehrwort_kandidat_mit_katalog_treffer_bleibt_ausgeschlossen(
         "Autopiloten."
     )
     assert summary.geprueft == 0
+
+
+def test_prompt_verbietet_das_andere_werk_mit_demselben_wort(session, monkeypatch):
+    """Wolfs Lauf vom 24.08.2026 ordnete einen Post, der "Sam & Cat"
+    bewarb, dem Katalog-Titel "CAT" zu — und einen Post ueber Parks and
+    Recreation einem erfundenen Spin-off. Das Modell wiederholte damit
+    genau den Substring-Fehler des mechanischen Matchers. Die Regel
+    dagegen muss im Prompt stehen, sonst passiert es wieder.
+    """
+    kanal = _kanal(session)
+    _titel(session, "CAT")
+    _fall(session, kanal, caption="Sam & Cat jetzt streamen", vorschlag="CAT",
+          confidence=0.9)
+    prompts = _fake_llm(monkeypatch, [{"auswahl": None, "sicher": False,
+                                       "begruendung": "anderes Werk"}])
+
+    cla.run_candidate_llm_assist(session)
+
+    assert "Sam & Cat" in cla.SYSTEM_PROMPT, (
+        "Die Regel braucht das Gegenbeispiel — abstrakt formuliert hat "
+        "das Modell sie schon einmal ueberlesen."
+    )
+    assert "Behaupte keinen Alternativtitel" in cla.SYSTEM_PROMPT
+    assert "anderes Werk" in prompts[0], (
+        "Auch die Warnung am Einzelfall muss den Fall benennen."
+    )
+
+
+def test_erzwungenes_schema_statt_text_parsen(session, monkeypatch):
+    """Der Assist darf nicht auf den Text-Pfad zurueckfallen.
+
+    Ueber ``call_with_json_retry`` schrieb das Modell freien Text, den
+    der Code parste: 113 Calls fuer 79 Kandidaten am 24.08.2026, plus
+    ein gar nicht auswertbarer Fall. Tool-Use laesst Anthropic gegen das
+    Schema validieren, bevor die Antwort zurueckkommt.
+    """
+    kanal = _kanal(session)
+    _titel(session, "Beware Boiúna")
+    _fall(session, kanal, caption="beware", vorschlag="beware")
+
+    gesehen = {}
+
+    def _stub(*, model, system, user_message, **kwargs):
+        gesehen.update(kwargs)
+        return _Antwort({"auswahl": 1, "sicher": True, "begruendung": "x"})
+
+    monkeypatch.setattr(cla, "messages_create_strict_json", _stub)
+    cla.run_candidate_llm_assist(session)
+
+    assert gesehen["tool_name"] == cla.URTEIL_TOOL_NAME
+    assert gesehen["input_schema"]["required"] == ["auswahl", "sicher", "begruendung"]
+    assert not hasattr(cla, "call_with_json_retry"), (
+        "Der Text-Pfad darf nicht mehr importiert sein."
+    )
