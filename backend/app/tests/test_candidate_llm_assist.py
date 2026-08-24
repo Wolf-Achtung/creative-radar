@@ -465,7 +465,181 @@ def test_erzwungenes_schema_statt_text_parsen(session, monkeypatch):
     cla.run_candidate_llm_assist(session)
 
     assert gesehen["tool_name"] == cla.URTEIL_TOOL_NAME
-    assert gesehen["input_schema"]["required"] == ["auswahl", "sicher", "begruendung"]
+    assert gesehen["input_schema"]["required"] == [
+        "auswahl", "sicher", "beworbener_titel", "begruendung",
+    ]
     assert not hasattr(cla, "call_with_json_retry"), (
         "Der Text-Pfad darf nicht mehr importiert sein."
     )
+
+
+# --- Der beworbene Titel wird verwertet (Wolfs Befund 24.08.2026) --------
+#
+# In der Pruef-Queue stand zigfach "KI unsicher: Der Post bewirbt
+# 'Lanterns' / 'Cadet Kelly' / 'Rise of the Footsoldier', nicht den
+# Kandidaten" — die KI hatte das richtige Werk laengst erkannt, aber das
+# Schema liess sie es nirgends hinschreiben. Der Name verrottete als
+# Prosa in der Notiz, und Wolf musste jeden Titel von Hand suchen.
+#
+# Jetzt traegt ``beworbener_titel`` die Erkenntnis, und der CODE prueft
+# sie doppelt: Exakt-Treffer im Katalog UND woertlicher Beleg im
+# Post-Text. Das Modell schlaegt nie selbst die Bruecke zum Katalog.
+
+
+def test_umleitung_auf_den_wirklich_beworbenen_titel(session, monkeypatch):
+    kanal = _kanal(session)
+    _titel(session, "Driven")
+    lanterns = _titel(session, "Lanterns")
+    asset, cand = _fall(
+        session, kanal,
+        caption="A new episode of #Lanterns is now streaming on @hbomax.",
+        vorschlag="Driven", confidence=0.9,
+    )
+    _fake_llm(monkeypatch, [{
+        "auswahl": None, "sicher": True, "beworbener_titel": "Lanterns",
+        "begruendung": "Der Post bewirbt die Serie 'Lanterns', nicht 'Driven'.",
+    }])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(asset)
+    session.refresh(cand)
+    assert asset.title_id == lanterns.id, (
+        "Hashtag-Beleg + Katalog-Exakt-Treffer + sicher: das ist mehr "
+        "Evidenz als die Shortlist-Zuordnung je hatte."
+    )
+    assert cand.suggested_title == "Lanterns"
+    assert summary.umgeleitet == 1
+    assert summary.zugeordnet == 1
+
+
+def test_mehrwort_titel_braucht_keinen_hashtag(session, monkeypatch):
+    kanal = _kanal(session)
+    _titel(session, "كتالوج")
+    kelly = _titel(session, "Cadet Kelly")
+    asset, _cand = _fall(
+        session, kanal,
+        caption="Why are you standing at attention? Cadet Kelly (On Disney+)",
+        vorschlag="كتالوج", confidence=0.9,
+    )
+    _fake_llm(monkeypatch, [{
+        "auswahl": None, "sicher": True, "beworbener_titel": "Cadet Kelly",
+        "begruendung": "Der Post bewirbt eindeutig 'Cadet Kelly'.",
+    }])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(asset)
+    assert asset.title_id == kelly.id
+    assert summary.umgeleitet == 1
+
+
+def test_erfundene_verbindung_scheitert_am_text_beleg(session, monkeypatch):
+    """Der Classified-Fall: Das Modell behauptet, ein Hashtag sei das
+    Erkennungszeichen eines Titels, der nirgends im Text steht. Die
+    Behauptung allein darf nichts zuordnen UND den Karten-Vorschlag
+    nicht veraendern — sonst nudgen wir den Pruefer in die Erfindung."""
+    kanal = _kanal(session)
+    _titel(session, "Driven")
+    _titel(session, "Classified")
+    asset, cand = _fall(
+        session, kanal,
+        caption="#THEWAYOUT drops next week.",
+        vorschlag="Driven", confidence=0.9,
+    )
+    _fake_llm(monkeypatch, [{
+        "auswahl": None, "sicher": True, "beworbener_titel": "Classified",
+        "begruendung": "#THEWAYOUT ist ein Erkennungszeichen von Classified.",
+    }])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(asset)
+    session.refresh(cand)
+    assert asset.title_id is None
+    assert cand.suggested_title == "Driven"
+    assert summary.umgeleitet == 0
+    assert summary.unsicher == 1
+
+
+def test_beilaeufiges_einzelwort_traegt_keine_umleitung(session, monkeypatch):
+    """'driven' steht als Alltagswort in der Caption, das Modell nennt es
+    trotzdem als beworbenen Titel. Ohne Hashtag- oder Zitat-Beleg waere
+    das die Substring-Fehlerklasse durch die Hintertuer — der Vorschlag
+    auf der Karte darf korrigiert werden (ein Klick, Mensch entscheidet),
+    aber zugeordnet wird nichts."""
+    kanal = _kanal(session)
+    _titel(session, "Holiday")
+    driven = _titel(session, "Driven")
+    asset, cand = _fall(
+        session, kanal,
+        caption="so driven by the story, what a week",
+        vorschlag="Holiday", confidence=0.9,
+    )
+    _fake_llm(monkeypatch, [{
+        "auswahl": None, "sicher": True, "beworbener_titel": "Driven",
+        "begruendung": "Der Post bewirbt 'Driven'.",
+    }])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(asset)
+    session.refresh(cand)
+    assert asset.title_id is None, (
+        "Ein beilaeufiges Einzelwort ist kein Werbe-Signal — genau diese "
+        "Fehlerklasse hat der ganze Tag bekaempft."
+    )
+    assert summary.umgeleitet == 0
+    assert cand.suggested_title == driven.title_original
+    assert summary.vorschlag_korrigiert == 1
+
+
+def test_karten_vorschlag_wird_korrigiert_wenn_nicht_sicher(session, monkeypatch):
+    """sicher=false, aber der genannte Titel steht im Katalog und im
+    Text: Der Knopf auf der Karte soll den RICHTIGEN Titel anbieten."""
+    kanal = _kanal(session)
+    _titel(session, "Holiday")
+    foot = _titel(session, "Rise of the Footsoldier")
+    asset, cand = _fall(
+        session, kanal,
+        caption="See for yourself. #RiseOfTheFootsoldier #IbizaVibes",
+        vorschlag="Holiday", confidence=0.9,
+    )
+    _fake_llm(monkeypatch, [{
+        "auswahl": None, "sicher": False,
+        "beworbener_titel": "Rise of the Footsoldier",
+        "begruendung": "Der Post bewirbt 'Rise of the Footsoldier'.",
+    }])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(asset)
+    session.refresh(cand)
+    assert asset.title_id is None, "sicher=false ordnet nie automatisch zu."
+    assert cand.suggested_title == foot.title_original
+    assert summary.vorschlag_korrigiert == 1
+    assert "Rise of the Footsoldier" in (cand.llm_note or "")
+
+
+def test_titel_ausserhalb_des_katalogs_landet_in_der_notiz(session, monkeypatch):
+    """'IDIOTS' ist nicht im Katalog: keine Zuordnung, aber der Name
+    steht ausdruecklich in der Notiz — fuer den Anlegen-Klick."""
+    kanal = _kanal(session)
+    _titel(session, "Class")
+    asset, cand = _fall(
+        session, kanal,
+        caption="IDIOTS. In Theaters August 28. Tickets on sale now!",
+        vorschlag="class", confidence=0.9,
+    )
+    _fake_llm(monkeypatch, [{
+        "auswahl": None, "sicher": True, "beworbener_titel": "IDIOTS",
+        "begruendung": "Der Post bewirbt einen Film namens 'IDIOTS'.",
+    }])
+
+    cla.run_candidate_llm_assist(session)
+
+    session.refresh(asset)
+    session.refresh(cand)
+    assert asset.title_id is None
+    assert "IDIOTS" in (cand.llm_note or "")
+    assert "nicht im Katalog" in (cand.llm_note or "")
