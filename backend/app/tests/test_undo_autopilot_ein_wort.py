@@ -14,6 +14,11 @@ Assets, die an generische Ein-Wort-Titel gebunden wurden. Vertragspunkte:
 """
 from __future__ import annotations
 
+import inspect
+import os
+import subprocess
+import sys
+from pathlib import Path
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -151,3 +156,88 @@ def test_behalten_nimmt_echte_ein_wort_filme_aus(session):
     assert _treffer(session, behalten={"barbie"}) == []
     session.refresh(asset)
     assert asset.title_id == titel.id
+
+
+# --- Aufrufbarkeit: die db.env-Falle -------------------------------------
+#
+# ``~/.creative-radar/db.env`` setzt ``CR_DB_URL``; ``app.database`` kennt
+# aber nur ``DATABASE_URL`` & Co. Ohne Bruecke bricht das Skript mit
+# "Keine gueltige Datenbank-Konfiguration gefunden" ab — bei einem
+# Nutzer, der die Verbindung gerade gesetzt zu haben glaubt. Genau das
+# Muster steht schon in ``scripts/diag_citation_rate.py``.
+
+
+def test_cr_db_url_wird_als_database_url_uebernommen(monkeypatch):
+    for var in ("DATABASE_URL", "DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("CR_DB_URL", "postgresql://u:p@host:5432/db")
+
+    undo._db_bruecke()
+
+    assert os.environ["DATABASE_URL"] == "postgresql://u:p@host:5432/db"
+
+
+def test_gesetzte_database_url_wird_nicht_ueberschrieben(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://echt:x@host/prod")
+    monkeypatch.setenv("CR_DB_URL", "postgresql://alt:y@host/anders")
+
+    undo._db_bruecke()
+
+    assert os.environ["DATABASE_URL"] == "postgresql://echt:x@host/prod", (
+        "Wer DATABASE_URL explizit setzt (Railway-Shell), meint sie auch — "
+        "eine alte CR_DB_URL in der Shell darf sie nicht verdraengen."
+    )
+
+
+def test_engine_wird_erst_beim_aufruf_importiert():
+    """Der Import von ``app.database`` loest die DB-URL auf. Steht er oben
+    im Modul, laeuft er VOR der Bruecke — dann half die Bruecke nicht."""
+    quelle = inspect.getsource(undo)
+    kopf = quelle.split("def _db_bruecke")[0]
+
+    assert "from app.database import" not in kopf, (
+        "app.database darf nicht auf Modulebene importiert werden, sonst "
+        "greift _db_bruecke zu spaet."
+    )
+    assert "from app.database import engine" in inspect.getsource(undo._engine)
+
+
+def test_cr_db_url_traegt_bis_zum_verbindungsaufbau(tmp_path):
+    """Der Wächter fuer den eigentlichen Fehler: die Bruecke muss VOR dem
+    ersten ``app.*``-Import greifen.
+
+    Im selben Prozess laesst sich das nicht pruefen — ``settings`` ist
+    da laengst gebaut. Also ein echter Aufruf in einem Subprozess, genau
+    so, wie er nach ``source ~/.creative-radar/db.env`` aussieht. Der
+    erste Versuch dieses Fixes rief ``_db_bruecke()`` in ``main()`` auf
+    und lief trotzdem in "Keine gueltige Datenbank-Konfiguration".
+    """
+    umgebung = {
+        k: v
+        for k, v in os.environ.items()
+        if k
+        not in {
+            "DATABASE_URL",
+            "DATABASE_PRIVATE_URL",
+            "DATABASE_PUBLIC_URL",
+            "ALLOW_SQLITE_FALLBACK",
+        }
+    }
+    umgebung["CR_DB_URL"] = "postgresql://u:p@ungueltig.invalid:5432/db"
+
+    ergebnis = subprocess.run(
+        [sys.executable, "-m", "scripts.undo_autopilot_ein_wort"],
+        cwd=Path(__file__).resolve().parents[2],
+        env=umgebung,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert "Keine gültige Datenbank-Konfiguration" not in ergebnis.stderr, (
+        "CR_DB_URL wurde nicht uebernommen — die Bruecke laeuft zu spaet, "
+        "nach dem Import von app.config."
+    )
+    # Erwartet ist jetzt ein Verbindungsfehler auf den erfundenen Host:
+    # die Konfiguration wurde also akzeptiert.
+    assert "ungueltig.invalid" in ergebnis.stderr
