@@ -452,6 +452,15 @@ def test_cron_run_always_emits_rematch_summary(client_with_auth, db):
             # fehlende Keys verteidigen muss.
             "partial": False,
             "remaining": 0,
+            # Zeitmessung (24.08.2026): ebenfalls immer praesent. Bei einem
+            # Leerlauf ohne Assets sind alle Summen 0 und die Rate ``None``
+            # (nicht 0.0 — keine Messung ist etwas anderes als "null pro
+            # Sekunde", und der Unterschied traegt die Diagnose).
+            "setup_seconds": 0.0,
+            "match_seconds": 0.0,
+            "candidate_seconds": 0.0,
+            "commit_seconds": 0.0,
+            "assets_pro_sekunde": None,
         }
 
 

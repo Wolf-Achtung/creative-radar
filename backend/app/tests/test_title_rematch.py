@@ -1,3 +1,4 @@
+import inspect
 from sqlmodel import SQLModel, Session, create_engine, select
 
 from app.models.entities import Asset, Channel, Post, Title, TitleCandidate
@@ -311,20 +312,38 @@ def test_rematch_budget_midway_commits_partial_progress(monkeypatch):
             session.add(Asset(post_id=post.id, title_id=None, ai_summary_de="Euphoria trailer"))
             session.commit()
 
-        # Fake-Uhr: Start 0, dann pro Budget-Check +1 — bei Budget 2.5 passieren
-        # die Checks bei 1 und 2, der Check bei 3 bricht ab (2 Assets verarbeitet).
+        # Fake-Uhr, die pro ASSET tickt, nicht pro monotonic()-Aufruf.
+        #
+        # Frueher lief sie an der Aufrufzahl: jeder ``monotonic()`` +1. Damit
+        # kodierte der Test, WIE OFT die Funktion auf die Uhr sieht — und fiel,
+        # sobald sie am 24.08.2026 eine Zeitmessung dazubekam, obwohl sich am
+        # Budget-Verhalten nichts geaenderte hatte. Der Takt haengt jetzt am
+        # Matcher-Aufruf, also an genau einem pro Asset; zusaetzliche Messungen
+        # innerhalb eines Assets verschieben nichts mehr.
+        #
         # Nur das ``time``-Attribut IM Modul-Namespace patchen (SimpleNamespace),
         # nicht das globale stdlib-``time`` — sonst wuerden fremde
         # ``monotonic``-Aufrufer die Ticks mitverbrauchen.
         from types import SimpleNamespace
 
-        ticks = iter(range(100))
+        takt = {"asset": 0}
+        echter_matcher = title_rematch_module.find_best_title_match
+
+        def _matcher_mit_takt(*args, **kwargs):
+            takt["asset"] += 1
+            return echter_matcher(*args, **kwargs)
+
+        monkeypatch.setattr(
+            title_rematch_module, "find_best_title_match", _matcher_mit_takt
+        )
         monkeypatch.setattr(
             title_rematch_module, "time",
-            SimpleNamespace(monotonic=lambda: float(next(ticks))),
+            SimpleNamespace(monotonic=lambda: float(takt["asset"])),
         )
 
-        summary = rematch_unassigned_assets(session, time_budget_seconds=2.5)
+        # Budget 2.0: die Checks vor Asset 0 und 1 sehen 0.0 und 1.0 und lassen
+        # durch, der Check vor Asset 2 sieht 2.0 und bricht ab.
+        summary = rematch_unassigned_assets(session, time_budget_seconds=2.0)
 
         assert summary.partial is True
         assert summary.checked == 2
@@ -402,3 +421,65 @@ def test_rematch_large_batch_is_fast_and_correct():
         # Batch-cached: comfortably fast. The pre-fix per-asset bundle reload over
         # 1500 titles x 122 assets would be far slower.
         assert elapsed < 15.0, f"rematch too slow ({elapsed:.2f}s) — per-asset reload regressed?"
+
+
+# --- Zeitmessung (24.08.2026) -------------------------------------------
+#
+# Die Stage schaffte im Montagslauf 781 Assets in 28 Minuten — zwei
+# Sekunden pro Asset, obwohl Bundle und Indizes nur einmal pro Lauf
+# gebaut werden. Den Deckel anzuheben behandelt das Symptom; diese
+# Messung trennt die drei Verdächtigen, damit die nächste Entscheidung
+# auf Zahlen steht.
+
+
+def test_summary_weist_die_zeit_nach_abschnitten_aus():
+    with _session() as session:
+        title = Title(title_original="Euphoria", active=True)
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(title)
+        session.add(channel)
+        session.commit()
+        session.refresh(channel)
+        post = Post(channel_id=channel.id, post_url="https://example.com/zeit-1",
+                    caption="Official Trailer: Euphoria")
+        session.add(post)
+        session.commit()
+        session.refresh(post)
+        session.add(Asset(post_id=post.id, title_id=None, ai_summary_de="Euphoria trailer"))
+        session.commit()
+
+        summary = rematch_unassigned_assets(session)
+
+        d = summary.to_dict()
+        for feld in ("setup_seconds", "match_seconds", "candidate_seconds",
+                     "commit_seconds"):
+            assert feld in d, f"{feld} fehlt im Summary"
+            assert isinstance(d[feld], float)
+            assert d[feld] >= 0.0
+        assert d["assets_pro_sekunde"] is not None, (
+            "Bei mindestens einem geprueften Asset muss eine Rate stehen — "
+            "sie ist die Zahl, an der der naechste Deckel haengt."
+        )
+
+
+def test_ohne_assets_bleibt_die_rate_none():
+    """Keine Messung ist etwas anderes als 'null pro Sekunde'. Eine 0.0
+    hier wuerde im Log wie ein Totalausfall aussehen."""
+    with _session() as session:
+        summary = rematch_unassigned_assets(session)
+
+        assert summary.checked == 0
+        assert summary.to_dict()["assets_pro_sekunde"] is None
+
+
+def test_setup_zeit_zaehlt_den_index_aufbau_mit():
+    """``setup_seconds`` wird ab Funktionsstart gemessen, nicht ab dem
+    ersten Asset — der Index-Aufbau ueber 47k Titel ist der erste
+    Verdaechtige und darf nicht unsichtbar bleiben."""
+    quelle = inspect.getsource(rematch_unassigned_assets)
+    vor_schleife = quelle.split("for index, asset in enumerate")[0]
+
+    assert "summary.setup_seconds = time.monotonic() - started" in vor_schleife, (
+        "Die Setup-Messung muss VOR der Schleife stehen und ab ``started`` "
+        "rechnen, sonst zaehlt sie den Bundle-/Index-Aufbau nicht mit."
+    )
