@@ -985,13 +985,28 @@ async def _run_rematch_after_sync(session: Session) -> dict:
         return {"error": str(exc)[:500], "duration_seconds": elapsed}
     elapsed = round(time.monotonic() - started, 1)
     summary_dict = summary.to_dict()
+    # Zeit-Aufteilung mitloggen (24.08.2026): Der Deckel wurde angehoben,
+    # weil die Stage zwei Sekunden pro Asset brauchte — wohin die gingen,
+    # war unbekannt. Die Aufteilung steht ab jetzt in derselben Zeile wie
+    # die Gesamtdauer, damit die naechste Entscheidung gemessen ist.
+    _zeiten = (
+        "setup=%ss match=%ss kandidaten=%ss commit=%ss assets/s=%s"
+        % (
+            summary_dict.get("setup_seconds"),
+            summary_dict.get("match_seconds"),
+            summary_dict.get("candidate_seconds"),
+            summary_dict.get("commit_seconds"),
+            summary_dict.get("assets_pro_sekunde"),
+        )
+    )
     if summary_dict.get("partial"):
         logger.warning(
-            "rematch.partial duration_seconds=%s checked=%s remaining=%s",
+            "rematch.partial duration_seconds=%s checked=%s remaining=%s %s",
             elapsed, summary_dict.get("checked"), summary_dict.get("remaining"),
+            _zeiten,
         )
     else:
-        logger.info("rematch.complete duration_seconds=%s", elapsed)
+        logger.info("rematch.complete duration_seconds=%s %s", elapsed, _zeiten)
     return {**summary_dict, "duration_seconds": elapsed}
 
 
