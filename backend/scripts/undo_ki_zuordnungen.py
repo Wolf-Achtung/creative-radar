@@ -79,6 +79,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import textwrap
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -172,7 +173,14 @@ def _liste(treffer: list[tuple[TitleCandidate, Asset, Title]]) -> None:
                 continue
             notiz = (candidate.llm_note or "").strip()
             if notiz:
-                print(f"          {notiz[:150]}")
+                # Ungekuerzt. ``llm_note`` ist per Modell auf 300 Zeichen
+                # begrenzt, passt also in wenige Zeilen. Eine Kuerzung auf
+                # 150 schnitt am 24.08.2026 genau im entscheidenden Satz
+                # ab ("... der Kandidat ist ein Film, der beworbene Titel
+                # ist 'M") — an der einen Stelle also, an der die Vorschau
+                # ihren Zweck hat: die Entscheidung zu ermoeglichen.
+                for zeile in textwrap.wrap(notiz, width=100):
+                    print(f"          {zeile}")
 
 
 def _bestaetigen() -> bool:

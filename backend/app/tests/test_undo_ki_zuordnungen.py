@@ -118,6 +118,30 @@ def test_vorschau_zeigt_die_begruendung_des_modells(session, capsys):
     )
 
 
+def test_vorschau_kuerzt_die_begruendung_nicht(session, capsys):
+    """Am 24.08.2026 schnitt die Anzeige bei 150 Zeichen ab — genau im
+    entscheidenden Satz ("der Kandidat ist ein Film, der beworbene Titel
+    ist 'M"). Damit war die Vorschau an der einen Stelle unbrauchbar, an
+    der sie gebraucht wird. ``llm_note`` ist ohnehin auf 300 Zeichen
+    begrenzt."""
+    lange_notiz = (
+        "Caption bewirbt 'michael bei prime video' zum Kaufen oder Leihen. "
+        "Der Kandidat 'Michael: Part Two' ist ein Film von 2026, der "
+        "beworbene Titel ist aber 'Michael' von 2025 — ein anderes Werk, "
+        "und deshalb passt dieser Kandidat NICHT zu diesem Post."
+    )
+    _ki_zuordnung(session, "Michael: Part Two", wann=IM_FENSTER,
+                  notiz=lange_notiz)
+
+    undo._vorschau(_treffer(session))
+
+    ausgabe = " ".join(capsys.readouterr().out.split())
+    assert "passt dieser Kandidat NICHT zu diesem Post" in ausgabe, (
+        "Das Ende der Begruendung traegt die Entscheidung — es darf nicht "
+        "abgeschnitten werden."
+    )
+
+
 def test_apply_loest_die_zuordnung_und_oeffnet_den_vorschlag(session):
     asset, _titel, cand = _ki_zuordnung(session, "CAT", wann=IM_FENSTER)
 
