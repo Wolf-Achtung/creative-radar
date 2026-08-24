@@ -643,3 +643,55 @@ def test_titel_ausserhalb_des_katalogs_landet_in_der_notiz(session, monkeypatch)
     assert asset.title_id is None
     assert "IDIOTS" in (cand.llm_note or "")
     assert "nicht im Katalog" in (cand.llm_note or "")
+
+
+def test_nicht_katalogisierter_titel_wird_zum_anlege_vorschlag(session, monkeypatch):
+    """Wolfs Queue am 24.08.2026: Vier von zwölf geprüften Karten nannten
+    ein Werk, das der Katalog nicht kennt — und boten weiter „Driven
+    zuordnen" an. Der Vorschlag wandert jetzt auf den genannten Titel;
+    die Karte zeigt dann von selbst den Anlege-Pfad mit dem richtigen
+    Namen im Suchfeld."""
+    kanal = _kanal(session)
+    _titel(session, "Driven")
+    asset, cand = _fall(
+        session, kanal,
+        caption="Her love language is acts of service. Now streaming: #DesperateHousewives",
+        vorschlag="Driven", confidence=0.9,
+    )
+    _fake_llm(monkeypatch, [{
+        "auswahl": None, "sicher": True,
+        "beworbener_titel": "Desperate Housewives",
+        "begruendung": "Der Post bewirbt eindeutig 'Desperate Housewives'.",
+    }])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(asset)
+    session.refresh(cand)
+    assert asset.title_id is None, "Nicht im Katalog — es gibt nichts zuzuordnen."
+    assert cand.suggested_title == "Desperate Housewives"
+    assert summary.vorschlag_korrigiert == 1
+    assert "nicht im Katalog" in (cand.llm_note or "")
+
+
+def test_unbelegter_titel_landet_nicht_im_anlege_feld(session, monkeypatch):
+    """Eine blosse Behauptung darf keinen Titel ins Anlege-Feld schreiben —
+    sonst legt der Pruefer auf einen Klick ein erfundenes Werk an."""
+    kanal = _kanal(session)
+    _titel(session, "Driven")
+    asset, cand = _fall(
+        session, kanal, caption="#THEWAYOUT drops next week.",
+        vorschlag="Driven", confidence=0.9,
+    )
+    _fake_llm(monkeypatch, [{
+        "auswahl": None, "sicher": True, "beworbener_titel": "Erfundene Serie",
+        "begruendung": "Behauptung ohne Beleg.",
+    }])
+
+    summary = cla.run_candidate_llm_assist(session)
+
+    session.refresh(asset)
+    session.refresh(cand)
+    assert cand.suggested_title == "Driven"
+    assert summary.vorschlag_korrigiert == 0
+    assert asset.title_id is None

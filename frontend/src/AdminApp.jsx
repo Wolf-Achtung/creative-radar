@@ -392,9 +392,16 @@ export function AdminApp({ onLogout }) {
       const rest = r.offen_danach
         ? ` Noch ${r.offen_danach} ungeprüft — für die nächste Runde einfach erneut klicken.`
         : ' Alle Rest-Vorschläge sind jetzt KI-geprüft — was übrig ist, ist echte Handarbeit (mit KI-Hinweis in „Treffer prüfen").';
+      // Der korrigierte Vorschlag ist der Hauptnutzen bei Posts, deren
+      // Titel der Katalog nicht kennt (24.08.2026) — ohne ihn liest sich
+      // "0 sicher zugeordnet" wie ein Totalausfall, obwohl die Karten
+      // jetzt den richtigen Knopf tragen.
+      const korrigiert = r.vorschlag_korrigiert
+        ? ` ${r.vorschlag_korrigiert} Vorschläge auf den beworbenen Titel korrigiert.`
+        : '';
       setMessage(
         `KI-Prüfung: ${r.geprueft} neu geprüft, ${r.zugeordnet} sicher zugeordnet, `
-        + `${r.unsicher} zur Hand-Prüfung markiert.${rest}`
+        + `${r.unsicher} zur Hand-Prüfung markiert.${korrigiert}${rest}`
       );
     });
   }

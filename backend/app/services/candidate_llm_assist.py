@@ -515,9 +515,25 @@ def run_candidate_llm_assist(
                 )
                 continue
             if isinstance(genannt, str) and genannt.strip() and treffer is None:
+                # Nicht im Katalog — aber im Text belegt. Der Vorschlag
+                # wandert trotzdem auf den genannten Titel: die Karte zeigt
+                # dann von selbst den Anlege-Pfad ("steht nicht in der
+                # Titelliste ... sonst anlegen") mit dem RICHTIGEN Namen im
+                # Suchfeld. Ein Klick statt Abtippen.
+                #
+                # Wolfs Queue am 24.08.2026: vier von zwoelf geprueften
+                # Karten nannten ein Werk, das der Katalog nicht kennt
+                # ("Desperate Housewives", "SAKAMOTO DAYS", "The Fox",
+                # "Steckerlfisch Fiasko") — und boten weiter "Driven
+                # zuordnen" an. Der Beleg-Waechter gilt auch hier: eine
+                # blosse Behauptung darf nicht im Anlege-Feld landen.
+                name = genannt.strip()
+                if _im_text_belegt(name, volltext):
+                    candidate.suggested_title = name[:200]
+                    summary.vorschlag_korrigiert += 1
                 _markieren(
                     candidate,
-                    f"KI: bewirbt '{genannt.strip()}' (nicht im Katalog) — {begruendung}"[:300],
+                    f"KI: bewirbt '{name}' (nicht im Katalog) — {begruendung}"[:300],
                 )
                 continue
             _markieren(
