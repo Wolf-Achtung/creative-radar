@@ -340,7 +340,14 @@ async def test_admin_test_endpoint_sendet_trotz_flag_aus(
 
     monkeypatch.delenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", raising=False)
     monkeypatch.setattr(settings, "playbook_mail_recipients", "wolf@x.test")
-    iso = NOW.isocalendar()
+    # Zeit-Falle (gefunden 24.08.2026): NUR dieser Test ruft den
+    # ENDPOINT auf, und der reicht kein ``now`` durch — der Service
+    # rechnet also in der ECHTEN Woche. Ein Briefing fuer die
+    # NOW-Woche fand er ab dem naechsten Wochenwechsel nicht mehr
+    # (-> 'nichts_zu_berichten' -> skipped), der Test kippte also am
+    # Kalender statt an einem Fehler. Die beiden Tests darueber sind
+    # nicht betroffen: sie rufen den Service direkt mit now=NOW.
+    iso = datetime.now(timezone.utc).isocalendar()
     session.add(PatternBriefing(
         mode="genre", iso_year=iso.year, iso_week=iso.week, window_days=90,
         evidence={}, llm_output={

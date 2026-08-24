@@ -439,6 +439,18 @@ class Settings(BaseSettings):
     # auf IGNORED gesetzt. Kill-Switch + Schwellen via Railway-ENV.
     candidate_autopilot_enabled: bool = True
     candidate_autopilot_min_confidence: float = 0.85
+    # Ein-Wort-Titel brauchen eine HOEHERE Schwelle (Vorfall 24.08.2026):
+    # der Matcher vergibt fuer einen Einzelwort-Substring-Treffer 0.90 mit
+    # dem ausdruecklichen Vermerk "non-safe, needs corroboration"
+    # (whitelist_matcher.py, ``substring_weak``) — genau deshalb liegt
+    # SEINE Auto-Tag-Marke bei 0.95. Der Autopilot lag mit 0.85 darunter
+    # und bestaetigte diese Zufallstreffer automatisch. Seit dem
+    # Streamer-Katalog (8.940 Serien, viele generische Ein-Wort-Titel)
+    # traf das massenhaft: 83 Zuordnungen an "Driven", "Personality",
+    # "Classified", "كتالوج" in einem Lauf. 0.95 respektiert die Marke
+    # des Matchers; mehrwortige Titel bleiben bei 0.85, weil eine
+    # mehrteilige Phrase in einer Caption starke Evidenz ist.
+    candidate_autopilot_min_confidence_single_word: float = 0.95
     candidate_autopilot_stale_days: int = 28
     candidate_autopilot_stale_max_confidence: float = 0.5
     # KI-Pruefung der Rest-Vorschlaege als Cron-Stage (22.08.2026): laeuft

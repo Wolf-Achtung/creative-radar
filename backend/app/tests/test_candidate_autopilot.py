@@ -82,9 +82,17 @@ def _make_title(session: Session, name: str, **kwargs) -> Title:
 
 
 def test_autopilot_assigns_exact_match_above_threshold(session):
+    # Confidence 24.08.2026 von 0.9 auf 0.97 gehoben: "Fatherhood" ist ein
+    # EIN-WORT-Titel, und die brauchen seit dem Vorfall vom 24.08. die
+    # Safe-Marke des Matchers (0.95). 0.9 ist dort die Substring-
+    # Confidence ("needs corroboration") — genau die Klasse, die 83
+    # Fehlzuordnungen erzeugt hat. Der Test-Zweck (Exakt-Treffer wird
+    # zugeordnet, match_key gesetzt, Kandidat resolved) bleibt unberuehrt;
+    # die Ein-Wort-Grenze selbst hat ihre eigenen Tests in
+    # test_autopilot_ein_wort_schutz.py.
     title = _make_title(session, "Fatherhood", franchise=None)
     asset = _make_asset(session, "a")
-    _make_candidate(session, asset, "  fatherhood ", confidence=0.9)
+    _make_candidate(session, asset, "  fatherhood ", confidence=0.97)
 
     summary = run_candidate_autopilot(session)
 
@@ -177,7 +185,8 @@ def test_autopilot_ignores_stale_weak_candidates(session):
 def test_autopilot_is_idempotent(session):
     _make_title(session, "Fatherhood")
     asset = _make_asset(session, "i")
-    _make_candidate(session, asset, "Fatherhood", confidence=0.9)
+    # 0.97 statt 0.9 — Ein-Wort-Titel, s. Kommentar oben.
+    _make_candidate(session, asset, "Fatherhood", confidence=0.97)
 
     first = run_candidate_autopilot(session)
     second = run_candidate_autopilot(session)
