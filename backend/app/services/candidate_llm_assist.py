@@ -54,8 +54,8 @@ from app.models.entities import (
     utc_now,
 )
 from app.services.anthropic_client import (
-    call_with_json_retry,
     is_anthropic_configured,
+    messages_create_strict_json,
 )
 from app.services.candidate_autopilot import _build_exact_title_lookup, _normalize
 from app.services.cost_log import record_anthropic_call
@@ -73,6 +73,52 @@ SHORTLIST_SIZE = 12
 
 _TOKEN_RE = re.compile(r"[a-z0-9äöüß]+")
 
+# Nach so vielen erfolglosen Auswertungen gibt der Assist auf und legt
+# den Kandidaten in die Hand-Pruefung, statt jeden Klick zu blockieren.
+MAX_FEHLVERSUCHE = 3
+
+URTEIL_TOOL_NAME = "urteil_melden"
+
+# Erzwungenes Schema statt Text-Parsen (24.08.2026). Der Assist lief ueber
+# ``call_with_json_retry``: das Modell schrieb freien Text, der Code parste
+# JSON heraus. Gemessen an Wolfs Lauf vom 24.08.: 113 API-Calls fuer 79
+# gepruefte Kandidaten — rund 40 % Aufschlag durch ``parse-retry``, und ein
+# Kandidat war ueberhaupt nicht auswertbar. Ueber Tool-Use validiert
+# Anthropic die Antwort gegen dieses Schema, bevor sie zurueckkommt; ein
+# Parse-Fehler ist damit strukturell ausgeschlossen.
+URTEIL_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "auswahl": {
+            "type": ["integer", "null"],
+            "description": (
+                "Nummer aus der Kandidatenliste, oder null wenn keiner passt."
+            ),
+        },
+        "sicher": {"type": "boolean"},
+        "begruendung": {"type": "string", "maxLength": 300},
+    },
+    "required": ["auswahl", "sicher", "begruendung"],
+}
+
+
+def _tool_input(msg) -> dict | None:
+    """Das ``input`` des erzwungenen Tool-Use-Blocks.
+
+    ``tool_choice`` mit ``disable_parallel_tool_use`` garantiert genau
+    einen solchen Block; der Fallback deckt API-Drift ab (siehe
+    ``messages_create_strict_json``-Doc).
+    """
+    if msg is None:
+        return None
+    for block in getattr(msg, "content", None) or []:
+        if getattr(block, "type", None) == "tool_use":
+            eingabe = getattr(block, "input", None)
+            if isinstance(eingabe, dict):
+                return eingabe
+    return None
+
+
 SYSTEM_PROMPT = """Du ordnest Social-Media-Posts von Film- und Serien-Kanälen dem beworbenen Titel zu.
 
 Du bekommst je Post: den Vorschlag des automatischen Matchers, die Caption, ggf. im Bild erkannten Text (OCR) — und eine nummerierte Kandidatenliste aus dem Titel-Katalog.
@@ -84,6 +130,8 @@ Regeln:
 1. auswahl nur, wenn der Post eindeutig GENAU diesen Titel bewirbt.
 2. sicher=true, wenn Caption oder Bildtext den Titel klar benennen oder unverwechselbar auf ihn verweisen (Teil-Titel, Hashtag, Figuren-/Franchise-Name zählen). sicher=false nur bei echtem Zweifel zwischen mehreren Titeln oder ohne Titel-Bezug.
 3. Ein Post über einen Schauspieler, ein Genre oder mehrere Titel gleichzeitig bekommt auswahl=null.
+3a. Bewirbt der Post ein ANDERES Werk, dessen Name den Kandidaten nur enthält, ist das NICHT dieser Kandidat — auswahl=null. "Sam & Cat" ist nicht "CAT", "American Hostage" ist nicht "Hostage", ein Post über eine Serie ist kein Post über ihr angebliches Spin-off. Der Kandidatenname muss der Titel des beworbenen Werks sein, nicht ein Teil davon.
+3b. Behaupte keinen Alternativtitel und keine Verwandtschaft zwischen Werken, die nicht in Caption oder Bildtext steht. Was du nicht im Text siehst, begründet keine Auswahl.
 4. begruendung: 1 kurzer Satz auf Deutsch — er wird dem Prüfer als Hinweis angezeigt, auch wenn du unsicher bist (dann: warum unsicher)."""
 
 
@@ -96,6 +144,7 @@ class LlmAssistSummary:
     fehler: int = 0
     bereits_geprueft: int = 0
     ein_wort_zweifel: int = 0
+    aufgegeben: int = 0
     offen_danach: int = 0
     kosten_calls: int = 0
     zugeordnete_titel: list[str] = field(default_factory=list)
@@ -110,6 +159,7 @@ class LlmAssistSummary:
             "fehler": self.fehler,
             "bereits_geprueft": self.bereits_geprueft,
             "ein_wort_zweifel": self.ein_wort_zweifel,
+            "aufgegeben": self.aufgegeben,
             "offen_danach": self.offen_danach,
             "kosten_calls": self.kosten_calls,
             "zugeordnete_titel": self.zugeordnete_titel[:20],
@@ -189,7 +239,9 @@ def _user_prompt(
             "ACHTUNG: Der Vorschlag ist ein einzelnes, alltaegliches Wort. "
             "Dass es in der Caption vorkommt, heisst NICHT, dass der Post "
             "diesen Titel bewirbt — pruefe, ob der Post wirklich von diesem "
-            "Werk handelt. Im Zweifel auswahl=null."
+            "Werk handelt. Das gilt auch, wenn der Post ein anderes Werk "
+            "bewirbt, dessen Name das Wort enthaelt: dann ist es NICHT "
+            "dieser Kandidat. Im Zweifel auswahl=null."
         )
         zeilen.append("")
     zeilen.append("Kandidaten aus dem Katalog:")
@@ -254,6 +306,40 @@ def run_candidate_llm_assist(
             summary.ein_wort_zweifel += 1
         arbeitsvorrat.append((candidate, asset))
 
+    def _fehlversuch_vermerken(
+        candidate: TitleCandidate, summary: "LlmAssistSummary"
+    ) -> None:
+        """Zaehlt Fehlversuche und gibt nach ``MAX_FEHLVERSUCHE`` auf.
+
+        Ohne Marker versucht jeder Klick denselben Kandidaten erneut —
+        richtig fuer einen einmaligen API-Aussetzer, fatal fuer einen
+        Kandidaten, der systematisch scheitert: Wolfs Lauf vom 24.08.
+        endete mit ``offen_danach: 1``, das sich durch keinen weiteren
+        Klick mehr aufloeste. Der Zaehler steht in der Notiz, damit kein
+        Datenbank-Feld dafuer noetig ist; nach dem letzten Versuch wird
+        der Kandidat markiert und landet mit Hinweis in der Hand-Pruefung.
+        """
+        bisher = 0
+        if candidate.llm_note:
+            treffer = re.search(r"Versuch (\d+)/", candidate.llm_note)
+            if treffer:
+                bisher = int(treffer.group(1))
+        naechster = bisher + 1
+        if naechster >= MAX_FEHLVERSUCHE:
+            summary.aufgegeben += 1
+            _markieren(
+                candidate,
+                f"KI-Auswertung nach {naechster} Versuchen fehlgeschlagen — "
+                "bitte von Hand entscheiden.",
+            )
+            return
+        candidate.llm_note = (
+            f"KI-Auswertung fehlgeschlagen (Versuch {naechster}/"
+            f"{MAX_FEHLVERSUCHE}) — naechster Lauf versucht es erneut."
+        )[:300]
+        candidate.updated_at = utc_now()
+        session.add(candidate)
+
     def _markieren(candidate: TitleCandidate, note: str) -> None:
         candidate.llm_checked_at = utc_now()
         candidate.llm_note = note[:300]
@@ -274,16 +360,27 @@ def run_candidate_llm_assist(
             _markieren(candidate, "KI: kein passender Katalog-Titel gefunden.")
             continue
 
-        retry_result = call_with_json_retry(
-            model=modell,
-            system=SYSTEM_PROMPT,
-            user_message=_user_prompt(candidate, post, asset, shortlist),
-            max_tokens=300,
-            log_prefix="candidate-llm-assist",
-            log_extra={"candidate_id": str(candidate.id)},
-        )
-        for msg_attempt, _raw in retry_result.call_attempts:
-            usage = getattr(msg_attempt, "usage", None)
+        try:
+            msg = messages_create_strict_json(
+                model=modell,
+                system=SYSTEM_PROMPT,
+                user_message=_user_prompt(candidate, post, asset, shortlist),
+                tool_name=URTEIL_TOOL_NAME,
+                tool_description=(
+                    "Meldet, welcher Kandidat aus der Liste beworben wird."
+                ),
+                input_schema=URTEIL_SCHEMA,
+                max_tokens=400,
+            )
+        except Exception:
+            logger.exception(
+                "candidate-llm-assist-call-failed",
+                extra={"candidate_id": str(candidate.id)},
+            )
+            msg = None
+
+        if msg is not None:
+            usage = getattr(msg, "usage", None)
             if usage is not None:
                 record_anthropic_call(
                     usage, modell, "candidate_llm_assist",
@@ -291,11 +388,10 @@ def run_candidate_llm_assist(
                 )
                 summary.kosten_calls += 1
 
-        parsed = retry_result.parsed
+        parsed = _tool_input(msg)
         if not isinstance(parsed, dict):
-            # KEIN Marker: ein API-/Parse-Fehler ist kein Urteil — der
-            # naechste Lauf versucht diesen Kandidaten erneut.
             summary.fehler += 1
+            _fehlversuch_vermerken(candidate, summary)
             continue
         auswahl = _als_zahl(parsed.get("auswahl"))
         sicher = _als_wahr(parsed.get("sicher"))
@@ -329,12 +425,16 @@ def run_candidate_llm_assist(
         )
 
     session.commit()
-    # Noch UNGEPRUEFT: was diese Runde nicht erreicht hat, plus Fehler
-    # (die bleiben unmarkiert und kommen wieder dran). Unsichere und
-    # Shortlist-lose sind ERLEDIGT — sie tragen Marker + Notiz und
-    # gehoeren ab jetzt der Hand-Pruefung.
+    # Noch UNGEPRUEFT: was diese Runde nicht erreicht hat, plus die
+    # Fehler, die wiederkommen. Aufgegebene Fehler zaehlen NICHT mit —
+    # sie tragen jetzt einen Marker und kehren nie zurueck; sie hier
+    # mitzuzaehlen hiesse, dem Nutzer eine Runde zu versprechen, die
+    # nichts mehr findet (genau das Missverstaendnis vom 24.08.).
+    # Unsichere und Shortlist-lose sind ebenso ERLEDIGT: Marker + Notiz,
+    # ab jetzt Sache der Hand-Pruefung.
     summary.offen_danach = (
-        max(len(arbeitsvorrat) - summary.geprueft, 0) + summary.fehler
+        max(len(arbeitsvorrat) - summary.geprueft, 0)
+        + max(summary.fehler - summary.aufgegeben, 0)
     )
     logger.info("candidate-llm-assist done %s", summary.to_dict())
     return summary
