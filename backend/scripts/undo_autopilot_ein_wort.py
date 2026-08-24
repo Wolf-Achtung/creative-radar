@@ -45,6 +45,19 @@ zugeordnet wurden — z. B. "Barbie"):
 
     ... --behalten Barbie --behalten Wednesday
 
+Wo ausfuehren
+=============
+
+Ueberall, wo eine Verbindung zur Produktions-DB steht. Lokal mit der
+db.env genuegt — das Skript liest ``CR_DB_URL`` selbst:
+
+    source ~/.creative-radar/db.env
+    cd backend && python -m scripts.undo_autopilot_ein_wort
+
+Alternativ in der Railway-Shell des Backend-Service; dort ist
+``DATABASE_URL`` gesetzt und das Arbeitsverzeichnis ist schon das
+Backend, ``cd backend`` entfaellt.
+
 Grenze, ehrlich benannt: Das Skript kann nicht wissen, WELCHE der
 Ein-Wort-Zuordnungen richtig war. Es macht alle im Fenster rueckgaengig
 und schiebt sie in die Hand-Pruefung — dort entscheidet der Mensch (oder
@@ -54,14 +67,59 @@ Richtung: lieber einmal zu viel pruefen als falsche Daten im Report.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections import Counter
 from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
-from app.database import engine
-from app.models.entities import Asset, CandidateStatus, Title, TitleCandidate
+
+def _db_bruecke() -> None:
+    """Akzeptiert ``CR_DB_URL``, nicht nur ``DATABASE_URL``.
+
+    Im Repo leben zwei Konventionen nebeneinander: ``app.database``
+    loest ``DATABASE_URL`` (bzw. ``DATABASE_PRIVATE_URL`` /
+    ``DATABASE_PUBLIC_URL`` / ``PG*``) auf, die lokalen Diagnose-Skripte
+    lesen ``CR_DB_URL``. ``~/.creative-radar/db.env`` setzt ``CR_DB_URL``
+    — wer sie sourcet und dieses Skript startet, lief ohne diese Bruecke
+    in "Keine gueltige Datenbank-Konfiguration gefunden": eine Meldung,
+    die nach etwas fragt, das er gerade gesetzt zu haben glaubt.
+    Identisch zu ``scripts/diag_citation_rate.py:_has_db_config``.
+    """
+    if any(
+        os.environ.get(v)
+        for v in ("DATABASE_URL", "DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL")
+    ):
+        return
+    cr_db_url = (os.environ.get("CR_DB_URL") or "").strip()
+    if cr_db_url:
+        os.environ["DATABASE_URL"] = cr_db_url
+
+
+def _engine():
+    """Erst nach ``_db_bruecke`` importieren — ``app.database`` loest die
+    URL beim Import auf, ein Import oben im Modul waere also zu frueh."""
+    from app.database import engine
+
+    return engine
+
+
+# Die Bruecke MUSS vor dem ersten ``app.*``-Import laufen, nicht erst in
+# ``main()``: ``app.models.entities`` zieht ``app.config`` nach, und
+# pydantic baut ``settings`` beim Import aus der Umgebung. Ein spaeter
+# gesetztes ``os.environ["DATABASE_URL"]`` sieht ``settings`` nie mehr —
+# ``resolve_database_url()`` liest ``settings.database_url``, nicht die
+# Umgebung. Genau daran ist der erste Versuch dieses Fixes gescheitert.
+_db_bruecke()
+
+from app.models.entities import (  # noqa: E402
+    Asset,
+    CandidateStatus,
+    Title,
+    TitleCandidate,
+)
+
 
 # Der Montags-Cron vom 24.08.2026: Autopilot lief um 05:38 UTC.
 # Grosszuegiges Fenster um den Lauf, damit nichts durchrutscht.
@@ -194,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     behalten = {t.strip().lower() for t in args.behalten if t.strip()}
 
-    with Session(engine) as session:
+    with Session(_engine()) as session:
         treffer = _betroffene(
             session, seit=args.seit, bis=args.bis, behalten=behalten
         )
