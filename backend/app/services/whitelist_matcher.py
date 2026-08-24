@@ -50,6 +50,44 @@ _GENERIC_WORDS = {
     "clip",
 }
 
+# Substring-Magnet-Schutz (Klasse 2, Vorfall 24.08.2026): EIN-WORT-Titel,
+# deren Wort ein Allerweltsbegriff ist, duerfen nicht mehr ueber den
+# unscharfen ``_contains_phrase``-Pfad matchen.
+#
+# Anlass: Der Streamer-Katalog (8.940 Serien ueber die TMDb-Network-
+# Achse) brachte hunderte solcher Titel in die Whitelist. Danach fand
+# der Matcher "Driven", "Personality", "Classified" oder "كتالوج" als
+# Substring in ganz normalen Marketing-Captions — 83 Fehlzuordnungen in
+# einem einzigen Cron-Lauf.
+#
+# WICHTIG, damit echte Filme nicht verschwinden: Diese Liste blockiert
+# AUSSCHLIESSLICH den Substring-Pfad. Es gibt reale Titel mit diesen
+# Namen ("Focus", "Prime", "Anniversary") — die matchen weiterhin ueber
+# exakte Gleichheit, exakten Alias und Hashtag (#focus), also ueber die
+# Pfade, bei denen der Post den Titel wirklich NENNT statt das Wort
+# zufaellig zu enthalten. Genau diese Trennung ist der Zweck.
+#
+# Erweiterbar: Wer im Cron-Summary ``skipped_weak_single_word`` steigen
+# sieht oder in der Queue wiederkehrenden Wort-Muell findet, traegt das
+# Wort hier nach.
+_GENERIC_TITLE_WORDS = {
+    # Aus dem Vorfall 24.08.2026 (Streamer-Katalog)
+    "anniversary", "between", "classified", "confidence", "connected",
+    "deeper", "disclosure", "driven", "focus", "games", "holiday",
+    "identity", "intimidad", "loving", "partners", "personality",
+    "prime", "self", "special", "storytelling", "territory", "unseen",
+    # Orte, die in Premieren-/Dreh-Captions dauernd auftauchen
+    "berlin", "berlín", "deutschland", "london", "paris", "hollywood",
+    "america", "amerika", "york", "vegas",
+    # Allerweltsbegriffe des Film-Marketings
+    "action", "adventure", "beginning", "beyond", "chapter", "family",
+    "familie", "finale", "freedom", "freiheit", "future", "heimat",
+    "hope", "hoffnung", "leben", "legacy", "liebe", "life", "love",
+    "memory", "moment", "origin", "power", "return", "revolution",
+    "secret", "story", "summer", "sommer", "time", "welt", "winter",
+    "world", "zeit", "zukunft",
+}
+
 
 def _normalize_text(value: str | None) -> str:
     text = unicodedata.normalize("NFKC", value or "").casefold().strip()
@@ -414,6 +452,8 @@ def find_best_title_match(
         for normalized in candidate_keys:
             if len(normalized.replace(" ", "")) <= _MIN_SUBSTRING_CANDIDATE_LEN:
                 continue
+            if " " not in normalized and normalized in _GENERIC_TITLE_WORDS:
+                continue  # Substring-Magnet-Schutz Klasse 2, s. Konstante
             if _contains_phrase(normalized_haystack, normalized):
                 # Praezisions-Fix (Post-#277): Substring ist KEIN exakter Volltreffer.
                 # Multi-Token-Phrase bleibt verlaesslich → ``unique_text`` (0.97, safe);
@@ -434,6 +474,8 @@ def find_best_title_match(
             for normalized in candidate_keys:
                 if len(normalized.replace(" ", "")) <= _MIN_SUBSTRING_CANDIDATE_LEN:
                     continue
+                if " " not in normalized and normalized in _GENERIC_TITLE_WORDS:
+                    continue  # gleicher Schutz wie im Substring-Pfad
                 ratio = SequenceMatcher(None, normalized_haystack, normalized).ratio()
                 if ratio > 0.72 and ratio > weak_best[1]:
                     weak_best = (normalized_to_titles[normalized][0][0], ratio, "fuzzy", normalized)

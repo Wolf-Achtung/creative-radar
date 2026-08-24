@@ -72,6 +72,7 @@ class AutopilotSummary:
     skipped_ambiguous: int = 0
     skipped_low_confidence: int = 0
     skipped_no_exact_match: int = 0
+    skipped_weak_single_word: int = 0
     assigned_titles: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -83,6 +84,7 @@ class AutopilotSummary:
             "skipped_ambiguous": self.skipped_ambiguous,
             "skipped_low_confidence": self.skipped_low_confidence,
             "skipped_no_exact_match": self.skipped_no_exact_match,
+            "skipped_weak_single_word": self.skipped_weak_single_word,
             # Kurze Beispiel-Liste fuer die Cron-Summary/Admin-Antwort —
             # gekappt, damit die Summary-JSON nicht aufblaeht.
             "assigned_titles_sample": self.assigned_titles[:20],
@@ -91,6 +93,24 @@ class AutopilotSummary:
 
 def _normalize(value: str | None) -> str:
     return " ".join((value or "").lower().split())
+
+
+def _ist_ein_wort_titel(name: str) -> bool:
+    """Traegt der Normalname genau EIN Wort?
+
+    Vorfall 24.08.2026: Mit dem Streamer-Katalog (8.940 Serien) kamen
+    hunderte generische Ein-Wort-Titel in die Whitelist ("Driven",
+    "Personality", "Classified", "كتالوج"). Der Matcher findet solche
+    Woerter als Substring in fast jeder Caption und vergibt dafuer
+    bewusst nur 0.90 — ``substring_weak``, "non-safe, needs
+    corroboration" (whitelist_matcher.py). SEINE Auto-Tag-Marke liegt
+    deshalb bei 0.95.
+
+    Ein mehrwortiger Titel in einer Caption ist dagegen starke Evidenz:
+    "Lügen über meine Mutter" steht dort nicht zufaellig. Deshalb
+    unterscheidet der Autopilot ab jetzt nach Wortzahl.
+    """
+    return " " not in name.strip()
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -130,6 +150,7 @@ def run_candidate_autopilot(session: Session, *, commit: bool = True) -> Autopil
     """
     summary = AutopilotSummary()
     min_confidence = settings.candidate_autopilot_min_confidence
+    single_word_min_confidence = settings.candidate_autopilot_min_confidence_single_word
     stale_cutoff = utc_now() - timedelta(days=settings.candidate_autopilot_stale_days)
     stale_max_conf = settings.candidate_autopilot_stale_max_confidence
 
@@ -157,7 +178,13 @@ def run_candidate_autopilot(session: Session, *, commit: bool = True) -> Autopil
         if _normalize(candidate.suggested_title) in lookup and title is None:
             summary.skipped_ambiguous += 1
         elif title is not None and asset is not None:
-            if candidate.confidence >= min_confidence:
+            # Ein-Wort-Titel brauchen die Safe-Marke des Matchers (0.95).
+            # Darunter liegt genau die Klasse, die er als
+            # "needs corroboration" gekennzeichnet hat — die gehoert in
+            # die Hand-Pruefung, nicht in die Automatik.
+            ein_wort = _ist_ein_wort_titel(_normalize(candidate.suggested_title))
+            schwelle = single_word_min_confidence if ein_wort else min_confidence
+            if candidate.confidence >= schwelle:
                 # Identische Zuordnung wie der manuelle Bestaetigen-Klick
                 # (api/assets.py::review): title_id + de_us_match_key.
                 asset.title_id = title.id
@@ -174,7 +201,15 @@ def run_candidate_autopilot(session: Session, *, commit: bool = True) -> Autopil
                     asset.id, title.title_original, candidate.confidence,
                 )
                 continue
-            summary.skipped_low_confidence += 1
+            # Getrennt gezaehlt: an der normalen Schwelle waere dieser
+            # Kandidat durchgegangen, NUR die Ein-Wort-Regel hat ihn
+            # gestoppt. Die Zahl zeigt im Cron-Summary, wie viel der
+            # Schutz jede Woche abfaengt — und wie viel Handarbeit er
+            # in die Queue schiebt.
+            if ein_wort and candidate.confidence >= min_confidence:
+                summary.skipped_weak_single_word += 1
+            else:
+                summary.skipped_low_confidence += 1
         else:
             summary.skipped_no_exact_match += 1
 
@@ -190,9 +225,10 @@ def run_candidate_autopilot(session: Session, *, commit: bool = True) -> Autopil
         session.commit()
     logger.info(
         "candidate-autopilot done checked=%s auto_assigned=%s already=%s stale_ignored=%s "
-        "ambiguous=%s low_conf=%s no_exact=%s",
+        "ambiguous=%s low_conf=%s no_exact=%s weak_single_word=%s",
         summary.checked, summary.auto_assigned, summary.resolved_already_assigned,
         summary.ignored_stale, summary.skipped_ambiguous,
         summary.skipped_low_confidence, summary.skipped_no_exact_match,
+        summary.skipped_weak_single_word,
     )
     return summary
