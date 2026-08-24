@@ -164,14 +164,19 @@ def _betroffene(
     return treffer
 
 
-def _vorschau(treffer: list[tuple[Asset, Title]]) -> int:
-    if not treffer:
-        print("Keine Ein-Wort-Zuordnungen im Fenster gefunden — nichts zu tun.")
-        return 0
+def _liste(treffer: list[tuple[Asset, Title]]) -> None:
+    """Nur die Aufstellung — ohne Aussage darueber, was danach passiert."""
     zaehler = Counter(t.title_original for _, t in treffer)
     print(f"{len(treffer)} Zuordnungen an {len(zaehler)} Ein-Wort-Titel im Fenster:\n")
     for name, anzahl in zaehler.most_common():
         print(f"  {anzahl:4d} x  {name}")
+
+
+def _vorschau(treffer: list[tuple[Asset, Title]]) -> int:
+    if not treffer:
+        print("Keine Ein-Wort-Zuordnungen im Fenster gefunden — nichts zu tun.")
+        return 0
+    _liste(treffer)
     print(
         "\nVORSCHAU — es wurde nichts geaendert."
         "\nZum Ausfuehren: --apply --yes"
@@ -181,7 +186,6 @@ def _vorschau(treffer: list[tuple[Asset, Title]]) -> int:
 
 
 def _bestaetigen() -> bool:
-    print("\nZuordnungen werden geloest und die Kandidaten wieder geoeffnet.")
     try:
         antwort = input("Fortfahren? ('ja' eingeben): ").strip().lower()
     except EOFError:
@@ -195,7 +199,17 @@ def _anwenden(
     if not treffer:
         print("Nichts zu tun.")
         return 0
-    _vorschau(treffer)
+    # Bewusst ``_liste`` statt ``_vorschau``: die Vorschau-Fusszeile sagt
+    # "es wurde nichts geaendert" und nennt --apply als naechsten Schritt.
+    # Im Apply-Lauf steht sie mitten in einem Lauf, der gerade alles
+    # aendert — die Ausgabe behauptete dann das Gegenteil dessen, was
+    # geschah, und liess den Aufrufer glauben, sein --apply sei ignoriert
+    # worden. (Wolf, 24.08.2026, genau so passiert.)
+    _liste(treffer)
+    print(
+        "\nDiese Zuordnungen werden jetzt geloest; die Vorschlaege gehen "
+        "zurueck in die Pruef-Queue."
+    )
     if not ohne_rueckfrage and not _bestaetigen():
         print("Abgebrochen — nichts geaendert.")
         return 1

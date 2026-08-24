@@ -241,3 +241,42 @@ def test_cr_db_url_traegt_bis_zum_verbindungsaufbau(tmp_path):
     # Erwartet ist jetzt ein Verbindungsfehler auf den erfundenen Host:
     # die Konfiguration wurde also akzeptiert.
     assert "ungueltig.invalid" in ergebnis.stderr
+
+
+# --- Ausgabe: sagt der Lauf die Wahrheit ueber sich selbst? --------------
+#
+# Am 24.08.2026 druckte der Apply-Lauf die komplette Vorschau-Fusszeile —
+# "VORSCHAU — es wurde nichts geaendert" und "Zum Ausfuehren: --apply
+# --yes" — obwohl er gerade 83 Zuordnungen loeste. Wolf sah das mitten in
+# seinem eigenen --apply-Lauf und musste annehmen, sein Flag sei
+# ignoriert worden. Die bestehenden Tests pruefen nur die WIRKUNG; die
+# Ausgabe war ungeprueft. Deshalb hier.
+
+
+def test_apply_behauptet_nicht_es_habe_nichts_geaendert(session, capsys):
+    _zuordnung(session, "Driven", wann=IM_FENSTER)
+
+    undo._anwenden(session, _treffer(session), ohne_rueckfrage=True)
+
+    ausgabe = capsys.readouterr().out
+    assert "nichts geaendert" not in ausgabe, (
+        "Der Apply-Lauf darf nicht behaupten, er habe nichts geaendert."
+    )
+    assert "--apply" not in ausgabe, (
+        "Der Apply-Lauf darf nicht zu --apply auffordern — er IST der "
+        "Apply-Lauf."
+    )
+    assert "Fertig: 1 Zuordnungen geloest" in ausgabe
+    # Die Aufstellung selbst bleibt: sie zeigt, was angefasst wurde.
+    assert "Driven" in ausgabe
+
+
+def test_vorschau_sagt_weiterhin_dass_nichts_geschieht(session, capsys):
+    _zuordnung(session, "Driven", wann=IM_FENSTER)
+
+    undo._vorschau(_treffer(session))
+
+    ausgabe = capsys.readouterr().out
+    assert "VORSCHAU — es wurde nichts geaendert." in ausgabe
+    assert "--apply --yes" in ausgabe
+    assert "Fertig" not in ausgabe
