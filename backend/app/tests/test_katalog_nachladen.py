@@ -419,3 +419,61 @@ def test_endpoint_ist_ohne_parameter_eine_vorschau(session, monkeypatch):
     assert antwort.status_code == 200
     assert antwort.json()["vorschau"] is True
     assert gesehen == [False], "Ohne Parameter darf nichts festgeschrieben werden."
+
+
+# --- Mehrdeutiger Katalog-Name (25.08.2026) ---------------------------
+#
+# Der Bug, der in Production auffiel: nach dem Anlegen von "Lanterns"
+# stand derselbe Titel in der naechsten Vorschau WIEDER als Neuanlage.
+# Ursache war ein ``lookup.get(name)``, das den mehrdeutigen Zustand
+# (Schluessel da, Wert None) nicht vom fehlenden Schluessel trennt —
+# der mehrdeutige Fall landete im TMDb-Pfad und legte eine weitere
+# Zeile gleichen Namens an. Jede Runde eine mehr.
+
+
+def test_mehrdeutiger_katalog_name_legt_nichts_an(session):
+    """Zwei aktive Titel gleichen Namens: welcher gemeint ist, weiss der
+    Code nicht. Anlegen waere die schlechteste aller Antworten — es
+    macht den Namen noch mehrdeutiger."""
+    for _ in range(2):
+        session.add(Title(title_original="Lanterns", active=True))
+    session.commit()
+    asset, cand = _luecke(
+        session, name="Lanterns",
+        caption="A new episode of #Lanterns is now streaming.",
+    )
+    client = _FakeTMDb(serien=[
+        {"id": 4242, "name": "Lanterns", "first_air_date": AKTUELL},
+    ])
+
+    summary = _lauf(session, client)
+
+    session.refresh(asset)
+    session.refresh(cand)
+    assert summary.katalog_mehrdeutig == 1
+    assert summary.angelegt == 0
+    assert summary.zugeordnet == 0
+    assert len(session.exec(select(Title)).all()) == 2, "Keine dritte Zeile."
+    assert asset.title_id is None
+    assert cand.status == CandidateStatus.OPEN, "Bleibt Menschensache."
+    assert client.gesucht == [], "Mehrdeutig heisst: gar nicht erst bei TMDb fragen."
+
+
+def test_zweiter_lauf_legt_den_frisch_angelegten_titel_nicht_erneut_an(session):
+    """Die Schleife von Ende zu Ende: anlegen, dann ein zweiter Lauf
+    ueber einen zweiten Post desselben Werks. Der zweite Lauf baut
+    seinen Lookup neu aus der DB — der frische Titel muss darin
+    eindeutig stehen, sonst beginnt die Doubletten-Kette."""
+    _luecke(session, name="Lanterns", caption="#Lanterns is streaming.")
+    client = _FakeTMDb(serien=[
+        {"id": 4242, "name": "Lanterns", "first_air_date": AKTUELL},
+    ])
+    erst = _lauf(session, client)
+    assert erst.angelegt == 1
+
+    _luecke(session, name="Lanterns", caption="New episode of #Lanterns tonight.")
+    zweit = _lauf(session, client)
+
+    assert zweit.angelegt == 0, "Der Titel steht bereits im Katalog."
+    assert zweit.schon_vorhanden == 1
+    assert len(session.exec(select(Title)).all()) == 1

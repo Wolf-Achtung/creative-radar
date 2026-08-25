@@ -9,6 +9,7 @@ import {
   formatCronRunStatus,
   formatDate,
   formatDateTime,
+  formatKatalogNachladen,
   formatMultiplier,
   formatNumber,
   formatPairUpdated,
@@ -215,5 +216,60 @@ describe('formatUsdCents / formatPct1 / formatMultiplier', () => {
     expect(formatUsdCents(null)).toBe('—');
     expect(formatPct1(undefined)).toBe('—');
     expect(formatMultiplier(null)).toBe('—');
+  });
+});
+
+// Katalog-Nachladen (25.08.2026): Die Meldung ist der ganze Bericht —
+// an ihr entscheidet Wolf, ob er anlegt. Sie stand vorher als lokale
+// Funktion in AdminApp und war damit ungetestet: eine Mutation, die
+// den Mehrdeutigkeits-Zaehler aus der Zeile entfernte, ueberlebte
+// unbemerkt. Seitdem liegt sie hier.
+describe('formatKatalogNachladen', () => {
+  const basis = {
+    geprueft: 20, angelegt: 2, zugeordnet: 19, angelegte_titel: ['Lanterns'],
+    nicht_belegt: 0, tmdb_unklar: 0, katalog_mehrdeutig: 0, fehler: 0,
+    offen_danach: 0, vorschau: true,
+  };
+
+  it('sagt bei der Vorschau ausdruecklich, dass nichts geaendert wurde', () => {
+    const text = formatKatalogNachladen(basis);
+    expect(text).toContain('VORSCHAU');
+    expect(text).toContain('wuerden angelegt');
+    expect(text).toContain('Lanterns');
+  });
+
+  it('nennt beim Ernstfall die Anlage als geschehen', () => {
+    const text = formatKatalogNachladen({ ...basis, vorschau: false });
+    expect(text).not.toContain('VORSCHAU');
+    expect(text).toContain('2 Titel angelegt');
+  });
+
+  it('erklaert eine leere Vorschau statt nur "0 geprueft" zu zeigen', () => {
+    // Wolfs erster Klick in Staging meldete "0 geprueft" — daran war
+    // nicht abzulesen, ob das Feature kaputt ist oder nichts zu tun hat.
+    const text = formatKatalogNachladen({ ...basis, geprueft: 0, angelegt: 0 });
+    expect(text).toContain('Katalog-Luecken-Marker');
+    expect(text).toContain('KI-Pruefung');
+  });
+
+  it('trennt Katalog-Mehrdeutigkeit von TMDb-Unklarheit', () => {
+    // Zwei verschiedene Ursachen mit zwei verschiedenen Reaktionen:
+    // "zwei gleichnamige Titel liegen schon da" gegen "TMDb kennt den
+    // Namen nicht eindeutig". Eine gemeinsame Zeile fuehrte zur
+    // falschen Reaktion.
+    const text = formatKatalogNachladen({
+      ...basis, katalog_mehrdeutig: 3, tmdb_unklar: 1,
+    });
+    expect(text).toContain('3 mit gleichnamigem Titel im Katalog');
+    expect(text).toContain('1 bei TMDb nicht eindeutig');
+  });
+
+  it('schweigt ueber Zaehler, die auf null stehen', () => {
+    expect(formatKatalogNachladen(basis)).not.toContain('liegen gelassen');
+  });
+
+  it('sagt, wenn noch etwas offen ist', () => {
+    expect(formatKatalogNachladen({ ...basis, offen_danach: 27 }))
+      .toContain('Noch 27');
   });
 });

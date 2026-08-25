@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { endpoints } from './api/client';
-import { normalizeHandle } from './format';
+import { formatKatalogNachladen, normalizeHandle } from './format';
 import { neuesterLauf, warteAufTitelSyncEnde } from './titelSyncWarten';
 import { ASSET_PAGE_SIZE } from './constants';
 import { MonitoringPanel } from './panels/MonitoringPanel';
@@ -416,38 +416,11 @@ export function AdminApp({ onLogout }) {
   // Vorschau tritt an die Stelle der Staging-Erprobung.
   const [katalogVorschau, setKatalogVorschau] = useState(null);
 
-  function katalogMeldung(r) {
-    const namen = (r.angelegte_titel || []).length
-      ? ` Titel: ${r.angelegte_titel.join(', ')}.`
-      : '';
-    const offen = [];
-    if (r.nicht_belegt) offen.push(`${r.nicht_belegt} ohne Text-Beleg`);
-    if (r.tmdb_unklar) offen.push(`${r.tmdb_unklar} bei TMDb nicht eindeutig`);
-    if (r.fehler) offen.push(`${r.fehler} mit TMDb-Fehler`);
-    const liegengelassen = offen.length
-      ? ` Bewusst liegen gelassen: ${offen.join(', ')}.`
-      : '';
-    const rest = r.offen_danach
-      ? ` Noch ${r.offen_danach} mit Katalog-Luecke — danach erneut klicken.`
-      : '';
-    if (r.vorschau) {
-      if (!r.geprueft) {
-        return 'Vorschau: kein Kandidat traegt einen Katalog-Luecken-Marker. '
-          + 'Der entsteht in der KI-Pruefung — es gibt gerade nichts nachzuladen.';
-      }
-      return `VORSCHAU — es wurde nichts geaendert. ${r.geprueft} geprueft, `
-        + `${r.angelegt} Titel wuerden angelegt, ${r.zugeordnet} Treffer zugeordnet.`
-        + `${namen}${liegengelassen}${rest}`;
-    }
-    return `Katalog-Nachladen: ${r.geprueft} geprueft, ${r.angelegt} Titel angelegt, `
-      + `${r.zugeordnet} Treffer zugeordnet.${namen}${liegengelassen}${rest}`;
-  }
-
   async function runKatalogVorschau() {
     await run(async () => {
       const r = await endpoints.katalogNachladen(false);
       setKatalogVorschau(r);
-      setMessage(katalogMeldung(r));
+      setMessage(formatKatalogNachladen(r));
     });
   }
 
@@ -459,7 +432,7 @@ export function AdminApp({ onLogout }) {
       // waere blind.
       setKatalogVorschau(null);
       await load();
-      setMessage(katalogMeldung(r));
+      setMessage(formatKatalogNachladen(r));
     });
   }
 

@@ -240,3 +240,44 @@ export function formatMultiplier(value) {
   if (value === null || value === undefined) return '—';
   return `${Number(value).toFixed(1)}x`;
 }
+
+
+// Katalog-Nachladen (25.08.2026): die Meldung ist der ganze Bericht —
+// Wolf entscheidet daran, ob er anlegt. Sie gehoert deshalb hierher,
+// wo sie pruefbar ist, und nicht in eine Handler-Funktion.
+//
+// Zwei Unterscheidungen tragen die Aussage:
+//   Vorschau vs. Ernstfall — gleiche Zahlen, andere Bedeutung.
+//   "im Katalog mehrdeutig" vs. "bei TMDb nicht eindeutig" — das eine
+//   heisst "zwei gleichnamige Titel liegen schon da", das andere "TMDb
+//   kennt den Namen nicht eindeutig". Verschiedene Ursachen,
+//   verschiedene Reaktionen.
+export function formatKatalogNachladen(r) {
+  const namen = (r.angelegte_titel || []).length
+    ? ` Titel: ${r.angelegte_titel.join(', ')}.`
+    : '';
+  const offen = [];
+  if (r.nicht_belegt) offen.push(`${r.nicht_belegt} ohne Text-Beleg`);
+  if (r.tmdb_unklar) offen.push(`${r.tmdb_unklar} bei TMDb nicht eindeutig`);
+  if (r.katalog_mehrdeutig) {
+    offen.push(`${r.katalog_mehrdeutig} mit gleichnamigem Titel im Katalog`);
+  }
+  if (r.fehler) offen.push(`${r.fehler} mit TMDb-Fehler`);
+  const liegengelassen = offen.length
+    ? ` Bewusst liegen gelassen: ${offen.join(', ')}.`
+    : '';
+  const rest = r.offen_danach
+    ? ` Noch ${r.offen_danach} mit Katalog-Luecke — danach erneut klicken.`
+    : '';
+  if (r.vorschau) {
+    if (!r.geprueft) {
+      return 'Vorschau: kein Kandidat traegt einen Katalog-Luecken-Marker. '
+        + 'Der entsteht in der KI-Pruefung — es gibt gerade nichts nachzuladen.';
+    }
+    return `VORSCHAU — es wurde nichts geaendert. ${r.geprueft} geprueft, `
+      + `${r.angelegt} Titel wuerden angelegt, ${r.zugeordnet} Treffer zugeordnet.`
+      + `${namen}${liegengelassen}${rest}`;
+  }
+  return `Katalog-Nachladen: ${r.geprueft} geprueft, ${r.angelegt} Titel angelegt, `
+    + `${r.zugeordnet} Treffer zugeordnet.${namen}${liegengelassen}${rest}`;
+}
