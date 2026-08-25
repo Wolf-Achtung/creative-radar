@@ -441,13 +441,17 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
       ...DATEN,
       dimensions: {
         tone: [{ ...ZELLE_OK, value: 'humorous', breakout_verdict: 'under', breakout_z: -2.4 }],
+        format: [{ ...ZELLE_OK, value: 'behind_the_scenes', breakout_verdict: 'over', breakout_z: 3.1 }],
       },
     });
     render(<PatternsBlock />);
     await screen.findByText('Humor zieht nicht von allein');
+    // BEIDE Chip-Beschriftungen gepinnt — eine Mutation nur der
+    // over-Seite muss genauso auffallen wie eine der under-Seite.
     expect(screen.getByText('Schwach im Markt')).toBeTruthy();
+    expect(screen.getByText('Stark im Markt')).toBeTruthy();
     expect(screen.queryByText(/Zu beachten/)).toBeNull();
-    expect(screen.getByText('Tipp:')).toBeTruthy();
+    expect(screen.getAllByText('Tipp:').length).toBe(2);
     expect(screen.getByText(/Humor trägt mit einem starken Aufhänger/)).toBeTruthy();
   });
 
