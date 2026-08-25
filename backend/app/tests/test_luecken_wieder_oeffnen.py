@@ -101,10 +101,20 @@ def test_name_wird_aus_der_notiz_gelesen():
 
 
 def test_name_mit_apostroph_wird_nicht_abgeschnitten():
-    """Nicht-gierig bis zum Marker. Ein gieriges Muster fraesse hier bis
-    zum letzten Apostroph der Begruendung."""
     notiz = "KI: bewirbt 'Ocean's Eleven' (nicht im Katalog) — der Post 'zeigt' es"
     assert reopen._name_aus_notiz(notiz) == "Ocean's Eleven"
+
+
+def test_wiederholter_marker_in_der_begruendung_verschiebt_den_namen_nicht():
+    """Die Begruendung ist freier Modell-Text und wiederholt die Wendung
+    gelegentlich. Ein gieriges Muster nimmt dann das LETZTE Vorkommen —
+    der "Name" waere der halbe Satz dazwischen, landete als
+    ``suggested_title`` und ginge so an TMDb."""
+    notiz = (
+        "KI: bewirbt 'Lanterns' (nicht im Katalog) — auch 'Green Lantern' "
+        "(nicht im Katalog) waere denkbar, ist es aber nicht."
+    )
+    assert reopen._name_aus_notiz(notiz) == "Lanterns"
 
 
 def test_abgeschnittene_notiz_gibt_keinen_namen():
