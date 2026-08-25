@@ -281,3 +281,22 @@ export function formatKatalogNachladen(r) {
   return `Katalog-Nachladen: ${r.geprueft} geprueft, ${r.angelegt} Titel angelegt, `
     + `${r.zugeordnet} Treffer zugeordnet.${namen}${liegengelassen}${rest}`;
 }
+
+
+// Beschriftung des Anwenden-Knopfes beim Katalog-Nachladen.
+//
+// Wolfs Lauf vom 25.08.2026: "0 Titel wuerden angelegt, 18 Treffer
+// zugeordnet" — und der Knopf war gesperrt, weil ich ihn an
+// ``angelegt > 0`` gehaengt hatte. Die Absicht war richtig (ein Klick
+// ins Leere soll nicht wie eine Entscheidung aussehen), die Bedingung
+// falsch: der Nutzen dieses Laufs lag ganz bei den Zuordnungen.
+//
+// ``zugeordnet`` deckt beides ab — es zaehlt jede Zuordnung, ob der
+// Titel neu angelegt oder schon vorhanden war.
+export function formatKatalogAnwendenLabel(vorschau) {
+  if (!vorschau || !vorschau.zugeordnet) return 'Übernehmen';
+  const teile = [];
+  if (vorschau.angelegt) teile.push(`${vorschau.angelegt} Titel anlegen`);
+  teile.push(`${vorschau.zugeordnet} Treffer zuordnen`);
+  return teile.join(', ');
+}

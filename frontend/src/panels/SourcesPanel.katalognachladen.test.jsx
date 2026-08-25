@@ -59,7 +59,9 @@ describe('SourcesPanel Katalog-Nachladen', () => {
   it('ohne Flag ist kein Knopf da — Production-Sicht', () => {
     renderPanel({ features: {} });
     expect(screen.queryByRole('button', { name: VORSCHAU })).toBeNull();
-    expect(screen.queryByRole('button', { name: /wirklich anlegen/ })).toBeNull();
+    // Exakte Namen: der Nachbarknopf heisst "Bestehende Treffer neu
+    // zuordnen" und wuerde jedes lose Muster mitnehmen.
+    expect(screen.queryByRole('button', { name: 'Übernehmen' })).toBeNull();
   });
 
   it('mit Flag steht die Vorschau bereit und loest den Lauf aus', () => {
@@ -76,36 +78,57 @@ describe('SourcesPanel Katalog-Nachladen', () => {
     const onKatalogAnwenden = vi.fn();
     renderPanel({ onKatalogAnwenden, katalogVorschau: null });
 
-    const anlegen = screen.getByRole('button', { name: /wirklich anlegen/ });
-    expect(anlegen.disabled).toBe(true);
-    fireEvent.click(anlegen);
+    const knopf = screen.getByRole('button', { name: 'Übernehmen' });
+    expect(knopf.disabled).toBe(true);
+    fireEvent.click(knopf);
     expect(onKatalogAnwenden).not.toHaveBeenCalled();
   });
 
-  it('eine Vorschau ohne Anlagen schaltet nicht frei', () => {
-    // "0 angelegt" ist ein Ergebnis, keine Freigabe — ein Klick ins
-    // Leere soll nicht wie eine Entscheidung aussehen.
+  it('eine Vorschau ganz ohne Wirkung schaltet nicht frei', () => {
+    // Nichts anzulegen UND nichts zuzuordnen — ein Klick ins Leere
+    // soll nicht wie eine Entscheidung aussehen.
     const onKatalogAnwenden = vi.fn();
-    renderPanel({ onKatalogAnwenden, katalogVorschau: { angelegt: 0, vorschau: true } });
+    renderPanel({
+      onKatalogAnwenden,
+      katalogVorschau: { angelegt: 0, zugeordnet: 0, vorschau: true },
+    });
 
-    expect(screen.getByRole('button', { name: /wirklich anlegen/ }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Übernehmen' }).disabled).toBe(true);
     expect(onKatalogAnwenden).not.toHaveBeenCalled();
   });
 
-  it('nach einer Vorschau mit Treffern nennt der Knopf die Zahl und wendet an', () => {
+  it('ohne Neuanlage, aber mit Zuordnungen ist der Knopf offen', () => {
+    // Wolfs Lauf vom 25.08.2026: "0 Titel wuerden angelegt, 18 Treffer
+    // zugeordnet" — und der Knopf war gesperrt, weil die Bedingung an
+    // ``angelegt`` hing. 18 Assets warteten auf ihre Zuordnung.
     const onKatalogAnwenden = vi.fn();
-    renderPanel({ onKatalogAnwenden, katalogVorschau: { angelegt: 3, vorschau: true } });
+    renderPanel({
+      onKatalogAnwenden,
+      katalogVorschau: { angelegt: 0, zugeordnet: 18, vorschau: true },
+    });
 
-    const anlegen = screen.getByRole('button', { name: '3 Titel wirklich anlegen' });
-    expect(anlegen.disabled).toBe(false);
-    fireEvent.click(anlegen);
+    const knopf = screen.getByRole('button', { name: '18 Treffer zuordnen' });
+    expect(knopf.disabled).toBe(false);
+    fireEvent.click(knopf);
     expect(onKatalogAnwenden).toHaveBeenCalledTimes(1);
   });
 
+  it('nennt Anlagen und Zuordnungen getrennt', () => {
+    renderPanel({ katalogVorschau: { angelegt: 3, zugeordnet: 20, vorschau: true } });
+
+    const knopf = screen.getByRole('button', { name: '3 Titel anlegen, 20 Treffer zuordnen' });
+    expect(knopf.disabled).toBe(false);
+  });
+
   it('waehrend eines laufenden Vorgangs sind beide gesperrt', () => {
-    renderPanel({ busy: true, katalogVorschau: { angelegt: 3, vorschau: true } });
+    renderPanel({
+      busy: true,
+      katalogVorschau: { angelegt: 3, zugeordnet: 20, vorschau: true },
+    });
 
     expect(screen.getByRole('button', { name: VORSCHAU }).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: /wirklich anlegen/ }).disabled).toBe(true);
+    expect(
+      screen.getByRole('button', { name: '3 Titel anlegen, 20 Treffer zuordnen' }).disabled,
+    ).toBe(true);
   });
 });
