@@ -357,7 +357,10 @@ def run_candidates_llm_assist(session: Session = Depends(get_session)):
 
 
 @router.post("/katalog-nachladen")
-async def run_katalog_nachladen(session: Session = Depends(get_session)):
+async def run_katalog_nachladen(
+    anwenden: bool = False,
+    session: Session = Depends(get_session),
+):
     """Legt Titel an, die ein beobachteter Post nachweislich bewirbt.
 
     Wolfs Befund vom 24.08.2026: Von 58 KI-gepruefter Vorschlaege liess
@@ -372,8 +375,19 @@ async def run_katalog_nachladen(session: Session = Depends(get_session)):
     Drei Waechter im Code (Text-Beleg, eindeutiger TMDb-Treffer, nicht
     schon vorhanden) — Details in ``katalog_nachladen``.
 
+    ``anwenden`` steuert Vorschau (Vorgabe) gegen Ernstfall. Die
+    Vorschau laesst denselben Code vollstaendig durchlaufen und rollt am
+    Ende zurueck — sie zeigt also, was passieren WUERDE, nicht was
+    passieren sollte.
+
+    Der Grund (25.08.2026): Dieses Feature ist in Staging nicht
+    erprobbar. Seine Eingabe ist der Marker ``(nicht im Katalog)``, den
+    nur die KI-Pruefung setzt — und die braucht den Anthropic-Key, den
+    Staging bewusst nicht hat. Wolfs Freigabe-Modell "Staging zuerst"
+    greift hier ins Leere; die Vorschau tritt an seine Stelle.
+
     Hinter ``FEATURE_KATALOG_NACHLADEN_ENABLED``: der Pfad legt Titel an
-    und ordnet Assets zu, also Staging zuerst (Arbeitsregel 23.08.2026).
+    und ordnet Assets zu (Arbeitsregel 23.08.2026).
     """
     if not is_katalog_nachladen_enabled():
         raise HTTPException(
@@ -383,5 +397,5 @@ async def run_katalog_nachladen(session: Session = Depends(get_session)):
                 "FEATURE_KATALOG_NACHLADEN_ENABLED"
             ),
         )
-    summary = await lade_fehlende_titel_nach(session)
+    summary = await lade_fehlende_titel_nach(session, anwenden=anwenden)
     return summary.to_dict()

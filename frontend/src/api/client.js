@@ -145,7 +145,10 @@ export const endpoints = {
   // nachweislich bewirbt und die der Katalog nicht kennt. POST, und
   // hinter dem Bearer-Token — deshalb ist der Knopf der einzige Weg
   // dorthin, nicht die Browser-Adresszeile.
-  katalogNachladen: () => api('/api/titles/katalog-nachladen', { method: 'POST' }),
+  katalogNachladen: (anwenden = false) => api(
+    `/api/titles/katalog-nachladen?anwenden=${anwenden ? 'true' : 'false'}`,
+    { method: 'POST' },
+  ),
   updateChannel: (channelId, payload) => api(`/api/channels/${channelId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   updateTitle: (titleId, payload) => api(`/api/titles/${titleId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   titleSyncRuns: () => api('/api/titles/sync/runs'),

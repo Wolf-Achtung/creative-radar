@@ -12,14 +12,22 @@ import { SourcesPanel } from './SourcesPanel';
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-const KNOPF = 'Fehlende Titel aus TMDb nachladen';
+const VORSCHAU = 'Fehlende Titel prüfen (Vorschau)';
 
-function renderPanel({ features = { katalog_nachladen: true }, onKatalogNachladen = () => {} } = {}) {
+function renderPanel({
+  features = { katalog_nachladen: true },
+  onKatalogVorschau = () => {},
+  onKatalogAnwenden = () => {},
+  katalogVorschau = null,
+  busy = false,
+} = {}) {
   return render(
     <SourcesPanel
       features={features}
-      onKatalogNachladen={onKatalogNachladen}
-      busy={false}
+      onKatalogVorschau={onKatalogVorschau}
+      onKatalogAnwenden={onKatalogAnwenden}
+      katalogVorschau={katalogVorschau}
+      busy={busy}
       channelFile={null}
       setChannelFile={() => {}}
       onImportChannelFile={() => {}}
@@ -48,54 +56,56 @@ function renderPanel({ features = { katalog_nachladen: true }, onKatalogNachlade
 }
 
 describe('SourcesPanel Katalog-Nachladen', () => {
-  it('ohne Flag ist der Knopf unsichtbar — Production-Sicht', () => {
+  it('ohne Flag ist kein Knopf da — Production-Sicht', () => {
     renderPanel({ features: {} });
-    expect(screen.queryByRole('button', { name: KNOPF })).toBeNull();
+    expect(screen.queryByRole('button', { name: VORSCHAU })).toBeNull();
+    expect(screen.queryByRole('button', { name: /wirklich anlegen/ })).toBeNull();
   });
 
-  it('mit Flag steht der Knopf da und loest den Lauf aus', () => {
-    const onKatalogNachladen = vi.fn();
-    renderPanel({ onKatalogNachladen });
+  it('mit Flag steht die Vorschau bereit und loest den Lauf aus', () => {
+    const onKatalogVorschau = vi.fn();
+    renderPanel({ onKatalogVorschau });
 
-    const knopf = screen.getByRole('button', { name: KNOPF });
-    fireEvent.click(knopf);
-    expect(onKatalogNachladen).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: VORSCHAU }));
+    expect(onKatalogVorschau).toHaveBeenCalledTimes(1);
   });
 
-  it('waehrend eines laufenden Vorgangs ist er gesperrt', () => {
-    // Der Pfad legt Titel an; ein Doppelklick waehrend des Laufs ist
-    // teurer als anderswo — dieselbe busy-Sperre wie die Nachbarknoepfe.
-    const onKatalogNachladen = vi.fn();
-    render(
-      <SourcesPanel
-        features={{ katalog_nachladen: true }}
-        onKatalogNachladen={onKatalogNachladen}
-        busy
-        channelFile={null}
-        setChannelFile={() => {}}
-        onImportChannelFile={() => {}}
-        monitorForm={{ max_channels: 5, results_limit_per_channel: 5 }}
-        setMonitorForm={() => {}}
-        onInstagram={() => {}}
-        tiktokForm={{ username: '', results_limit_per_channel: 5 }}
-        setTiktokForm={() => {}}
-        onTikTok={() => {}}
-        whitelistStats={null}
-        titleCandidates={[]}
-        onSyncTitleSources={() => {}}
-        onRematchAssets={() => {}}
-        onCandidateAutopilot={() => {}}
-        onCandidateLlmAssist={() => {}}
-        onToggleChannelOwn={() => {}}
-        channels={[]}
-        titles={[]}
-        onToggleTitleOwnProject={() => {}}
-        onFullSync={() => {}}
-        cronBusy={false}
-        cronMessage={null}
-        lastCronRun={null}
-      />
-    );
-    expect(screen.getByRole('button', { name: KNOPF }).disabled).toBe(true);
+  it('ohne Vorschau laesst sich nichts anlegen', () => {
+    // Der Kern des Zwei-Stufen-Ablaufs: schreiben erst, nachdem jemand
+    // gesehen hat, WAS geschrieben wuerde.
+    const onKatalogAnwenden = vi.fn();
+    renderPanel({ onKatalogAnwenden, katalogVorschau: null });
+
+    const anlegen = screen.getByRole('button', { name: /wirklich anlegen/ });
+    expect(anlegen.disabled).toBe(true);
+    fireEvent.click(anlegen);
+    expect(onKatalogAnwenden).not.toHaveBeenCalled();
+  });
+
+  it('eine Vorschau ohne Anlagen schaltet nicht frei', () => {
+    // "0 angelegt" ist ein Ergebnis, keine Freigabe — ein Klick ins
+    // Leere soll nicht wie eine Entscheidung aussehen.
+    const onKatalogAnwenden = vi.fn();
+    renderPanel({ onKatalogAnwenden, katalogVorschau: { angelegt: 0, vorschau: true } });
+
+    expect(screen.getByRole('button', { name: /wirklich anlegen/ }).disabled).toBe(true);
+    expect(onKatalogAnwenden).not.toHaveBeenCalled();
+  });
+
+  it('nach einer Vorschau mit Treffern nennt der Knopf die Zahl und wendet an', () => {
+    const onKatalogAnwenden = vi.fn();
+    renderPanel({ onKatalogAnwenden, katalogVorschau: { angelegt: 3, vorschau: true } });
+
+    const anlegen = screen.getByRole('button', { name: '3 Titel wirklich anlegen' });
+    expect(anlegen.disabled).toBe(false);
+    fireEvent.click(anlegen);
+    expect(onKatalogAnwenden).toHaveBeenCalledTimes(1);
+  });
+
+  it('waehrend eines laufenden Vorgangs sind beide gesperrt', () => {
+    renderPanel({ busy: true, katalogVorschau: { angelegt: 3, vorschau: true } });
+
+    expect(screen.getByRole('button', { name: VORSCHAU }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /wirklich anlegen/ }).disabled).toBe(true);
   });
 });
