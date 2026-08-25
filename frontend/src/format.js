@@ -347,6 +347,22 @@ export function formatReleaseEinordnung({ tageBisRelease, marktMedianTage, eigen
   return `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vor Release — das typische Startfenster liegt ${wochen(bisStartfenster)} zurück, ihr seid spät dran.`;
 }
 
+// Beweis-Loop (Roadmap Schritt 3, 25.08.): eine Empfehlungs-Zelle der
+// Snapshot-Woche als ganzer Satz — umgesetzt? gewirkt? Hier statt im
+// Panel, damit die Fallunterscheidung testbar ist.
+export function formatBeweisZeile({ umgesetzt, medianLiftWir, gewirkt, folgewocheAbgeschlossen }) {
+  if (umgesetzt === 0) {
+    return folgewocheAbgeschlossen
+      ? 'in der Folgewoche nicht umgesetzt.'
+      : 'Folgewoche läuft noch — bisher nicht umgesetzt.';
+  }
+  const posts = `${umgesetzt} ${umgesetzt === 1 ? 'Post' : 'Posts'}`;
+  const lift = String(medianLiftWir).replace('.', ',');
+  return gewirkt
+    ? `${posts} in der Folgewoche, Median ${lift}x — über eurem Kanal-Schnitt, hat gewirkt.`
+    : `${posts} in der Folgewoche, Median ${lift}x — unter eurem Kanal-Schnitt geblieben.`;
+}
+
 export function formatKampagnenstart(vorlaufTage) {
   if (vorlaufTage === null || vorlaufTage === undefined) return '—';
   const wochen = Math.round(vorlaufTage / 7);

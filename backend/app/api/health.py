@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter
 from app.core.feature_flags import (
+    is_beweis_loop_enabled,
     is_kampagnen_timing_enabled,
     is_katalog_nachladen_enabled,
     is_projekt_start_brief_enabled,
@@ -53,6 +54,7 @@ def health():
             "sound_trends": is_sound_trends_enabled(),
             "referenz_suche": is_referenz_suche_enabled(),
             "release_countdown": is_release_countdown_enabled(),
+            "beweis_loop": is_beweis_loop_enabled(),
         },
     }
 
