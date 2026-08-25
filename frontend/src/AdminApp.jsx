@@ -297,6 +297,17 @@ export function AdminApp({ onLogout }) {
         title_original: name,
         notes: 'Aus der Vorschlags-Queue angelegt.',
       });
+      // Zweites Netz nach dem Vorfall vom 25.08.2026: der Endpoint
+      // antwortete "{}", ``title.id`` war undefined, und ``reviewAsset``
+      // liess das Feld einfach weg — das Asset blieb ohne Titel,
+      // waehrend der Kandidat geschlossen und Erfolg gemeldet wurde.
+      // Lieber ein sichtbarer Fehler als eine stille Falschmeldung.
+      if (!title || !title.id) {
+        throw new Error(
+          `„${name}" konnte nicht angelegt werden: Die Antwort enthielt keine ID. `
+          + 'Der Vorschlag bleibt offen.'
+        );
+      }
       await endpoints.reviewAsset(asset.id, {
         review_status: asset.review_status,
         include_in_report: asset.include_in_report,

@@ -22,7 +22,11 @@ from app.core.feature_flags import (
     is_katalog_nachladen_enabled,
     is_wir_projekte_enabled,
 )
-from app.services.candidate_autopilot import run_candidate_autopilot
+from app.services.candidate_autopilot import (
+    _build_exact_title_lookup,
+    _normalize,
+    run_candidate_autopilot,
+)
 from app.services.candidate_llm_assist import run_candidate_llm_assist
 from app.services.katalog_nachladen import lade_fehlende_titel_nach
 from app.services.seeds import seed_titles
@@ -60,15 +64,96 @@ def list_titles(active: bool | None = None, session: Session = Depends(get_sessi
 
 @router.post("")
 def create_title(payload: TitleCreate, session: Session = Depends(get_session)):
+    """Legt einen Titel an — oder gibt den vorhandenen zurueck.
+
+    Bis zum 25.08.2026 legte jeder Aufruf eine neue Zeile an, ohne zu
+    schauen. Der Knopf "Titel anlegen" in der Pruef-Queue wird aber bei
+    jedem Kandidaten desselben Werks gedrueckt: drei Posts zu
+    "Lanterns" ergaben drei Katalog-Zeilen. Zwei davon blieben ohne ein
+    einziges Asset — und der Name war fortan MEHRDEUTIG.
+
+    Das ist teurer als es aussieht. ``_build_exact_title_lookup``
+    markiert mehrdeutige Namen als "Menschensache"; Autopilot,
+    KI-Assist und Katalog-Nachladen lassen sie danach alle liegen. Ein
+    Doppelklick legt also nicht nur eine ueberzaehlige Zeile an, er
+    schaltet die Automatik fuer diesen Namen dauerhaft ab.
+
+    Jetzt entscheidet derselbe Lookup, den auch die Automatik liest:
+
+    - genau ein aktiver Titel gleichen Normalnamens -> dieser wird
+      zurueckgegeben, keine neue Zeile. Das Frontend nimmt ``title.id``
+      und ordnet zu; fuer den Klickenden aendert sich nichts.
+    - bereits mehrdeutig -> 409. Eine dritte Zeile machte es schlimmer;
+      hier muss jemand aufraeumen.
+    - kein Treffer -> anlegen wie bisher.
+
+    Mitgegebene Keywords landen auch am vorhandenen Titel, sofern sie
+    dort fehlen — sonst ginge die Eingabe stillschweigend verloren.
+    """
     data = payload.model_dump(exclude={"keywords"})
+    name = _normalize(data.get("title_original") or "")
+    if name:
+        lookup = _build_exact_title_lookup(session)
+        if name in lookup:
+            vorhanden = lookup[name]
+            if vorhanden is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"'{data.get('title_original')}' steht mehrfach im "
+                        "Katalog. Eine weitere Zeile macht es schlimmer — "
+                        "erst zusammenlegen (scripts.titel_doubletten_"
+                        "aufraeumen), dann erneut versuchen."
+                    ),
+                )
+            _keywords_ergaenzen(session, vorhanden, payload.keywords)
+            # Gleiche Falle wie unten: ein Commit in ``_keywords_
+            # ergaenzen`` macht die Instanz stale, und die Antwort waere
+            # wieder "{}" — der Fehler, den dieser PR gerade behebt.
+            session.refresh(vorhanden)
+            return vorhanden
+
     title = Title(**data)
     session.add(title)
     session.commit()
     session.refresh(title)
     for keyword in payload.keywords:
         session.add(TitleKeyword(title_id=title.id, keyword=keyword))
-    session.commit()
+        session.commit()
+    # Ohne dieses Refresh antwortet der Endpoint "{}" — und zwar seit
+    # jeher. Der Commit fuer die Keywords laeuft danach, und ein Commit
+    # macht die Instanz stale; FastAPI serialisiert dann ein leeres
+    # ``__dict__``.
+    #
+    # Die Folge war kein Schoenheitsfehler. Das Frontend liest
+    # ``title.id`` aus der Antwort und schickt es an ``reviewAsset``.
+    # ``undefined`` faellt bei JSON.stringify raus, das Asset bekam also
+    # KEINEN Titel — waehrend der Kandidat auf "resolved" gesetzt wurde
+    # und der Toast "neu angelegt und zugeordnet" meldete. Genau so
+    # entstanden die 74 geschlossenen Kandidaten mit titellosem Asset,
+    # die die Diagnose vom 25.08.2026 fand, und die Manual-Titel mit
+    # assets=0 daneben.
+    session.refresh(title)
     return title
+
+
+def _keywords_ergaenzen(session: Session, titel: Title, keywords: list[str]) -> None:
+    """Nur was fehlt — ein zweiter Aufruf mit denselben Keywords darf
+    keine Dubletten in der Keyword-Tabelle hinterlassen."""
+    if not keywords:
+        return
+    vorhandene = {
+        k.keyword
+        for k in session.exec(
+            select(TitleKeyword).where(TitleKeyword.title_id == titel.id)
+        ).all()
+    }
+    neu = [k for k in keywords if k not in vorhandene]
+    if not neu:
+        return
+    for keyword in neu:
+        session.add(TitleKeyword(title_id=titel.id, keyword=keyword))
+    session.commit()
 
 
 @router.get("/{title_id}/keywords")
