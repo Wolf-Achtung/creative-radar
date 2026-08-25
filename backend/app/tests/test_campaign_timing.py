@@ -89,6 +89,11 @@ def test_de_kanal_misst_gegen_deutsches_release_datum(session):
 
     assert ergebnis["titel_ausgewertet"] == 1
     starts = {k["handle"]: k["median_kampagnenstart_tage"] for k in ergebnis["kanaele"]}
+    # Plattform muss in jeder Kanal-Zeile stehen: derselbe Handle
+    # existiert je Plattform als eigener Datensatz, und ohne die Spalte
+    # sahen die Zeilen in der Tabelle wie Doubletten aus (Wolfs Befund
+    # bei der Staging-Abnahme, 25.08.2026).
+    assert all(k["platform"] == "instagram" for k in ergebnis["kanaele"])
     assert starts["pixar"] == 70
     assert starts["tobis"] == 98, (
         "Der DE-Kanal muss gegen release_date_de gemessen werden — "
