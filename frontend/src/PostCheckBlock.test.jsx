@@ -25,9 +25,15 @@ afterEach(() => {
 const ERGEBNIS = {
   checks: [
     { dimension: 'caption_frage', wert: 'mit_frage', befund: 'gut', satz: 'Caption mit Frage: funktioniert gerade.', tipp: null },
-    { dimension: 'caption_laenge', wert: 'lang', befund: 'achtung', satz: 'Lange Caption (200+): funktioniert gerade nicht.', tipp: 'Gerade besser: Kurze Caption (≤80 Zeichen).' },
+    { dimension: 'caption_laenge', wert: 'lang', befund: 'achtung', satz: 'Lange Caption: funktioniert gerade nicht.', tipp: 'Gerade besser: Kurze Caption.' },
+    { dimension: 'caption_hashtags', wert: '1-3', befund: 'neutral', satz: '1-3 Hashtags: unauffällig — weder stark noch schwach.', tipp: null },
+    { dimension: 'format_class', wert: 'kurzform', befund: 'neutral', satz: 'Kurzform: unauffällig — weder stark noch schwach.', tipp: null },
+    { dimension: 'cover_titel', wert: 'mit_titel', befund: 'kein_befund', satz: 'Titel im Bild: dazu gibt es gerade keinen belastbaren Befund.', tipp: null },
   ],
-  zusammenfassung: { gut: 1, achtung: 1, neutral: 0, kein_befund: 0 },
+  chancen: [
+    { dimension: 'cover_kinetik', wert: 'title_card', satz: 'Title-Card — funktioniert gerade. Im Entwurf nicht angegeben.' },
+  ],
+  zusammenfassung: { gut: 1, achtung: 1, neutral: 2, kein_befund: 1 },
   window_days: 90,
   basis: { posts: 5804, kanaele: 156 },
 };
@@ -52,6 +58,14 @@ describe('PostCheckBlock — Flag-Gate und Ablauf', () => {
     fireEvent.click(screen.getByText('Entwurf prüfen'));
 
     expect(await screen.findByText(/1 Punkt spricht gerade dagegen/)).toBeTruthy();
+    // Chancen: was den Post staerker machen koennte, steht als eigener Block.
+    expect(screen.getByText('Was den Post stärker machen könnte:')).toBeTruthy();
+    expect(screen.getByText(/Title-Card — funktioniert gerade/)).toBeTruthy();
+    // Unauffaelliges ist EINE Sammelzeile, keine Einzelzeilen (Wolfs
+    // Feedback 25.08.: sieben Mal "unauffaellig" ist keine Hilfe).
+    expect(screen.getByText(/Unauffällig: 1–3 Hashtags, Kurzform\./)).toBeTruthy();
+    expect(screen.queryByText(/unauffällig — weder stark noch schwach/)).toBeNull();
+    expect(screen.getByText(/Kein belastbarer Befund zu: Titel im Bild\./)).toBeTruthy();
     expect(endpoints.postCheck).toHaveBeenCalledWith({
       caption: 'Traust du dich?',
       duration_seconds: null,
@@ -60,7 +74,7 @@ describe('PostCheckBlock — Flag-Gate und Ablauf', () => {
       tonfall: null,
     });
     expect(screen.getByText('Caption mit Frage: funktioniert gerade.')).toBeTruthy();
-    expect(screen.getByText('Gerade besser: Kurze Caption (≤80 Zeichen).')).toBeTruthy();
+    expect(screen.getByText('Gerade besser: Kurze Caption.')).toBeTruthy();
     expect(screen.getByText(/5804 Posts aus 156 Kanälen/)).toBeTruthy();
   });
 

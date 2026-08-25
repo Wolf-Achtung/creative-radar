@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { endpoints } from './api/client';
-import { DIMENSION_LABEL } from './PatternsBlock';
+import { DIMENSION_LABEL, WERT_LABEL } from './PatternsBlock';
 
 // Post-Check (Roadmap-Ausbau, 25.08.2026) — die Blickrichtungs-Umkehr:
 // statt montags zu lesen, was gefehlt hat, prueft das Team den Entwurf
@@ -203,23 +203,59 @@ export default function PostCheckBlock() {
           Der Check ist gerade nicht möglich: {fehler}
         </p>
       )}
-      {ergebnis && (
-        <div className="card" style={{ marginTop: '1rem', padding: '0.75rem 1rem', maxWidth: '640px' }}>
-          <p style={{ margin: '0 0 0.5rem', fontWeight: 700, fontSize: '0.95em' }}>
-            {ergebnis.zusammenfassung.achtung === 0
-              ? 'Sieht gut aus — kein Punkt spricht gerade dagegen.'
-              : `${ergebnis.zusammenfassung.achtung} ${ergebnis.zusammenfassung.achtung === 1 ? 'Punkt spricht' : 'Punkte sprechen'} gerade dagegen.`}
-          </p>
-          {ergebnis.checks.map((check) => (
-            <CheckZeile key={`${check.dimension}:${check.wert}`} check={check} />
-          ))}
-          <p style={{ margin: '0.5rem 0 0', fontSize: '0.75em', color: '#6b6b6b' }}>
-            Gemessen an {ergebnis.basis.posts} Posts aus {ergebnis.basis.kanaele} Kanälen
-            der letzten {ergebnis.window_days} Tage. Beschreibt, was gerade läuft —
-            kein Wirkungsbeweis.
-          </p>
-        </div>
-      )}
+      {ergebnis && (() => {
+        // Ergebnis-Aufbau (Wolfs Feedback 25.08.: sieben Mal
+        // "unauffaellig" ist keine Hilfe): nur gut/achtung bekommen
+        // eigene Zeilen, danach die Chancen ("was den Post staerker
+        // machen koennte"), Unauffaelliges als eine Sammelzeile.
+        const wichtig = ergebnis.checks.filter((c) => c.befund === 'gut' || c.befund === 'achtung');
+        const unauffaellig = ergebnis.checks.filter((c) => c.befund === 'neutral');
+        const ohneBefund = ergebnis.checks.filter((c) => c.befund === 'kein_befund');
+        const { gut, achtung } = ergebnis.zusammenfassung;
+        let ueberschrift;
+        if (achtung > 0) {
+          ueberschrift = `${achtung} ${achtung === 1 ? 'Punkt spricht' : 'Punkte sprechen'} gerade dagegen.`;
+        } else if (gut > 0) {
+          ueberschrift = `Sieht gut aus — ${gut} ${gut === 1 ? 'Punkt spricht' : 'Punkte sprechen'} dafür.`;
+        } else {
+          ueberschrift = 'Nichts spricht dagegen — und nichts hebt den Post gerade heraus.';
+        }
+        return (
+          <div className="card" style={{ marginTop: '1rem', padding: '0.75rem 1rem', maxWidth: '640px' }}>
+            <p style={{ margin: '0 0 0.5rem', fontWeight: 700, fontSize: '0.95em' }}>{ueberschrift}</p>
+            {wichtig.map((check) => (
+              <CheckZeile key={`${check.dimension}:${check.wert}`} check={check} />
+            ))}
+            {ergebnis.chancen.length > 0 && (
+              <div style={{ margin: '0.6rem 0 0', background: '#e9f2ec', borderLeft: '3px solid #1f7a45', borderRadius: '0 8px 8px 0', padding: '0.5rem 0.75rem' }}>
+                <p style={{ margin: '0 0 0.25rem', fontWeight: 700, fontSize: '0.85em', color: '#1c3a2a' }}>
+                  Was den Post stärker machen könnte:
+                </p>
+                {ergebnis.chancen.map((chance) => (
+                  <p key={`${chance.dimension}:${chance.wert}`} style={{ margin: '0.15rem 0', fontSize: '0.85em', color: '#1c3a2a' }}>
+                    {chance.satz}
+                  </p>
+                ))}
+              </div>
+            )}
+            {unauffaellig.length > 0 && (
+              <p style={{ margin: '0.6rem 0 0', fontSize: '0.8em', color: '#6b6b6b' }}>
+                Unauffällig: {unauffaellig.map((c) => WERT_LABEL[c.wert] || c.wert).join(', ')}.
+              </p>
+            )}
+            {ohneBefund.length > 0 && (
+              <p style={{ margin: '0.2rem 0 0', fontSize: '0.8em', color: '#6b6b6b' }}>
+                Kein belastbarer Befund zu: {ohneBefund.map((c) => WERT_LABEL[c.wert] || c.wert).join(', ')}.
+              </p>
+            )}
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.75em', color: '#6b6b6b' }}>
+              Gemessen an {ergebnis.basis.posts} Posts aus {ergebnis.basis.kanaele} Kanälen
+              der letzten {ergebnis.window_days} Tage. Beschreibt, was gerade läuft —
+              kein Wirkungsbeweis.
+            </p>
+          </div>
+        );
+      })()}
     </section>
   );
 }

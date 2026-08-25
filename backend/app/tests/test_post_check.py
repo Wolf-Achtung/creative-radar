@@ -206,6 +206,46 @@ def test_basis_und_fenster_stehen_im_ergebnis(session: Session):
     assert ergebnis["basis"]["kanaele"] == 6
 
 
+def test_chancen_nennen_was_der_entwurf_nicht_hat(session: Session):
+    """Wolfs Feedback 25.08.: sieben Mal "unauffaellig" ist keine
+    Hilfe. Die Chancen nennen die staerksten over-Werte, die der
+    Entwurf NICHT hat — und verschwinden, sobald er sie hat."""
+    _frage_korpus(session)
+    ohne = pruefe_post(session, caption="Ohne jede Frage.", now=NOW)
+    saetze = [c["satz"] for c in ohne["chancen"]]
+    assert any(
+        s.startswith("Caption mit Frage — funktioniert gerade.") for s in saetze
+    ), saetze
+    assert any("Euer Entwurf: Caption ohne Frage." in s for s in saetze)
+
+    mit = pruefe_post(session, caption="Traust du dich?", now=NOW)
+    assert not any(
+        c["wert"] == "mit_frage" for c in mit["chancen"]
+    ), "was der Entwurf schon hat, ist keine Chance mehr"
+
+
+def test_chancen_lassen_phase_und_genre_aus(session: Session):
+    """Kampagnenphase und Genre sind fuer einen einzelnen Post keine
+    Stellschraube — ein "Pre-Launch funktioniert gerade" waere als
+    Post-Tipp sinnlos."""
+    for _ in range(6):
+        kanal = _channel(session)
+        for _ in range(4):
+            _post(session, kanal, likes=100)
+        _post(
+            session, kanal, likes=400,
+            analysis={
+                "tone": "humorous", "lifecycle_stage": "pre_launch",
+                "confidence": 0.9,
+            },
+        )
+    ergebnis = pruefe_post(session, caption="x", now=NOW)
+    assert any(c["dimension"] == "tone" for c in ergebnis["chancen"])
+    assert not any(
+        c["dimension"] == "lifecycle_stage" for c in ergebnis["chancen"]
+    )
+
+
 # ---------- Endpoint ---------------------------------------------------
 
 

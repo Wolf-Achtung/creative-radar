@@ -167,6 +167,38 @@ def pruefe_post(
             beste = max(geschwister, key=lambda c: c.breakout_z or 0.0)
             zeile["tipp"] = f"Gerade besser: {_wert_label(beste.value)}."
 
+    # Chancen (Wolfs Feedback 25.08.: sieben Mal "unauffaellig" ist
+    # keine Hilfe): der Check sagt auch, was den Post STAERKER machen
+    # koennte — die staerksten over-Werte des Berichts, die der Entwurf
+    # nicht hat. Genre und Kampagnenphase bleiben draussen: die sind
+    # fuer einen einzelnen Post keine Stellschraube.
+    entwurfswert: dict[str, str] = {z["dimension"]: z["wert"] for z in checks}
+    chancen: list[dict] = []
+    for dimension, cells in report.dimensions.items():
+        if dimension in ("genre", "lifecycle_stage"):
+            continue
+        for cell in cells:
+            if cell.breakout_verdict != "over":
+                continue
+            if entwurfswert.get(dimension) == cell.value:
+                continue  # hat der Entwurf schon — steht oben als "gut"
+            vorhanden = entwurfswert.get(dimension)
+            if vorhanden is not None:
+                zusatz = f" Euer Entwurf: {_wert_label(vorhanden)}."
+            else:
+                zusatz = " Im Entwurf nicht angegeben."
+            chancen.append({
+                "dimension": dimension,
+                "wert": cell.value,
+                "z": cell.breakout_z or 0.0,
+                "satz": f"{_wert_label(cell.value)} — funktioniert gerade.{zusatz}",
+            })
+    chancen.sort(key=lambda c: -c["z"])
+    chancen = [
+        {"dimension": c["dimension"], "wert": c["wert"], "satz": c["satz"]}
+        for c in chancen[:3]
+    ]
+
     zusammenfassung = {
         "gut": sum(1 for z in checks if z["befund"] == "gut"),
         "achtung": sum(1 for z in checks if z["befund"] == "achtung"),
@@ -175,6 +207,7 @@ def pruefe_post(
     }
     ergebnis = {
         "checks": checks,
+        "chancen": chancen,
         "zusammenfassung": zusammenfassung,
         "window_days": window_days,
         "basis": {
