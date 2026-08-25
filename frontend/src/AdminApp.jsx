@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { endpoints } from './api/client';
+import { endpoints, download } from './api/client';
 import { formatKatalogNachladen, normalizeHandle } from './format';
 import { neuesterLauf, warteAufTitelSyncEnde } from './titelSyncWarten';
 import { ASSET_PAGE_SIZE } from './constants';
@@ -467,6 +467,17 @@ export function AdminApp({ onLogout }) {
   // Referenz-Posts. Deterministisch und sofort da, deshalb ohne
   // globales busy.
   const [startBrief, setStartBrief] = useState(null);
+  // Projekt-One-Pager (25.08.2026): der Export laeuft ueber den
+  // download()-Helper — ein <a href> koennte den Bearer nicht
+  // mitschicken. Dateiname kommt per Content-Disposition vom Backend.
+  async function exportProjektOnePager(title) {
+    try {
+      await download(`/api/admin/projekt-export/${title.id}`, 'one-pager.html');
+    } catch (err) {
+      setError(err.message || String(err));
+    }
+  }
+
   async function loadProjektStartBrief(title) {
     setStartBrief({ titleId: title.id, laedt: true });
     try {
@@ -708,6 +719,7 @@ export function AdminApp({ onLogout }) {
           onToggleTitleOwnProject={toggleTitleOwnProject}
           startBrief={startBrief}
           onProjektStartBrief={loadProjektStartBrief}
+          onProjektExport={exportProjektOnePager}
           features={health?.features || {}}
           onFullSync={triggerFullSync}
           cronBusy={cronBusy}

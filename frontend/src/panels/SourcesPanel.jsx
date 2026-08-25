@@ -30,6 +30,7 @@ export function SourcesPanel({
   onToggleTitleOwnProject,
   startBrief = null,
   onProjektStartBrief = () => {},
+  onProjektExport = () => {},
   features = {},
   onFullSync,
   cronBusy,
@@ -199,6 +200,18 @@ export function SourcesPanel({
                     onClick={() => onProjektStartBrief(title)}
                   >
                     Start-Brief
+                  </button>
+                )}
+                {/* Projekt-One-Pager (25.08.2026, Roadmap Schritt 4):
+                    Start-Brief + Countdown + Beweis als eigenstaendige
+                    HTML-Datei fuer Pitch und Kunde. Eigenes Flag. */}
+                {features.projekt_export && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => onProjektExport(title)}
+                  >
+                    One-Pager
                   </button>
                 )}
               </div>
