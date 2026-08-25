@@ -84,12 +84,14 @@ from app.core.feature_flags import (
     is_release_countdown_enabled,
     is_projekt_start_brief_enabled,
     is_sound_trends_enabled,
+    is_wochen_plan_enabled,
 )
 from app.services.campaign_timing import compute_campaign_timing
 from app.services.projekt_start_brief import compute_projekt_start_brief
 from app.services.beweis_loop import compute_beweis_loop
 from app.services.projekt_export import render_projekt_one_pager
 from app.services.release_countdown import compute_release_countdown
+from app.services.wochen_plan import compute_wochen_plan
 from app.services.sound_trends import compute_sound_trends
 from app.services.wir_segment import compute_wir_segment
 from app.services.title_aggregation import AmbiguousTitleError
@@ -443,6 +445,26 @@ def beweis_loop(session: Session = Depends(get_session)) -> dict:
             ),
         )
     return compute_beweis_loop(session)
+
+
+@router.get("/wochen-plan")
+def wochen_plan(session: Session = Depends(get_session)) -> dict:
+    """Wochen-Plan (Roadmap-Ausbau 2, 25.08.2026): je Wir-Projekt ein
+    konkreter Plan fuer die Woche — wo die Kampagne steht, welche
+    Machart in der Phase gerade funktioniert, was letzte Woche liegen
+    blieb. Reine Komposition von Countdown, Phasen-Mustern und
+    Beweis-Loop, kein Modell-Call (``services/wochen_plan.py``).
+
+    Feature-Flag-Gate (Arbeitsregel 23.08.2026)."""
+    if not is_wochen_plan_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Wochen-Plan ist deaktiviert. "
+                "FEATURE_WOCHEN_PLAN_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    return compute_wochen_plan(session)
 
 
 @router.get("/projekt-export/{title_id}")

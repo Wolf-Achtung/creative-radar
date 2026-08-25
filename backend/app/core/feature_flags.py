@@ -47,6 +47,10 @@ Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
 - ``FEATURE_POST_CHECK_ENABLED`` (bool): Post-Check
   (``POST /api/insights/post-check``) — ein Entwurf (Caption, Laenge,
   Cover) wird VOR dem Posten gegen die aktuellen Befunde geprueft.
+- ``FEATURE_WOCHEN_PLAN_ENABLED`` (bool): Wochen-Plan
+  (``GET /api/admin/wochen-plan``) — je Wir-Projekt ein konkreter
+  Plan fuer die Woche aus Phase, Phasen-Mustern und den liegen
+  gebliebenen Empfehlungen der Vorwoche.
 
 Arbeitsregel seit 23.08.2026 (Wolfs Freigabe-Modell, siehe CLAUDE.md
 "Arbeitsregel Feature-Flags"): JEDES neue Feature bekommt beim Bau ein
@@ -278,3 +282,20 @@ def is_post_check_enabled() -> bool:
     (case-insensitive), Default ``"false"``.
     """
     return os.getenv("FEATURE_POST_CHECK_ENABLED", "false").lower() == "true"
+
+
+def is_wochen_plan_enabled() -> bool:
+    """Returns True wenn der Wochen-Plan aktiv ist
+    (``GET /api/admin/wochen-plan`` + Monitoring-Sektion).
+
+    Aus dem Wochen-Bericht wird ein Plan: je Wir-Projekt sagt die
+    Sektion, wo die Kampagne steht, was in dieser Phase gerade
+    funktioniert — und was letzte Woche empfohlen war und liegen
+    blieb. Reine Komposition von Countdown, Phasen-Mustern und
+    Beweis-Loop; kein LLM-Call. Default aus nach der Arbeitsregel vom
+    23.08.2026.
+
+    Env-Var: ``FEATURE_WOCHEN_PLAN_ENABLED``; ``"true"``/``"false"``
+    (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_WOCHEN_PLAN_ENABLED", "false").lower() == "true"

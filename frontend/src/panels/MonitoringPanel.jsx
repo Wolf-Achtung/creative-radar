@@ -206,6 +206,74 @@ export function KampagnenTimingSection() {
   );
 }
 
+// Wochen-Plan (Roadmap-Ausbau 2, 25.08.2026): aus dem Wochen-Bericht
+// wird ein Plan — je Wir-Projekt: wo die Kampagne steht, was in der
+// Phase gerade funktioniert, was letzte Woche liegen blieb. Reine
+// Komposition von Countdown, Phasen-Mustern und Beweis-Loop.
+export function WochenPlanSection() {
+  const [daten, setDaten] = useState(null);
+  const [fehler, setFehler] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.wochenPlan()
+      .then((antwort) => { if (!cancelled) setDaten(antwort); })
+      .catch((err) => { if (!cancelled) setFehler(String(err?.message || err)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <Section title="Wochen-Plan" kicker="Das machen wir diese Woche">
+      {fehler && <p className="error">Konnte den Wochen-Plan nicht laden: {fehler}</p>}
+      {!fehler && !daten && <p className="muted small">Lädt …</p>}
+      {daten && daten.note && <p className="muted">{daten.note}</p>}
+      {daten && !daten.note && (
+        <>
+          {daten.liegengeblieben.length > 0 && (
+            <div className="card" style={{ padding: '0.6rem 1rem', margin: '0 0 0.75rem', borderLeft: '4px solid #b03d2e' }}>
+              <p style={{ margin: '0 0 0.25rem', fontWeight: 700, fontSize: '0.9em' }}>Liegen geblieben</p>
+              {daten.liegengeblieben.map((z) => (
+                <p key={`${z.dimension}:${z.wert}`} className="small" style={{ margin: '0.15rem 0' }}>{z.satz}</p>
+              ))}
+            </div>
+          )}
+          {daten.projekte.map((p) => (
+            <div key={p.title_id} className="card" style={{ padding: '0.75rem 1rem', margin: '0 0 0.75rem' }}>
+              <p style={{ margin: '0 0 0.25rem' }}>
+                <strong>{p.titel}</strong>
+                {p.phase && (
+                  <span className="muted small"> · {PHASE_LABEL[p.phase] || p.phase}</span>
+                )}
+              </p>
+              <p className="small" style={{ margin: '0 0 0.35rem' }}>{p.timing}</p>
+              {p.passt.length > 0 && (
+                <>
+                  <p className="muted small" style={{ margin: '0.25rem 0 0.1rem', fontWeight: 700 }}>Passt diese Woche:</p>
+                  {p.passt.map((satz) => (
+                    <p key={satz} className="small" style={{ margin: '0.1rem 0', color: '#1f7a45' }}>✓ {satz}</p>
+                  ))}
+                </>
+              )}
+              {p.lieber_nicht.length > 0 && (
+                <>
+                  <p className="muted small" style={{ margin: '0.25rem 0 0.1rem', fontWeight: 700 }}>Lieber nicht:</p>
+                  {p.lieber_nicht.map((satz) => (
+                    <p key={satz} className="small" style={{ margin: '0.1rem 0', color: '#b03d2e' }}>✗ {satz}</p>
+                  ))}
+                </>
+              )}
+            </div>
+          ))}
+          <p className="muted small" style={{ margin: 0 }}>
+            Zusammengesetzt aus Release-Countdown, Phasen-Mustern und Beweis-Loop —
+            jede Zahl steht genauso in den Einzel-Sektionen. Kein Wirkungsbeweis.
+          </p>
+        </>
+      )}
+    </Section>
+  );
+}
+
 // Release-Countdown (Roadmap Schritt 2, 25.08.2026): je Wir-Projekt
 // die Zeitleiste — Release-Datum, Wochen bis Release, Einordnung gegen
 // den Markt-Kampagnenstart, plus die belastbaren Muster der aktuellen
@@ -664,6 +732,7 @@ export function MonitoringPanel({ features = {} } = {}) {
       {/* Feature-Flag-Gates (Arbeitsregel 23.08.2026): neue Auswertungen
           erscheinen nur, wo /api/health -> features sie anbietet —
           Staging zuerst, Production nach Wolfs Freigabe. */}
+      {features.wochen_plan && <WochenPlanSection />}
       {features.kampagnen_timing && <KampagnenTimingSection />}
       {features.release_countdown && <ReleaseCountdownSection />}
       {features.beweis_loop && <BeweisLoopSection />}

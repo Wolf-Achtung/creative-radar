@@ -14,6 +14,7 @@ from app.core.feature_flags import (
     is_sound_trends_enabled,
     is_trailer_intelligence_enabled,
     is_wir_projekte_enabled,
+    is_wochen_plan_enabled,
 )
 from app.database import database_diagnostics
 
@@ -59,6 +60,7 @@ def health():
             "beweis_loop": is_beweis_loop_enabled(),
             "projekt_export": is_projekt_export_enabled(),
             "post_check": is_post_check_enabled(),
+            "wochen_plan": is_wochen_plan_enabled(),
         },
     }
 
