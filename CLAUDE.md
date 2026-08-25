@@ -5,7 +5,8 @@ genannten Datum am Code oder an der Anbieter-Doku geprüft worden — nicht
 aus dem Gedächtnis geschrieben. Wo eine Quelle nicht erreichbar war,
 steht das da.
 
-**Letzter Wartungsdurchgang: 19.08.2026**
+**Letzter Wartungsdurchgang: 19.08.2026** · letzte Korrektur: 25.08.2026
+(siehe „Katalog-Zuordnung — vier Befunde")
 
 ---
 
@@ -292,7 +293,118 @@ nicht mehr die Prüfgrundlage:
 | `FEATURE_PROJEKT_START_BRIEF_ENABLED` | Start-Brief je Wir-Projekt (#414) | zu setzen | aus bis Freigabe |
 | `FEATURE_KAMPAGNEN_TIMING_ENABLED` | Kampagnen-Timing im Monitoring (#415) | zu setzen | aus bis Freigabe |
 | `FEATURE_SOUND_TRENDS_ENABLED` | Sound-Trends im Monitoring (#416) | zu setzen | aus bis Freigabe |
-| `FEATURE_KATALOG_NACHLADEN_ENABLED` | Fehlende Titel aus TMDb nachladen (#429) | zu setzen | aus bis Freigabe |
+| `FEATURE_KATALOG_NACHLADEN_ENABLED` | Fehlende Titel aus TMDb nachladen (#429) | an | **an** seit 25.08., Vorschau statt Staging-Abnahme |
+
+## Katalog-Zuordnung — vier Befunde vom 25.08.2026
+
+Ein Tag, der als „Katalog-Lücke schließen" begann und drei Fehler
+aufdeckte, die vorher niemand sah. Der Reihe nach, weil die
+Ursachenkette zusammenhängt.
+
+### 1. `POST /api/titles` antwortete seit jeher `{}`
+
+Der Commit für die Keywords lief **nach** `session.refresh`; ein
+Commit macht die Instanz stale, FastAPI serialisierte danach ein
+leeres `__dict__`. Auf `main` reproduziert, nicht vermutet.
+
+Die Folge war kein Schönheitsfehler. `createTitleFromCandidate` liest
+`title.id` aus der Antwort, `undefined` fällt bei `JSON.stringify`
+heraus — das Asset bekam **keinen Titel**, während der Kandidat auf
+`resolved` ging und der Toast „neu angelegt und zugeordnet" meldete.
+
+So entstanden 74 geschlossene Kandidaten mit titellosem Asset. Behoben
+in #436 (Refresh nach allen Commits, plus ein Wurf im Frontend, wenn
+die Antwort keine ID trägt). **Merkposten:** Endpoints, deren Antwort
+ein anderer Codepfad ausliest, brauchen einen Test auf die Antwort —
+nicht nur auf den Statuscode.
+
+### 2. Ein mehrdeutiger Katalog-Name schaltet die ganze Automatik ab
+
+`_build_exact_title_lookup` kennt **drei** Zustände, und die
+Unterscheidung ist sicherheitsrelevant:
+
+| Zustand | Bedeutung |
+|---|---|
+| Schlüssel fehlt | nicht im Katalog |
+| Schlüssel da, Wert da | eindeutig |
+| Schlüssel da, Wert `None` | **mehrdeutig — Menschensache** |
+
+Ein `lookup.get(name)` wirft die letzten beiden zusammen. Im
+KI-Assist ist das harmlos (kein eindeutiger Treffer → nicht zuordnen,
+der Fehler fällt auf die sichere Seite). Im Katalog-Nachladen kippte
+es ins Gegenteil: der mehrdeutige Fall landete im TMDb-Pfad und legte
+**noch** eine Zeile gleichen Namens an — jede Runde eine mehr (#435).
+
+Wichtiger als der Bug ist die Folge des Zustands selbst: Autopilot,
+KI-Assist **und** Nachladen lassen einen mehrdeutigen Namen alle
+liegen. Ein Doppelklick auf „Titel anlegen" schaltete die Automatik
+für diesen Namen also dauerhaft ab. Seit #436 gibt `create_title` den
+vorhandenen Titel zurück, statt blind anzulegen; ein bereits
+mehrdeutiger Name wird mit 409 abgewiesen.
+
+### 3. Staging kann LLM-getriebene Features nicht erproben
+
+Das Katalog-Nachladen liest den Marker `(nicht im Katalog)`. Den setzt
+ausschließlich die KI-Prüfung — und die braucht den Anthropic-Key, den
+Staging bewusst nicht hat. **Staging kann diesen Marker nie
+erzeugen.** Wolfs Freigabe-Modell („Neues zuerst in Staging") läuft
+bei jedem Feature ins Leere, dessen Eingabe aus einem LLM-Pfad stammt.
+
+Ersatz seit #432: eine **Vorschau**. `anwenden=False` ist die Vorgabe;
+derselbe Code läuft vollständig durch und wird am Ende zurückgerollt
+statt festgeschrieben. Genau ein Ausdruck unterscheidet die Fälle —
+ein zweiter Codepfad, der aufzählt was passieren *sollte*, wäre in dem
+Moment wertlos, in dem er vom echten abweicht.
+
+Die Vorschau hat sich am selben Tag zweimal bezahlt gemacht: sie hat
+die Doubletten-Schleife sichtbar gemacht und den Fehler unter Punkt 4.
+
+### 4. „Kein Asset" heißt nicht „Schutt"
+
+Die erste Fassung von `titel_doubletten_aufraeumen.py` wollte jede
+aktive Zeile ohne Asset stilllegen. Die Vorschau gegen Production
+meldete **639 Zeilen**: „The Mummy", „Cape Fear", „Little Women",
+„It", „Ocean's Eleven" — echte, verschiedene Werke gleichen Namens.
+Sie haben null Assets, weil ihnen noch kein Post zugeordnet wurde; bei
+19.000 Titeln trifft das auf fast alle zu.
+
+Seit #437 gilt als Schutt nur, was **ohne `tmdb_id`** und ohne Asset
+ist. Eine TMDb-Zeile wird nie angefasst. Namensgleichheit im Katalog
+ist ein Zustand, kein Fehler.
+
+### Das Ergebnis
+
+47 verlorene Kandidaten wieder geöffnet (`luecken_wieder_oeffnen.py`,
+mit Reparatur des Vorschlags aus der KI-Notiz — bei acht stand dort
+noch der Matcher-Fehlgriff, `'partners'` statt
+`'Steckerlfisch Fiasko'`). Davon **25 zugeordnet, null neue Titel
+nötig**.
+
+Es gab also fast keine Katalog-Lücke. Die 47 Posts waren Folge des
+stillen Fehlers aus Punkt 1, nicht eines zu engen Katalogs. Das
+Feature, das die Lücke schließen sollte, hat vor allem bewiesen, dass
+es kaum eine gab — und den Weg zum eigentlichen Fehler gebahnt.
+
+### Werkzeuge aus diesem Tag (Vorschau bzw. read-only per Vorgabe)
+
+| Skript | Frage |
+|---|---|
+| `diag_geschlossene_luecken.py` | Welche geschlossenen Kandidaten haben ein Asset ohne Titel? |
+| `diag_titel_doubletten.py` | Welche aktiven Titel teilen sich einen Normalnamen? |
+| `luecken_wieder_oeffnen.py` | Zurück in die Queue, mit Namen aus der KI-Notiz |
+| `titel_doubletten_aufraeumen.py` | Handgemachten Schutt stilllegen, Gruppen zusammenlegen |
+
+### Offen
+
+- **`minions & monsters`**: zwei aktive TMDb-Zeilen (878357 mit 43
+  Assets, 1315772 mit 1). Altbestand, nicht aus diesem Tag. Ob
+  dasselbe Werk unter zwei IDs oder zwei Formate — ungeklärt.
+- **`the beauty of ballroom`**: eine Manual-Zeile mit einem Asset
+  neben der TMDb-Zeile `10s Across the Borders`, deren **Lokaltitel**
+  derselbe ist. Zusammenlegen erst nach einem Blick auf den Post.
+- **27 geschlossene Kandidaten ohne Lücken-Marker** — titellos, ohne
+  KI-Urteil. Kann richtig sein (Post bewirbt kein Werk) oder derselbe
+  stille Fehler ohne KI-Notiz. Nicht geprüft.
 
 ## Auth-Schichten
 
