@@ -300,3 +300,18 @@ export function formatKatalogAnwendenLabel(vorschau) {
   teile.push(`${vorschau.zugeordnet} Treffer zuordnen`);
   return teile.join(', ');
 }
+
+
+// Kampagnenstart-Label im Monitoring. Vorher stand dort nackt
+// ``Math.round(tage/7) + " Wochen vor Release"`` — das ergab
+// "1 Wochen", "0 Wochen vor Release" und "-1 Wochen vor Release"
+// (Wolfs Staging-Abnahme, 25.08.2026). Negative Vorlauftage heissen:
+// der fruehste Post kam NACH dem Release.
+export function formatKampagnenstart(vorlaufTage) {
+  if (vorlaufTage === null || vorlaufTage === undefined) return '—';
+  const wochen = Math.round(vorlaufTage / 7);
+  if (wochen === 0) return 'in der Release-Woche';
+  const n = Math.abs(wochen);
+  const einheit = n === 1 ? 'Woche' : 'Wochen';
+  return wochen > 0 ? `${n} ${einheit} vor Release` : `${n} ${einheit} nach Release`;
+}

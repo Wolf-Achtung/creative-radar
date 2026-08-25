@@ -9,6 +9,7 @@ import {
   formatCronRunStatus,
   formatDate,
   formatDateTime,
+  formatKampagnenstart,
   formatKatalogAnwendenLabel,
   formatKatalogNachladen,
   formatMultiplier,
@@ -291,5 +292,32 @@ describe('formatKatalogAnwendenLabel', () => {
   it('faellt ohne Wirkung auf einen neutralen Text zurueck', () => {
     expect(formatKatalogAnwendenLabel({ angelegt: 0, zugeordnet: 0 })).toBe('Übernehmen');
     expect(formatKatalogAnwendenLabel(null)).toBe('Übernehmen');
+  });
+});
+
+// Kampagnenstart-Label (25.08.2026): Wolfs Staging-Abnahme zeigte
+// "1 Wochen vor Release", "0 Wochen vor Release" und "-1 Wochen vor
+// Release" — grammatisch falsch bzw. irrefuehrend. Negative
+// Vorlauftage bedeuten: die Kampagne begann erst NACH dem Release.
+describe('formatKampagnenstart', () => {
+  it('nennt Mehrzahl-Wochen vor dem Release', () => {
+    expect(formatKampagnenstart(147)).toBe('21 Wochen vor Release');
+  });
+
+  it('kennt den Singular', () => {
+    expect(formatKampagnenstart(7)).toBe('1 Woche vor Release');
+  });
+
+  it('nennt die Release-Woche beim Namen statt "0 Wochen"', () => {
+    expect(formatKampagnenstart(2)).toBe('in der Release-Woche');
+  });
+
+  it('sagt "nach Release" statt negativer Wochen', () => {
+    expect(formatKampagnenstart(-7)).toBe('1 Woche nach Release');
+    expect(formatKampagnenstart(-49)).toBe('7 Wochen nach Release');
+  });
+
+  it('faellt bei fehlendem Wert auf den Strich zurueck', () => {
+    expect(formatKampagnenstart(null)).toBe('—');
   });
 });

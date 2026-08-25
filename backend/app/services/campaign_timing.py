@@ -161,6 +161,12 @@ def compute_campaign_timing(
                 {
                     "handle": r["channel"].handle or r["channel"].name,
                     "market": r["channel"].market.value,
+                    # Ein Handle existiert je Plattform als eigener
+                    # Kanal-Datensatz (@warnerbros auf Instagram UND
+                    # TikTok). Ohne diese Spalte sehen die Zeilen in der
+                    # Tabelle wie Doubletten aus — Wolfs Befund bei der
+                    # Staging-Abnahme am 25.08.2026.
+                    "platform": r["channel"].platform,
                     "posts": 0,
                     "titel_ids": set(),
                     "erste_vorlaeufe": {},
@@ -186,6 +192,7 @@ def compute_campaign_timing(
         {
             "handle": e["handle"],
             "market": e["market"],
+            "platform": e["platform"],
             "posts": e["posts"],
             "titel": len(e["titel_ids"]),
             # Kampagnenstart je Titel = fruehester Post; der Kanal-Wert

@@ -4,6 +4,7 @@ import {
   clip,
   formatCronRunStatus,
   formatDateTime,
+  formatKampagnenstart,
   formatMultiplier,
   formatNumber,
   formatPct1,
@@ -159,18 +160,22 @@ export function KampagnenTimingSection() {
             <table>
               <thead>
                 <tr>
-                  <th>Kanal</th><th>Markt</th><th>Titel</th><th>Posts</th>
+                  <th>Kanal</th><th>Markt</th><th>Plattform</th><th>Titel</th><th>Posts</th>
                   <th>Kampagnenstart (Median)</th>
                 </tr>
               </thead>
               <tbody>
+                {/* Der Key traegt die Plattform: derselbe Handle steht
+                    je Plattform als eigene Zeile da, und ein Key aus nur
+                    handle:market kollidierte genau dort. */}
                 {daten.kanaele.map((k) => (
-                  <tr key={`${k.handle}:${k.market}`}>
+                  <tr key={`${k.handle}:${k.market}:${k.platform || ''}`}>
                     <td>@{k.handle}</td>
                     <td>{k.market}</td>
+                    <td className="muted small">{k.platform || '—'}</td>
                     <td>{k.titel}</td>
                     <td>{k.posts}</td>
-                    <td>{Math.round(k.median_kampagnenstart_tage / 7)} Wochen vor Release</td>
+                    <td>{formatKampagnenstart(k.median_kampagnenstart_tage)}</td>
                   </tr>
                 ))}
               </tbody>
