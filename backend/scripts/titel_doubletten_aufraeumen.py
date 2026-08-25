@@ -103,19 +103,37 @@ def _asset_zahl(session: Session, titel: list[Title]) -> dict:
 
 
 def _leere_doubletten(session: Session, gruppen: dict) -> list[Title]:
-    """Zeilen ohne Asset, deren Gruppe auch ohne sie nicht leer wird.
+    """Handgemachter Schutt: OHNE ``tmdb_id`` und ohne ein Asset.
 
-    Die zweite Bedingung ist der Schutz vor Uebereifer: haette KEINE
-    Zeile der Gruppe ein Asset, wuerde das Skript sonst alle
-    stilllegen und der Name verschwaende ganz aus dem Katalog.
+    Die erste Fassung sagte nur "ohne Asset" — und die Vorschau gegen
+    Production meldete prompt **639 Zeilen** zum Stilllegen: "The
+    Mummy", "Cape Fear", "Little Women", "It", "Ocean's Eleven". Das
+    sind echte, verschiedene Werke gleichen Namens aus dem TMDb-
+    Katalog. Sie haben null Assets, weil ihnen noch kein beobachteter
+    Post zugeordnet wurde — bei 19.000 Titeln trifft das auf fast alle
+    zu. "Kein Asset" heisst also NICHT "Schutt"; die Regel haette 639
+    legitime Katalog-Zeilen stillgelegt, und der Matcher haette diese
+    Filme nie wieder gefunden.
+
+    Der echte Schutt stammt aus dem kaputten "Titel anlegen" (#436):
+    handgemachte Zeilen ohne ``tmdb_id``, an denen nichts haengt. Eine
+    TMDb-Zeile wird hier NIE angefasst, auch wenn sie leer ist —
+    Namensgleichheit im Katalog ist ein Zustand, kein Fehler.
+
+    Bleibt der Schutz vor Uebereifer: waere die ganze Gruppe solcher
+    Schutt, bliebe eine Zeile stehen, damit der Name nicht ganz aus dem
+    Katalog verschwindet.
     """
     treffer: list[Title] = []
     for titel in gruppen.values():
         zaehler = _asset_zahl(session, titel)
-        leer = [t for t in titel if zaehler.get(t.id, 0) == 0]
-        if len(leer) == len(titel):
-            leer = leer[1:]  # eine bleibt stehen
-        treffer.extend(t for t in leer if t not in treffer)
+        schutt = [
+            t for t in titel
+            if t.tmdb_id is None and zaehler.get(t.id, 0) == 0
+        ]
+        if len(schutt) == len(titel):
+            schutt = schutt[1:]  # eine bleibt stehen
+        treffer.extend(t for t in schutt if t not in treffer)
     return treffer
 
 

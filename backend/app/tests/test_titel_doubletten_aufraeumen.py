@@ -70,6 +70,48 @@ def test_leere_doublette_wird_erkannt(session):
     assert echt.id not in {t.id for t in treffer}
 
 
+def test_leere_tmdb_zeile_wird_nie_angefasst(session):
+    """Der Beinahe-Unfall vom 25.08.2026. Die erste Fassung sagte nur
+    "ohne Asset" — und die Vorschau gegen Production meldete 639 Zeilen
+    zum Stilllegen: "The Mummy", "Cape Fear", "Little Women", "It".
+    Echte, verschiedene Werke gleichen Namens. Sie haben null Assets,
+    weil ihnen noch kein Post zugeordnet wurde; bei 19.000 Titeln
+    trifft das auf fast alle zu.
+
+    Namensgleichheit im Katalog ist ein Zustand, kein Fehler. Eine
+    TMDb-Zeile wird nie stillgelegt."""
+    _titel(session, "The Mummy", tmdb_id=15849, assets=0)
+    _titel(session, "The Mummy", tmdb_id=282035, assets=0)
+
+    assert cleanup._leere_doubletten(session, cleanup._gruppen(session)) == []
+
+
+def test_nur_handgemachte_zeilen_gelten_als_schutt(session):
+    """Wolfs echter Fall: zwei tote Manual-Zeilen neben der TMDb-Serie.
+    Nur die beiden gehen weg."""
+    manuell1 = _titel(session, "Lanterns")
+    manuell2 = _titel(session, "Lanterns")
+    aus_tmdb_leer = _titel(session, "Lanterns", tmdb_id=111)
+    aus_tmdb_belegt = _titel(session, "Lanterns", tmdb_id=95350, assets=1)
+
+    treffer = cleanup._leere_doubletten(session, cleanup._gruppen(session))
+
+    assert {t.id for t in treffer} == {manuell1.id, manuell2.id}
+    assert aus_tmdb_leer.id not in {t.id for t in treffer}
+    assert aus_tmdb_belegt.id not in {t.id for t in treffer}
+
+
+def test_belegte_manual_zeile_bleibt_stehen(session):
+    """An ihr haengt ein Post — sie ist kein Schutt, sondern ein Fall
+    fuer die Entscheidung des Menschen."""
+    _titel(session, "The Beauty of Ballroom", assets=1)
+    leer = _titel(session, "The Beauty of Ballroom")
+
+    treffer = cleanup._leere_doubletten(session, cleanup._gruppen(session))
+
+    assert {t.id for t in treffer} == {leer.id}
+
+
 def test_eine_zeile_bleibt_wenn_alle_leer_sind(session):
     """Schutz vor Uebereifer: haette KEINE Zeile ein Asset, wuerde ein
     naiver Filter alle stilllegen — der Name verschwaende ganz aus dem
