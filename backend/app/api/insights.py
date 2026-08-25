@@ -2,6 +2,8 @@ import logging
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+
+from pydantic import BaseModel, Field
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -59,11 +61,17 @@ from app.services.insight_engine import (
     last_completed_iso_week_anchor,
 )
 from app.core.feature_flags import (
+    is_post_check_enabled,
     is_referenz_suche_enabled,
     is_trailer_intelligence_enabled,
 )
 from app.services.forecast import generate_er_forecast
 from app.services.insights import build_overview
+from app.services.post_check import (
+    FORMAT_WERTE,
+    TON_WERTE,
+    pruefe_post,
+)
 from app.services.referenz_suche import suche_referenzen
 from app.services.trailer_patterns import (
     TREND_WINDOW_SHIFT_DAYS,
@@ -630,6 +638,71 @@ def trailer_pattern_examples(
             for p in top
         ],
     }
+
+
+class PostCheckEntwurf(BaseModel):
+    """Eingabe des Post-Checks — ein Entwurf, kein persistierter Post."""
+
+    caption: str = Field(min_length=1, max_length=5000)
+    duration_seconds: Optional[int] = Field(None, ge=1, le=7200)
+    titel_im_bild: Optional[bool] = None
+    format: Optional[str] = None
+    tonfall: Optional[str] = None
+
+
+@router.post(
+    "/post-check",
+    # Deterministisch und billig, aber rechnet einen vollen Bericht —
+    # dasselbe Limit-Muster wie der Forecast haelt Schleifen fern.
+    dependencies=[Depends(rate_limit("insights-post-check", max_calls=30, window_seconds=300))],
+)
+def post_check(
+    entwurf: PostCheckEntwurf,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Post-Check (Roadmap-Ausbau, 25.08.2026): ein Entwurf wird VOR
+    dem Posten gegen die aktuellen Befunde geprueft — dieselben
+    Extraktoren und Zellen wie der Muster-Bericht, kein LLM-Call
+    (``services/post_check.py``).
+
+    Gate: ``FEATURE_POST_CHECK_ENABLED`` (Arbeitsregel 23.08.2026 —
+    Staging zuerst). Off → 503."""
+    if not is_post_check_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Post-Check ist deaktiviert. "
+                "FEATURE_POST_CHECK_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    if entwurf.format is not None and entwurf.format not in FORMAT_WERTE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unbekanntes Format {entwurf.format!r}. Bekannt: {', '.join(FORMAT_WERTE)}",
+        )
+    if entwurf.tonfall is not None and entwurf.tonfall not in TON_WERTE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unbekannter Tonfall {entwurf.tonfall!r}. Bekannt: {', '.join(TON_WERTE)}",
+        )
+    ergebnis = pruefe_post(
+        session,
+        caption=entwurf.caption,
+        duration_seconds=entwurf.duration_seconds,
+        titel_im_bild=entwurf.titel_im_bild,
+        format_wert=entwurf.format,
+        ton_wert=entwurf.tonfall,
+    )
+    log_usage(
+        request_user_email(request),
+        "post_check",
+        {
+            "achtung": ergebnis["zusammenfassung"]["achtung"],
+            "gut": ergebnis["zusammenfassung"]["gut"],
+        },
+    )
+    return ergebnis
 
 
 @router.get("/referenzen")

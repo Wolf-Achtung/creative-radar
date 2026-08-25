@@ -6,6 +6,7 @@ from app.core.feature_flags import (
     is_beweis_loop_enabled,
     is_kampagnen_timing_enabled,
     is_katalog_nachladen_enabled,
+    is_post_check_enabled,
     is_projekt_export_enabled,
     is_projekt_start_brief_enabled,
     is_referenz_suche_enabled,
@@ -57,6 +58,7 @@ def health():
             "release_countdown": is_release_countdown_enabled(),
             "beweis_loop": is_beweis_loop_enabled(),
             "projekt_export": is_projekt_export_enabled(),
+            "post_check": is_post_check_enabled(),
         },
     }
 

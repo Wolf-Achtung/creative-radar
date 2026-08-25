@@ -44,6 +44,9 @@ Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
   Wir-Projekt (``GET /api/admin/projekt-export/{title_id}``) —
   Start-Brief, Countdown und Beweis als eigenstaendige HTML-Datei
   fuer Pitch und Kunde.
+- ``FEATURE_POST_CHECK_ENABLED`` (bool): Post-Check
+  (``POST /api/insights/post-check``) — ein Entwurf (Caption, Laenge,
+  Cover) wird VOR dem Posten gegen die aktuellen Befunde geprueft.
 
 Arbeitsregel seit 23.08.2026 (Wolfs Freigabe-Modell, siehe CLAUDE.md
 "Arbeitsregel Feature-Flags"): JEDES neue Feature bekommt beim Bau ein
@@ -259,3 +262,19 @@ def is_projekt_export_enabled() -> bool:
     (case-insensitive), Default ``"false"``.
     """
     return os.getenv("FEATURE_PROJEKT_EXPORT_ENABLED", "false").lower() == "true"
+
+
+def is_post_check_enabled() -> bool:
+    """Returns True wenn der Post-Check aktiv ist
+    (``POST /api/insights/post-check`` + Panel im Dashboard).
+
+    Die Blickrichtungs-Umkehr: statt montags zu lesen, was gefehlt
+    hat, prueft das Team einen Entwurf VOR dem Posten gegen die
+    aktuellen Befunde — deterministisch, dieselben Regeln wie der
+    Muster-Bericht, kein LLM-Call. Default aus nach der Arbeitsregel
+    vom 23.08.2026.
+
+    Env-Var: ``FEATURE_POST_CHECK_ENABLED``; ``"true"``/``"false"``
+    (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_POST_CHECK_ENABLED", "false").lower() == "true"
