@@ -96,14 +96,14 @@ def _playbook_minimal(**overrides):
 def test_render_spricht_werkstatt_sprache():
     """21.08.2026 nach Wolfs erster Test-Mail ("etwas nuechtern"): die
     Mail nutzt dieselben Werkstatt-Vorlagen wie die Panel-Karten —
-    Handlung statt Mess-Sprache, MACHEN/VORSICHT-Gruppen, Fusszeile
+    Handlung statt Mess-Sprache, Über/Unter-dem-Schnitt-Gruppen, Fusszeile
     mit Dashboard-Link statt Notes-Block."""
     subject, text, html = pp.render_playbook(_playbook_minimal())
     assert "KW 34/2026" in subject
     # Subject traegt den Werkstatt-Titel des staerksten Befunds.
-    assert "Mehr Blicke hinter die Kulissen" in subject
-    assert "MACHEN" in text
-    assert "Mehr Blicke hinter die Kulissen" in text
+    assert "Blicke hinter die Kulissen wirken" in subject
+    assert "ÜBER DEM SCHNITT" in text
+    assert "Blicke hinter die Kulissen wirken" in text
     assert "1.5-mal öfter weit über dem Kanal-Schnitt" in text
     # Mess-Sprache und rohe Werte kommen nicht mehr vor.
     assert "Ausreisser-Quote" not in text
@@ -112,8 +112,8 @@ def test_render_spricht_werkstatt_sprache():
     assert "app.creative-radar.de" in text
     assert "kein Wirkungsbeweis" in text
     # HTML: Panel-Look mit Karte, Chip und Dashboard-Link.
-    assert "Mehr Blicke hinter die Kulissen" in html
-    assert "Machen" in html
+    assert "Blicke hinter die Kulissen wirken" in html
+    assert "Über dem Schnitt" in html
     assert "app.creative-radar.de" in html
 
 
@@ -123,8 +123,8 @@ def test_render_vorsicht_gruppe_und_fallback():
         "cell": _zelle("Romance", verdict="under", z=-2.5),
     }])
     subject, text, _ = pp.render_playbook(pb)
-    assert "Romance: sparsam einsetzen" in subject
-    assert "VORSICHT" in text
+    assert "Romance: läuft unter dem Schnitt" in subject
+    assert "UNTER DEM SCHNITT" in text
     assert "bleiben öfter unter dem Kanal-Schnitt" in text
 
 
