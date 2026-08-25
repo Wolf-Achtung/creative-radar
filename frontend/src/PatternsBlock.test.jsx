@@ -432,6 +432,29 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     expect(screen.queryByText('Das Wichtigste zuerst')).toBeNull();
   });
 
+  it('Chip spricht Klartext und der Tipp steht als eigener Kasten', async () => {
+    // Wolfs Layout-Feedback 25.08.: "Über/Unter dem Schnitt" als
+    // Kategorie war unverstaendlich, und der Tipp ging im Fliesstext
+    // unter. Jetzt: "Stark/Schwach im Markt" + eigener Tipp-Absatz.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        tone: [{ ...ZELLE_OK, value: 'humorous', breakout_verdict: 'under', breakout_z: -2.4 }],
+        format: [{ ...ZELLE_OK, value: 'behind_the_scenes', breakout_verdict: 'over', breakout_z: 3.1 }],
+      },
+    });
+    render(<PatternsBlock />);
+    await screen.findByText('Humor zieht nicht von allein');
+    // BEIDE Chip-Beschriftungen gepinnt — eine Mutation nur der
+    // over-Seite muss genauso auffallen wie eine der under-Seite.
+    expect(screen.getByText('Schwach im Markt')).toBeTruthy();
+    expect(screen.getByText('Stark im Markt')).toBeTruthy();
+    expect(screen.queryByText(/Zu beachten/)).toBeNull();
+    expect(screen.getAllByText('Tipp:').length).toBe(2);
+    expect(screen.getByText(/Humor trägt mit einem starken Aufhänger/)).toBeTruthy();
+  });
+
   it('Werkstatt-Fallback: unbekannte Befunde bekommen einen generischen, ehrlichen Satz', async () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
@@ -439,7 +462,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
 
     // Romance (over) hat keine Werkstatt-Vorlage — Titel aus dem
     // Fallback, mit Faktor aus den Zahlen (0.19/0.11 = 1.7).
-    await screen.findByText('Romance: läuft über dem Schnitt');
+    await screen.findByText('Romance: stark im Markt');
     expect(screen.getByText(/1\.7-mal öfter weit über dem Kanal-Schnitt/)).toBeTruthy();
   });
 

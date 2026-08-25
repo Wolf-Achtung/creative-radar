@@ -121,46 +121,57 @@ THEMA_LABEL = {
 
 # Werkstatt-Vorlagen — Zwilling von WERKSTATT_VORLAGEN in
 # PatternsBlock.jsx (wer dort umformuliert, formuliert hier mit um).
-# Schluessel (dimension, wert); Wert: faktor -> (titel, satz).
+# Schluessel (dimension, wert); Wert: faktor -> (titel, satz, tipp).
+# Der Tipp steht seit Wolfs Layout-Feedback (25.08.) GETRENNT vom Satz:
+# im Fliesstext ging die konstruktivste Aussage unter, jetzt bekommt
+# sie eine eigene, hervorgehobene Zeile.
 _WERKSTATT_VORLAGEN = {
     ("cover_kinetik", "title_card"): lambda f: (
         "Titel-Tafel im Cover wirkt",
         f"Posts mit gestalteter Titel-Tafel im Cover liegen {f}-mal öfter weit über dem Kanal-Schnitt als Posts ohne.",
+        "Eine gestaltete Titel-Tafel im Cover lohnt den Design-Aufwand.",
     ),
     ("lifecycle_stage", "pre_launch"): lambda f: (
         "Die stärkste Phase liegt vor dem Start",
-        f"Die stärksten Posts entstehen vor dem Kinostart ({f}-mal öfter als erwartet). Zu beachten: Reichweite entsteht, bevor der Film läuft.",
+        f"Die stärksten Posts entstehen vor dem Kinostart ({f}-mal öfter als erwartet).",
+        "Reichweite entsteht, bevor der Film läuft — der Vorlauf ist die wichtigste Zeit.",
     ),
     ("lifecycle_stage", "launch"): lambda f: (
         "Rund um den Starttag wird es schwerer",
-        "Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt. Zu beachten: ein eigener Aufhänger hilft hier mehr als Routine.",
+        "Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt.",
+        "Ein eigener Aufhänger hilft hier mehr als Routine.",
     ),
     ("lifecycle_stage", "evergreen"): lambda f: (
         "Ohne Anlass bleibt die Reichweite klein",
-        "Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite. Zu beachten: ein Termin als Anlass — Start, Jubiläum, Heimkino — hebt die Chance.",
+        "Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite.",
+        "Ein Termin als Anlass — Start, Jubiläum, Heimkino — hebt die Chance.",
     ),
     ("tone", "humorous"): lambda f: (
         "Humor zieht nicht von allein",
-        "Lustige Posts bleiben öfter unter dem Kanal-Schnitt. Zu beachten: Humor trägt mit einem starken Aufhänger — als Selbstläufer selten.",
+        "Lustige Posts bleiben öfter unter dem Kanal-Schnitt.",
+        "Humor trägt mit einem starken Aufhänger — als Selbstläufer selten.",
     ),
     ("format", "behind_the_scenes"): lambda f: (
         "Blicke hinter die Kulissen wirken",
-        f"Posts vom Set oder aus der Produktion liegen {f}-mal öfter weit über dem Kanal-Schnitt. Nähe schlägt Hochglanz.",
+        f"Posts vom Set oder aus der Produktion liegen {f}-mal öfter weit über dem Kanal-Schnitt.",
+        "Nähe schlägt Hochglanz — echte Set-Momente wirken.",
     ),
     ("format", "clip"): lambda f: (
         "Rohe Szenen-Clips fallen ab",
-        "Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt. Zu beachten: mit Einstieg — Hook, Kontext oder Anlass — schneiden Clips besser ab.",
+        "Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt.",
+        "Mit Einstieg — Hook, Kontext oder Anlass — schneiden Clips besser ab.",
     ),
     ("format_class", "langform"): lambda f: (
         "Lange Videos funktionieren",
-        f"Videos über 90 Sekunden liegen {f}-mal öfter weit über dem Kanal-Schnitt. Länge schreckt nicht ab.",
+        f"Videos über 90 Sekunden liegen {f}-mal öfter weit über dem Kanal-Schnitt.",
+        "Länge schreckt nicht ab — gute lange Videos finden ihr Publikum.",
     ),
 }
 
 
-def _werkstatt_empfehlung(dim: str, cell: dict) -> tuple[str, str]:
-    """(titel, satz) in Werkstatt-Sprache — Vorlage falls bekannt,
-    sonst ein generischer, ehrlicher Fallback."""
+def _werkstatt_empfehlung(dim: str, cell: dict) -> tuple[str, str, str | None]:
+    """(titel, satz, tipp) in Werkstatt-Sprache — Vorlage falls bekannt,
+    sonst ein generischer, ehrlicher Fallback ohne Tipp."""
     expected = cell.get("expected_breakout_rate") or 0
     faktor = (
         f"{cell['breakout_rate'] / expected:.1f}" if expected else None
@@ -172,12 +183,14 @@ def _werkstatt_empfehlung(dim: str, cell: dict) -> tuple[str, str]:
     if cell["breakout_verdict"] == "over":
         oefter = f"{faktor}-mal öfter" if faktor else "öfter"
         return (
-            f"{wert}: läuft über dem Schnitt",
+            f"{wert}: stark im Markt",
             f"Posts mit diesem Merkmal liegen {oefter} weit über dem Kanal-Schnitt.",
+            None,
         )
     return (
-        f"{wert}: läuft unter dem Schnitt",
+        f"{wert}: schwach im Markt",
         "Posts mit diesem Merkmal bleiben öfter unter dem Kanal-Schnitt.",
+        None,
     )
 
 
@@ -278,11 +291,14 @@ def build_playbook(session: Session, *, now: Optional[datetime] = None) -> dict:
 
 def _befund_zeile(eintrag: dict) -> str:
     cell = eintrag["cell"]
-    titel, satz = _werkstatt_empfehlung(eintrag["dim"], cell)
-    return (
+    titel, satz, tipp = _werkstatt_empfehlung(eintrag["dim"], cell)
+    zeile = (
         f"- {titel} — {satz} "
         f"({cell['sample_size']} Posts, {cell['channel_count']} Kanäle)"
     )
+    if tipp:
+        zeile += f"\n    Tipp: {tipp}"
+    return zeile
 
 
 def _bewegungs_zeile(eintrag: dict) -> str:
@@ -316,7 +332,7 @@ def render_playbook(playbook: dict) -> tuple[str, str, str]:
     vorsicht = [e for e in playbook["befunde"] if e["cell"]["breakout_verdict"] != "over"]
 
     if playbook["befunde"]:
-        top_titel, _ = _werkstatt_empfehlung(
+        top_titel, _, _ = _werkstatt_empfehlung(
             playbook["befunde"][0]["dim"], playbook["befunde"][0]["cell"]
         )
         subject = f"Creative Radar Playbook {kw}: {top_titel}"
@@ -325,10 +341,10 @@ def render_playbook(playbook: dict) -> tuple[str, str, str]:
 
     teile: list[str] = [f"Creative Radar — Playbook {kw}"]
     if machen:
-        teile += ["", "ÜBER DEM SCHNITT", ""]
+        teile += ["", "STARK IM MARKT", ""]
         teile += [_befund_zeile(e) for e in machen]
     if vorsicht:
-        teile += ["", "UNTER DEM SCHNITT", ""]
+        teile += ["", "SCHWACH IM MARKT", ""]
         teile += [_befund_zeile(e) for e in vorsicht]
     if playbook["bewegungen"]:
         teile += ["", "BEWEGUNG DIESE WOCHE", ""]
@@ -361,9 +377,9 @@ def _html_karte(eintrag: dict) -> str:
     cell = eintrag["cell"]
     over = cell["breakout_verdict"] == "over"
     farbe = "#1f7a45" if over else "#b03d2e"
-    chip = "Über dem Schnitt" if over else "Unter dem Schnitt"
+    chip = "Stark im Markt" if over else "Schwach im Markt"
     thema = THEMA_LABEL.get(eintrag["dim"], _dim(eintrag["dim"]))
-    titel, satz = _werkstatt_empfehlung(eintrag["dim"], cell)
+    titel, satz, tipp = _werkstatt_empfehlung(eintrag["dim"], cell)
     return (
         f'<div style="background:#fdf8ef;border-radius:10px;'
         f'border-left:4px solid {farbe};padding:12px 16px;margin:0 0 10px;">'
@@ -373,7 +389,13 @@ def _html_karte(eintrag: dict) -> str:
         f'<span style="color:#6b6b6b;"> &middot; {_esc(thema)}</span></p>'
         f'<p style="margin:0 0 4px;font-weight:700;font-size:15px;color:#1c1c1a;">{_esc(titel)}</p>'
         f'<p style="margin:0;font-size:13px;color:#4a4a44;">{_esc(satz)}</p>'
-        f'<p style="margin:4px 0 0;font-size:11px;color:#6b6b6b;">'
+        + (
+            f'<p style="margin:6px 0 0;padding:6px 10px;background:#e9f2ec;'
+            f'border-left:3px solid #1f7a45;border-radius:0 6px 6px 0;'
+            f'font-size:13px;color:#1c3a2a;"><strong>Tipp:</strong> {_esc(tipp)}</p>'
+            if tipp else ""
+        )
+        + f'<p style="margin:4px 0 0;font-size:11px;color:#6b6b6b;">'
         f'Basis: {cell["sample_size"]} Posts von {cell["channel_count"]} Kanälen.</p>'
         f"</div>"
     )

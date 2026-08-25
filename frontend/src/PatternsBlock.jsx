@@ -537,38 +537,49 @@ const THEMA_LABEL = {
   caption_hashtags: 'Hashtags',
 };
 
+// Der Tipp steht seit Wolfs Layout-Feedback (25.08.) GETRENNT vom
+// Satz: im Fliesstext ging die konstruktivste Aussage unter, jetzt
+// bekommt sie einen eigenen, hervorgehobenen Kasten.
 const WERKSTATT_VORLAGEN = {
   'cover_kinetik:title_card': (f) => ({
     titel: 'Titel-Tafel im Cover wirkt',
     satz: `Posts mit gestalteter Titel-Tafel im Cover liegen ${f}-mal öfter weit über dem Kanal-Schnitt als Posts ohne.`,
+    tipp: 'Eine gestaltete Titel-Tafel im Cover lohnt den Design-Aufwand.',
   }),
   'lifecycle_stage:pre_launch': (f) => ({
     titel: 'Die stärkste Phase liegt vor dem Start',
-    satz: `Die stärksten Posts entstehen vor dem Kinostart (${f}-mal öfter als erwartet). Zu beachten: Reichweite entsteht, bevor der Film läuft.`,
+    satz: `Die stärksten Posts entstehen vor dem Kinostart (${f}-mal öfter als erwartet).`,
+    tipp: 'Reichweite entsteht, bevor der Film läuft — der Vorlauf ist die wichtigste Zeit.',
   }),
   'lifecycle_stage:launch': () => ({
     titel: 'Rund um den Starttag wird es schwerer',
-    satz: 'Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt. Zu beachten: ein eigener Aufhänger hilft hier mehr als Routine.',
+    satz: 'Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt.',
+    tipp: 'Ein eigener Aufhänger hilft hier mehr als Routine.',
   }),
   'lifecycle_stage:evergreen': () => ({
     titel: 'Ohne Anlass bleibt die Reichweite klein',
-    satz: 'Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite. Zu beachten: ein Termin als Anlass — Start, Jubiläum, Heimkino — hebt die Chance.',
+    satz: 'Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite.',
+    tipp: 'Ein Termin als Anlass — Start, Jubiläum, Heimkino — hebt die Chance.',
   }),
   'tone:humorous': () => ({
     titel: 'Humor zieht nicht von allein',
-    satz: 'Lustige Posts bleiben öfter unter dem Kanal-Schnitt. Zu beachten: Humor trägt mit einem starken Aufhänger — als Selbstläufer selten.',
+    satz: 'Lustige Posts bleiben öfter unter dem Kanal-Schnitt.',
+    tipp: 'Humor trägt mit einem starken Aufhänger — als Selbstläufer selten.',
   }),
   'format:behind_the_scenes': (f) => ({
     titel: 'Blicke hinter die Kulissen wirken',
-    satz: `Posts vom Set oder aus der Produktion liegen ${f}-mal öfter weit über dem Kanal-Schnitt. Nähe schlägt Hochglanz.`,
+    satz: `Posts vom Set oder aus der Produktion liegen ${f}-mal öfter weit über dem Kanal-Schnitt.`,
+    tipp: 'Nähe schlägt Hochglanz — echte Set-Momente wirken.',
   }),
   'format:clip': () => ({
     titel: 'Rohe Szenen-Clips fallen ab',
-    satz: 'Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt. Zu beachten: mit Einstieg — Hook, Kontext oder Anlass — schneiden Clips besser ab.',
+    satz: 'Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt.',
+    tipp: 'Mit Einstieg — Hook, Kontext oder Anlass — schneiden Clips besser ab.',
   }),
   'format_class:langform': (f) => ({
     titel: 'Lange Videos funktionieren',
-    satz: `Videos über 90 Sekunden liegen ${f}-mal öfter weit über dem Kanal-Schnitt. Länge schreckt nicht ab.`,
+    satz: `Videos über 90 Sekunden liegen ${f}-mal öfter weit über dem Kanal-Schnitt.`,
+    tipp: 'Länge schreckt nicht ab — gute lange Videos finden ihr Publikum.',
   }),
 };
 
@@ -581,12 +592,12 @@ export function werkstattEmpfehlung(dim, cell) {
   const wert = WERT_LABEL[cell.value] || cell.value;
   if (cell.breakout_verdict === 'over') {
     return {
-      titel: `${wert}: läuft über dem Schnitt`,
+      titel: `${wert}: stark im Markt`,
       satz: `Posts mit diesem Merkmal liegen ${faktor ? `${faktor}-mal öfter` : 'öfter'} weit über dem Kanal-Schnitt.`,
     };
   }
   return {
-    titel: `${wert}: läuft unter dem Schnitt`,
+    titel: `${wert}: schwach im Markt`,
     satz: 'Posts mit diesem Merkmal bleiben öfter unter dem Kanal-Schnitt.',
   };
 }
@@ -640,18 +651,25 @@ function ReferenzPosts({ dimension, value }) {
 function EmpfehlungsKarte({ dim, cell }) {
   const over = cell.breakout_verdict === 'over';
   const farbe = QUOTE_COLOR_ON_CARD[cell.breakout_verdict];
-  const { titel, satz } = werkstattEmpfehlung(dim, cell);
+  const { titel, satz, tipp } = werkstattEmpfehlung(dim, cell);
   return (
     <div
       className="card breakouts-card"
       style={{ flex: '1 1 300px', maxWidth: '420px', padding: '1rem 1.25rem', borderLeft: `4px solid ${farbe}` }}
     >
       <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-        <span style={{ color: farbe }}>{over ? 'Über dem Schnitt' : 'Unter dem Schnitt'}</span>
+        <span style={{ color: farbe }}>{over ? 'Stark im Markt' : 'Schwach im Markt'}</span>
         <span style={{ color: '#6b6b6b' }}> · {THEMA_LABEL[dim] || DIMENSION_LABEL[dim] || dim}</span>
       </p>
       <p style={{ margin: '0 0 0.35rem', fontWeight: 700, fontSize: '1.05em' }}>{titel}</p>
       <p style={{ margin: 0, fontSize: '0.9em', color: '#4a4a44' }}>{satz}</p>
+      {tipp && (
+        <div style={{ margin: '0.5rem 0 0', background: '#e9f2ec', borderLeft: '3px solid #1f7a45', borderRadius: '0 8px 8px 0', padding: '0.45rem 0.7rem' }}>
+          <p style={{ margin: 0, fontSize: '0.85em', color: '#1c3a2a' }}>
+            <span style={{ fontWeight: 700 }}>Tipp: </span>{tipp}
+          </p>
+        </div>
+      )}
       <p style={{ margin: '0.35rem 0 0', fontSize: '0.75em', color: '#6b6b6b' }}>
         Basis: {cell.sample_size} Posts von {cell.channel_count} Kanälen.
       </p>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiUrl, endpoints } from './api/client';
+import { formatDate, formatLift } from './format';
 import { DIMENSION_LABEL, WERT_LABEL } from './PatternsBlock';
 
 // Referenz-Suche (Roadmap Schritt 1, 25.08.2026) — die Moodboard-
@@ -72,6 +73,10 @@ function FacettenSelect({ dimension, auswahl, optionen, onChange }) {
 }
 
 function TrefferKarte({ treffer }) {
+  // Kopfzeile statt Overlay (Wolfs Layout-Feedback 25.08.): das
+  // Lift-Badge lag absolut ueber dem Bildbereich und verdeckte ohne
+  // Bild den Kanalnamen. Jetzt eine feste Zeile: Lift · @Kanal ·
+  // Plattform — das Bild kommt darunter, falls es eines gibt.
   return (
     <a
       href={treffer.post_url}
@@ -79,53 +84,58 @@ function TrefferKarte({ treffer }) {
       rel="noreferrer"
       className="card"
       style={{
-        flex: '1 1 220px', maxWidth: '280px', padding: 0, overflow: 'hidden',
-        textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column',
+        padding: 0, overflow: 'hidden', textDecoration: 'none',
+        color: 'inherit', display: 'flex', flexDirection: 'column',
       }}
     >
-      <div style={{ position: 'relative', background: '#e8e0d0', minHeight: treffer.asset_id ? undefined : '2.4rem' }}>
-        {treffer.asset_id && (
-          <img
-            src={apiUrl(`/api/thumbnails/${treffer.asset_id}`)}
-            alt=""
-            loading="lazy"
-            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-            style={{ width: '100%', height: '150px', objectFit: 'cover', display: 'block' }}
-          />
-        )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.55rem 0.75rem', borderBottom: '1px solid #eee6d8' }}>
         <span
           style={{
-            position: 'absolute', top: '0.5rem', left: '0.5rem',
             background: treffer.lift >= 1.5 ? '#1f7a45' : '#6b6b6b', color: 'white',
-            borderRadius: '6px', padding: '0.1rem 0.45rem', fontWeight: 700, fontSize: '0.85em',
+            borderRadius: '6px', padding: '0.1rem 0.5rem', fontWeight: 700, fontSize: '0.85em', flexShrink: 0,
           }}
         >
-          {String(treffer.lift).replace('.', ',')}x
+          {formatLift(treffer.lift)}
+        </span>
+        <span style={{ fontWeight: 700, fontSize: '0.85em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          @{treffer.channel_handle}
+        </span>
+        <span style={{ marginLeft: 'auto', color: '#6b6b6b', fontSize: '0.75em', flexShrink: 0 }}>
+          {PLATFORM_LABEL[treffer.platform] || treffer.platform}
         </span>
       </div>
-      <div style={{ padding: '0.6rem 0.75rem 0.75rem' }}>
-        <p style={{ margin: '0 0 0.2rem', fontSize: '0.8em', fontWeight: 700 }}>
-          @{treffer.channel_handle}
-          <span style={{ color: '#6b6b6b', fontWeight: 400 }}>
-            {' · '}{PLATFORM_LABEL[treffer.platform] || treffer.platform}
-            {treffer.detected_at ? ` · ${treffer.detected_at}` : ''}
-          </span>
-        </p>
+      {treffer.asset_id && (
+        <img
+          src={apiUrl(`/api/thumbnails/${treffer.asset_id}`)}
+          alt=""
+          loading="lazy"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }}
+        />
+      )}
+      <div style={{ padding: '0.6rem 0.75rem 0.7rem', display: 'flex', flexDirection: 'column', gap: '0.3rem', flex: 1 }}>
         {(treffer.titel || treffer.genre) && (
-          <p style={{ margin: '0 0 0.2rem', fontSize: '0.75em', color: '#1f7a45', fontWeight: 600 }}>
-            {treffer.titel || ''}{treffer.titel && treffer.genre ? ' · ' : ''}{treffer.genre || ''}
+          <p style={{ margin: 0, fontSize: '0.85em', fontWeight: 700, color: '#1c1c1a' }}>
+            {treffer.titel || treffer.genre}
+            {treffer.titel && treffer.genre && (
+              <span style={{ color: '#6b6b6b', fontWeight: 400 }}> · {treffer.genre}</span>
+            )}
           </p>
         )}
         {treffer.caption && (
           <p
             style={{
-              margin: 0, fontSize: '0.75em', color: '#4a4a44',
-              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              margin: 0, fontSize: '0.78em', color: '#4a4a44', lineHeight: 1.4,
+              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
             }}
           >
             {treffer.caption}
           </p>
         )}
+        <p style={{ margin: 'auto 0 0', paddingTop: '0.2rem', fontSize: '0.75em', color: '#6b6b6b' }}>
+          {treffer.detected_at ? `${formatDate(treffer.detected_at)} · ` : ''}
+          <span style={{ color: '#1f7a45', fontWeight: 600 }}>Post ansehen →</span>
+        </p>
       </div>
     </a>
   );
@@ -260,7 +270,7 @@ export default function ReferenzSucheBlock() {
               </button>
             )}
           </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: '0.75rem' }}>
             {daten.treffer.map((treffer) => (
               <TrefferKarte key={treffer.post_url} treffer={treffer} />
             ))}
