@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { apiUrl } from '../api/client';
-import { formatCronRunStatus, formatDate, formatDateTime, searchTitles } from '../format';
+import { formatCronRunStatus, formatDate, formatDateTime, formatKatalogAnwendenLabel, searchTitles } from '../format';
 import { Section } from '../components/Section';
 import { DIMENSION_LABEL, WERT_LABEL } from '../PatternsBlock';
 
@@ -133,21 +133,25 @@ export function SourcesPanel({
           {features.katalog_nachladen && (
             <>
               <button className="secondary" onClick={onKatalogVorschau} disabled={busy}>Fehlende Titel prüfen (Vorschau)</button>
-              {/* Erst sehen, dann anlegen. Der Knopf bleibt gesperrt,
-                  bis eine Vorschau vorliegt, die auch wirklich etwas
-                  anzulegen hätte — ein Klick ins Leere soll nicht wie
-                  eine Entscheidung aussehen. */}
+              {/* Erst sehen, dann übernehmen. Gesperrt, bis eine
+                  Vorschau vorliegt, die auch wirklich etwas zu tun
+                  hätte — ein Klick ins Leere soll nicht wie eine
+                  Entscheidung aussehen.
+
+                  Die Bedingung hängt an ``zugeordnet``, nicht an
+                  ``angelegt``: Wolfs Lauf vom 25.08.2026 meldete "0
+                  Titel würden angelegt, 18 Treffer zugeordnet" und war
+                  damit gesperrt, obwohl 18 Assets auf ihre Zuordnung
+                  warteten. ``zugeordnet`` zählt beide Wege. */}
               <button
                 className="secondary"
                 onClick={onKatalogAnwenden}
-                disabled={busy || !katalogVorschau || !katalogVorschau.angelegt}
+                disabled={busy || !katalogVorschau || !katalogVorschau.zugeordnet}
                 title={katalogVorschau
                   ? undefined
-                  : 'Erst die Vorschau ansehen — sie zeigt, welche Titel angelegt würden.'}
+                  : 'Erst die Vorschau ansehen — sie zeigt, was passieren würde.'}
               >
-                {katalogVorschau && katalogVorschau.angelegt
-                  ? `${katalogVorschau.angelegt} Titel wirklich anlegen`
-                  : 'Titel wirklich anlegen'}
+                {formatKatalogAnwendenLabel(katalogVorschau)}
               </button>
             </>
           )}

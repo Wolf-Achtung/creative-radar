@@ -9,6 +9,7 @@ import {
   formatCronRunStatus,
   formatDate,
   formatDateTime,
+  formatKatalogAnwendenLabel,
   formatKatalogNachladen,
   formatMultiplier,
   formatNumber,
@@ -271,5 +272,24 @@ describe('formatKatalogNachladen', () => {
   it('sagt, wenn noch etwas offen ist', () => {
     expect(formatKatalogNachladen({ ...basis, offen_danach: 27 }))
       .toContain('Noch 27');
+  });
+});
+
+describe('formatKatalogAnwendenLabel', () => {
+  it('nennt Anlagen und Zuordnungen getrennt', () => {
+    expect(formatKatalogAnwendenLabel({ angelegt: 3, zugeordnet: 20 }))
+      .toBe('3 Titel anlegen, 20 Treffer zuordnen');
+  });
+
+  it('laesst die Anlagen weg, wenn es keine gibt', () => {
+    // Wolfs Lauf: 0 angelegt, 18 zugeordnet. "0 Titel anlegen" waere
+    // hier irrefuehrend — der Knopf tut genau eine Sache.
+    expect(formatKatalogAnwendenLabel({ angelegt: 0, zugeordnet: 18 }))
+      .toBe('18 Treffer zuordnen');
+  });
+
+  it('faellt ohne Wirkung auf einen neutralen Text zurueck', () => {
+    expect(formatKatalogAnwendenLabel({ angelegt: 0, zugeordnet: 0 })).toBe('Übernehmen');
+    expect(formatKatalogAnwendenLabel(null)).toBe('Übernehmen');
   });
 });
