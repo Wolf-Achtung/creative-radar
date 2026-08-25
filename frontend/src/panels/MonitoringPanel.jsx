@@ -6,6 +6,7 @@ import {
   formatDateTime,
   formatKampagnenstart,
   formatMultiplier,
+  formatReleaseEinordnung,
   formatNumber,
   formatPct1,
   formatUsdCents,
@@ -198,6 +199,81 @@ export function KampagnenTimingSection() {
               ))}
             </details>
           )}
+        </>
+      )}
+    </Section>
+  );
+}
+
+// Release-Countdown (Roadmap Schritt 2, 25.08.2026): je Wir-Projekt
+// die Zeitleiste — Release-Datum, Wochen bis Release, Einordnung gegen
+// den Markt-Kampagnenstart, plus die belastbaren Muster der aktuellen
+// Kampagnenphase. Verbindet drei vorhandene Auswertungen zu einem Plan
+// pro Projekt; rein lesend.
+const PHASE_LABEL = {
+  pre_launch: 'Pre-Launch (vor dem Start)',
+  launch: 'Release-Woche',
+  post_launch: 'Nach dem Start',
+};
+
+export function ReleaseCountdownSection() {
+  const [daten, setDaten] = useState(null);
+  const [fehler, setFehler] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.releaseCountdown()
+      .then((antwort) => { if (!cancelled) setDaten(antwort); })
+      .catch((err) => { if (!cancelled) setFehler(String(err?.message || err)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const markt = daten?.markt_kampagnenstart;
+  return (
+    <Section title="Release-Countdown" kicker="Der Plan je Wir-Projekt">
+      {fehler && <p className="error">Konnte den Release-Countdown nicht laden: {fehler}</p>}
+      {!fehler && !daten && <p className="muted small">Lädt …</p>}
+      {daten && daten.note && <p className="muted">{daten.note}</p>}
+      {daten && !daten.note && (
+        <>
+          {markt?.median_vorlauf_tage != null && (
+            <p className="muted small">
+              Markt-Benchmark: Kampagnenstart im Median{' '}
+              {Math.round(markt.median_vorlauf_tage / 7)} Wochen vor Release
+              (aus {markt.titel_basis} ausgewerteten Kampagnen). Beschreibt
+              das Markt-Verhalten — kein Beweis, dass früher besser ist.
+            </p>
+          )}
+          {daten.projekte.map((p) => (
+            <div key={p.title_id} className="card" style={{ padding: '0.75rem 1rem', margin: '0 0 0.75rem' }}>
+              <p style={{ margin: '0 0 0.25rem' }}>
+                <strong>{p.titel}</strong>
+                <span className="muted small">
+                  {p.release_date
+                    ? ` — Release ${p.release_date} (${p.release_markt})`
+                    : ' — Release unbekannt'}
+                  {p.phase ? ` · ${PHASE_LABEL[p.phase] || p.phase}` : ''}
+                </span>
+              </p>
+              <p className="small" style={{ margin: 0 }}>
+                {p.hinweis || formatReleaseEinordnung({
+                  tageBisRelease: p.tage_bis_release,
+                  marktMedianTage: markt?.median_vorlauf_tage ?? null,
+                  eigenePosts: p.eigene_posts,
+                  eigenerStartTage: p.eigener_start_vorlauf_tage,
+                })}
+              </p>
+              {p.phase && (daten.phasen_muster?.[p.phase] || []).length > 0 && (
+                <p className="muted small" style={{ margin: '0.35rem 0 0' }}>
+                  In dieser Phase auffällig:{' '}
+                  {daten.phasen_muster[p.phase].map((z) => (
+                    `${WERT_LABEL[z.value] || z.value} (${DIMENSION_LABEL[z.dimension] || z.dimension}: `
+                    + `${z.breakout_verdict === 'over' ? 'über' : 'unter'} dem Schnitt, ${z.sample_size} Posts)`
+                  )).join(' · ')}
+                </p>
+              )}
+            </div>
+          ))}
         </>
       )}
     </Section>
@@ -521,6 +597,7 @@ export function MonitoringPanel({ features = {} } = {}) {
           erscheinen nur, wo /api/health -> features sie anbietet —
           Staging zuerst, Production nach Wolfs Freigabe. */}
       {features.kampagnen_timing && <KampagnenTimingSection />}
+      {features.release_countdown && <ReleaseCountdownSection />}
       {features.sound_trends && <SoundTrendsSection />}
       <PlaybookMailSection />
       <Section title="Budgets diesen Monat" kicker="Kalendermonat, UTC">

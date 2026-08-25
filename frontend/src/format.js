@@ -307,6 +307,46 @@ export function formatKatalogAnwendenLabel(vorschau) {
 // "1 Wochen", "0 Wochen vor Release" und "-1 Wochen vor Release"
 // (Wolfs Staging-Abnahme, 25.08.2026). Negative Vorlauftage heissen:
 // der fruehste Post kam NACH dem Release.
+// Release-Countdown (Roadmap Schritt 2, 25.08.): die Einordnung eines
+// Wir-Projekts gegen den Markt-Kampagnenstart, als ganzer Satz. Hier
+// statt im Panel, damit die Fallunterscheidung testbar ist — dieselbe
+// Regel wie bei formatKatalogNachladen.
+export function formatReleaseEinordnung({ tageBisRelease, marktMedianTage, eigenePosts, eigenerStartTage }) {
+  if (tageBisRelease === null || tageBisRelease === undefined) {
+    return 'Kein Release-Datum am Titel — ohne Datum keine Zeitleiste.';
+  }
+  const wochen = (tage) => {
+    const n = Math.abs(Math.round(tage / 7));
+    return `${n} ${n === 1 ? 'Woche' : 'Wochen'}`;
+  };
+  if (tageBisRelease < -7) {
+    const basis = `Release war vor ${wochen(tageBisRelease)}.`;
+    return eigenePosts > 0
+      ? `${basis} ${eigenePosts} eigene Posts zugeordnet — Zeit für die Nachlese.`
+      : `${basis} Keine eigenen Posts zugeordnet.`;
+  }
+  const laeuft = eigenePosts > 0 && eigenerStartTage !== null && eigenerStartTage !== undefined;
+  if (laeuft) {
+    const basis = `Eure Kampagne läuft seit ${wochen(eigenerStartTage)} vor Release (${eigenePosts} Posts).`;
+    if (marktMedianTage === null || marktMedianTage === undefined) return basis;
+    return eigenerStartTage >= marktMedianTage
+      ? `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vorher — ihr wart früher dran.`
+      : `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vorher — ihr habt später begonnen.`;
+  }
+  const basis = tageBisRelease <= 7
+    ? 'Release-Woche, noch keine eigenen Posts zugeordnet.'
+    : `Release in ${wochen(tageBisRelease)}, noch keine eigenen Posts zugeordnet.`;
+  if (marktMedianTage === null || marktMedianTage === undefined) return basis;
+  const bisStartfenster = tageBisRelease - marktMedianTage;
+  if (bisStartfenster > 7) {
+    return `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vor Release — bis zum typischen Startfenster sind es noch ${wochen(bisStartfenster)}.`;
+  }
+  if (bisStartfenster >= -7) {
+    return `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vor Release — ihr seid jetzt im typischen Startfenster.`;
+  }
+  return `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vor Release — das typische Startfenster liegt ${wochen(bisStartfenster)} zurück, ihr seid spät dran.`;
+}
+
 export function formatKampagnenstart(vorlaufTage) {
   if (vorlaufTage === null || vorlaufTage === undefined) return '—';
   const wochen = Math.round(vorlaufTage / 7);

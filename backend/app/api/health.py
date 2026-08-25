@@ -7,6 +7,7 @@ from app.core.feature_flags import (
     is_katalog_nachladen_enabled,
     is_projekt_start_brief_enabled,
     is_referenz_suche_enabled,
+    is_release_countdown_enabled,
     is_sound_trends_enabled,
     is_trailer_intelligence_enabled,
     is_wir_projekte_enabled,
@@ -51,6 +52,7 @@ def health():
             "katalog_nachladen": is_katalog_nachladen_enabled(),
             "sound_trends": is_sound_trends_enabled(),
             "referenz_suche": is_referenz_suche_enabled(),
+            "release_countdown": is_release_countdown_enabled(),
         },
     }
 

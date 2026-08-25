@@ -34,6 +34,9 @@ Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
 - ``FEATURE_REFERENZ_SUCHE_ENABLED`` (bool): Facetten-Suche ueber die
   analysierten Posts (``GET /api/insights/referenzen``) — die
   Moodboard-Werkbank fuer Cutter/Designer. Rein lesend, kein LLM-Call.
+- ``FEATURE_RELEASE_COUNTDOWN_ENABLED`` (bool): Release-Countdown je
+  Wir-Projekt (``GET /api/admin/release-countdown``) — Zeitleiste aus
+  Release-Datum, Markt-Kampagnenstart und Phasen-Mustern.
 
 Arbeitsregel seit 23.08.2026 (Wolfs Freigabe-Modell, siehe CLAUDE.md
 "Arbeitsregel Feature-Flags"): JEDES neue Feature bekommt beim Bau ein
@@ -201,3 +204,18 @@ def is_referenz_suche_enabled() -> bool:
     (case-insensitive), Default ``"false"``.
     """
     return os.getenv("FEATURE_REFERENZ_SUCHE_ENABLED", "false").lower() == "true"
+
+
+def is_release_countdown_enabled() -> bool:
+    """Returns True wenn der Release-Countdown je Wir-Projekt aktiv ist
+    (``GET /api/admin/release-countdown`` + Monitoring-Sektion).
+
+    Verknuepft drei vorhandene Auswertungen zu einem Plan pro Projekt:
+    Release-Datum (Wir-Projekt), Markt-Kampagnenstart (Kampagnen-
+    Timing) und Phasen-Muster (Trailer-Patterns). Rein lesend, kein
+    LLM-Call; Default aus nach der Arbeitsregel vom 23.08.2026.
+
+    Env-Var: ``FEATURE_RELEASE_COUNTDOWN_ENABLED``; ``"true"``/``"false"``
+    (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_RELEASE_COUNTDOWN_ENABLED", "false").lower() == "true"
