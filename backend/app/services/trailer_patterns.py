@@ -1249,6 +1249,39 @@ def posts_for_cell(
     return members
 
 
+def facetten_werte_je_post(
+    session: Session,
+    posts: list[Post],
+) -> dict[str, dict[Any, str]]:
+    """Alle Berichts-Dimensionen als Post→Wert-Karten in einem Durchgang.
+
+    Fuer die Referenz-Suche (Roadmap Schritt 1, 25.08.2026): eine
+    Facetten-Suche braucht JEDE Dimension gleichzeitig — Filter und
+    Facetten-Zaehlung. ``posts_for_cell`` je (Dimension, Wert) zu rufen
+    wuerde die Genre-/Cover-Mappings pro Aufruf neu aus der DB bauen.
+
+    Die Zugehoerigkeits-Regeln sind exakt die der Cross-Tab-Schleife
+    und von ``posts_for_cell``: Konfidenz-Filter nur auf modell-
+    erzeugten Dimensionen, Genre ueber das Titel-Mapping, Cover-
+    Dimensionen selbst-gegatet ueber ``visual_confidence_score``. Ein
+    Post ohne Wert fehlt in der jeweiligen Karte — genau wie er in der
+    Zelle fehlen wuerde.
+    """
+    karten: dict[str, dict[Any, str]] = {"genre": dict(_genre_by_post(session, posts))}
+    for dim in (*DIMENSIONS, *_cover_dimensionen(session, posts)):
+        karte: dict[Any, str] = {}
+        for p in posts:
+            if dim.requires_analysis:
+                conf = _post_confidence(p)
+                if conf is None or conf < CONFIDENCE_THRESHOLD:
+                    continue
+            value = dim.extract(p)
+            if value is not None:
+                karte[p.id] = value
+        karten[dim.name] = karte
+    return karten
+
+
 # Vorwochen-Vergleich (Aufwertung C, 20.08.2026): die "Vorwoche" ist
 # KEINE persistierte Zeitreihe, sondern dieselbe deterministische
 # Rechnung mit um 7 Tage verschobenem Fenster — jederzeit reproduzierbar,

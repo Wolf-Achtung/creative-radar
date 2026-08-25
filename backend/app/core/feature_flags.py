@@ -31,6 +31,9 @@ Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
   bedarfsgetrieben aus TMDb nachladen (``POST /api/titles/
   katalog-nachladen``). Legt Titel an und ordnet Assets zu — der
   wirksamste Schalter im System, deshalb Staging zuerst.
+- ``FEATURE_REFERENZ_SUCHE_ENABLED`` (bool): Facetten-Suche ueber die
+  analysierten Posts (``GET /api/insights/referenzen``) — die
+  Moodboard-Werkbank fuer Cutter/Designer. Rein lesend, kein LLM-Call.
 
 Arbeitsregel seit 23.08.2026 (Wolfs Freigabe-Modell, siehe CLAUDE.md
 "Arbeitsregel Feature-Flags"): JEDES neue Feature bekommt beim Bau ein
@@ -183,3 +186,18 @@ def is_katalog_nachladen_enabled() -> bool:
     (case-insensitive), Default ``"false"``.
     """
     return os.getenv("FEATURE_KATALOG_NACHLADEN_ENABLED", "false").lower() == "true"
+
+
+def is_referenz_suche_enabled() -> bool:
+    """Returns True wenn die Referenz-Suche aktiv ist
+    (``GET /api/insights/referenzen`` + Panel im Dashboard).
+
+    Rein lesende Facetten-Suche ueber die vorhandenen Auswertungen
+    (Lift, Vision-Cover, Caption-Mechanik, Genre) — kein LLM-Call,
+    keine Schreiboperation. Trotzdem Default aus nach der Arbeitsregel
+    vom 23.08.2026: Wolf sieht jedes neue Panel zuerst in Staging.
+
+    Env-Var: ``FEATURE_REFERENZ_SUCHE_ENABLED``; ``"true"``/``"false"``
+    (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_REFERENZ_SUCHE_ENABLED", "false").lower() == "true"
