@@ -539,32 +539,32 @@ const THEMA_LABEL = {
 
 const WERKSTATT_VORLAGEN = {
   'cover_kinetik:title_card': (f) => ({
-    titel: 'Cover mit Titel-Tafel bauen',
+    titel: 'Titel-Tafel im Cover wirkt',
     satz: `Posts mit gestalteter Titel-Tafel im Cover liegen ${f}-mal öfter weit über dem Kanal-Schnitt als Posts ohne.`,
   }),
   'lifecycle_stage:pre_launch': (f) => ({
-    titel: 'Vor dem Start posten',
-    satz: `Die stärksten Posts entstehen vor dem Kinostart (${f}-mal öfter als erwartet). Baut die Reichweite auf, bevor der Film läuft.`,
+    titel: 'Die stärkste Phase liegt vor dem Start',
+    satz: `Die stärksten Posts entstehen vor dem Kinostart (${f}-mal öfter als erwartet). Zu beachten: Reichweite entsteht, bevor der Film läuft.`,
   }),
   'lifecycle_stage:launch': () => ({
-    titel: 'Zum Start reicht Routine nicht',
-    satz: 'Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt. Plant für den Start einen eigenen Aufhänger.',
+    titel: 'Rund um den Starttag wird es schwerer',
+    satz: 'Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt. Zu beachten: ein eigener Aufhänger hilft hier mehr als Routine.',
   }),
   'lifecycle_stage:evergreen': () => ({
-    titel: 'Ohne Anlass bringt ein Post wenig',
-    satz: 'Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite. Koppelt sie an einen Termin: Start, Jubiläum, Heimkino.',
+    titel: 'Ohne Anlass bleibt die Reichweite klein',
+    satz: 'Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite. Zu beachten: ein Termin als Anlass — Start, Jubiläum, Heimkino — hebt die Chance.',
   }),
   'tone:humorous': () => ({
     titel: 'Humor zieht nicht von allein',
-    satz: 'Lustige Posts bleiben öfter unter dem Kanal-Schnitt. Nutzt Humor mit einem starken Aufhänger, nicht als Selbstläufer.',
+    satz: 'Lustige Posts bleiben öfter unter dem Kanal-Schnitt. Zu beachten: Humor trägt mit einem starken Aufhänger — als Selbstläufer selten.',
   }),
   'format:behind_the_scenes': (f) => ({
-    titel: 'Mehr Blicke hinter die Kulissen',
+    titel: 'Blicke hinter die Kulissen wirken',
     satz: `Posts vom Set oder aus der Produktion liegen ${f}-mal öfter weit über dem Kanal-Schnitt. Nähe schlägt Hochglanz.`,
   }),
   'format:clip': () => ({
-    titel: 'Szenen-Clips brauchen einen Rahmen',
-    satz: 'Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt. Gebt dem Clip einen Einstieg: Hook, Kontext oder Anlass.',
+    titel: 'Rohe Szenen-Clips fallen ab',
+    satz: 'Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt. Zu beachten: mit Einstieg — Hook, Kontext oder Anlass — schneiden Clips besser ab.',
   }),
   'format_class:langform': (f) => ({
     titel: 'Lange Videos funktionieren',
@@ -581,12 +581,12 @@ export function werkstattEmpfehlung(dim, cell) {
   const wert = WERT_LABEL[cell.value] || cell.value;
   if (cell.breakout_verdict === 'over') {
     return {
-      titel: `${wert}: öfter testen`,
+      titel: `${wert}: läuft über dem Schnitt`,
       satz: `Posts mit diesem Merkmal liegen ${faktor ? `${faktor}-mal öfter` : 'öfter'} weit über dem Kanal-Schnitt.`,
     };
   }
   return {
-    titel: `${wert}: sparsam einsetzen`,
+    titel: `${wert}: läuft unter dem Schnitt`,
     satz: 'Posts mit diesem Merkmal bleiben öfter unter dem Kanal-Schnitt.',
   };
 }
@@ -647,7 +647,7 @@ function EmpfehlungsKarte({ dim, cell }) {
       style={{ flex: '1 1 300px', maxWidth: '420px', padding: '1rem 1.25rem', borderLeft: `4px solid ${farbe}` }}
     >
       <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-        <span style={{ color: farbe }}>{over ? 'Machen' : 'Vorsicht'}</span>
+        <span style={{ color: farbe }}>{over ? 'Über dem Schnitt' : 'Unter dem Schnitt'}</span>
         <span style={{ color: '#6b6b6b' }}> · {THEMA_LABEL[dim] || DIMENSION_LABEL[dim] || dim}</span>
       </p>
       <p style={{ margin: '0 0 0.35rem', fontWeight: 700, fontSize: '1.05em' }}>{titel}</p>
@@ -769,7 +769,7 @@ export default function PatternsBlock() {
         Trailer-Intelligence · letzte 90 Tage
       </p>
       <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>
-        Muster — was historisch funktioniert
+        Muster — was im Markt funktioniert
       </h2>
       <p style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
         Welche Merkmale gehen mit überdurchschnittlicher Reichweite einher? Jeder Post wird

@@ -124,32 +124,32 @@ THEMA_LABEL = {
 # Schluessel (dimension, wert); Wert: faktor -> (titel, satz).
 _WERKSTATT_VORLAGEN = {
     ("cover_kinetik", "title_card"): lambda f: (
-        "Cover mit Titel-Tafel bauen",
+        "Titel-Tafel im Cover wirkt",
         f"Posts mit gestalteter Titel-Tafel im Cover liegen {f}-mal öfter weit über dem Kanal-Schnitt als Posts ohne.",
     ),
     ("lifecycle_stage", "pre_launch"): lambda f: (
-        "Vor dem Start posten",
-        f"Die stärksten Posts entstehen vor dem Kinostart ({f}-mal öfter als erwartet). Baut die Reichweite auf, bevor der Film läuft.",
+        "Die stärkste Phase liegt vor dem Start",
+        f"Die stärksten Posts entstehen vor dem Kinostart ({f}-mal öfter als erwartet). Zu beachten: Reichweite entsteht, bevor der Film läuft.",
     ),
     ("lifecycle_stage", "launch"): lambda f: (
-        "Zum Start reicht Routine nicht",
-        "Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt. Plant für den Start einen eigenen Aufhänger.",
+        "Rund um den Starttag wird es schwerer",
+        "Posts rund um den Starttag bleiben öfter unter dem Kanal-Schnitt. Zu beachten: ein eigener Aufhänger hilft hier mehr als Routine.",
     ),
     ("lifecycle_stage", "evergreen"): lambda f: (
-        "Ohne Anlass bringt ein Post wenig",
-        "Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite. Koppelt sie an einen Termin: Start, Jubiläum, Heimkino.",
+        "Ohne Anlass bleibt die Reichweite klein",
+        "Posts ohne aktuellen Anlass erreichen am seltensten große Reichweite. Zu beachten: ein Termin als Anlass — Start, Jubiläum, Heimkino — hebt die Chance.",
     ),
     ("tone", "humorous"): lambda f: (
         "Humor zieht nicht von allein",
-        "Lustige Posts bleiben öfter unter dem Kanal-Schnitt. Nutzt Humor mit einem starken Aufhänger, nicht als Selbstläufer.",
+        "Lustige Posts bleiben öfter unter dem Kanal-Schnitt. Zu beachten: Humor trägt mit einem starken Aufhänger — als Selbstläufer selten.",
     ),
     ("format", "behind_the_scenes"): lambda f: (
-        "Mehr Blicke hinter die Kulissen",
+        "Blicke hinter die Kulissen wirken",
         f"Posts vom Set oder aus der Produktion liegen {f}-mal öfter weit über dem Kanal-Schnitt. Nähe schlägt Hochglanz.",
     ),
     ("format", "clip"): lambda f: (
-        "Szenen-Clips brauchen einen Rahmen",
-        "Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt. Gebt dem Clip einen Einstieg: Hook, Kontext oder Anlass.",
+        "Rohe Szenen-Clips fallen ab",
+        "Ein roher Film-Ausschnitt bleibt öfter unter dem Kanal-Schnitt. Zu beachten: mit Einstieg — Hook, Kontext oder Anlass — schneiden Clips besser ab.",
     ),
     ("format_class", "langform"): lambda f: (
         "Lange Videos funktionieren",
@@ -172,11 +172,11 @@ def _werkstatt_empfehlung(dim: str, cell: dict) -> tuple[str, str]:
     if cell["breakout_verdict"] == "over":
         oefter = f"{faktor}-mal öfter" if faktor else "öfter"
         return (
-            f"{wert}: öfter testen",
+            f"{wert}: läuft über dem Schnitt",
             f"Posts mit diesem Merkmal liegen {oefter} weit über dem Kanal-Schnitt.",
         )
     return (
-        f"{wert}: sparsam einsetzen",
+        f"{wert}: läuft unter dem Schnitt",
         "Posts mit diesem Merkmal bleiben öfter unter dem Kanal-Schnitt.",
     )
 
@@ -325,10 +325,10 @@ def render_playbook(playbook: dict) -> tuple[str, str, str]:
 
     teile: list[str] = [f"Creative Radar — Playbook {kw}"]
     if machen:
-        teile += ["", "MACHEN", ""]
+        teile += ["", "ÜBER DEM SCHNITT", ""]
         teile += [_befund_zeile(e) for e in machen]
     if vorsicht:
-        teile += ["", "VORSICHT", ""]
+        teile += ["", "UNTER DEM SCHNITT", ""]
         teile += [_befund_zeile(e) for e in vorsicht]
     if playbook["bewegungen"]:
         teile += ["", "BEWEGUNG DIESE WOCHE", ""]
@@ -361,7 +361,7 @@ def _html_karte(eintrag: dict) -> str:
     cell = eintrag["cell"]
     over = cell["breakout_verdict"] == "over"
     farbe = "#1f7a45" if over else "#b03d2e"
-    chip = "Machen" if over else "Vorsicht"
+    chip = "Über dem Schnitt" if over else "Unter dem Schnitt"
     thema = THEMA_LABEL.get(eintrag["dim"], _dim(eintrag["dim"]))
     titel, satz = _werkstatt_empfehlung(eintrag["dim"], cell)
     return (

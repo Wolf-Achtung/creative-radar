@@ -405,7 +405,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     });
     render(<PatternsBlock />);
 
-    await screen.findByText('Cover mit Titel-Tafel bauen');
+    await screen.findByText('Titel-Tafel im Cover wirkt');
     // Themen-Chip in Alltagssprache — nicht der Dimensions-Name
     // "Cover: Bildtext & Kinetik".
     expect(screen.getByText('· Cover')).toBeTruthy();
@@ -439,7 +439,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
 
     // Romance (over) hat keine Werkstatt-Vorlage — Titel aus dem
     // Fallback, mit Faktor aus den Zahlen (0.19/0.11 = 1.7).
-    await screen.findByText('Romance: öfter testen');
+    await screen.findByText('Romance: läuft über dem Schnitt');
     expect(screen.getByText(/1\.7-mal öfter weit über dem Kanal-Schnitt/)).toBeTruthy();
   });
 
