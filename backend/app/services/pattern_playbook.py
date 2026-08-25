@@ -66,6 +66,24 @@ DIMENSION_LABEL = {
 }
 WERT_LABEL = {
     "behind_the_scenes": "Behind-the-Scenes",
+    # Format- und Ton-Werte (25.08.2026 nachgezogen): der Zwilling in
+    # PatternsBlock.jsx kannte sie laengst — hier fehlten sie, und
+    # Post-Check/Wochen-Plan haetten rohe englische Werte angezeigt.
+    "trailer": "Trailer",
+    "teaser": "Teaser",
+    "clip": "Clip",
+    "promo": "Promo",
+    "interview": "Interview",
+    "compilation": "Compilation",
+    "short": "Short",
+    "emotional": "Emotional",
+    "energetic": "Energetisch",
+    "informative": "Informativ",
+    "inspirational": "Inspirierend",
+    "suspenseful": "Spannungsgetrieben",
+    "humorous": "Humorvoll",
+    "neutral": "Neutral",
+    "edgy": "Edgy",
     "langform": "Langform",
     "kurzform": "Kurzform",
     "uebergang_60_90s": "Uebergang 60-90s",

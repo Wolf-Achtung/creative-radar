@@ -268,6 +268,7 @@ export const endpoints = {
   kampagnenTiming: () => api('/api/admin/kampagnen-timing'),
   releaseCountdown: () => api('/api/admin/release-countdown'),
   beweisLoop: () => api('/api/admin/beweis-loop'),
+  wochenPlan: () => api('/api/admin/wochen-plan'),
   soundTrends: () => api('/api/admin/sound-trends'),
   adminPatternBriefingLatest: ({ mode = 'genre' } = {}) => api(
     `/api/admin/pattern-briefing/latest?mode=${mode}`,
