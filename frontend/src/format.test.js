@@ -11,6 +11,7 @@ import {
   formatDateTime,
   formatBeweisZeile,
   formatKampagnenstart,
+  formatLift,
   formatReleaseEinordnung,
   formatKatalogAnwendenLabel,
   formatKatalogNachladen,
@@ -382,5 +383,17 @@ describe('formatBeweisZeile', () => {
   it('umgesetzt, aber unter dem Schnitt: ehrliches Urteil, Singular', () => {
     expect(formatBeweisZeile({ umgesetzt: 1, medianLiftWir: 0.5, gewirkt: false, folgewocheAbgeschlossen: true }))
       .toBe('1 Post in der Folgewoche, Median 0,5x — unter eurem Kanal-Schnitt geblieben.');
+  });
+});
+
+
+// Referenz-Suche (Layout-Feedback 25.08.): Lift als lesbare Zahl.
+describe('formatLift', () => {
+  it('rundet gross auf ganze Zahlen, klein auf eine Nachkommastelle', () => {
+    expect(formatLift(2377.7699)).toBe('2378x');
+    expect(formatLift(39.02)).toBe('39x');
+    expect(formatLift(6.69)).toBe('6,7x');
+    expect(formatLift(2)).toBe('2x');
+    expect(formatLift(null)).toBe('—');
   });
 });

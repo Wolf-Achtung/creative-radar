@@ -363,6 +363,15 @@ export function formatBeweisZeile({ umgesetzt, medianLiftWir, gewirkt, folgewoch
     : `${posts} in der Folgewoche, Median ${lift}x — unter eurem Kanal-Schnitt geblieben.`;
 }
 
+// Referenz-Suche (Layout-Feedback 25.08.): Lift als lesbare Zahl —
+// "2377.7699" ist keine Auskunft. Ab 10x zaehlt die Groessenordnung
+// (ganze Zahl), darunter eine Nachkommastelle; deutsches Komma.
+export function formatLift(lift) {
+  if (lift === null || lift === undefined) return '—';
+  const gerundet = lift >= 10 ? Math.round(lift) : Math.round(lift * 10) / 10;
+  return `${String(gerundet).replace('.', ',')}x`;
+}
+
 export function formatKampagnenstart(vorlaufTage) {
   if (vorlaufTage === null || vorlaufTage === undefined) return '—';
   const wochen = Math.round(vorlaufTage / 7);
