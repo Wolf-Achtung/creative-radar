@@ -94,8 +94,6 @@ _db_bruecke()
 from sqlmodel import Session, select  # noqa: E402
 
 from app.models.entities import Asset, CandidateStatus, TitleCandidate  # noqa: E402
-from app.services.katalog_nachladen import NICHT_IM_KATALOG  # noqa: E402
-
 # ``KI: bewirbt '<name>' (nicht im Katalog) — <begruendung>``
 # Nicht-gierig bis zum Marker, damit Namen mit Apostroph nicht abschneiden.
 _NAME_AUS_NOTIZ = re.compile(r"bewirbt '(.+?)' \(nicht im Katalog\)")
@@ -126,8 +124,11 @@ def _faelle(session: Session, tage: int) -> list[tuple]:
     for c in session.exec(
         select(TitleCandidate).where(TitleCandidate.status != CandidateStatus.OPEN)
     ).all():
-        if NICHT_IM_KATALOG not in (c.llm_note or ""):
-            continue
+        # Kein eigener Marker-Filter: das Muster unten VERLANGT bereits
+        # "(nicht im Katalog)". Ein zweiter Test daneben liesse sich
+        # durch keine Mutation toeten — ein Waechter, der nichts
+        # bewacht. Das Muster ist das einzige Tor.
+        #
         # Naive und aware Zeitstempel kommen gemischt vor.
         stand = c.updated_at
         if stand is not None and stand.tzinfo is None:

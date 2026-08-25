@@ -233,3 +233,19 @@ def test_apply_laesst_die_notiz_stehen(session, monkeypatch):
 
     session.refresh(cand)
     assert cand.llm_note == notiz
+
+
+def test_muster_greift_nur_bei_luecken_notizen():
+    """Der Namens-Parser ist das EINZIGE Tor: es gibt keinen zweiten
+    Marker-Filter daneben (er waere durch keine Mutation toetbar). Also
+    muss das Muster hier alle anderen Notiz-Formen abweisen, die der
+    KI-Assist schreibt — vor allem den Katalog-Treffer. Griffe es dort,
+    wuerde ein korrekt zugeordneter Kandidat wieder aufgerissen."""
+    andere = [
+        "KI: bewirbt wohl 'Lanterns' — Der Post nennt die Serie.",
+        "KI unsicher: kein passender Katalog-Titel.",
+        "Katalog ergaenzt: 'Lanterns' aus TMDb angelegt und zugeordnet.",
+        "KI unsicher, ohne Begruendung.",
+    ]
+    for notiz in andere:
+        assert reopen._name_aus_notiz(notiz) is None, notiz
