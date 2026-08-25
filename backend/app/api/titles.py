@@ -18,9 +18,13 @@ from app.schemas.dto import (
     TitleSyncRequest,
 )
 from app.admin_session import require_admin_session
-from app.core.feature_flags import is_wir_projekte_enabled
+from app.core.feature_flags import (
+    is_katalog_nachladen_enabled,
+    is_wir_projekte_enabled,
+)
 from app.services.candidate_autopilot import run_candidate_autopilot
 from app.services.candidate_llm_assist import run_candidate_llm_assist
+from app.services.katalog_nachladen import lade_fehlende_titel_nach
 from app.services.seeds import seed_titles
 from app.services.title_candidates import create_candidate_from_asset
 from app.services.title_rematch import rematch_unassigned_assets
@@ -349,4 +353,35 @@ def run_candidates_llm_assist(session: Session = Depends(get_session)):
     ``offen_danach`` — bei Bedarf einfach erneut klicken. Zuordnung nur
     bei ``sicher: true``, identisch zum manuellen Bestaetigen-Klick."""
     summary = run_candidate_llm_assist(session)
+    return summary.to_dict()
+
+
+@router.post("/katalog-nachladen")
+async def run_katalog_nachladen(session: Session = Depends(get_session)):
+    """Legt Titel an, die ein beobachteter Post nachweislich bewirbt.
+
+    Wolfs Befund vom 24.08.2026: Von 58 KI-gepruefter Vorschlaege liess
+    sich genau EINER automatisch zuordnen — nicht weil die Pruefung
+    schwach waere, sondern weil der Katalog die beworbenen Werke nicht
+    kennt ("Desperate Housewives", "Lanterns", "Cadet Kelly"). Er deckt
+    sechs Studios und drei Streamer ab, beobachtet werden ueber 200
+    Kanaele.
+
+    Dieser Pfad schliesst die Luecke bedarfsgetrieben: Was ein Post
+    nachweislich bewirbt und TMDb eindeutig kennt, kommt in den Katalog.
+    Drei Waechter im Code (Text-Beleg, eindeutiger TMDb-Treffer, nicht
+    schon vorhanden) — Details in ``katalog_nachladen``.
+
+    Hinter ``FEATURE_KATALOG_NACHLADEN_ENABLED``: der Pfad legt Titel an
+    und ordnet Assets zu, also Staging zuerst (Arbeitsregel 23.08.2026).
+    """
+    if not is_katalog_nachladen_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Katalog-Nachladen ist nicht aktiv. Env-Var: "
+                "FEATURE_KATALOG_NACHLADEN_ENABLED"
+            ),
+        )
+    summary = await lade_fehlende_titel_nach(session)
     return summary.to_dict()

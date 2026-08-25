@@ -27,6 +27,10 @@ Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
   Auswertung im Monitoring (PR #415).
 - ``FEATURE_SOUND_TRENDS_ENABLED`` (bool): TikTok-Sound-Trends im
   Monitoring (PR #416).
+- ``FEATURE_KATALOG_NACHLADEN_ENABLED`` (bool): Fehlende Titel
+  bedarfsgetrieben aus TMDb nachladen (``POST /api/titles/
+  katalog-nachladen``). Legt Titel an und ordnet Assets zu — der
+  wirksamste Schalter im System, deshalb Staging zuerst.
 
 Arbeitsregel seit 23.08.2026 (Wolfs Freigabe-Modell, siehe CLAUDE.md
 "Arbeitsregel Feature-Flags"): JEDES neue Feature bekommt beim Bau ein
@@ -165,3 +169,17 @@ def is_sound_trends_enabled() -> bool:
     (case-insensitive), Default ``"false"``.
     """
     return os.getenv("FEATURE_SOUND_TRENDS_ENABLED", "false").lower() == "true"
+
+
+def is_katalog_nachladen_enabled() -> bool:
+    """Returns True wenn fehlende Titel bedarfsgetrieben aus TMDb
+    nachgeladen werden duerfen (``POST /api/titles/katalog-nachladen``).
+
+    Der Schalter gehoert zu den wirksamsten im System: er legt Titel an
+    und ordnet Assets zu. Deshalb Default aus und Staging zuerst, nach
+    der Arbeitsregel vom 23.08.2026.
+
+    Env-Var: ``FEATURE_KATALOG_NACHLADEN_ENABLED``; ``"true"``/``"false"``
+    (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_KATALOG_NACHLADEN_ENABLED", "false").lower() == "true"
