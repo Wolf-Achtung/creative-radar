@@ -149,6 +149,10 @@ export default function ReferenzSucheBlock() {
   const [platform, setPlatform] = useState('');
   const [minLift, setMinLift] = useState('');
   const [windowDays, setWindowDays] = useState(90);
+  // 8 auf einen Blick statt 24 (Wolfs Feedback 25.08.: zu viel auf
+  // einmal). "Mehr anzeigen" holt jeweils 8 dazu, bis 56 erreicht
+  // sind — wer mehr braucht, engt mit den Filtern ein.
+  const [anzahl, setAnzahl] = useState(8);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,13 +170,14 @@ export default function ReferenzSucheBlock() {
       platform: platform || undefined,
       facetten,
       minLift: minLift ? Number(minLift) : undefined,
+      limit: anzahl,
     }).then((d) => {
       if (!cancelled) { setDaten(d); setFehler(false); }
     }).catch(() => {
       if (!cancelled) setFehler(true);
     });
     return () => { cancelled = true; };
-  }, [aktiv, facetten, platform, minLift, windowDays]);
+  }, [aktiv, facetten, platform, minLift, windowDays, anzahl]);
 
   if (!aktiv) return null;
 
@@ -260,7 +265,7 @@ export default function ReferenzSucheBlock() {
             {filterAktiv && (
               <button
                 type="button"
-                onClick={() => { setFacetten({}); setPlatform(''); setMinLift(''); }}
+                onClick={() => { setFacetten({}); setPlatform(''); setMinLift(''); setAnzahl(8); }}
                 style={{
                   background: 'none', border: 'none', color: '#ffa294', cursor: 'pointer',
                   fontSize: '1em', padding: 0, marginLeft: '0.5rem', textDecoration: 'underline',
@@ -275,6 +280,20 @@ export default function ReferenzSucheBlock() {
               <TrefferKarte key={treffer.post_url} treffer={treffer} />
             ))}
           </div>
+          {daten.gesamt > daten.treffer.length && anzahl < 56 && (
+            <div style={{ marginTop: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => setAnzahl(anzahl + 8)}
+                style={{
+                  background: 'none', border: '1px solid rgba(255,255,255,0.4)', color: 'white',
+                  borderRadius: '8px', padding: '0.4rem 1rem', cursor: 'pointer', fontSize: '0.9em',
+                }}
+              >
+                Mehr anzeigen
+              </button>
+            </div>
+          )}
         </>
       )}
     </section>

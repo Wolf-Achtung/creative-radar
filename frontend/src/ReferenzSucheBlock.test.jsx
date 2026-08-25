@@ -118,4 +118,19 @@ describe('ReferenzSucheBlock — Flag-Gate und Suche', () => {
     render(<ReferenzSucheBlock />);
     expect(await screen.findByText('Keine Treffer mit diesen Filtern.')).toBeTruthy();
   });
+
+  it('zeigt erst 8 und holt mit Mehr anzeigen nach (Wolfs Feedback 25.08.)', async () => {
+    endpoints.health.mockResolvedValue({ features: { referenz_suche: true } });
+    endpoints.referenzSuche.mockResolvedValue(DATEN);
+    render(<ReferenzSucheBlock />);
+    await screen.findByText(/7 Treffer/);
+    expect(endpoints.referenzSuche).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 8 }),
+    );
+    fireEvent.click(screen.getByText('Mehr anzeigen'));
+    await waitFor(() => expect(endpoints.referenzSuche).toHaveBeenCalledTimes(2));
+    expect(endpoints.referenzSuche).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 16 }),
+    );
+  });
 });

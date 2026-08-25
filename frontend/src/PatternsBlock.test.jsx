@@ -408,7 +408,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     await screen.findByText('Titel-Tafel im Cover wirkt');
     // Themen-Chip in Alltagssprache — nicht der Dimensions-Name
     // "Cover: Bildtext & Kinetik".
-    expect(screen.getByText('· Cover')).toBeTruthy();
+    expect(screen.getByText('Cover')).toBeTruthy();
     expect(screen.queryByText(/Bildtext & Kinetik/)).toBeNull();
     expect(screen.getByText(/1\.6-mal öfter weit über dem Kanal-Schnitt/)).toBeTruthy();
     expect(screen.getByText(/Basis: 272 Posts von 118 Kanälen/)).toBeTruthy();
@@ -446,10 +446,16 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     });
     render(<PatternsBlock />);
     await screen.findByText('Humor zieht nicht von allein');
-    // BEIDE Chip-Beschriftungen gepinnt — eine Mutation nur der
-    // over-Seite muss genauso auffallen wie eine der under-Seite.
-    expect(screen.getByText('Funktioniert gerade nicht')).toBeTruthy();
-    expect(screen.getByText('Funktioniert gerade')).toBeTruthy();
+    // BEIDE Gruppen-Ueberschriften gepinnt — und die Reihenfolge:
+    // erst alles, was funktioniert, dann alles, was nicht (Wolfs
+    // Feedback 25.08.: die Mischung war unlesbar).
+    const gut = screen.getByText('Das funktioniert gerade');
+    const schlecht = screen.getByText('Das funktioniert gerade nicht');
+    expect(gut).toBeTruthy();
+    expect(schlecht).toBeTruthy();
+    expect(
+      gut.compareDocumentPosition(schlecht) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.queryByText(/Zu beachten/)).toBeNull();
     expect(screen.getAllByText('Tipp:').length).toBe(2);
     expect(screen.getByText(/Humor trägt mit einem starken Aufhänger/)).toBeTruthy();
