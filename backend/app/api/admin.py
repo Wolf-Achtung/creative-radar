@@ -78,11 +78,13 @@ from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
 from app.core.feature_flags import (
     is_kampagnen_timing_enabled,
+    is_release_countdown_enabled,
     is_projekt_start_brief_enabled,
     is_sound_trends_enabled,
 )
 from app.services.campaign_timing import compute_campaign_timing
 from app.services.projekt_start_brief import compute_projekt_start_brief
+from app.services.release_countdown import compute_release_countdown
 from app.services.sound_trends import compute_sound_trends
 from app.services.wir_segment import compute_wir_segment
 from app.services.title_aggregation import AmbiguousTitleError
@@ -396,6 +398,27 @@ def sound_trends(session: Session = Depends(get_session)) -> dict:
             ),
         )
     return compute_sound_trends(session)
+
+
+@router.get("/release-countdown")
+def release_countdown(session: Session = Depends(get_session)) -> dict:
+    """Release-Countdown je Wir-Projekt (Roadmap Schritt 2,
+    25.08.2026): Release-Datum, Wochen bis Release, Markt-
+    Kampagnenstart (Median aus dem Kampagnen-Timing) und die
+    belastbaren Muster der aktuellen Kampagnenphase — ein Plan pro
+    markiertem Projekt. Rein lesend, deterministisch, kein
+    Modell-Call (``services/release_countdown.py``).
+
+    Feature-Flag-Gate (Arbeitsregel 23.08.2026)."""
+    if not is_release_countdown_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Release-Countdown ist deaktiviert. "
+                "FEATURE_RELEASE_COUNTDOWN_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    return compute_release_countdown(session)
 
 
 @router.get("/projekt-start-brief/{title_id}")

@@ -10,6 +10,7 @@ import {
   formatDate,
   formatDateTime,
   formatKampagnenstart,
+  formatReleaseEinordnung,
   formatKatalogAnwendenLabel,
   formatKatalogNachladen,
   formatMultiplier,
@@ -319,5 +320,44 @@ describe('formatKampagnenstart', () => {
 
   it('faellt bei fehlendem Wert auf den Strich zurueck', () => {
     expect(formatKampagnenstart(null)).toBe('—');
+  });
+});
+
+
+// Release-Countdown (Roadmap Schritt 2, 25.08.): die Einordnung eines
+// Wir-Projekts gegen den Markt-Kampagnenstart. Jede Fallgruppe einmal —
+// der Satz ist die Anzeige, nicht Beiwerk.
+describe('formatReleaseEinordnung', () => {
+  it('ohne Release-Datum: klarer Hinweis', () => {
+    expect(formatReleaseEinordnung({ tageBisRelease: null, marktMedianTage: 84, eigenePosts: 0, eigenerStartTage: null }))
+      .toMatch(/Kein Release-Datum/);
+  });
+
+  it('Release vorbei: Nachlese statt Countdown', () => {
+    expect(formatReleaseEinordnung({ tageBisRelease: -60, marktMedianTage: 84, eigenePosts: 5, eigenerStartTage: 70 }))
+      .toBe('Release war vor 9 Wochen. 5 eigene Posts zugeordnet — Zeit für die Nachlese.');
+    expect(formatReleaseEinordnung({ tageBisRelease: -60, marktMedianTage: 84, eigenePosts: 0, eigenerStartTage: null }))
+      .toMatch(/Keine eigenen Posts/);
+  });
+
+  it('Kampagne laeuft: Vergleich frueher/spaeter als der Markt', () => {
+    expect(formatReleaseEinordnung({ tageBisRelease: 21, marktMedianTage: 84, eigenePosts: 4, eigenerStartTage: 91 }))
+      .toBe('Eure Kampagne läuft seit 13 Wochen vor Release (4 Posts). Der Markt startet im Median 12 Wochen vorher — ihr wart früher dran.');
+    expect(formatReleaseEinordnung({ tageBisRelease: 21, marktMedianTage: 84, eigenePosts: 4, eigenerStartTage: 42 }))
+      .toMatch(/ihr habt später begonnen/);
+  });
+
+  it('noch keine Posts: Abstand zum typischen Startfenster', () => {
+    expect(formatReleaseEinordnung({ tageBisRelease: 126, marktMedianTage: 84, eigenePosts: 0, eigenerStartTage: null }))
+      .toBe('Release in 18 Wochen, noch keine eigenen Posts zugeordnet. Der Markt startet im Median 12 Wochen vor Release — bis zum typischen Startfenster sind es noch 6 Wochen.');
+    expect(formatReleaseEinordnung({ tageBisRelease: 84, marktMedianTage: 84, eigenePosts: 0, eigenerStartTage: null }))
+      .toMatch(/im typischen Startfenster/);
+    expect(formatReleaseEinordnung({ tageBisRelease: 42, marktMedianTage: 84, eigenePosts: 0, eigenerStartTage: null }))
+      .toMatch(/spät dran/);
+  });
+
+  it('ohne Markt-Benchmark bleibt der Satz ohne Vergleich', () => {
+    expect(formatReleaseEinordnung({ tageBisRelease: 42, marktMedianTage: null, eigenePosts: 0, eigenerStartTage: null }))
+      .toBe('Release in 6 Wochen, noch keine eigenen Posts zugeordnet.');
   });
 });
