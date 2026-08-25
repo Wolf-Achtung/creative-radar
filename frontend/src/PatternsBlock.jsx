@@ -649,17 +649,19 @@ function ReferenzPosts({ dimension, value }) {
 }
 
 function EmpfehlungsKarte({ dim, cell }) {
-  const over = cell.breakout_verdict === 'over';
   const farbe = QUOTE_COLOR_ON_CARD[cell.breakout_verdict];
   const { titel, satz, tipp } = werkstattEmpfehlung(dim, cell);
+  // Volle Breite statt Kachel-Wand (Wolfs Lesbarkeits-Feedback
+  // 25.08.): die Karten stehen untereinander in zwei klar
+  // beschrifteten Gruppen — das Urteil steht EINMAL ueber der Gruppe,
+  // nicht als Chip auf jeder Karte.
   return (
     <div
       className="card breakouts-card"
-      style={{ flex: '1 1 300px', maxWidth: '420px', padding: '1rem 1.25rem', borderLeft: `4px solid ${farbe}` }}
+      style={{ padding: '0.85rem 1.25rem', borderLeft: `4px solid ${farbe}` }}
     >
-      <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-        <span style={{ color: farbe }}>{over ? 'Funktioniert gerade' : 'Funktioniert gerade nicht'}</span>
-        <span style={{ color: '#6b6b6b' }}> · {THEMA_LABEL[dim] || DIMENSION_LABEL[dim] || dim}</span>
+      <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, color: '#6b6b6b' }}>
+        {THEMA_LABEL[dim] || DIMENSION_LABEL[dim] || dim}
       </p>
       <p style={{ margin: '0 0 0.35rem', fontWeight: 700, fontSize: '1.05em' }}>{titel}</p>
       <p style={{ margin: 0, fontSize: '0.9em', color: '#4a4a44' }}>{satz}</p>
@@ -687,13 +689,26 @@ function EmpfehlungsAnsicht({ dimensions }) {
       </p>
     );
   }
-  return (
-    <div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-        {befunde.map(({ dim, cell }) => (
+  // Erst alles, was gerade funktioniert, dann alles, was nicht — nicht
+  // gemischt (Wolfs Feedback 25.08.: die Mischung war unlesbar).
+  const gut = befunde.filter(({ cell }) => cell.breakout_verdict === 'over');
+  const schlecht = befunde.filter(({ cell }) => cell.breakout_verdict !== 'over');
+  const gruppe = (titelText, farbe, eintraege) => eintraege.length > 0 && (
+    <div style={{ margin: '0 0 1.25rem' }}>
+      <h3 style={{ color: farbe, margin: '0 0 0.5rem', fontSize: '1em', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        {titelText}
+      </h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+        {eintraege.map(({ dim, cell }) => (
           <EmpfehlungsKarte key={`${dim}:${cell.value}`} dim={dim} cell={cell} />
         ))}
       </div>
+    </div>
+  );
+  return (
+    <div>
+      {gruppe('Das funktioniert gerade', '#7ee2a8', gut)}
+      {gruppe('Das funktioniert gerade nicht', '#ffa294', schlecht)}
       <p style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.75em' }}>
         Abgeleitet aus gemessenen Mustern im eigenen Bestand — kein Wirkungsbeweis.
         Alle Zahlen und die Methodik stehen im Tab „Zahlen & Methode“.

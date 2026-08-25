@@ -80,4 +80,13 @@ describe('PostCheckBlock — Flag-Gate und Ablauf', () => {
     const knopf = await screen.findByText('Entwurf prüfen');
     expect(knopf.disabled).toBe(true);
   });
+
+  it('das Beispiel fuellt das Formular — der leere Zustand erklaert sich selbst', async () => {
+    endpoints.health.mockResolvedValue({ features: { post_check: true } });
+    render(<PostCheckBlock />);
+    await screen.findByText('Entwurf prüfen, bevor er rausgeht');
+    fireEvent.click(screen.getByText('Mit einem Beispiel ausprobieren'));
+    expect(screen.getByLabelText('Caption-Entwurf').value).toMatch(/DIE NACHT/);
+    expect(screen.getByText('Entwurf prüfen').disabled).toBe(false);
+  });
 });

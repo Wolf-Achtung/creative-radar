@@ -119,15 +119,16 @@ export default function PostCheckBlock() {
         Entwurf prüfen, bevor er rausgeht
       </h2>
       <p style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
-        Caption einfügen, optional Länge und Cover angeben — der Check hält jede
-        Angabe gegen das, was gerade funktioniert. Dieselben Regeln wie im
-        Muster-Panel, sofort und ohne KI-Kosten.
+        Kopiere den Text, den ihr posten wollt, in das Feld — fertig muss er
+        nicht sein. Der Check sagt dir sofort, was daran gerade funktioniert
+        und was nicht: Länge, Frage, Call-to-Action, Hashtags. Je mehr du
+        zusätzlich angibst (Videolänge, Cover, Format), desto mehr wird geprüft.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxWidth: '640px' }}>
         <textarea
           value={caption}
           onChange={(e) => setCaption(e.target.value)}
-          placeholder="Caption-Entwurf hier einfügen …"
+          placeholder={'Deinen Post-Text hier einfügen, z. B.:\n\nWer traut sich allein ins Kino? 👀 DIE NACHT — ab Donnerstag. Tickets im Link in Bio. #DieNacht'}
           rows={4}
           aria-label="Caption-Entwurf"
           style={{ ...feldStyle, resize: 'vertical', fontFamily: 'inherit' }}
@@ -165,7 +166,7 @@ export default function PostCheckBlock() {
             </select>
           </label>
         </div>
-        <div>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           <button
             type="button"
             onClick={pruefen}
@@ -179,6 +180,22 @@ export default function PostCheckBlock() {
           >
             {laeuft ? 'Prüft …' : 'Entwurf prüfen'}
           </button>
+          {!caption.trim() && (
+            <button
+              type="button"
+              onClick={() => {
+                setCaption('Wer traut sich allein ins Kino? 👀 DIE NACHT — ab Donnerstag. Tickets im Link in Bio. #DieNacht');
+                setDauer('30');
+                setTitelImBild('ja');
+              }}
+              style={{
+                background: 'none', border: 'none', color: '#ffa294', cursor: 'pointer',
+                fontSize: '0.85em', padding: 0, textDecoration: 'underline',
+              }}
+            >
+              Mit einem Beispiel ausprobieren
+            </button>
+          )}
         </div>
       </div>
       {fehler && (
