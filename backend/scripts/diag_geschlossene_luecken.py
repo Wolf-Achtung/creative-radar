@@ -136,10 +136,28 @@ def _bericht(treffer: list[tuple], tage: int) -> None:
 
     print(
         f"\nOhne Marker: {len(ohne)}\n"
-        "  → zu, ohne Titel, ohne KI-Urteil zur Katalog-Luecke. Das kann\n"
-        "    richtig sein (Post bewirbt gar kein Werk) oder eine Handablage\n"
-        "    ohne Begruendung. Hier hilft nur der Blick auf den Post."
+        "  → zu, ohne Titel, ohne KI-Urteil zur Katalog-Luecke.\n"
+        "    ``ignored`` ist hier meist richtig: ein verworfener Vorschlag\n"
+        "    laesst das Asset absichtlich ohne Titel.\n"
+        "    ``resolved`` OHNE Titel ist dagegen die Signatur des Fehlers\n"
+        "    aus #436 — geschlossen, aber nichts zugeordnet. Deshalb\n"
+        "    stehen diese Faelle namentlich da: nur so laesst sich sagen,\n"
+        "    ob der Fix greift oder ob noch etwas durchrutscht.\n"
     )
+    verdaechtig = [
+        (c, a) for c, a in ohne if c.status == CandidateStatus.RESOLVED
+    ]
+    if verdaechtig:
+        print(f"  {len(verdaechtig)} x resolved ohne Titel — nachsehen:")
+        for c, _a in verdaechtig[:20]:
+            stand = c.updated_at
+            zeit = stand.strftime("%Y-%m-%d %H:%M") if stand else "—"
+            print(f"    - {c.suggested_title!r}  geschlossen {zeit}")
+        if len(verdaechtig) > 20:
+            print(f"    ... und {len(verdaechtig) - 20} weitere")
+    verworfen = len(ohne) - len(verdaechtig)
+    if verworfen:
+        print(f"  {verworfen} x ignored — verworfene Vorschlaege, kein Fall.")
 
 
 def main() -> int:

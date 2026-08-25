@@ -154,6 +154,33 @@ def test_bericht_trennt_marker_von_ohne(session, capsys):
     assert "Ohne Marker: 1" in ausgabe
 
 
+def test_resolved_ohne_titel_wird_namentlich_genannt(session, capsys):
+    """Die Frage, die der Bericht am 25.08. nicht beantworten konnte:
+    WELCHE zwei Faelle sind das? ``resolved`` ohne Titel ist die
+    Signatur des Fehlers aus #436 — nur mit Namen und Zeitpunkt laesst
+    sich sagen, ob der Fix greift oder etwas durchrutscht."""
+    _kandidat(session, status=CandidateStatus.RESOLVED, marker=False)
+
+    diag._bericht(diag._geschlossen_ohne_titel(session, tage=2), 2)
+    ausgabe = capsys.readouterr().out
+
+    assert "1 x resolved ohne Titel" in ausgabe
+    assert "'Lanterns'" in ausgabe
+
+
+def test_verworfene_vorschlaege_werden_nur_gezaehlt(session, capsys):
+    """``ignored`` heisst: jemand hat den Vorschlag bewusst verworfen.
+    Das Asset bleibt absichtlich ohne Titel — kein Fall, keine Liste,
+    sonst ertraenkt die Handarbeit die echten Verdachtsfaelle."""
+    _kandidat(session, status=CandidateStatus.IGNORED, marker=False)
+
+    diag._bericht(diag._geschlossen_ohne_titel(session, tage=2), 2)
+    ausgabe = capsys.readouterr().out
+
+    assert "1 x ignored — verworfene Vorschlaege, kein Fall." in ausgabe
+    assert "resolved ohne Titel" not in ausgabe
+
+
 def test_leerer_bericht_sagt_entwarnung(session, capsys):
     diag._bericht([], 2)
     assert "Nichts gefunden" in capsys.readouterr().out
