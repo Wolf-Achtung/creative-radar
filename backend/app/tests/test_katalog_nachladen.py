@@ -120,8 +120,12 @@ def _luecke(session, *, name, caption, notiz=None):
     return asset, cand
 
 
-def _lauf(session, client):
-    return asyncio.run(kn.lade_fehlende_titel_nach(session, client=client))
+def _lauf(session, client, *, anwenden=True):
+    """Vorgabe hier ist der Ernstfall — die Waechter-Tests pruefen, was
+    wirklich geschrieben wird. Die Vorschau hat eigene Tests unten."""
+    return asyncio.run(
+        kn.lade_fehlende_titel_nach(session, client=client, anwenden=anwenden)
+    )
 
 
 def test_belegter_titel_wird_angelegt_und_zugeordnet(session):
@@ -288,7 +292,9 @@ def test_batch_deckel_meldet_den_rest(session):
     client = _FakeTMDb()
 
     summary = asyncio.run(
-        kn.lade_fehlende_titel_nach(session, client=client, max_kandidaten=2)
+        kn.lade_fehlende_titel_nach(
+            session, client=client, max_kandidaten=2, anwenden=True
+        )
     )
 
     assert summary.geprueft == 2
@@ -336,3 +342,80 @@ def test_endpoint_503_bei_abgeschaltetem_flag(session, monkeypatch):
     assert antwort.status_code == 503
     assert "FEATURE_KATALOG_NACHLADEN_ENABLED" in antwort.json()["detail"]
     assert gerufen == [], "Ohne Flag darf der Schreib-Pfad nicht einmal anlaufen."
+
+
+# --- Vorschau (25.08.2026) --------------------------------------------
+#
+# Anlass: Dieses Feature ist in Staging nicht erprobbar. Sein Ausloeser
+# ist der Marker "(nicht im Katalog)", den nur die KI-Pruefung setzt —
+# und die braucht den Anthropic-Key, den Staging bewusst nicht hat. Der
+# erste Klick in Staging meldete darum korrekt "0 geprueft", und der
+# zweite "KI-Pruefung uebersprungen: kein Anthropic-API-Key". Wolfs
+# Freigabe-Modell "Staging zuerst" greift hier ins Leere; die Vorschau
+# tritt an seine Stelle.
+
+
+def test_vorschau_schreibt_nichts_meldet_aber_dasselbe(session):
+    """Der Kern: gleiche Zahlen, kein Schreiben. Waeren es zwei
+    getrennte Codepfade, wuerde die Vorschau irgendwann luegen — sie
+    laeuft deshalb komplett durch und rollt am Ende zurueck."""
+    asset, cand = _luecke(
+        session, name="Desperate Housewives",
+        caption="Now streaming: #DesperateHousewives",
+    )
+    client = _FakeTMDb(serien=[
+        {"id": 1668, "name": "Desperate Housewives", "first_air_date": AKTUELL},
+    ])
+
+    vorschau = _lauf(session, client, anwenden=False)
+
+    assert vorschau.vorschau is True
+    assert vorschau.angelegt == 1
+    assert vorschau.angelegte_titel == ["Desperate Housewives"]
+    # ... und nichts davon steht in der Datenbank.
+    assert session.exec(select(Title)).all() == []
+    session.refresh(asset)
+    session.refresh(cand)
+    assert asset.title_id is None
+    assert cand.status == CandidateStatus.OPEN
+
+
+def test_vorschau_dann_ernstfall_ergibt_dasselbe(session):
+    """Die Reihenfolge, die Wolf am Montag klickt: erst sehen, dann
+    anwenden. Der zweite Lauf muss genau das tun, was der erste
+    angekuendigt hat — sonst ist die Vorschau eine Behauptung."""
+    _luecke(
+        session, name="Lanterns",
+        caption="A new episode of #Lanterns is now streaming.",
+    )
+    client = _FakeTMDb(serien=[
+        {"id": 4242, "name": "Lanterns", "first_air_date": AKTUELL},
+    ])
+
+    vorschau = _lauf(session, client, anwenden=False)
+    echt = _lauf(session, client, anwenden=True)
+
+    assert vorschau.angelegte_titel == echt.angelegte_titel
+    assert (vorschau.angelegt, vorschau.zugeordnet) == (echt.angelegt, echt.zugeordnet)
+    assert echt.vorschau is False
+    assert len(session.exec(select(Title)).all()) == 1
+
+
+def test_endpoint_ist_ohne_parameter_eine_vorschau(session, monkeypatch):
+    """Der gefaehrlichere Zustand gehoert hinter den ausdruecklichen
+    Klick: ein POST ohne ``anwenden`` schreibt nicht."""
+    from app.api import titles as titles_module
+
+    monkeypatch.setenv("FEATURE_KATALOG_NACHLADEN_ENABLED", "true")
+    gesehen: list[bool] = []
+
+    async def _spion(session_, *, anwenden=False, **k):
+        gesehen.append(anwenden)
+        return kn.NachladeSummary(vorschau=not anwenden)
+
+    monkeypatch.setattr(titles_module, "lade_fehlende_titel_nach", _spion)
+
+    antwort = asyncio.run(_post_nachladen(session))
+    assert antwort.status_code == 200
+    assert antwort.json()["vorschau"] is True
+    assert gesehen == [False], "Ohne Parameter darf nichts festgeschrieben werden."

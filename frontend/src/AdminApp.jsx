@@ -407,33 +407,59 @@ export function AdminApp({ onLogout }) {
   }
 
   // Katalog-Nachladen (25.08.2026): schliesst die Luecke, an der die
-  // KI-Pruefung endet — "bewirbt X (nicht im Katalog)". Was ein Post
-  // nachweislich bewirbt und TMDb eindeutig kennt, kommt in den
-  // Katalog und wird zugeordnet. 20 je Klick.
-  async function runKatalogNachladen() {
+  // KI-Pruefung endet — "bewirbt X (nicht im Katalog)". Zwei Stufen:
+  // Vorschau zeigt, was passieren wuerde, der zweite Knopf wendet an.
+  //
+  // Warum die Stufen: Dieses Feature ist in Staging nicht erprobbar.
+  // Sein Ausloeser ist der Marker, den nur die KI-Pruefung setzt — und
+  // die braucht den Anthropic-Key, den Staging bewusst nicht hat. Die
+  // Vorschau tritt an die Stelle der Staging-Erprobung.
+  const [katalogVorschau, setKatalogVorschau] = useState(null);
+
+  function katalogMeldung(r) {
+    const namen = (r.angelegte_titel || []).length
+      ? ` Titel: ${r.angelegte_titel.join(', ')}.`
+      : '';
+    const offen = [];
+    if (r.nicht_belegt) offen.push(`${r.nicht_belegt} ohne Text-Beleg`);
+    if (r.tmdb_unklar) offen.push(`${r.tmdb_unklar} bei TMDb nicht eindeutig`);
+    if (r.fehler) offen.push(`${r.fehler} mit TMDb-Fehler`);
+    const liegengelassen = offen.length
+      ? ` Bewusst liegen gelassen: ${offen.join(', ')}.`
+      : '';
+    const rest = r.offen_danach
+      ? ` Noch ${r.offen_danach} mit Katalog-Luecke — danach erneut klicken.`
+      : '';
+    if (r.vorschau) {
+      if (!r.geprueft) {
+        return 'Vorschau: kein Kandidat traegt einen Katalog-Luecken-Marker. '
+          + 'Der entsteht in der KI-Pruefung — es gibt gerade nichts nachzuladen.';
+      }
+      return `VORSCHAU — es wurde nichts geaendert. ${r.geprueft} geprueft, `
+        + `${r.angelegt} Titel wuerden angelegt, ${r.zugeordnet} Treffer zugeordnet.`
+        + `${namen}${liegengelassen}${rest}`;
+    }
+    return `Katalog-Nachladen: ${r.geprueft} geprueft, ${r.angelegt} Titel angelegt, `
+      + `${r.zugeordnet} Treffer zugeordnet.${namen}${liegengelassen}${rest}`;
+  }
+
+  async function runKatalogVorschau() {
     await run(async () => {
-      const r = await endpoints.katalogNachladen();
+      const r = await endpoints.katalogNachladen(false);
+      setKatalogVorschau(r);
+      setMessage(katalogMeldung(r));
+    });
+  }
+
+  async function runKatalogAnwenden() {
+    await run(async () => {
+      const r = await endpoints.katalogNachladen(true);
+      // Die Vorschau ist nach dem Anwenden verbraucht: der Bestand hat
+      // sich geaendert, ein zweiter Klick auf denselben alten Stand
+      // waere blind.
+      setKatalogVorschau(null);
       await load();
-      const rest = r.offen_danach
-        ? ` Noch ${r.offen_danach} mit Katalog-Luecke — fuer die naechste Runde erneut klicken.`
-        : '';
-      // Die Namensliste ist der Kern der Abnahme: Wolf muss sehen, WAS
-      // angelegt wurde, nicht nur wie viel — ein falsch angelegter Titel
-      // wirkt danach auf jeden Matcher-Lauf.
-      const namen = (r.angelegte_titel || []).length
-        ? ` Neu im Katalog: ${r.angelegte_titel.join(', ')}.`
-        : '';
-      const offen = [];
-      if (r.nicht_belegt) offen.push(`${r.nicht_belegt} ohne Text-Beleg`);
-      if (r.tmdb_unklar) offen.push(`${r.tmdb_unklar} bei TMDb nicht eindeutig`);
-      if (r.fehler) offen.push(`${r.fehler} mit TMDb-Fehler`);
-      const uebersprungen = offen.length
-        ? ` Bewusst liegen gelassen: ${offen.join(', ')}.`
-        : '';
-      setMessage(
-        `Katalog-Nachladen: ${r.geprueft} geprueft, ${r.angelegt} Titel angelegt, `
-        + `${r.zugeordnet} Treffer zugeordnet.${namen}${uebersprungen}${rest}`
-      );
+      setMessage(katalogMeldung(r));
     });
   }
 
@@ -689,7 +715,9 @@ export function AdminApp({ onLogout }) {
           onRematchAssets={rematchAssets}
           onCandidateAutopilot={runCandidateAutopilot}
           onCandidateLlmAssist={runCandidateLlmAssist}
-          onKatalogNachladen={runKatalogNachladen}
+          onKatalogVorschau={runKatalogVorschau}
+          onKatalogAnwenden={runKatalogAnwenden}
+          katalogVorschau={katalogVorschau}
           onToggleChannelOwn={toggleChannelOwn}
           channels={channels}
           titles={titles}

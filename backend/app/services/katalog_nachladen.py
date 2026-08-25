@@ -93,6 +93,7 @@ class NachladeSummary:
     fehler: int = 0
     offen_danach: int = 0
     angelegte_titel: list[str] = field(default_factory=list)
+    vorschau: bool = True
 
     def to_dict(self) -> dict:
         return {
@@ -105,6 +106,10 @@ class NachladeSummary:
             "fehler": self.fehler,
             "offen_danach": self.offen_danach,
             "angelegte_titel": self.angelegte_titel[:20],
+            # Ohne dieses Feld kann das Frontend eine Vorschau nicht von
+            # einem echten Lauf unterscheiden — dieselben Zahlen, zwei
+            # voellig verschiedene Bedeutungen.
+            "vorschau": self.vorschau,
         }
 
 
@@ -128,9 +133,26 @@ async def lade_fehlende_titel_nach(
     *,
     client: TMDbClient | None = None,
     max_kandidaten: int = DEFAULT_MAX_KANDIDATEN,
+    anwenden: bool = False,
 ) -> NachladeSummary:
-    """Legt Titel an, die ein beobachteter Post nachweislich bewirbt."""
-    summary = NachladeSummary()
+    """Legt Titel an, die ein beobachteter Post nachweislich bewirbt.
+
+    ``anwenden=False`` (Vorgabe) ist eine **Vorschau**: derselbe Code
+    laeuft vollstaendig durch — Text-Beleg, TMDb-Abfrage, Anlage,
+    Zuordnung — und wird am Ende zurueckgerollt statt festgeschrieben.
+    Die Vorschau zeigt damit nicht, was der Code tun *sollte*, sondern
+    was er *taete*; ein Wunschzettel neben dem echten Pfad waere
+    wertlos, sobald die beiden auseinanderlaufen.
+
+    Der Grund fuer die Vorschau (25.08.2026): Dieses Feature ist in
+    Staging nicht erprobbar. Seine Eingabe ist der Marker
+    ``(nicht im Katalog)``, den nur die KI-Pruefung setzt — und die
+    braucht den Anthropic-Key, den Staging bewusst nicht hat. Wolfs
+    Freigabe-Modell (Staging zuerst) greift hier also ins Leere. Die
+    Vorschau ist der Ersatz: erst sehen, was passieren wuerde, dann
+    entscheiden.
+    """
+    summary = NachladeSummary(vorschau=not anwenden)
     kandidaten = _kandidaten_mit_luecke(session)
     summary.offen_danach = max(len(kandidaten) - max_kandidaten, 0)
     if not kandidaten:
@@ -223,7 +245,14 @@ async def lade_fehlende_titel_nach(
             titel.title_original, titel.tmdb_id, asset.id,
         )
 
-    session.commit()
+    if anwenden:
+        session.commit()
+    else:
+        # Der einzige Unterschied zwischen Vorschau und Ernstfall. Alles
+        # davor ist identisch geloffen, inklusive der TMDb-Abfragen —
+        # deshalb stimmt die Vorschau auch dann, wenn TMDb heute anders
+        # antwortet als gestern.
+        session.rollback()
     logger.info("katalog-nachladen done %s", summary.to_dict())
     return summary
 

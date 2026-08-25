@@ -21,7 +21,9 @@ export function SourcesPanel({
   onRematchAssets,
   onCandidateAutopilot,
   onCandidateLlmAssist,
-  onKatalogNachladen = () => {},
+  onKatalogVorschau = () => {},
+  onKatalogAnwenden = () => {},
+  katalogVorschau = null,
   onToggleChannelOwn,
   channels,
   titles,
@@ -129,7 +131,25 @@ export function SourcesPanel({
               Feature-Flag-Gate (Arbeitsregel 23.08.2026): erscheint nur,
               wo /api/health -> features es anbietet — Staging zuerst. */}
           {features.katalog_nachladen && (
-            <button className="secondary" onClick={onKatalogNachladen} disabled={busy}>Fehlende Titel aus TMDb nachladen</button>
+            <>
+              <button className="secondary" onClick={onKatalogVorschau} disabled={busy}>Fehlende Titel prüfen (Vorschau)</button>
+              {/* Erst sehen, dann anlegen. Der Knopf bleibt gesperrt,
+                  bis eine Vorschau vorliegt, die auch wirklich etwas
+                  anzulegen hätte — ein Klick ins Leere soll nicht wie
+                  eine Entscheidung aussehen. */}
+              <button
+                className="secondary"
+                onClick={onKatalogAnwenden}
+                disabled={busy || !katalogVorschau || !katalogVorschau.angelegt}
+                title={katalogVorschau
+                  ? undefined
+                  : 'Erst die Vorschau ansehen — sie zeigt, welche Titel angelegt würden.'}
+              >
+                {katalogVorschau && katalogVorschau.angelegt
+                  ? `${katalogVorschau.angelegt} Titel wirklich anlegen`
+                  : 'Titel wirklich anlegen'}
+              </button>
+            </>
           )}
         </div>
       </Section>
