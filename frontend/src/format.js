@@ -330,8 +330,8 @@ export function formatReleaseEinordnung({ tageBisRelease, marktMedianTage, eigen
     const basis = `Eure Kampagne läuft seit ${wochen(eigenerStartTage)} vor Release (${eigenePosts} Posts).`;
     if (marktMedianTage === null || marktMedianTage === undefined) return basis;
     return eigenerStartTage >= marktMedianTage
-      ? `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vorher — ihr wart früher dran.`
-      : `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vorher — ihr habt später begonnen.`;
+      ? `${basis} Vergleichbare Kampagnen starten meist ${wochen(marktMedianTage)} vor dem Release — ihr wart früher dran.`
+      : `${basis} Vergleichbare Kampagnen starten meist ${wochen(marktMedianTage)} vor dem Release — ihr habt später begonnen.`;
   }
   const basis = tageBisRelease <= 7
     ? 'Release-Woche, noch keine eigenen Posts zugeordnet.'
@@ -339,12 +339,12 @@ export function formatReleaseEinordnung({ tageBisRelease, marktMedianTage, eigen
   if (marktMedianTage === null || marktMedianTage === undefined) return basis;
   const bisStartfenster = tageBisRelease - marktMedianTage;
   if (bisStartfenster > 7) {
-    return `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vor Release — bis zum typischen Startfenster sind es noch ${wochen(bisStartfenster)}.`;
+    return `${basis} Vergleichbare Kampagnen starten meist ${wochen(marktMedianTage)} vor dem Release — bis zum typischen Startfenster sind es noch ${wochen(bisStartfenster)}.`;
   }
   if (bisStartfenster >= -7) {
-    return `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vor Release — ihr seid jetzt im typischen Startfenster.`;
+    return `${basis} Vergleichbare Kampagnen starten meist ${wochen(marktMedianTage)} vor dem Release — ihr seid jetzt im typischen Startfenster.`;
   }
-  return `${basis} Der Markt startet im Median ${wochen(marktMedianTage)} vor Release — das typische Startfenster liegt ${wochen(bisStartfenster)} zurück, ihr seid spät dran.`;
+  return `${basis} Vergleichbare Kampagnen starten meist ${wochen(marktMedianTage)} vor dem Release — das typische Startfenster liegt ${wochen(bisStartfenster)} zurück, ihr seid spät dran.`;
 }
 
 // Beweis-Loop (Roadmap Schritt 3, 25.08.): eine Empfehlungs-Zelle der

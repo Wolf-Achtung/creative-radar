@@ -183,7 +183,7 @@ def test_empfehlungen_mit_absoluten_bild_urls(session: Session):
     html, dateiname = render_projekt_one_pager(
         session, projekt.id, api_base="https://api.test/", now=NOW
     )
-    assert "Was im Markt gerade überperformt" in html
+    assert "Was gerade funktioniert" in html
     assert "humorous" in html
     assert 'src="https://api.test/api/thumbnails/' in html, (
         "Bilder muessen den Proxy ABSOLUT referenzieren — die Datei "

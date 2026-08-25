@@ -183,12 +183,12 @@ def _werkstatt_empfehlung(dim: str, cell: dict) -> tuple[str, str, str | None]:
     if cell["breakout_verdict"] == "over":
         oefter = f"{faktor}-mal öfter" if faktor else "öfter"
         return (
-            f"{wert}: stark im Markt",
+            f"{wert}: funktioniert gerade",
             f"Posts mit diesem Merkmal liegen {oefter} weit über dem Kanal-Schnitt.",
             None,
         )
     return (
-        f"{wert}: schwach im Markt",
+        f"{wert}: funktioniert gerade nicht",
         "Posts mit diesem Merkmal bleiben öfter unter dem Kanal-Schnitt.",
         None,
     )
@@ -341,10 +341,10 @@ def render_playbook(playbook: dict) -> tuple[str, str, str]:
 
     teile: list[str] = [f"Creative Radar — Playbook {kw}"]
     if machen:
-        teile += ["", "STARK IM MARKT", ""]
+        teile += ["", "WAS GERADE FUNKTIONIERT", ""]
         teile += [_befund_zeile(e) for e in machen]
     if vorsicht:
-        teile += ["", "SCHWACH IM MARKT", ""]
+        teile += ["", "WAS GERADE NICHT FUNKTIONIERT", ""]
         teile += [_befund_zeile(e) for e in vorsicht]
     if playbook["bewegungen"]:
         teile += ["", "BEWEGUNG DIESE WOCHE", ""]
@@ -377,7 +377,7 @@ def _html_karte(eintrag: dict) -> str:
     cell = eintrag["cell"]
     over = cell["breakout_verdict"] == "over"
     farbe = "#1f7a45" if over else "#b03d2e"
-    chip = "Stark im Markt" if over else "Schwach im Markt"
+    chip = "Funktioniert gerade" if over else "Funktioniert gerade nicht"
     thema = THEMA_LABEL.get(eintrag["dim"], _dim(eintrag["dim"]))
     titel, satz, tipp = _werkstatt_empfehlung(eintrag["dim"], cell)
     return (
