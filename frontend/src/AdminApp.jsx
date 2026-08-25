@@ -406,6 +406,37 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // Katalog-Nachladen (25.08.2026): schliesst die Luecke, an der die
+  // KI-Pruefung endet — "bewirbt X (nicht im Katalog)". Was ein Post
+  // nachweislich bewirbt und TMDb eindeutig kennt, kommt in den
+  // Katalog und wird zugeordnet. 20 je Klick.
+  async function runKatalogNachladen() {
+    await run(async () => {
+      const r = await endpoints.katalogNachladen();
+      await load();
+      const rest = r.offen_danach
+        ? ` Noch ${r.offen_danach} mit Katalog-Luecke — fuer die naechste Runde erneut klicken.`
+        : '';
+      // Die Namensliste ist der Kern der Abnahme: Wolf muss sehen, WAS
+      // angelegt wurde, nicht nur wie viel — ein falsch angelegter Titel
+      // wirkt danach auf jeden Matcher-Lauf.
+      const namen = (r.angelegte_titel || []).length
+        ? ` Neu im Katalog: ${r.angelegte_titel.join(', ')}.`
+        : '';
+      const offen = [];
+      if (r.nicht_belegt) offen.push(`${r.nicht_belegt} ohne Text-Beleg`);
+      if (r.tmdb_unklar) offen.push(`${r.tmdb_unklar} bei TMDb nicht eindeutig`);
+      if (r.fehler) offen.push(`${r.fehler} mit TMDb-Fehler`);
+      const uebersprungen = offen.length
+        ? ` Bewusst liegen gelassen: ${offen.join(', ')}.`
+        : '';
+      setMessage(
+        `Katalog-Nachladen: ${r.geprueft} geprueft, ${r.angelegt} Titel angelegt, `
+        + `${r.zugeordnet} Treffer zugeordnet.${namen}${uebersprungen}${rest}`
+      );
+    });
+  }
+
   // Wir-Segment Schritt 1 (21.08.2026): Kanal als "vom eigenen Team
   // betreut" markieren — Grundlage der empfohlen→gemacht→gewirkt-
   // Auswertung im Monitoring. Optimistisch ohne run(): ein Checkbox-
@@ -658,6 +689,7 @@ export function AdminApp({ onLogout }) {
           onRematchAssets={rematchAssets}
           onCandidateAutopilot={runCandidateAutopilot}
           onCandidateLlmAssist={runCandidateLlmAssist}
+          onKatalogNachladen={runKatalogNachladen}
           onToggleChannelOwn={toggleChannelOwn}
           channels={channels}
           titles={titles}

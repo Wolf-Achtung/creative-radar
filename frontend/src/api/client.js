@@ -141,6 +141,11 @@ export const endpoints = {
   // mit eindeutigem Exakt-Treffer in der Whitelist, schließt Karteileichen.
   candidatesAutopilot: () => api('/api/titles/candidates/autopilot', { method: 'POST' }),
   candidatesLlmAssist: () => api('/api/titles/candidates/llm-assist', { method: 'POST' }),
+  // Katalog-Nachladen (25.08.2026): legt Titel an, die ein Post
+  // nachweislich bewirbt und die der Katalog nicht kennt. POST, und
+  // hinter dem Bearer-Token — deshalb ist der Knopf der einzige Weg
+  // dorthin, nicht die Browser-Adresszeile.
+  katalogNachladen: () => api('/api/titles/katalog-nachladen', { method: 'POST' }),
   updateChannel: (channelId, payload) => api(`/api/channels/${channelId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   updateTitle: (titleId, payload) => api(`/api/titles/${titleId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   titleSyncRuns: () => api('/api/titles/sync/runs'),
