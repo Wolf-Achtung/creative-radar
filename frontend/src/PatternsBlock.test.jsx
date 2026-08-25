@@ -448,8 +448,8 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     await screen.findByText('Humor zieht nicht von allein');
     // BEIDE Chip-Beschriftungen gepinnt — eine Mutation nur der
     // over-Seite muss genauso auffallen wie eine der under-Seite.
-    expect(screen.getByText('Schwach im Markt')).toBeTruthy();
-    expect(screen.getByText('Stark im Markt')).toBeTruthy();
+    expect(screen.getByText('Funktioniert gerade nicht')).toBeTruthy();
+    expect(screen.getByText('Funktioniert gerade')).toBeTruthy();
     expect(screen.queryByText(/Zu beachten/)).toBeNull();
     expect(screen.getAllByText('Tipp:').length).toBe(2);
     expect(screen.getByText(/Humor trägt mit einem starken Aufhänger/)).toBeTruthy();
@@ -462,7 +462,7 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
 
     // Romance (over) hat keine Werkstatt-Vorlage — Titel aus dem
     // Fallback, mit Faktor aus den Zahlen (0.19/0.11 = 1.7).
-    await screen.findByText('Romance: stark im Markt');
+    await screen.findByText('Romance: funktioniert gerade');
     expect(screen.getByText(/1\.7-mal öfter weit über dem Kanal-Schnitt/)).toBeTruthy();
   });
 

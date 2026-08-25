@@ -592,12 +592,12 @@ export function werkstattEmpfehlung(dim, cell) {
   const wert = WERT_LABEL[cell.value] || cell.value;
   if (cell.breakout_verdict === 'over') {
     return {
-      titel: `${wert}: stark im Markt`,
+      titel: `${wert}: funktioniert gerade`,
       satz: `Posts mit diesem Merkmal liegen ${faktor ? `${faktor}-mal öfter` : 'öfter'} weit über dem Kanal-Schnitt.`,
     };
   }
   return {
-    titel: `${wert}: schwach im Markt`,
+    titel: `${wert}: funktioniert gerade nicht`,
     satz: 'Posts mit diesem Merkmal bleiben öfter unter dem Kanal-Schnitt.',
   };
 }
@@ -658,7 +658,7 @@ function EmpfehlungsKarte({ dim, cell }) {
       style={{ flex: '1 1 300px', maxWidth: '420px', padding: '1rem 1.25rem', borderLeft: `4px solid ${farbe}` }}
     >
       <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-        <span style={{ color: farbe }}>{over ? 'Stark im Markt' : 'Schwach im Markt'}</span>
+        <span style={{ color: farbe }}>{over ? 'Funktioniert gerade' : 'Funktioniert gerade nicht'}</span>
         <span style={{ color: '#6b6b6b' }}> · {THEMA_LABEL[dim] || DIMENSION_LABEL[dim] || dim}</span>
       </p>
       <p style={{ margin: '0 0 0.35rem', fontWeight: 700, fontSize: '1.05em' }}>{titel}</p>
@@ -787,7 +787,7 @@ export default function PatternsBlock() {
         Trailer-Intelligence · letzte 90 Tage
       </p>
       <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>
-        Muster — was im Markt funktioniert
+        Was gerade funktioniert — und was nicht
       </h2>
       <p style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
         Welche Merkmale gehen mit überdurchschnittlicher Reichweite einher? Jeder Post wird

@@ -96,11 +96,14 @@ def _countdown_satz(zeile: dict, markt: dict) -> str:
         if median_tage is None:
             return satz
         vergleich = (
-            "früher dran als der Markt"
+            "früher dran als die meisten"
             if start >= median_tage
-            else "später gestartet als der Markt"
+            else "später gestartet als die meisten"
         )
-        return f"{satz} Markt-Median: {_wochen(median_tage)} vor Release — {vergleich}."
+        return (
+            f"{satz} Vergleichbare Kampagnen starten meist "
+            f"{_wochen(median_tage)} vor dem Release — {vergleich}."
+        )
     satz = (
         "Release-Woche."
         if tage <= 7
@@ -109,8 +112,8 @@ def _countdown_satz(zeile: dict, markt: dict) -> str:
     if median_tage is None:
         return satz
     return (
-        f"{satz} Der Markt startet vergleichbare Kampagnen im Median "
-        f"{_wochen(median_tage)} vor Release."
+        f"{satz} Vergleichbare Kampagnen starten meist "
+        f"{_wochen(median_tage)} vor dem Release."
     )
 
 
@@ -195,14 +198,14 @@ def render_projekt_one_pager(
                 + "</div>"
             )
         teile.append(
-            "<section><h2>Was im Markt gerade überperformt</h2>"
+            "<section><h2>Was gerade funktioniert</h2>"
             '<div class="karten">' + "".join(karten) + "</div></section>"
         )
 
     if beweis["summe"]["umgesetzt"] > 0:
         s = beweis["summe"]
         teile.append(
-            "<section><h2>Empfehlungen, die sich bewiesen haben</h2>"
+            "<section><h2>Was aus unseren Empfehlungen wurde</h2>"
             f"<p>{_esc(s['umgesetzt'])} der {_esc(s['empfehlungen'])} "
             "eingefrorenen Wochen-Empfehlungen wurden in der jeweiligen "
             f"Folgewoche umgesetzt — {_esc(s['gewirkt'])} davon liefen "

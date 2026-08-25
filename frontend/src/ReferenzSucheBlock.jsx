@@ -29,7 +29,7 @@ const WEITERE_FACETTEN = [
 const PLATFORM_LABEL = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube' };
 
 const LIFT_OPTIONEN = [
-  { wert: '', label: 'Jeder Lift' },
+  { wert: '', label: 'Alle' },
   { wert: '1.5', label: 'ab 1,5x Kanal-Schnitt' },
   { wert: '2', label: 'ab 2x Kanal-Schnitt' },
   { wert: '3', label: 'ab 3x Kanal-Schnitt' },

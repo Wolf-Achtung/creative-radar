@@ -239,10 +239,10 @@ export function ReleaseCountdownSection() {
         <>
           {markt?.median_vorlauf_tage != null && (
             <p className="muted small">
-              Markt-Benchmark: Kampagnenstart im Median{' '}
-              {Math.round(markt.median_vorlauf_tage / 7)} Wochen vor Release
-              (aus {markt.titel_basis} ausgewerteten Kampagnen). Beschreibt
-              das Markt-Verhalten — kein Beweis, dass früher besser ist.
+              Zum Vergleich: andere Kampagnen starten meist{' '}
+              {Math.round(markt.median_vorlauf_tage / 7)} Wochen vor dem
+              Release (gemessen an {markt.titel_basis} Kampagnen). Das
+              beschreibt, was andere tun — kein Beweis, dass früher besser ist.
             </p>
           )}
           {daten.projekte.map((p) => (

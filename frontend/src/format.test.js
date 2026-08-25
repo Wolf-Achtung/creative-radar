@@ -344,14 +344,14 @@ describe('formatReleaseEinordnung', () => {
 
   it('Kampagne laeuft: Vergleich frueher/spaeter als der Markt', () => {
     expect(formatReleaseEinordnung({ tageBisRelease: 21, marktMedianTage: 84, eigenePosts: 4, eigenerStartTage: 91 }))
-      .toBe('Eure Kampagne läuft seit 13 Wochen vor Release (4 Posts). Der Markt startet im Median 12 Wochen vorher — ihr wart früher dran.');
+      .toBe('Eure Kampagne läuft seit 13 Wochen vor Release (4 Posts). Vergleichbare Kampagnen starten meist 12 Wochen vor dem Release — ihr wart früher dran.');
     expect(formatReleaseEinordnung({ tageBisRelease: 21, marktMedianTage: 84, eigenePosts: 4, eigenerStartTage: 42 }))
       .toMatch(/ihr habt später begonnen/);
   });
 
   it('noch keine Posts: Abstand zum typischen Startfenster', () => {
     expect(formatReleaseEinordnung({ tageBisRelease: 126, marktMedianTage: 84, eigenePosts: 0, eigenerStartTage: null }))
-      .toBe('Release in 18 Wochen, noch keine eigenen Posts zugeordnet. Der Markt startet im Median 12 Wochen vor Release — bis zum typischen Startfenster sind es noch 6 Wochen.');
+      .toBe('Release in 18 Wochen, noch keine eigenen Posts zugeordnet. Vergleichbare Kampagnen starten meist 12 Wochen vor dem Release — bis zum typischen Startfenster sind es noch 6 Wochen.');
     expect(formatReleaseEinordnung({ tageBisRelease: 84, marktMedianTage: 84, eigenePosts: 0, eigenerStartTage: null }))
       .toMatch(/im typischen Startfenster/);
     expect(formatReleaseEinordnung({ tageBisRelease: 42, marktMedianTage: 84, eigenePosts: 0, eigenerStartTage: null }))

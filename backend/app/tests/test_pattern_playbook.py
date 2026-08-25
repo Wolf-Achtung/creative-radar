@@ -102,7 +102,7 @@ def test_render_spricht_werkstatt_sprache():
     assert "KW 34/2026" in subject
     # Subject traegt den Werkstatt-Titel des staerksten Befunds.
     assert "Blicke hinter die Kulissen wirken" in subject
-    assert "STARK IM MARKT" in text
+    assert "WAS GERADE FUNKTIONIERT" in text
     assert "Blicke hinter die Kulissen wirken" in text
     assert "1.5-mal öfter weit über dem Kanal-Schnitt" in text
     # Mess-Sprache und rohe Werte kommen nicht mehr vor.
@@ -113,7 +113,7 @@ def test_render_spricht_werkstatt_sprache():
     assert "kein Wirkungsbeweis" in text
     # HTML: Panel-Look mit Karte, Chip und Dashboard-Link.
     assert "Blicke hinter die Kulissen wirken" in html
-    assert "Stark im Markt" in html
+    assert "Funktioniert gerade" in html
     # Wolfs Layout-Feedback 25.08.: der Tipp steht als eigene,
     # hervorgehobene Zeile — nicht mehr im Fliesstext versteckt.
     assert "Tipp:" in html
@@ -128,8 +128,8 @@ def test_render_vorsicht_gruppe_und_fallback():
         "cell": _zelle("Romance", verdict="under", z=-2.5),
     }])
     subject, text, _ = pp.render_playbook(pb)
-    assert "Romance: schwach im Markt" in subject
-    assert "SCHWACH IM MARKT" in text
+    assert "Romance: funktioniert gerade nicht" in subject
+    assert "WAS GERADE NICHT FUNKTIONIERT" in text
     assert "bleiben öfter unter dem Kanal-Schnitt" in text
 
 
