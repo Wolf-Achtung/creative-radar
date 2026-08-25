@@ -16,6 +16,7 @@ function renderPanel({
   onToggleTitleOwnProject = () => {},
   startBrief = null,
   onProjektStartBrief = () => {},
+  onProjektExport = () => {},
   // Tests laufen per Default wie Staging: Flags an. Das Production-
   // Verhalten (Flags aus -> unsichtbar) hat seinen eigenen Test.
   features = { wir_projekte: true, projekt_start_brief: true },
@@ -24,6 +25,7 @@ function renderPanel({
     <SourcesPanel
       startBrief={startBrief}
       onProjektStartBrief={onProjektStartBrief}
+      onProjektExport={onProjektExport}
       features={features}
       busy={false}
       channelFile={null}
@@ -132,5 +134,26 @@ describe('SourcesPanel Wir-Projekte', () => {
     expect(box.checked).toBe(true);
     fireEvent.click(box);
     expect(onToggle).toHaveBeenCalledWith(markiert);
+  });
+
+  // Projekt-One-Pager (25.08.2026, Roadmap Schritt 4): eigener Knopf,
+  // eigenes Flag — unabhaengig vom Start-Brief freigebbar.
+  it('One-Pager-Knopf erscheint nur mit projekt_export-Flag und ruft den Handler', () => {
+    const projekt = { id: 't1', title_original: 'Unser Film', is_own_project: true };
+    const onProjektExport = vi.fn();
+    renderPanel({
+      titles: [projekt],
+      onProjektExport,
+      features: { wir_projekte: true, projekt_start_brief: true, projekt_export: true },
+    });
+    fireEvent.click(screen.getByText('One-Pager'));
+    expect(onProjektExport).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }));
+
+    cleanup();
+    renderPanel({
+      titles: [projekt],
+      features: { wir_projekte: true, projekt_start_brief: true },
+    });
+    expect(screen.queryByText('One-Pager')).toBeNull();
   });
 });

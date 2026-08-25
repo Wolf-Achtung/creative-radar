@@ -40,6 +40,10 @@ Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
 - ``FEATURE_BEWEIS_LOOP_ENABLED`` (bool): Beweis-Loop
   (``GET /api/admin/beweis-loop``) — hat die Empfehlung von KW X das
   eigene Posten in KW X+1 veraendert, und hat es gewirkt?
+- ``FEATURE_PROJEKT_EXPORT_ENABLED`` (bool): teilbarer One-Pager je
+  Wir-Projekt (``GET /api/admin/projekt-export/{title_id}``) —
+  Start-Brief, Countdown und Beweis als eigenstaendige HTML-Datei
+  fuer Pitch und Kunde.
 
 Arbeitsregel seit 23.08.2026 (Wolfs Freigabe-Modell, siehe CLAUDE.md
 "Arbeitsregel Feature-Flags"): JEDES neue Feature bekommt beim Bau ein
@@ -238,3 +242,20 @@ def is_beweis_loop_enabled() -> bool:
     (case-insensitive), Default ``"false"``.
     """
     return os.getenv("FEATURE_BEWEIS_LOOP_ENABLED", "false").lower() == "true"
+
+
+def is_projekt_export_enabled() -> bool:
+    """Returns True wenn der Projekt-One-Pager-Export aktiv ist
+    (``GET /api/admin/projekt-export/{title_id}`` + Knopf neben dem
+    Start-Brief).
+
+    Der Export macht aus dem internen Dashboard etwas, das Trailerhaus
+    in den Pitch mitnimmt: eine eigenstaendige, druckbare HTML-Datei
+    je Wir-Projekt — Start-Brief-Empfehlungen, Release-Countdown und
+    (sobald vorhanden) der Beweis-Loop-Stand. Rein lesend, kein
+    LLM-Call; Default aus nach der Arbeitsregel vom 23.08.2026.
+
+    Env-Var: ``FEATURE_PROJEKT_EXPORT_ENABLED``; ``"true"``/``"false"``
+    (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_PROJEKT_EXPORT_ENABLED", "false").lower() == "true"

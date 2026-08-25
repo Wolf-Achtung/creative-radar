@@ -31,7 +31,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from app.admin_session import (
@@ -78,6 +79,7 @@ from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
 from app.core.feature_flags import (
     is_beweis_loop_enabled,
+    is_projekt_export_enabled,
     is_kampagnen_timing_enabled,
     is_release_countdown_enabled,
     is_projekt_start_brief_enabled,
@@ -86,6 +88,7 @@ from app.core.feature_flags import (
 from app.services.campaign_timing import compute_campaign_timing
 from app.services.projekt_start_brief import compute_projekt_start_brief
 from app.services.beweis_loop import compute_beweis_loop
+from app.services.projekt_export import render_projekt_one_pager
 from app.services.release_countdown import compute_release_countdown
 from app.services.sound_trends import compute_sound_trends
 from app.services.wir_segment import compute_wir_segment
@@ -440,6 +443,39 @@ def beweis_loop(session: Session = Depends(get_session)) -> dict:
             ),
         )
     return compute_beweis_loop(session)
+
+
+@router.get("/projekt-export/{title_id}")
+def projekt_export(
+    title_id: UUID,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Projekt-One-Pager (Roadmap Schritt 4, 25.08.2026): Start-Brief,
+    Release-Countdown und Beweis-Stand eines Wir-Projekts als
+    eigenstaendige, druckbare HTML-Datei — das Radar im Pitch. Reine
+    Komposition vorhandener Auswertungen, kein Modell-Call
+    (``services/projekt_export.py``).
+
+    Feature-Flag-Gate (Arbeitsregel 23.08.2026)."""
+    if not is_projekt_export_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Projekt-Export ist deaktiviert. "
+                "FEATURE_PROJEKT_EXPORT_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    try:
+        dokument, dateiname = render_projekt_one_pager(
+            session, title_id, api_base=str(request.base_url)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return HTMLResponse(
+        dokument,
+        headers={"Content-Disposition": f'attachment; filename="{dateiname}"'},
+    )
 
 
 @router.get("/projekt-start-brief/{title_id}")
