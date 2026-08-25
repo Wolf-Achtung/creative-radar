@@ -21,6 +21,7 @@ export function SourcesPanel({
   onRematchAssets,
   onCandidateAutopilot,
   onCandidateLlmAssist,
+  onKatalogNachladen = () => {},
   onToggleChannelOwn,
   channels,
   titles,
@@ -121,6 +122,15 @@ export function SourcesPanel({
               Treffer („beware" statt „Beware Boiúna") — KI liest die
               Caption und ordnet nur sichere Fälle zu, 12 je Klick. */}
           <button className="secondary" onClick={onCandidateLlmAssist} disabled={busy}>Rest-Vorschläge mit KI prüfen</button>
+          {/* Katalog-Nachladen (25.08.2026): der Schritt NACH der KI-
+              Prüfung. Sie endet regelmäßig mit „bewirbt X (nicht im
+              Katalog)" — dieser Knopf legt genau diese Titel an, wenn
+              der Post sie wörtlich nennt und TMDb sie eindeutig kennt.
+              Feature-Flag-Gate (Arbeitsregel 23.08.2026): erscheint nur,
+              wo /api/health -> features es anbietet — Staging zuerst. */}
+          {features.katalog_nachladen && (
+            <button className="secondary" onClick={onKatalogNachladen} disabled={busy}>Fehlende Titel aus TMDb nachladen</button>
+          )}
         </div>
       </Section>
       {/* Wir-Projekte (22.08.2026): Trailerhaus betreut keine kompletten
