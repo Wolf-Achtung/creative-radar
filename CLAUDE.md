@@ -273,7 +273,7 @@ ab, NICHT das Überspringen der Staging-Erprobung.
    Infrastruktur ohne UI-/Verhaltensänderung (z. B. der
    Empfehlungs-Snapshot-Cron). Im Zweifel: flaggen.
 
-Flag-Inventar (Stand 25.08.2026; Wächter
+Flag-Inventar (Stand 25.08.2026 abends, nach Roadmap 1–4; Wächter
 `test_wartung_2026_08_23_flags.py` hält health-Parität und
 Default-aus). Der Wächter **entdeckt die Flags seit dem 25.08. selbst**
 per Introspektion über `feature_flags` — die Vorversion trug eine
@@ -294,6 +294,10 @@ nicht mehr die Prüfgrundlage:
 | `FEATURE_KAMPAGNEN_TIMING_ENABLED` | Kampagnen-Timing im Monitoring (#415) | zu setzen | aus bis Freigabe |
 | `FEATURE_SOUND_TRENDS_ENABLED` | Sound-Trends im Monitoring (#416) | zu setzen | aus bis Freigabe |
 | `FEATURE_KATALOG_NACHLADEN_ENABLED` | Fehlende Titel aus TMDb nachladen (#429) | an | **an** seit 25.08., Vorschau statt Staging-Abnahme |
+| `FEATURE_REFERENZ_SUCHE_ENABLED` | Referenz-Suche: Facetten-Moodboard im Dashboard (#443) | zu setzen | aus bis Freigabe |
+| `FEATURE_RELEASE_COUNTDOWN_ENABLED` | Release-Countdown je Wir-Projekt im Monitoring (#444) | zu setzen | aus bis Freigabe |
+| `FEATURE_BEWEIS_LOOP_ENABLED` | Beweis-Loop: Empfehlungen gegen die Folgewoche (#445) | zu setzen | aus bis Freigabe |
+| `FEATURE_PROJEKT_EXPORT_ENABLED` | Projekt-One-Pager als teilbare HTML-Datei (#446) | zu setzen | aus bis Freigabe |
 
 ## Katalog-Zuordnung — vier Befunde vom 25.08.2026
 
