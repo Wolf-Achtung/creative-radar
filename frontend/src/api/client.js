@@ -181,6 +181,10 @@ export const endpoints = {
   // als wiederholter facette=dimension=wert-Parameter uebertragen —
   // Werte koennen Leer- und Sonderzeichen tragen (Genres), deshalb
   // URLSearchParams.
+  // Post-Check (Roadmap-Ausbau 25.08.): ein Entwurf wird VOR dem
+  // Posten gegen die aktuellen Befunde geprueft. POST, weil die
+  // Caption lang sein kann.
+  postCheck: (entwurf) => api('/api/insights/post-check', { method: 'POST', body: JSON.stringify(entwurf) }),
   referenzSuche: ({ windowDays = 90, platform, facetten = {}, minLift, limit = 24 } = {}) => {
     const params = new URLSearchParams({ window_days: String(windowDays), limit: String(limit) });
     if (platform) params.set('platform', platform);
