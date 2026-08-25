@@ -1,6 +1,7 @@
 import logging
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from typing import Optional
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -57,9 +58,13 @@ from app.services.insight_engine import (
     generate_weekly_report,
     last_completed_iso_week_anchor,
 )
-from app.core.feature_flags import is_trailer_intelligence_enabled
+from app.core.feature_flags import (
+    is_referenz_suche_enabled,
+    is_trailer_intelligence_enabled,
+)
 from app.services.forecast import generate_er_forecast
 from app.services.insights import build_overview
+from app.services.referenz_suche import suche_referenzen
 from app.services.trailer_patterns import (
     TREND_WINDOW_SHIFT_DAYS,
     apply_weekly_trend,
@@ -625,6 +630,82 @@ def trailer_pattern_examples(
             for p in top
         ],
     }
+
+
+@router.get("/referenzen")
+def referenz_suche(
+    request: Request,
+    window_days: int = Query(90, ge=7, le=365),
+    market: Optional[str] = Query(None, min_length=2, max_length=10),
+    platform: Optional[str] = Query(None, pattern="^(instagram|tiktok|youtube)$"),
+    facette: list[str] = Query(
+        default=[],
+        description=(
+            "Wiederholbar, je Eintrag 'dimension=wert' — z. B. "
+            "facette=genre=Horror&facette=cover_titel=mit_titel. "
+            "Mehrere Facetten schneiden sich."
+        ),
+    ),
+    min_lift: Optional[float] = Query(None, ge=0, le=100),
+    limit: int = Query(24, ge=1, le=60),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Referenz-Suche (Roadmap Schritt 1, 25.08.2026): Facetten-Suche
+    ueber die analysierten Posts des Fensters — "Horror, Titel im Bild,
+    ueber 1,5x Kanal-Schnitt" → Grid mit Thumbnails, Lift, Links.
+
+    Lift und Facetten-Zugehoerigkeit kommen aus ``trailer_patterns``
+    (dieselben Regeln wie Muster-Bericht und Beispiel-Endpoint, Details
+    in ``services/referenz_suche.py``). Rein lesend, kein LLM-Call;
+    Bearer + User-Login wie fuer alle Inhalts-Routen.
+
+    Gate: ``FEATURE_REFERENZ_SUCHE_ENABLED`` (Arbeitsregel 23.08.2026 —
+    Staging zuerst, Production nach Wolfs Abnahme). Off → 503.
+    """
+    if not is_referenz_suche_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Referenz-Suche ist deaktiviert. "
+                "FEATURE_REFERENZ_SUCHE_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    facetten: dict[str, str] = {}
+    for eintrag in facette:
+        dimension, trenner, wert = eintrag.partition("=")
+        if not trenner or not dimension.strip() or not wert.strip():
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Facette {eintrag!r} ist nicht lesbar — erwartet "
+                    "wird 'dimension=wert'."
+                ),
+            )
+        facetten[dimension.strip()] = wert.strip()
+    try:
+        ergebnis = suche_referenzen(
+            session,
+            window_days=window_days,
+            market=market,
+            platform=platform,
+            facetten=facetten,
+            min_lift=min_lift,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    log_usage(
+        request_user_email(request),
+        "referenz_suche",
+        {
+            "window_days": window_days,
+            "facetten": facetten,
+            "min_lift": min_lift,
+            "platform": platform,
+            "gesamt": ergebnis["gesamt"],
+        },
+    )
+    return ergebnis
 
 
 @router.get("/pattern-briefing")

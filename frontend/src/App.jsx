@@ -7,6 +7,7 @@ import AdminPage from './AdminPage';
 import AuthGate from './AuthGate';
 import BreakoutsBlock from './BreakoutsBlock';
 import PatternsBlock from './PatternsBlock';
+import ReferenzSucheBlock from './ReferenzSucheBlock';
 import GuidePage from './GuidePage';
 import LegalPage from './LegalPage';
 import UsagePage from './UsagePage';
@@ -231,6 +232,8 @@ function App() {
           /api/health das Feature meldet (Flag in Staging an, in
           Production aus) — sonst null, kein leerer Rahmen. */}
       <PatternsBlock />
+
+      <ReferenzSucheBlock />
 
       <RoundupBlock />
       <SiteFooter />

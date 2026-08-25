@@ -176,6 +176,20 @@ export const endpoints = {
     });
     return api(`/api/insights/patterns/examples?${params.toString()}`);
   },
+  // Referenz-Suche (Roadmap Schritt 1, 25.08.): Facetten-Suche ueber die
+  // analysierten Posts. facetten ist ein Objekt dimension->wert und wird
+  // als wiederholter facette=dimension=wert-Parameter uebertragen —
+  // Werte koennen Leer- und Sonderzeichen tragen (Genres), deshalb
+  // URLSearchParams.
+  referenzSuche: ({ windowDays = 90, platform, facetten = {}, minLift, limit = 24 } = {}) => {
+    const params = new URLSearchParams({ window_days: String(windowDays), limit: String(limit) });
+    if (platform) params.set('platform', platform);
+    if (minLift != null) params.set('min_lift', String(minLift));
+    Object.entries(facetten).forEach(([dimension, wert]) => {
+      if (wert) params.append('facette', `${dimension}=${wert}`);
+    });
+    return api(`/api/insights/referenzen?${params.toString()}`);
+  },
   // Juengstes Pattern-Briefing (Text-Bausteine aus den Mustern, Stufe 1
   // Schritt 3). 404 = noch keins persistiert — der Block blendet die
   // Sektion dann aus, kein Fehlerzustand.
