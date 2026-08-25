@@ -293,3 +293,46 @@ def test_batch_deckel_meldet_den_rest(session):
 
     assert summary.geprueft == 2
     assert summary.offen_danach == 1
+
+
+async def _post_nachladen(session):
+    from httpx import ASGITransport, AsyncClient
+
+    from app.database import get_session
+    from app.main import app
+
+    app.dependency_overrides[get_session] = lambda: session
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post("/api/titles/katalog-nachladen")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_endpoint_503_bei_abgeschaltetem_flag(session, monkeypatch):
+    """Feature-Flag-Gate (Arbeitsregel 23.08.2026). Hier wiegt es
+    schwerer als anderswo: ohne Sperre legt ein einziger unbedachter
+    Klick Titel an und ordnet Assets zu. Der 503 nennt die Env-Var,
+    damit klar ist, welcher Schalter fehlt — nicht 404, denn der Pfad
+    existiert."""
+    from app.api import titles as titles_module
+
+    monkeypatch.delenv("FEATURE_KATALOG_NACHLADEN_ENABLED", raising=False)
+    gerufen: list[int] = []
+
+    async def _spion(*a, **k):
+        gerufen.append(1)
+        return kn.NachladeSummary()
+
+    # Am Endpoint-Modul patchen, nicht am Service: ``titles.py`` bindet
+    # den Namen beim Import, ein Patch auf ``kn`` erreicht ihn nicht —
+    # die Zusicherung unten waere dann leer und ein entfernter Gate
+    # bliebe gruen.
+    monkeypatch.setattr(titles_module, "lade_fehlende_titel_nach", _spion)
+
+    antwort = asyncio.run(_post_nachladen(session))
+
+    assert antwort.status_code == 503
+    assert "FEATURE_KATALOG_NACHLADEN_ENABLED" in antwort.json()["detail"]
+    assert gerufen == [], "Ohne Flag darf der Schreib-Pfad nicht einmal anlaufen."
