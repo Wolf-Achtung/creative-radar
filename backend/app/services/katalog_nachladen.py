@@ -90,6 +90,7 @@ class NachladeSummary:
     schon_vorhanden: int = 0
     nicht_belegt: int = 0
     tmdb_unklar: int = 0
+    katalog_mehrdeutig: int = 0
     fehler: int = 0
     offen_danach: int = 0
     angelegte_titel: list[str] = field(default_factory=list)
@@ -103,6 +104,7 @@ class NachladeSummary:
             "schon_vorhanden": self.schon_vorhanden,
             "nicht_belegt": self.nicht_belegt,
             "tmdb_unklar": self.tmdb_unklar,
+            "katalog_mehrdeutig": self.katalog_mehrdeutig,
             "fehler": self.fehler,
             "offen_danach": self.offen_danach,
             "angelegte_titel": self.angelegte_titel[:20],
@@ -183,8 +185,31 @@ async def lade_fehlende_titel_nach(
 
         # Waechter 3 (vorgezogen, spart die TMDb-Aufrufe): steht er
         # inzwischen doch im Katalog? Dann nur zuordnen.
-        vorhanden = lookup.get(_normalize(name))
-        if vorhanden is not None:
+        #
+        # ``_build_exact_title_lookup`` kennt DREI Zustaende, und die
+        # Unterscheidung ist hier sicherheitsrelevant:
+        #   Schluessel fehlt        -> wirklich nicht im Katalog
+        #   Schluessel da, Wert da  -> eindeutig, zuordnen
+        #   Schluessel da, None     -> MEHRDEUTIG (zwei aktive Titel
+        #                              gleichen Normalnamens)
+        # Ein ``lookup.get(...)`` wirft die beiden letzten zusammen. Im
+        # KI-Assist ist das harmlos (kein eindeutiger Treffer -> nicht
+        # zuordnen). Hier kippt es ins Gegenteil: der mehrdeutige Fall
+        # fiele in den TMDb-Pfad und legte NOCH einen Titel gleichen
+        # Namens an — was den Namen noch mehrdeutiger macht. Eine
+        # Doubletten-Schleife, jede Runde eine Zeile mehr. Genau das
+        # passierte am 25.08.2026 in Production: dieselben zwei Titel
+        # standen nach dem Anlegen in der naechsten Vorschau wieder
+        # als Neuanlage.
+        schluessel = _normalize(name)
+        if schluessel in lookup:
+            vorhanden = lookup[schluessel]
+            if vorhanden is None:
+                summary.katalog_mehrdeutig += 1
+                logger.info(
+                    "katalog-nachladen mehrdeutig name=%s asset=%s", name, asset.id
+                )
+                continue
             _zuordnen(session, asset, candidate, vorhanden)
             summary.schon_vorhanden += 1
             summary.zugeordnet += 1

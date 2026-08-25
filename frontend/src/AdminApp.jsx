@@ -423,6 +423,13 @@ export function AdminApp({ onLogout }) {
     const offen = [];
     if (r.nicht_belegt) offen.push(`${r.nicht_belegt} ohne Text-Beleg`);
     if (r.tmdb_unklar) offen.push(`${r.tmdb_unklar} bei TMDb nicht eindeutig`);
+    // Mehrdeutig im KATALOG ist etwas anderes als mehrdeutig bei TMDb:
+    // hier stehen bereits zwei gleichnamige Titel, und welcher gemeint
+    // ist, entscheidet ein Mensch. Ohne eigene Zeile liest sich das wie
+    // ein TMDb-Problem und fuehrt zur falschen Reaktion.
+    if (r.katalog_mehrdeutig) {
+      offen.push(`${r.katalog_mehrdeutig} mit gleichnamigem Titel im Katalog`);
+    }
     if (r.fehler) offen.push(`${r.fehler} mit TMDb-Fehler`);
     const liegengelassen = offen.length
       ? ` Bewusst liegen gelassen: ${offen.join(', ')}.`
