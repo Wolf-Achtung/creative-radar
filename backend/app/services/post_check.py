@@ -36,8 +36,10 @@ from sqlmodel import Session
 
 from app.services.pattern_playbook import WERT_LABEL
 from app.services.trailer_patterns import (
+    CONFIDENCE_THRESHOLD,
     DEFAULT_WINDOW_DAYS,
     DIMENSIONS,
+    _post_confidence,
     compute_trailer_patterns,
 )
 
@@ -134,6 +136,14 @@ def pruefe_post(
     for dim in DIMENSIONS:
         if dim.name == "music_kind":
             continue  # ein Entwurf traegt keine Apify-Musikdaten
+        if dim.requires_analysis:
+            # Dasselbe Konfidenz-Gate wie die Zellen-Zaehlung — die
+            # Selbstauskunft traegt 1.0 und passiert es immer; die
+            # Regel steht trotzdem hier, damit Entwurfs-Pfad und
+            # Berichts-Pfad nie auseinanderlaufen.
+            conf = _post_confidence(entwurf)
+            if conf is None or conf < CONFIDENCE_THRESHOLD:
+                continue
         wert = dim.extract(entwurf)
         if wert is None:
             continue
