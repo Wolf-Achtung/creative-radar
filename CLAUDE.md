@@ -272,9 +272,15 @@ ab, NICHT das Überspringen der Staging-Erprobung.
    Infrastruktur ohne UI-/Verhaltensänderung (z. B. der
    Empfehlungs-Snapshot-Cron). Im Zweifel: flaggen.
 
-Flag-Inventar (Stand 23.08.2026; Wächter
+Flag-Inventar (Stand 25.08.2026; Wächter
 `test_wartung_2026_08_23_flags.py` hält health-Parität und
-Default-aus):
+Default-aus). Der Wächter **entdeckt die Flags seit dem 25.08. selbst**
+per Introspektion über `feature_flags` — die Vorversion trug eine
+Handliste, und das erste Flag nach ihrer Entstehung stand prompt nicht
+darin (eine Mutation des Defaults auf `true` überlebte unbemerkt). Ein
+Flag ohne health-Schlüssel muss jetzt ausdrücklich in `_NUR_CRON`
+stehen; Vergessen fällt auf. Diese Tabelle ist damit Dokumentation,
+nicht mehr die Prüfgrundlage:
 
 | Flag | Feature | Staging | Production |
 |---|---|---|---|
@@ -286,6 +292,7 @@ Default-aus):
 | `FEATURE_PROJEKT_START_BRIEF_ENABLED` | Start-Brief je Wir-Projekt (#414) | zu setzen | aus bis Freigabe |
 | `FEATURE_KAMPAGNEN_TIMING_ENABLED` | Kampagnen-Timing im Monitoring (#415) | zu setzen | aus bis Freigabe |
 | `FEATURE_SOUND_TRENDS_ENABLED` | Sound-Trends im Monitoring (#416) | zu setzen | aus bis Freigabe |
+| `FEATURE_KATALOG_NACHLADEN_ENABLED` | Fehlende Titel aus TMDb nachladen (#429) | zu setzen | aus bis Freigabe |
 
 ## Auth-Schichten
 
