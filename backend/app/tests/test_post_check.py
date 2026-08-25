@@ -147,15 +147,26 @@ def test_under_gibt_achtung_mit_geschwister_tipp(session: Session):
 
 
 def test_duenne_daten_geben_kein_urteil(session: Session):
-    # Nur ein Kanal mit vier Posts: keine Zelle wird belastbar.
+    """Beide Duenn-Faelle: die Zelle FEHLT ganz (kein Post traegt den
+    Wert) und die Zelle EXISTIERT als insufficient (ein Post, ein
+    Kanal). Beide muessen "kein Befund" geben — ein geratenes Urteil
+    aus einer duennen Zelle waere schlimmer als keins."""
     kanal = _channel(session)
     for i in range(4):
         _post(session, kanal, likes=(i + 1) * 100)
+    # Zelle fehlt ganz: kein Post in der DB traegt eine Frage.
     ergebnis = pruefe_post(session, caption="Traust du dich?", now=NOW)
     zeile = _check(ergebnis, "caption_frage")
     assert zeile["befund"] == "kein_befund"
     assert "keinen belastbaren Befund" in zeile["satz"]
     assert ergebnis["zusammenfassung"]["achtung"] == 0
+
+    # Zelle existiert, ist aber insufficient: EIN Frage-Post von EINEM
+    # Kanal — der Bericht meldet die Zelle, urteilt aber nicht.
+    _post(session, kanal, likes=400, caption="Traust du dich?")
+    ergebnis = pruefe_post(session, caption="Traust du dich?", now=NOW)
+    zeile = _check(ergebnis, "caption_frage")
+    assert zeile["befund"] == "kein_befund"
 
 
 def test_selbstauskunft_tonfall_nutzt_den_analysis_pfad(session: Session):
