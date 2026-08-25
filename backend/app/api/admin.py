@@ -77,6 +77,7 @@ from app.services.forecast import generate_er_forecast
 from app.schemas.insights import ForecastResponse, MarketForecast, TimelineWeek
 from app.services.title_brief import generate_and_persist_title_brief
 from app.core.feature_flags import (
+    is_beweis_loop_enabled,
     is_kampagnen_timing_enabled,
     is_release_countdown_enabled,
     is_projekt_start_brief_enabled,
@@ -84,6 +85,7 @@ from app.core.feature_flags import (
 )
 from app.services.campaign_timing import compute_campaign_timing
 from app.services.projekt_start_brief import compute_projekt_start_brief
+from app.services.beweis_loop import compute_beweis_loop
 from app.services.release_countdown import compute_release_countdown
 from app.services.sound_trends import compute_sound_trends
 from app.services.wir_segment import compute_wir_segment
@@ -419,6 +421,25 @@ def release_countdown(session: Session = Depends(get_session)) -> dict:
             ),
         )
     return compute_release_countdown(session)
+
+
+@router.get("/beweis-loop")
+def beweis_loop(session: Session = Depends(get_session)) -> dict:
+    """Beweis-Loop (Roadmap Schritt 3, 25.08.2026): die Empfehlungen
+    der Snapshot-Wochen gegen die eigenen Posts der jeweiligen
+    Folgewoche — umgesetzt? gewirkt? Rein lesend, deterministisch,
+    kein Modell-Call (``services/beweis_loop.py``).
+
+    Feature-Flag-Gate (Arbeitsregel 23.08.2026)."""
+    if not is_beweis_loop_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Beweis-Loop ist deaktiviert. "
+                "FEATURE_BEWEIS_LOOP_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    return compute_beweis_loop(session)
 
 
 @router.get("/projekt-start-brief/{title_id}")

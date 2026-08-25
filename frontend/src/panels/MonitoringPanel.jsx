@@ -4,6 +4,7 @@ import {
   clip,
   formatCronRunStatus,
   formatDateTime,
+  formatBeweisZeile,
   formatKampagnenstart,
   formatMultiplier,
   formatReleaseEinordnung,
@@ -273,6 +274,73 @@ export function ReleaseCountdownSection() {
                 </p>
               )}
             </div>
+          ))}
+        </>
+      )}
+    </Section>
+  );
+}
+
+// Beweis-Loop (Roadmap Schritt 3, 25.08.2026): die eingefrorenen
+// Empfehlungen je Snapshot-Woche gegen die eigenen Posts der
+// Folgewoche — aus "das Radar behauptet" wird "das Radar hat Recht
+// gehabt". Waechst von selbst mit jedem Montags-Cron und jeder
+// Wir-Markierung; rein lesend.
+export function BeweisLoopSection() {
+  const [daten, setDaten] = useState(null);
+  const [fehler, setFehler] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    endpoints.beweisLoop()
+      .then((antwort) => { if (!cancelled) setDaten(antwort); })
+      .catch((err) => { if (!cancelled) setFehler(String(err?.message || err)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <Section title="Beweis-Loop" kicker="Empfohlen → gemacht → gewirkt, Woche für Woche">
+      {fehler && <p className="error">Konnte den Beweis-Loop nicht laden: {fehler}</p>}
+      {!fehler && !daten && <p className="muted small">Lädt …</p>}
+      {daten && daten.note && <p className="muted">{daten.note}</p>}
+      {daten && !daten.note && (
+        <>
+          <p className="muted small">
+            {daten.summe.empfehlungen} eingefrorene Empfehlungen aus{' '}
+            {daten.wochen.length} {daten.wochen.length === 1 ? 'Woche' : 'Wochen'} ·{' '}
+            {daten.summe.umgesetzt} in der Folgewoche umgesetzt ·{' '}
+            {daten.summe.gewirkt} davon über dem eigenen Kanal-Schnitt.
+            Korrelation, keine Kausalität — gemessen wird, ob befolgte
+            Empfehlungen funktioniert haben.
+          </p>
+          {daten.wochen.map((w) => (
+            <details key={w.week} open={w.zellen.some((z) => z.umgesetzt > 0)}>
+              <summary>
+                Empfehlungen aus {w.week} — Folgewoche ab {w.folgewoche_start}
+                {w.folgewoche_abgeschlossen ? '' : ' (läuft noch)'}
+                {' · '}{w.wir_posts_folgewoche} Wir-Posts
+              </summary>
+              {w.zellen.length === 0 && (
+                <p className="muted small" style={{ margin: '0.25rem 0' }}>
+                  In dieser Woche war nichts empfohlen.
+                </p>
+              )}
+              {w.zellen.map((z) => (
+                <p key={`${z.dimension}:${z.value}`} style={{ margin: '0.25rem 0' }}>
+                  <strong>{WERT_LABEL[z.value] || z.value}</strong>
+                  <span className="muted small"> ({DIMENSION_LABEL[z.dimension] || z.dimension})</span>
+                  {': '}
+                  <span className="small">
+                    {formatBeweisZeile({
+                      umgesetzt: z.umgesetzt,
+                      medianLiftWir: z.median_lift_wir,
+                      gewirkt: z.gewirkt,
+                      folgewocheAbgeschlossen: w.folgewoche_abgeschlossen,
+                    })}
+                  </span>
+                </p>
+              ))}
+            </details>
           ))}
         </>
       )}
@@ -598,6 +666,7 @@ export function MonitoringPanel({ features = {} } = {}) {
           Staging zuerst, Production nach Wolfs Freigabe. */}
       {features.kampagnen_timing && <KampagnenTimingSection />}
       {features.release_countdown && <ReleaseCountdownSection />}
+      {features.beweis_loop && <BeweisLoopSection />}
       {features.sound_trends && <SoundTrendsSection />}
       <PlaybookMailSection />
       <Section title="Budgets diesen Monat" kicker="Kalendermonat, UTC">

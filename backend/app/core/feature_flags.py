@@ -37,6 +37,9 @@ Konvention: ``FEATURE_<DOMAIN>_<BEHAVIOR>``. Aktive Flags:
 - ``FEATURE_RELEASE_COUNTDOWN_ENABLED`` (bool): Release-Countdown je
   Wir-Projekt (``GET /api/admin/release-countdown``) — Zeitleiste aus
   Release-Datum, Markt-Kampagnenstart und Phasen-Mustern.
+- ``FEATURE_BEWEIS_LOOP_ENABLED`` (bool): Beweis-Loop
+  (``GET /api/admin/beweis-loop``) — hat die Empfehlung von KW X das
+  eigene Posten in KW X+1 veraendert, und hat es gewirkt?
 
 Arbeitsregel seit 23.08.2026 (Wolfs Freigabe-Modell, siehe CLAUDE.md
 "Arbeitsregel Feature-Flags"): JEDES neue Feature bekommt beim Bau ein
@@ -219,3 +222,19 @@ def is_release_countdown_enabled() -> bool:
     (case-insensitive), Default ``"false"``.
     """
     return os.getenv("FEATURE_RELEASE_COUNTDOWN_ENABLED", "false").lower() == "true"
+
+
+def is_beweis_loop_enabled() -> bool:
+    """Returns True wenn der Beweis-Loop aktiv ist
+    (``GET /api/admin/beweis-loop`` + Monitoring-Sektion).
+
+    Das Vorher/Nachher ueber die persistierten Empfehlungs-Snapshots:
+    was in KW X empfohlen war, gegen die eigenen Posts der Folgewoche —
+    aus "das Radar behauptet" wird "das Radar hat Recht gehabt".
+    Rein lesend, kein LLM-Call; Default aus nach der Arbeitsregel vom
+    23.08.2026.
+
+    Env-Var: ``FEATURE_BEWEIS_LOOP_ENABLED``; ``"true"``/``"false"``
+    (case-insensitive), Default ``"false"``.
+    """
+    return os.getenv("FEATURE_BEWEIS_LOOP_ENABLED", "false").lower() == "true"

@@ -9,6 +9,7 @@ import {
   formatCronRunStatus,
   formatDate,
   formatDateTime,
+  formatBeweisZeile,
   formatKampagnenstart,
   formatReleaseEinordnung,
   formatKatalogAnwendenLabel,
@@ -359,5 +360,27 @@ describe('formatReleaseEinordnung', () => {
   it('ohne Markt-Benchmark bleibt der Satz ohne Vergleich', () => {
     expect(formatReleaseEinordnung({ tageBisRelease: 42, marktMedianTage: null, eigenePosts: 0, eigenerStartTage: null }))
       .toBe('Release in 6 Wochen, noch keine eigenen Posts zugeordnet.');
+  });
+});
+
+
+// Beweis-Loop (Roadmap Schritt 3, 25.08.): der Satz je Empfehlungs-
+// Zelle — umgesetzt/gewirkt in jeder Kombination.
+describe('formatBeweisZeile', () => {
+  it('nicht umgesetzt: abgeschlossene vs. laufende Folgewoche', () => {
+    expect(formatBeweisZeile({ umgesetzt: 0, medianLiftWir: null, gewirkt: null, folgewocheAbgeschlossen: true }))
+      .toBe('in der Folgewoche nicht umgesetzt.');
+    expect(formatBeweisZeile({ umgesetzt: 0, medianLiftWir: null, gewirkt: null, folgewocheAbgeschlossen: false }))
+      .toMatch(/läuft noch/);
+  });
+
+  it('umgesetzt und gewirkt: Lift mit Komma und klarem Urteil', () => {
+    expect(formatBeweisZeile({ umgesetzt: 2, medianLiftWir: 1.8, gewirkt: true, folgewocheAbgeschlossen: true }))
+      .toBe('2 Posts in der Folgewoche, Median 1,8x — über eurem Kanal-Schnitt, hat gewirkt.');
+  });
+
+  it('umgesetzt, aber unter dem Schnitt: ehrliches Urteil, Singular', () => {
+    expect(formatBeweisZeile({ umgesetzt: 1, medianLiftWir: 0.5, gewirkt: false, folgewocheAbgeschlossen: true }))
+      .toBe('1 Post in der Folgewoche, Median 0,5x — unter eurem Kanal-Schnitt geblieben.');
   });
 });
