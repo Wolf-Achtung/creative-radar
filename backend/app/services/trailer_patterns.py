@@ -119,6 +119,21 @@ Besetzung gewichtete Mittel der Plattform-Quoten
 gegen diesen Wert, nicht gegen die Korpus-Quote.
 (Test: ``test_platform_composition_alone_is_not_a_pattern``.)
 
+Seit dem 26.08.2026 gilt dasselbe fuer den **Markt**: die Referenzquote
+kommt je Post aus seinem (Plattform, Markt)-Stratum, mit Rueckfall auf
+die Plattform-Quote und zuletzt die Korpus-Quote, wenn ein Stratum zu
+duenn ist. Ein Merkmal, das nur deshalb gut aussieht, weil seine Posts
+in einem Markt mit hoher Grundquote liegen (etwa US-lastig in einem
+Korpus, in dem US-Kanaele generell oefter ausreissen), faellt damit
+genauso durch wie ein rein plattform-getragenes. Zusaetzlich traegt
+jede belastbare over/under-Zelle einen Klartext-Markt-Hinweis
+(``market_note``), der sagt, welche Maerkte den Befund tragen — der
+Bericht mischt DE/US/UK weiter bewusst (Einzelmarkt-Stichproben waeren
+zu duenn, und US-Trends sind fuer DE ein Fruehindikator), aber der
+Leser sieht, ob ein Befund auf seinen Markt uebertragbar ist.
+(Tests: ``test_market_composition_alone_is_not_a_pattern`` u. a. in
+``test_markt_korrektur.py``.)
+
 Der Produktionslauf danach lieferte den Beleg in Reinform. ``music_kind``
 stammt aus dem TikTok-Connector und existiert nur fuer TikTok-Posts, hat
 also eine reine Plattform-Mischung. ``original_sound`` liegt bei 10,1 %:
@@ -223,7 +238,7 @@ from typing import Any, Callable, Optional
 
 from sqlmodel import Session, select
 
-from app.models.entities import Asset, Channel, Post, Title
+from app.models.entities import Asset, Channel, Market, Post, Title
 from app.services.insight_engine import (
     _duration_bucket,
     _median,
@@ -254,8 +269,15 @@ BREAKOUT_Z_THRESHOLD = 2.0
 # Eine Plattform braucht selbst genug Posts, damit ihre Trefferquote als
 # Erwartungswert taugt. Darunter wuerde die Zelle faktisch gegen sich
 # selbst geprueft und koennte nie auffallen; solche Plattformen fallen
-# auf die Korpus-Quote zurueck.
+# auf die Korpus-Quote zurueck. Dieselbe Schwelle gilt fuer die
+# (Plattform, Markt)-Strata der Markt-Korrektur (26.08.2026): ein
+# Stratum unter der Schwelle faellt auf seine Plattform-Quote zurueck,
+# eine Plattform unter der Schwelle auf die Korpus-Quote.
 MIN_POSTS_PER_PLATFORM_BASELINE = 30
+
+# Anzeige-Reihenfolge der Maerkte im Markt-Hinweis einer Zelle —
+# dieselbe Ordnung wie ueberall im Produkt (DE zuerst, dann US, UK).
+_MARKT_REIHENFOLGE = ("DE", "US", "UK")
 
 # ---- Formatklassen (s. Modul-Docstring) --------------------------------
 #
@@ -327,6 +349,14 @@ class PatternCell:
     # nachvollziehbar bleibt, woher der Erwartungswert kommt.
     platform_mix: dict[str, int] = field(default_factory=dict)
 
+    # Posts je Markt (Markt-Korrektur 26.08.2026) — dieselbe Rolle wie
+    # platform_mix: sichtbar machen, worauf der Erwartungswert steht.
+    market_mix: dict[str, int] = field(default_factory=dict)
+    # Klartext-Satz, welcher Markt den Befund traegt ("Gilt in DE und
+    # US — fuer UK zu wenig Daten."). Nur bei belastbarem over/under und
+    # nur, wenn die Zelle ueberhaupt mehrere Maerkte mischt.
+    market_note: Optional[str] = None
+
     reason: Optional[str] = None  # nur bei "insufficient"
 
     def to_dict(self) -> dict:
@@ -344,7 +374,10 @@ class PatternCell:
             "breakout_verdict": self.breakout_verdict,
             "p90_lift": round(self.p90_lift, 3),
             "platform_mix": dict(sorted(self.platform_mix.items())),
+            "market_mix": dict(sorted(self.market_mix.items())),
         }
+        if self.market_note:
+            out["market_note"] = self.market_note
         if self.reason:
             out["reason"] = self.reason
         return out
@@ -824,23 +857,47 @@ def _breakout_z(cell_rate: float, baseline_rate: float, n: int) -> Optional[floa
     return (cell_rate - baseline_rate) / se
 
 
-def _expected_breakout_rate(
-    platforms: list[str],
-    rate_by_platform: dict[str, float],
+def _stratum_reference_rate(
+    stratum: tuple[str, str],
+    stratum_rates: dict[tuple[str, str], float],
+    platform_rates: dict[str, float],
     fallback: float,
 ) -> float:
-    """Trefferquote, die eine Zelle allein wegen ihrer Plattform-Mischung
-    haette — ohne jeden inhaltlichen Effekt.
+    """Referenzquote fuer einen Post: sein (Plattform, Markt)-Stratum,
+    sonst seine Plattform, sonst die Korpus-Quote. Jede Stufe greift
+    nur, wenn die davor zu wenig Posts hatte
+    (``MIN_POSTS_PER_PLATFORM_BASELINE``)."""
+    rate = stratum_rates.get(stratum)
+    if rate is not None:
+        return rate
+    return platform_rates.get(stratum[0], fallback)
+
+
+def _expected_breakout_rate(
+    strata: list[tuple[str, str]],
+    stratum_rates: dict[tuple[str, str], float],
+    platform_rates: dict[str, float],
+    fallback: float,
+) -> float:
+    """Trefferquote, die eine Zelle allein wegen ihrer Plattform- und
+    Markt-Mischung haette — ohne jeden inhaltlichen Effekt.
 
     Entspricht dem mit der Zellbesetzung gewichteten Mittel der
-    Plattform-Quoten. Plattformen ohne belastbare eigene Quote (unter
-    ``MIN_POSTS_PER_PLATFORM_BASELINE``) gehen mit ``fallback``, der
-    Korpus-Quote, ein.
+    Referenzquoten je (Plattform, Markt)-Stratum. Bis zum 26.08.2026
+    ging nur die Plattform ein; seither korrigiert die Erwartung auch
+    die Markt-Zusammensetzung — ein Merkmal, das nur deshalb gut
+    aussieht, weil seine Posts in einem Markt mit hoher Grundquote
+    liegen, faellt damit genauso durch wie vorher ein rein
+    plattform-getragenes (Test:
+    ``test_market_composition_alone_is_not_a_pattern``).
     """
-    if not platforms:
+    if not strata:
         return fallback
-    total = sum(rate_by_platform.get(pl, fallback) for pl in platforms)
-    return total / len(platforms)
+    total = sum(
+        _stratum_reference_rate(s, stratum_rates, platform_rates, fallback)
+        for s in strata
+    )
+    return total / len(strata)
 
 
 def _breakout_verdict_for(z: Optional[float]) -> str:
@@ -857,31 +914,142 @@ def _corpus_breakout_rates(
     usable: list[Post],
     lift_by_post: dict[Any, float],
     platform_by_channel: dict[Any, str],
-) -> tuple[float, dict[str, float]]:
-    """Korpus- und Plattform-Trefferquoten — die Referenz, gegen die
-    jede Zelle geprueft wird. Extrahiert (20.08.2026), damit der
-    Titel-Modus des Pattern-Briefings (``compute_cells_for_mapping``)
-    exakt dieselben Quoten rechnet wie der Muster-Bericht."""
+    market_by_channel: Optional[dict[Any, str]] = None,
+) -> tuple[float, dict[str, float], dict[tuple[str, str], float]]:
+    """Korpus-, Plattform- und Stratum-Trefferquoten — die Referenz,
+    gegen die jede Zelle geprueft wird. Extrahiert (20.08.2026), damit
+    der Titel-Modus des Pattern-Briefings (``compute_cells_for_mapping``)
+    exakt dieselben Quoten rechnet wie der Muster-Bericht.
+
+    Seit der Markt-Korrektur (26.08.2026) kommt als dritte Ebene die
+    Quote je (Plattform, Markt)-Stratum dazu; Strata unter
+    ``MIN_POSTS_PER_PLATFORM_BASELINE`` fehlen in der Karte und fallen
+    beim Nachschlagen auf die Plattform-Quote zurueck. ``market_by_channel``
+    ist optional, damit Aufrufer ohne Markt-Wissen (alte Signatur)
+    weiter funktionieren — dann bleibt die Stratum-Karte leer und die
+    Erwartung entspricht der reinen Plattform-Korrektur."""
+    market_by_channel = market_by_channel or {}
     breakouts_total = sum(
         1 for p in usable if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
     )
     baseline_breakout_rate = breakouts_total / len(usable)
 
     posts_by_platform: dict[str, list[Post]] = defaultdict(list)
+    posts_by_stratum: dict[tuple[str, str], list[Post]] = defaultdict(list)
     for p in usable:
-        posts_by_platform[platform_by_channel.get(p.channel_id, "unknown")].append(p)
+        platform = platform_by_channel.get(p.channel_id, "unknown")
+        posts_by_platform[platform].append(p)
+        if market_by_channel:
+            market = market_by_channel.get(p.channel_id, "UNKNOWN")
+            posts_by_stratum[(platform, market)].append(p)
 
-    platform_breakout_rates: dict[str, float] = {}
-    for platform, platform_posts in posts_by_platform.items():
-        if len(platform_posts) < MIN_POSTS_PER_PLATFORM_BASELINE:
-            continue
+    def _rate(posts: list[Post]) -> float:
         hits = sum(
-            1
-            for p in platform_posts
-            if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
+            1 for p in posts if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
         )
-        platform_breakout_rates[platform] = hits / len(platform_posts)
-    return baseline_breakout_rate, platform_breakout_rates
+        return hits / len(posts)
+
+    platform_breakout_rates: dict[str, float] = {
+        platform: _rate(platform_posts)
+        for platform, platform_posts in posts_by_platform.items()
+        if len(platform_posts) >= MIN_POSTS_PER_PLATFORM_BASELINE
+    }
+    stratum_breakout_rates: dict[tuple[str, str], float] = {
+        stratum: _rate(stratum_posts)
+        for stratum, stratum_posts in posts_by_stratum.items()
+        if len(stratum_posts) >= MIN_POSTS_PER_PLATFORM_BASELINE
+    }
+    return baseline_breakout_rate, platform_breakout_rates, stratum_breakout_rates
+
+
+def _markt_liste(maerkte: list[str]) -> str:
+    """"DE", "DE und US", "DE, US und UK" — Anzeige-Reihenfolge DE/US/UK."""
+    geordnet = sorted(
+        maerkte,
+        key=lambda m: (
+            _MARKT_REIHENFOLGE.index(m) if m in _MARKT_REIHENFOLGE else 99,
+            m,
+        ),
+    )
+    if len(geordnet) == 1:
+        return geordnet[0]
+    return ", ".join(geordnet[:-1]) + " und " + geordnet[-1]
+
+
+def _markt_hinweis(
+    cell_posts: list[Post],
+    richtung: str,
+    *,
+    lift_by_post: dict[Any, float],
+    platform_by_channel: dict[Any, str],
+    market_by_channel: dict[Any, str],
+    stratum_breakout_rates: dict[tuple[str, str], float],
+    platform_breakout_rates: dict[str, float],
+    baseline_breakout_rate: float,
+) -> Optional[str]:
+    """Klartext-Satz, welche Maerkte einen belastbaren Befund tragen.
+
+    Der Bericht mischt DE, US und UK bewusst (Stichproben je Einzelmarkt
+    waeren zu duenn, und US-Trends sind fuer DE ein Fruehindikator) —
+    aber der Leser muss sehen, ob ein Befund auf seinen Markt
+    uebertragbar ist. Je Markt mit mindestens ``MIN_SAMPLE_PER_CELL``
+    Posts in der Zelle wird die Markt-Trefferquote gegen die erwartete
+    Quote derselben Posts gehalten: zeigt sie in die Richtung des
+    Befunds, "gilt" er dort. Kein z-Test je Markt — dafuer sind die
+    Teilmengen zu klein; der Satz ist ein Richtungs-Ausweis, kein
+    eigener Signifikanznachweis.
+
+    ``None``, wenn die Zelle nur einen Markt enthaelt (nichts zu
+    unterscheiden) oder die Richtung nicht over/under ist.
+    """
+    if richtung not in ("over", "under"):
+        return None
+    by_market: dict[str, list[Post]] = defaultdict(list)
+    for p in cell_posts:
+        by_market[market_by_channel.get(p.channel_id, "UNKNOWN")].append(p)
+    if len(by_market) < 2:
+        return None
+
+    gilt: list[str] = []
+    gegen: list[str] = []
+    duenn: list[str] = []
+    for market, markt_posts in by_market.items():
+        if len(markt_posts) < MIN_SAMPLE_PER_CELL:
+            duenn.append(market)
+            continue
+        rate = sum(
+            1 for p in markt_posts
+            if lift_by_post[p.id] >= BREAKOUT_LIFT_THRESHOLD
+        ) / len(markt_posts)
+        strata = [
+            (platform_by_channel.get(p.channel_id, "unknown"), market)
+            for p in markt_posts
+        ]
+        erwartet = _expected_breakout_rate(
+            strata, stratum_breakout_rates, platform_breakout_rates,
+            baseline_breakout_rate,
+        )
+        stuetzt = rate > erwartet if richtung == "over" else rate < erwartet
+        (gilt if stuetzt else gegen).append(market)
+
+    if not gilt:
+        if gegen:
+            return (
+                "In keinem Markt für sich belegbar — der Befund entsteht "
+                "erst über alle Märkte zusammen."
+            )
+        return "Kein einzelner Markt hat genug Posts für eine eigene Aussage."
+
+    teile: list[str] = []
+    if len(gilt) == 1 and (gegen or duenn):
+        teile.append(f"Gilt vor allem in {gilt[0]}")
+    else:
+        teile.append(f"Gilt in {_markt_liste(gilt)}")
+    if gegen:
+        teile.append(f"in {_markt_liste(gegen)} zeigt sich das nicht")
+    if duenn:
+        teile.append(f"für {_markt_liste(duenn)} zu wenig Daten")
+    return " — ".join(teile) + "."
 
 
 def _build_cell(
@@ -895,12 +1063,16 @@ def _build_cell(
     baseline_breakout_rate: float,
     min_sample: int,
     min_channels: int,
+    market_by_channel: Optional[dict[Any, str]] = None,
+    stratum_breakout_rates: Optional[dict[tuple[str, str], float]] = None,
 ) -> PatternCell:
     """Eine Zelle aus einem Bucket — Median-Lift, Trefferquote gegen die
     eigene Plattform-Mischung, Mindest-Stichprobe/-Kanalzahl. Extrahiert
     aus der Cross-Tab-Schleife (20.08.2026), unveraendert: der
     Titel-Modus soll dieselben Ehrlichkeits-Regeln durchlaufen wie jede
     Berichts-Dimension."""
+    market_by_channel = market_by_channel or {}
+    stratum_breakout_rates = stratum_breakout_rates or {}
     channel_count = len({p.channel_id for p in cell_posts})
     lifts = [lift_by_post[p.id] for p in cell_posts]
     activations = [activation_by_post[p.id] for p in cell_posts]
@@ -910,14 +1082,21 @@ def _build_cell(
     breakout_hits = sum(1 for x in lifts if x >= BREAKOUT_LIFT_THRESHOLD)
     breakout_rate = breakout_hits / len(lifts)
 
-    cell_platforms = [
-        platform_by_channel.get(p.channel_id, "unknown") for p in cell_posts
+    cell_strata = [
+        (
+            platform_by_channel.get(p.channel_id, "unknown"),
+            market_by_channel.get(p.channel_id, "UNKNOWN"),
+        )
+        for p in cell_posts
     ]
     platform_mix: dict[str, int] = defaultdict(int)
-    for pl in cell_platforms:
+    market_mix: dict[str, int] = defaultdict(int)
+    for pl, mk in cell_strata:
         platform_mix[pl] += 1
+        market_mix[mk] += 1
     expected_rate = _expected_breakout_rate(
-        cell_platforms, platform_breakout_rates, baseline_breakout_rate
+        cell_strata, stratum_breakout_rates, platform_breakout_rates,
+        baseline_breakout_rate,
     )
 
     reason = None
@@ -941,6 +1120,19 @@ def _build_cell(
         )
         breakout_verdict = _breakout_verdict_for(breakout_z)
 
+    market_note = None
+    if market_by_channel and breakout_verdict in ("over", "under"):
+        market_note = _markt_hinweis(
+            cell_posts,
+            breakout_verdict,
+            lift_by_post=lift_by_post,
+            platform_by_channel=platform_by_channel,
+            market_by_channel=market_by_channel,
+            stratum_breakout_rates=stratum_breakout_rates,
+            platform_breakout_rates=platform_breakout_rates,
+            baseline_breakout_rate=baseline_breakout_rate,
+        )
+
     return PatternCell(
         value=value,
         sample_size=len(cell_posts),
@@ -955,6 +1147,8 @@ def _build_cell(
         breakout_verdict=breakout_verdict,
         p90_lift=_percentile(lifts, 0.9),
         platform_mix=dict(platform_mix),
+        market_mix=dict(market_mix),
+        market_note=market_note,
         reason=reason,
     )
 
@@ -996,6 +1190,7 @@ class LiftContext:
     lift_by_post: dict[Any, float] = field(default_factory=dict)
     activation_by_post: dict[Any, float] = field(default_factory=dict)
     platform_by_channel: dict[Any, str] = field(default_factory=dict)
+    market_by_channel: dict[Any, str] = field(default_factory=dict)
     baseline_by_channel: dict[Any, float] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
@@ -1028,6 +1223,13 @@ def build_lift_context(
         channel_stmt = channel_stmt.where(Channel.market == market)
     channels = list(session.exec(channel_stmt).all())
     platform_by_channel = {c.id: c.platform for c in channels}
+    # Markt je Kanal fuer die Markt-Korrektur (26.08.2026). ``.value``,
+    # weil Market ein str-Enum ist — als Dict-Schluessel und in der
+    # Ausgabe soll der nackte Code ("DE") stehen, nicht das Enum.
+    market_by_channel = {
+        c.id: (c.market.value if c.market else Market.UNKNOWN.value)
+        for c in channels
+    }
     if not channels:
         return LiftContext(
             window_start=window_start,
@@ -1051,6 +1253,7 @@ def build_lift_context(
             window_end=window_end,
             posts_in_window=0,
             platform_by_channel=platform_by_channel,
+            market_by_channel=market_by_channel,
             notes=["Keine Posts im Fenster."],
         )
 
@@ -1079,6 +1282,7 @@ def build_lift_context(
             window_end=window_end,
             posts_in_window=posts_in_window,
             platform_by_channel=platform_by_channel,
+            market_by_channel=market_by_channel,
             notes=notes + ["Kein Post im Fenster hat messbare Views."],
         )
 
@@ -1134,6 +1338,7 @@ def build_lift_context(
         lift_by_post=lift_by_post,
         activation_by_post=activation_by_post,
         platform_by_channel=platform_by_channel,
+        market_by_channel=market_by_channel,
         baseline_by_channel=baseline_by_channel,
         notes=notes,
     )
@@ -1164,8 +1369,13 @@ def compute_cells_for_mapping(
         value = value_by_post.get(p.id)
         if value is not None:
             buckets[value].append(p)
-    baseline_breakout_rate, platform_breakout_rates = _corpus_breakout_rates(
-        ctx.usable, ctx.lift_by_post, ctx.platform_by_channel
+    baseline_breakout_rate, platform_breakout_rates, stratum_breakout_rates = (
+        _corpus_breakout_rates(
+            ctx.usable,
+            ctx.lift_by_post,
+            ctx.platform_by_channel,
+            ctx.market_by_channel,
+        )
     )
     cells = [
         _build_cell(
@@ -1178,6 +1388,8 @@ def compute_cells_for_mapping(
             baseline_breakout_rate=baseline_breakout_rate,
             min_sample=min_sample,
             min_channels=min_channels,
+            market_by_channel=ctx.market_by_channel,
+            stratum_breakout_rates=stratum_breakout_rates,
         )
         for value, cell_posts in buckets.items()
     ]
@@ -1431,8 +1643,10 @@ def compute_trailer_patterns(
         )
 
     # ---- Trefferquoten als Referenz --------------------------------------
-    baseline_breakout_rate, platform_breakout_rates = _corpus_breakout_rates(
-        usable, lift_by_post, platform_by_channel
+    baseline_breakout_rate, platform_breakout_rates, stratum_breakout_rates = (
+        _corpus_breakout_rates(
+            usable, lift_by_post, platform_by_channel, ctx.market_by_channel
+        )
     )
 
     if len(platform_breakout_rates) >= 2:
@@ -1518,6 +1732,8 @@ def compute_trailer_patterns(
                 baseline_breakout_rate=baseline_breakout_rate,
                 min_sample=min_sample,
                 min_channels=min_channels,
+                market_by_channel=ctx.market_by_channel,
+                stratum_breakout_rates=stratum_breakout_rates,
             )
             for value, cell_posts in buckets.items()
         ]

@@ -166,14 +166,23 @@ export const endpoints = {
   // der Admin-Feed, aber hinter dem normalen User-Login statt der
   // Admin-Session. Rein lesend.
   breakoutsPublic: ({ limit = 10 } = {}) => api(`/api/breakouts?limit=${limit}`),
-  insightPatterns: ({ windowDays = 90 } = {}) => api(`/api/insights/patterns?window_days=${windowDays}`),
+  // market ('DE'/'US'/'UK') grenzt die ganze Rechnung auf einen Markt
+  // ein (Markt-Filter 26.08.); leer/undefined = alle Maerkte zusammen.
+  insightPatterns: ({ windowDays = 90, market } = {}) => {
+    const params = new URLSearchParams({ window_days: String(windowDays) });
+    if (market) params.set('market', market);
+    return api(`/api/insights/patterns?${params.toString()}`);
+  },
   // Beispiel-Posts einer Muster-Zelle (Aufwertung B): die staerksten
   // Posts hinter einem Befund, sortiert nach Lift. value kann Leer-
   // und Sonderzeichen tragen (Genres, Titel) — deshalb URLSearchParams.
-  insightPatternExamples: ({ dimension, value, windowDays = 90, limit = 5 } = {}) => {
+  // market muss zum Filter der Muster-Anfrage passen, sonst zeigen die
+  // Beispiele Posts, die in der Zelle gar nicht mitgezaehlt wurden.
+  insightPatternExamples: ({ dimension, value, windowDays = 90, limit = 5, market } = {}) => {
     const params = new URLSearchParams({
       dimension, value, window_days: String(windowDays), limit: String(limit),
     });
+    if (market) params.set('market', market);
     return api(`/api/insights/patterns/examples?${params.toString()}`);
   },
   // Referenz-Suche (Roadmap Schritt 1, 25.08.): Facetten-Suche ueber die

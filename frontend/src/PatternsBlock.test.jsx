@@ -472,6 +472,50 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     expect(screen.getByText(/1\.7-mal öfter weit über dem Kanal-Schnitt/)).toBeTruthy();
   });
 
+  it('Markt-Filter: Wechsel auf DE laedt neu und reicht den Markt an die Beispiel-Fetches durch', async () => {
+    // Markt-Korrektur (26.08.): Standard bleibt "Alle Märkte" (kein
+    // market-Parameter), der Filter grenzt die GANZE Rechnung ein —
+    // inklusive der Referenz-Posts, sonst belegen die Beispiele eine
+    // andere Zahl als die daneben.
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    render(<PatternsBlock />);
+
+    await screen.findByText('Romance: funktioniert gerade');
+    expect(endpoints.insightPatterns).toHaveBeenCalledWith({ windowDays: 90, market: undefined });
+
+    fireEvent.change(screen.getByLabelText(/Markt:/), { target: { value: 'DE' } });
+    await waitFor(() => {
+      expect(endpoints.insightPatterns).toHaveBeenCalledWith({ windowDays: 90, market: 'DE' });
+    });
+    // Die Karten-Referenz-Posts laden mit demselben Markt.
+    await waitFor(() => {
+      expect(endpoints.insightPatternExamples).toHaveBeenCalledWith(
+        { dimension: 'genre', value: 'Romance', limit: 3, market: 'DE' },
+      );
+    });
+  });
+
+  it('zeigt den Markt-Ausweis einer Zelle in der Basis-Zeile', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        genre: [{
+          ...ZELLE_OK,
+          market_mix: { DE: 4, US: 38 },
+          market_note: 'Gilt vor allem in US — für DE zu wenig Daten.',
+        }],
+      },
+    });
+    render(<PatternsBlock />);
+
+    await screen.findByText('Romance: funktioniert gerade');
+    expect(
+      screen.getByText(/Gilt vor allem in US — für DE zu wenig Daten\./),
+    ).toBeTruthy();
+  });
+
   it('blendet die Baustein-Sektion ohne Briefing still aus (404 ist kein Fehler)', async () => {
     endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
     endpoints.insightPatterns.mockResolvedValue(DATEN);
