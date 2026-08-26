@@ -631,33 +631,40 @@ def test_admin_wege_sind_bewusst_ungegatet(client, monkeypatch):
 def test_frontend_client_zeigt_auf_den_pattern_briefing_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """PatternsBlock lädt die Text-Bausteine über
-    ``endpoints.insightPatternBriefing`` → ``/api/insights/pattern-briefing``.
-    Wird der Pfad auf einer Seite umbenannt, bleiben beide Seiten für
-    sich grün (der Frontend-Test mockt den Client) — und die Sektion
-    verschwindet still. Dieselbe Fehlerklasse wie beim Feature-Key."""
+    """Die Text-Bausteine leben seit Wolfs Anordnung vom 25.08. im
+    ADMIN (MonitoringPanel, BriefingSection) — der Waechter prueft die
+    Kette dorthin: client.js zeigt auf den Admin-Pfad, das Panel liest
+    ihn, und der Pfad existiert im Backend. Wird eine Seite umbenannt,
+    bleiben beide fuer sich gruen — und die Rubrik verschwindet still.
+    Der oeffentliche ``/api/insights/pattern-briefing`` bleibt als
+    geflaggte API bestehen (Existenz-Check unten), hat aber bewusst
+    keinen UI-Leser mehr."""
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parents[3]
     client_js = (repo_root / "frontend" / "src" / "api" / "client.js").read_text(
         encoding="utf-8"
     )
-    assert "/api/insights/pattern-briefing" in client_js
+    assert "/api/admin/pattern-briefing/latest" in client_js
 
-    block = (repo_root / "frontend" / "src" / "PatternsBlock.jsx").read_text(
-        encoding="utf-8"
-    )
-    assert "insightPatternBriefing" in block
+    panel = (
+        repo_root / "frontend" / "src" / "panels" / "MonitoringPanel.jsx"
+    ).read_text(encoding="utf-8")
+    assert "adminPatternBriefingLatest" in panel
 
-    # Existenz-Beweis ueber einen echten Request statt Routen-Introspektion
-    # (die Router sind gewrappt und tragen kein ``path``-Attribut): mit
-    # Flag aus antwortet die Route 503 — ein 404 hiesse, der Pfad, auf
-    # den client.js zeigt, existiert im Backend nicht mehr.
+    # Existenz-Beweis ueber echte Requests statt Routen-Introspektion
+    # (die Router sind gewrappt und tragen kein ``path``-Attribut).
     monkeypatch.setattr(settings, "auth_enabled", False, raising=False)
     monkeypatch.setattr(settings, "user_auth_enabled", False, raising=False)
+    monkeypatch.setattr(settings, "admin_auth_enabled", False, raising=False)
     monkeypatch.delenv("FEATURE_TRAILER_INTELLIGENCE_ENABLED", raising=False)
-    antwort = TestClient(app).get("/api/insights/pattern-briefing")
-    assert antwort.status_code == 503
+    client = TestClient(app)
+    # Oeffentliche Route: Flag aus -> 503; ein generisches 404 hiesse,
+    # der Pfad existiert nicht mehr.
+    assert client.get("/api/insights/pattern-briefing").status_code == 503
+    # Admin-Route, DB-frei geprueft: POST auf die GET-Route gibt 405
+    # (Route existiert, Methode nicht) — eine tote Route gaebe 404.
+    assert client.post("/api/admin/pattern-briefing/latest").status_code == 405
 
 
 # ---------------------------------------------------------------------

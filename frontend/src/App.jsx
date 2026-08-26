@@ -224,9 +224,11 @@ function App() {
         )}
       </section>
 
-      {/* Breakouts zwischen Studios und Roundups (Wolf 21.07.): der
-          schnellste "was ist gerade los?"-Einstieg direkt nach den
-          Studio-Kacheln. */}
+      {/* Verleiher & Independents direkt hinter den grossen Studios
+          (Wolf 25.08.): erst das ganze Feld — einzeln und gebuendelt —,
+          dann die Auswertungen. */}
+      <RoundupBlock />
+
       <BreakoutsBlock />
 
       {/* Trailer-Intelligence Stufe 1 (20.08.2026): rendert NUR, wenn
@@ -237,8 +239,6 @@ function App() {
       <PostCheckBlock />
 
       <ReferenzSucheBlock />
-
-      <RoundupBlock />
       <SiteFooter />
     </main>
   );
