@@ -426,53 +426,6 @@ function ZellenTabelle({ name, cells, ohneTitel = false }) {
   );
 }
 
-function BausteinKarte({ baustein }) {
-  const listen = [
-    ['Hooks DE', baustein.hooks_de],
-    ['Hooks EN', baustein.hooks_en],
-    ['Captions DE', baustein.captions_de],
-    ['Captions EN', baustein.captions_en],
-  ];
-  return (
-    <div className="card breakouts-card" style={{ marginBottom: '1rem', padding: '1rem 1.25rem' }}>
-      <h4 style={{ color: 'white', margin: '0 0 0.35rem', fontSize: '1em' }}>{baustein.muster}</h4>
-      <p style={{ color: '#c8d6cc', margin: '0 0 0.75rem', fontSize: '0.85em' }}>{baustein.begruendung}</p>
-      {listen.map(([label, eintraege]) => (
-        (eintraege || []).length > 0 && (
-          <div key={label} style={{ marginBottom: '0.5rem' }}>
-            <p style={{ color: '#ffa294', margin: '0 0 0.15rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-              {label}
-            </p>
-            <ul style={{ color: '#e8f0ea', margin: 0, paddingLeft: '1.2rem', fontSize: '0.9em' }}>
-              {eintraege.map((text) => <li key={text}>{text} <CopyButton text={text} /></li>)}
-            </ul>
-          </div>
-        )
-      ))}
-      {(baustein.hashtags || []).length > 0 && (
-        <p style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.8em' }}>
-          {baustein.hashtags.map((tag) => `#${tag}`).join(' ')}
-        </p>
-      )}
-      {(baustein.cited_post_ids || []).length > 0 && (
-        <p style={{ margin: '0.5rem 0 0', fontSize: '0.75em' }}>
-          <span style={{ color: '#b9c7bd' }}>Belege: </span>
-          {baustein.cited_post_ids.map((url, i) => (
-            <a key={url} href={url} target="_blank" rel="noreferrer" style={{ color: '#7ee2a8', marginRight: '0.5rem' }}>
-              Post {i + 1}
-            </a>
-          ))}
-        </p>
-      )}
-    </div>
-  );
-}
-
-
-// Fokus-Ansicht (20.08.2026): Dimensionen ohne einen einzigen Befund
-// klappen standardmaessig zu einer Zeile zusammen — elf Tabellen voller
-// "unauffaellig" sind Rauschen, nicht Information. Exportiert fuer den
-// Test.
 export function hatBefund(cells) {
   return (cells || []).some(
     (c) => c.breakout_verdict === 'over' || c.breakout_verdict === 'under',
@@ -717,37 +670,10 @@ function EmpfehlungsAnsicht({ dimensions }) {
   );
 }
 
-function CopyButton({ text }) {
-  const [kopiert, setKopiert] = useState(false);
-  const kopieren = () => {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        setKopiert(true);
-        setTimeout(() => setKopiert(false), 1500);
-      }).catch(() => {});
-    }
-  };
-  return (
-    <button
-      type="button"
-      onClick={kopieren}
-      title="In die Zwischenablage kopieren"
-      style={{
-        background: 'none', border: 'none', cursor: 'pointer',
-        color: kopiert ? '#7ee2a8' : '#b9c7bd', fontSize: '0.8em', padding: '0 0.35rem',
-      }}
-    >
-      {kopiert ? '✓ kopiert' : 'kopieren'}
-    </button>
-  );
-}
-
 export default function PatternsBlock() {
   const [aktiv, setAktiv] = useState(false);
   const [daten, setDaten] = useState(null);
   const [fehler, setFehler] = useState(false);
-  const [briefing, setBriefing] = useState(null);
-  const [titelBriefing, setTitelBriefing] = useState(null);
   const [alleZahlen, setAlleZahlen] = useState(false);
   const [tab, setTab] = useState('empfehlungen');
 
@@ -758,18 +684,6 @@ export default function PatternsBlock() {
         if (cancelled) return;
         if (health?.features?.trailer_intelligence) {
           setAktiv(true);
-          // Text-Bausteine sind ein eigener Datensatz mit eigenem
-          // Fehlerpfad: 404 (noch kein Briefing persistiert) ist ein
-          // NORMALER Zustand und blendet die Sektion still aus — er darf
-          // den Muster-Tabellen keinen Fehlerkasten bescheren. Beide
-          // Ebenen (Genre / Titel) laden getrennt: jede hat ihre eigene
-          // juengste Woche, und eine fehlende Ebene versteckt nur sich.
-          endpoints.insightPatternBriefing({ mode: 'genre' })
-            .then((data) => { if (!cancelled) setBriefing(data); })
-            .catch(() => {});
-          endpoints.insightPatternBriefing({ mode: 'title' })
-            .then((data) => { if (!cancelled) setTitelBriefing(data); })
-            .catch(() => {});
           return endpoints.insightPatterns({ windowDays: 90 }).then((data) => {
             if (!cancelled) setDaten(data);
           });
@@ -911,50 +825,6 @@ export default function PatternsBlock() {
         </ul>
       )}
 
-      {tab === 'empfehlungen' && (
-        <>
-          <BausteinSektion
-            briefing={briefing}
-            titel="Text-Bausteine aus den Mustern"
-            beschreibung="Hooks und Caption-Vorlagen, abgeleitet aus den stärksten Posts je Muster — jede Empfehlung mit Belegen."
-          />
-          <BausteinSektion
-            briefing={titelBriefing}
-            titel="Text-Bausteine je Titel"
-            beschreibung="Hooks und Caption-Vorlagen je Kampagne, abgeleitet aus den stärksten Posts des jeweiligen Titels — jede Empfehlung mit Belegen."
-          />
-        </>
-      )}
     </section>
-  );
-}
-
-function BausteinSektion({ briefing, titel, beschreibung }) {
-  if (!briefing?.llm_output || (briefing.llm_output.bausteine || []).length === 0) {
-    return null;
-  }
-  return (
-    <div style={{ marginTop: '1.5rem' }}>
-      <h3 style={{ color: 'white', margin: '0 0 0.25rem', fontSize: '1.05em' }}>
-        {titel}
-      </h3>
-      <p style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.85em' }}>
-        {beschreibung} Stand KW {briefing.iso_week}/{briefing.iso_year}.
-      </p>
-      {briefing.llm_output.bausteine.map((baustein) => (
-        <BausteinKarte key={baustein.muster} baustein={baustein} />
-      ))}
-      {(briefing.llm_output.data_caveats || []).length > 0 && (
-        <ul style={{ color: '#b9c7bd', margin: '0.25rem 0 0', paddingLeft: '1.2rem', fontSize: '0.8em' }}>
-          {briefing.llm_output.data_caveats.map((caveat) => <li key={caveat}>{caveat}</li>)}
-        </ul>
-      )}
-      {briefing.citation_dropped > 0 && (
-        <p style={{ color: '#b9c7bd', margin: '0.25rem 0 0', fontSize: '0.8em' }}>
-          {briefing.citation_dropped} Baustein(e) wurden verworfen, weil ihre Belege
-          nicht in den mitgegebenen Beispiel-Posts lagen.
-        </p>
-      )}
-    </div>
   );
 }
