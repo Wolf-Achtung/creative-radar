@@ -4,8 +4,12 @@ Das Vorher/Nachher-Design der Wir-Schleife braucht eingefrorene
 Empfehlungs-Zeitpunkte; bislang rechnete das System die Empfehlungen
 bei jedem Abruf frisch und vergass sie wieder. Vertragspunkte:
 
-- Persistiert werden NUR die ``over``-Zellen — dieselbe MACHEN-Auswahl
-  wie Playbook und Wir-Segment, keine Zweitdefinition.
+- Persistiert werden die belastbaren Zellen (over UND — seit dem
+  26.08.2026, fuer den Bestaendigkeits-Ausweis — under, je mit
+  ``breakout_verdict``-Feld). **Empfehlung** bleibt ausschliesslich
+  over: dieselbe MACHEN-Auswahl wie Playbook und Wir-Segment, keine
+  Zweitdefinition; Leser filtern auf das verdict-Feld (fehlend =
+  Altformat = over).
 - Eine Row pro ISO-Woche; ein Re-Run derselben Woche ueberschreibt
   (Last-Write-Wins), statt Duplikate zu stapeln.
 - Die Cron-Stage ist verdrahtet, hat einen Not-Aus und kippt bei
@@ -58,7 +62,7 @@ def _stub_report(monkeypatch, dimensions):
     )
 
 
-def test_persistiert_nur_die_over_zellen(session, monkeypatch):
+def test_persistiert_belastbare_zellen_mit_verdikt(session, monkeypatch):
     _stub_report(monkeypatch, {
         "genre": [
             _zelle("SciFi", "over", lift=1.31, z=4.7, n=52),
@@ -70,17 +74,23 @@ def test_persistiert_nur_die_over_zellen(session, monkeypatch):
 
     ergebnis = rs.persist_recommendation_snapshot(session, now=NOW)
 
-    assert ergebnis == {"week": "2026-W35", "zellen": 2, "ersetzt": False}
+    # "empfohlen" zaehlt NUR over — dieselbe MACHEN-Auswahl wie Playbook
+    # und Wir-Segment; under steht fuer den Bestaendigkeits-Ausweis mit
+    # in der Row, insufficient nie.
+    assert ergebnis == {
+        "week": "2026-W35", "zellen": 3, "empfohlen": 2, "ersetzt": False,
+    }
     [row] = session.exec(select(RecommendationSnapshot)).all()
     assert (row.iso_year, row.iso_week) == (2026, 35)
-    werte = {(z["dimension"], z["value"]) for z in row.cells}
-    assert werte == {("genre", "SciFi"), ("cover_kinetik", "title_card")}, (
-        "Nur over-Zellen sind Empfehlungen — under/insufficient duerfen "
-        "nicht als 'damals empfohlen' in die Historie."
-    )
+    werte = {(z["dimension"], z["value"], z["breakout_verdict"]) for z in row.cells}
+    assert werte == {
+        ("genre", "SciFi", "over"),
+        ("genre", "Crime", "under"),
+        ("cover_kinetik", "title_card", "over"),
+    }, "insufficient darf nicht in die Historie; jede Zelle traegt ihr Verdikt."
     scifi = next(z for z in row.cells if z["value"] == "SciFi")
     assert scifi == {
-        "dimension": "genre", "value": "SciFi",
+        "dimension": "genre", "value": "SciFi", "breakout_verdict": "over",
         "median_lift": 1.31, "breakout_z": 4.7, "sample_size": 52,
     }
 

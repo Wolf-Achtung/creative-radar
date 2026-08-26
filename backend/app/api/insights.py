@@ -72,6 +72,10 @@ from app.services.post_check import (
     TON_WERTE,
     pruefe_post,
 )
+from app.services.recommendation_snapshot import (
+    annotiere_bestaendigkeit,
+    compute_bewaehrung,
+)
 from app.services.referenz_suche import suche_referenzen
 from app.services.trailer_patterns import (
     TREND_WINDOW_SHIFT_DAYS,
@@ -561,7 +565,47 @@ def trailer_patterns_public(
         market=market,
         now=now - timedelta(days=TREND_WINDOW_SHIFT_DAYS),
     )
-    return apply_weekly_trend(current, previous)
+    data = apply_weekly_trend(current, previous)
+    # Bestaendigkeits-Ausweis (26.08.): wochen_in_folge je belastbarer
+    # Zelle aus den Wochen-Snapshots. NUR ungefiltert — die Snapshots
+    # rechnen ueber alle Maerkte, gegen einen markt-gefilterten Bericht
+    # waeren ihre Zellen nicht dieselbe Messung.
+    if market is None:
+        data = annotiere_bestaendigkeit(session, data, now=now)
+    return data
+
+
+@router.get("/patterns/bewaehrung")
+def trailer_pattern_bewaehrung(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Trefferquote der eigenen Empfehlungen (26.08.2026): wie viele
+    over-Zellen einer Snapshot-Woche standen im Snapshot der Folgewoche
+    noch? Reiner Vergleich persistierter Wochen-Snapshots — kein
+    Neu-Rechnen, kein LLM. Das System misst sich damit selbst; die Zahl
+    steht im Muster-Panel, damit Leser wissen, wie belastbar die
+    Empfehlungen erfahrungsgemaess sind.
+
+    Gate und Auth wie ``GET /api/insights/patterns``. Ohne zwei
+    aufeinanderfolgende Snapshot-Wochen kommt eine ehrliche note statt
+    einer leeren Quote.
+    """
+    if not is_trailer_intelligence_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Trailer-Intelligence ist deaktiviert. "
+                "FEATURE_TRAILER_INTELLIGENCE_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
+            ),
+        )
+    ergebnis = compute_bewaehrung(session)
+    log_usage(
+        request_user_email(request),
+        "patterns_bewaehrung_view",
+        {"wochen_paare": ergebnis["gesamt"]["wochen_paare"]},
+    )
+    return ergebnis
 
 
 @router.get("/patterns/examples")

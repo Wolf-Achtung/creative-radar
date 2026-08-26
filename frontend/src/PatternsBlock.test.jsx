@@ -19,12 +19,13 @@ vi.mock('./api/client', () => ({
     health: vi.fn(),
     insightPatterns: vi.fn(),
     insightPatternBriefing: vi.fn(),
+    insightPatternBewaehrung: vi.fn(),
     insightPatternExamples: vi.fn(),
   },
 }));
 
 import { endpoints } from './api/client';
-import PatternsBlock from './PatternsBlock';
+import PatternsBlock, { staerksteBefunde } from './PatternsBlock';
 
 afterEach(() => {
   cleanup();
@@ -35,6 +36,11 @@ afterEach(() => {
 // solange der Montags-Cron das erste Mal noch nicht gelaufen ist.
 beforeEach(() => {
   endpoints.insightPatternBriefing.mockRejectedValue(new Error('404'));
+  // Default: noch keine zwei Snapshot-Wochen — die Bewaehrungs-Zeile
+  // rendert dann nichts.
+  endpoints.insightPatternBewaehrung.mockResolvedValue({
+    wochen: [], gesamt: { wochen_paare: 0, empfohlen: 0, bestaetigt: 0, quote: null },
+  });
   endpoints.insightPatternExamples.mockResolvedValue({ examples: [] });
 });
 
@@ -514,6 +520,77 @@ describe('PatternsBlock — Flag-Gate und Bericht', () => {
     expect(
       screen.getByText(/Gilt vor allem in US — für DE zu wenig Daten\./),
     ).toBeTruthy();
+  });
+
+  it('Bestaendigkeits-Ausweis: Wochen in Folge auf der Karte, Neu-Warnung, ohne Historie nichts', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue({
+      ...DATEN,
+      dimensions: {
+        genre: [
+          { ...ZELLE_OK, value: 'Romance', wochen_in_folge: 3 },
+          { ...ZELLE_OK, value: 'Horror', wochen_in_folge: 1 },
+          { ...ZELLE_OK, value: 'Drama', wochen_in_folge: null },
+        ],
+      },
+    });
+    render(<PatternsBlock />);
+
+    await screen.findByText('Romance: funktioniert gerade');
+    expect(screen.getByText(/3\. Woche in Folge/)).toBeTruthy();
+    expect(screen.getByText(/Neu diese Woche — erst mal beobachten/)).toBeTruthy();
+    // Ohne Vorwochen-Snapshot (null) keine Behauptung — weder "Folge"
+    // noch "Neu". Genau ein Karten-Paar traegt je ein Label.
+    expect(screen.getAllByText(/Woche in Folge|Neu diese Woche/)).toHaveLength(2);
+  });
+
+  it('staerksteBefunde: Wiederkehr schlaegt Signalstaerke', () => {
+    // Ein Befund, der drei Wochen haelt, steht vor einem frischen
+    // Ausschlag mit lauterem |z| — Zufallstreffer sind bei ~40 Zellen
+    // pro Woche zu erwarten, Wiederkehr sortiert sie aus. Ohne
+    // Historie (Feld fehlt) bleibt die alte |z|-Reihenfolge.
+    const befunde = staerksteBefunde({
+      genre: [
+        { value: 'Frisch', breakout_verdict: 'over', breakout_z: 5.0, wochen_in_folge: 1 },
+        { value: 'Bestaendig', breakout_verdict: 'over', breakout_z: 2.5, wochen_in_folge: 3 },
+        { value: 'Ohne', breakout_verdict: 'over', breakout_z: 3.0 },
+      ],
+    });
+    expect(befunde.map(({ cell }) => cell.value)).toEqual(['Bestaendig', 'Frisch', 'Ohne']);
+  });
+
+  it('Bewaehrung: die Trefferquote der eigenen Empfehlungen steht unter den Karten', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    endpoints.insightPatternBewaehrung.mockResolvedValue({
+      wochen: [
+        { week: '2026-W34', folgewoche: '2026-W35', empfohlen: 2, bestaetigt: 1, quote: 0.5 },
+        { week: '2026-W33', folgewoche: '2026-W34', empfohlen: 3, bestaetigt: 2, quote: 0.6667 },
+      ],
+      gesamt: { wochen_paare: 2, empfohlen: 5, bestaetigt: 3, quote: 0.6 },
+    });
+    render(<PatternsBlock />);
+
+    await screen.findByText('Romance: funktioniert gerade');
+    await screen.findByText(/Bewährung:/);
+    expect(
+      screen.getByText(/3 von 5 Empfehlungen aus den letzten 2 gemessenen Wochen/),
+    ).toBeTruthy();
+    expect(screen.getByText(/\(60 %\)/)).toBeTruthy();
+
+    // Im Zahlen-Tab steht die Messung je Woche.
+    fireEvent.click(screen.getByText('Zahlen & Methode'));
+    await screen.findByText(/Bewährung je Woche/);
+    expect(screen.getByText(/KW 34\/2026: 1 von 2 in KW 35\/2026 bestätigt/)).toBeTruthy();
+  });
+
+  it('Bewaehrung: ohne zwei Snapshot-Wochen rendert die Zeile nichts', async () => {
+    endpoints.health.mockResolvedValue({ features: { trailer_intelligence: true } });
+    endpoints.insightPatterns.mockResolvedValue(DATEN);
+    render(<PatternsBlock />);
+
+    await screen.findByText('Romance: funktioniert gerade');
+    expect(screen.queryByText(/Bewährung/)).toBeNull();
   });
 
   it('blendet die Baustein-Sektion ohne Briefing still aus (404 ist kein Fehler)', async () => {
