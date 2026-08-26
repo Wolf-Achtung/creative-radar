@@ -173,6 +173,10 @@ export const endpoints = {
     if (market) params.set('market', market);
     return api(`/api/insights/patterns?${params.toString()}`);
   },
+  // Bewaehrung (26.08.): Trefferquote der eigenen Empfehlungen aus den
+  // Wochen-Snapshots — wie viele over-Zellen einer Woche standen in der
+  // Folgewoche noch? Rein lesend, markt-unabhaengig.
+  insightPatternBewaehrung: () => api('/api/insights/patterns/bewaehrung'),
   // Beispiel-Posts einer Muster-Zelle (Aufwertung B): die staerksten
   // Posts hinter einem Befund, sortiert nach Lift. value kann Leer-
   // und Sonderzeichen tragen (Genres, Titel) — deshalb URLSearchParams.

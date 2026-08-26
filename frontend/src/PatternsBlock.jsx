@@ -114,9 +114,16 @@ function prozent(wert) {
   return `${(wert * 100).toFixed(1)} %`;
 }
 
-// Die staerksten Befunde ueber ALLE Dimensionen, nach Signalstaerke
-// (|z|) sortiert. Nur over/under — ein unauffaelliges Muster ist keine
-// Empfehlung, ein duennes erst recht nicht. Exportiert fuer den Test.
+// Die staerksten Befunde ueber ALLE Dimensionen. Nur over/under — ein
+// unauffaelliges Muster ist keine Empfehlung, ein duennes erst recht
+// nicht. Sortiert seit dem Bestaendigkeits-Ausweis (26.08.) zuerst nach
+// Wochen in Folge, dann nach Signalstaerke (|z|): ein Befund, der drei
+// Wochen haelt, schlaegt einen frischen Ausschlag mit lauterem z —
+// bei ~40 geprueften Zellen pro Woche sind ein bis zwei Zufallstreffer
+// zu ERWARTEN, und Wiederkehr ist das Kriterium, das sie aussortiert.
+// Ohne Historie (wochen_in_folge fehlt/null) zaehlt der Befund wie
+// Woche 1 — die Reihenfolge bleibt dann die alte. Exportiert fuer den
+// Test.
 export function staerksteBefunde(dimensions, max = 5) {
   const alle = [];
   Object.entries(dimensions || {}).forEach(([dim, cells]) => {
@@ -129,8 +136,21 @@ export function staerksteBefunde(dimensions, max = 5) {
       }
     });
   });
-  alle.sort((a, b) => Math.abs(b.cell.breakout_z) - Math.abs(a.cell.breakout_z));
+  const wochen = (cell) => cell.wochen_in_folge || 1;
+  alle.sort((a, b) => (
+    wochen(b.cell) - wochen(a.cell)
+    || Math.abs(b.cell.breakout_z) - Math.abs(a.cell.breakout_z)
+  ));
   return alle.slice(0, max);
+}
+
+// Klartext zum Bestaendigkeits-Ausweis einer Karte. null = nichts
+// anzeigen (keine Vorwochen-Historie, keine Aussage moeglich).
+export function bestaendigkeitsLabel(cell) {
+  const wochen = cell.wochen_in_folge;
+  if (wochen === null || wochen === undefined) return null;
+  if (wochen === 1) return 'Neu diese Woche — erst mal beobachten';
+  return `${wochen}. Woche in Folge`;
 }
 
 function BefundKarte({ dim, cell }) {
@@ -607,6 +627,7 @@ function ReferenzPosts({ dimension, value, markt = '' }) {
 function EmpfehlungsKarte({ dim, cell, markt = '' }) {
   const farbe = QUOTE_COLOR_ON_CARD[cell.breakout_verdict];
   const { titel, satz, tipp } = werkstattEmpfehlung(dim, cell);
+  const bestaendigkeit = bestaendigkeitsLabel(cell);
   // Volle Breite statt Kachel-Wand (Wolfs Lesbarkeits-Feedback
   // 25.08.): die Karten stehen untereinander in zwei klar
   // beschrifteten Gruppen — das Urteil steht EINMAL ueber der Gruppe,
@@ -618,6 +639,15 @@ function EmpfehlungsKarte({ dim, cell, markt = '' }) {
     >
       <p style={{ margin: '0 0 0.25rem', fontSize: '0.7em', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, color: '#6b6b6b' }}>
         {THEMA_LABEL[dim] || DIMENSION_LABEL[dim] || dim}
+        {/* Bestaendigkeits-Ausweis (26.08.): "3. Woche in Folge" traegt
+            Gewicht, "Neu diese Woche" heisst erst mal beobachten — bei
+            ~40 geprueften Zellen pro Woche sind Zufallstreffer zu
+            erwarten, Wiederkehr sortiert sie aus. */}
+        {bestaendigkeit && (
+          <span style={{ color: (cell.wochen_in_folge || 1) > 1 ? '#1f7a45' : '#8a6d3b' }}>
+            {' '}· {bestaendigkeit}
+          </span>
+        )}
       </p>
       <p style={{ margin: '0 0 0.35rem', fontWeight: 700, fontSize: '1.05em' }}>{titel}</p>
       <p style={{ margin: 0, fontSize: '0.9em', color: '#4a4a44' }}>{satz}</p>
@@ -640,7 +670,34 @@ function EmpfehlungsKarte({ dim, cell, markt = '' }) {
   );
 }
 
-function EmpfehlungsAnsicht({ dimensions, markt = '' }) {
+// "2026-W34" → "KW 34/2026".
+function kwLabel(week) {
+  const [jahr, w] = String(week || '').split('-W');
+  return `KW ${Number(w)}/${jahr}`;
+}
+
+// Bewaehrung (26.08.): das System misst seine eigene Trefferquote —
+// wie viele Empfehlungen einer Woche galten laut Snapshot auch in der
+// Folgewoche? Ohne zwei aufeinanderfolgende Snapshot-Wochen rendert
+// nichts (kein Rauschen, waehrend die Historie sich erst aufbaut).
+function BewaehrungsZeile({ bewaehrung }) {
+  const gesamt = bewaehrung?.gesamt;
+  if (!gesamt || gesamt.wochen_paare < 1) return null;
+  const prozentZahl = Math.round((gesamt.quote || 0) * 100);
+  const zeitraum = gesamt.wochen_paare === 1
+    ? `Woche ${kwLabel(bewaehrung.wochen[0].week)}`
+    : `den letzten ${gesamt.wochen_paare} gemessenen Wochen`;
+  return (
+    <p style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.85em' }}>
+      <strong style={{ color: '#7ee2a8' }}>Bewährung: </strong>
+      {gesamt.bestaetigt} von {gesamt.empfohlen} Empfehlungen aus {zeitraum} galten
+      auch in der Folgewoche ({prozentZahl} %). Das System misst sich hier selbst —
+      jede Woche kommt eine Messung dazu.
+    </p>
+  );
+}
+
+function EmpfehlungsAnsicht({ dimensions, markt = '', bewaehrung = null }) {
   const befunde = staerksteBefunde(dimensions);
   if (befunde.length === 0) {
     return (
@@ -669,6 +726,10 @@ function EmpfehlungsAnsicht({ dimensions, markt = '' }) {
     <div>
       {gruppe('Das funktioniert gerade', '#7ee2a8', gut)}
       {gruppe('Das funktioniert gerade nicht', '#ffa294', schlecht)}
+      {/* Nur ungefiltert: die Bewaehrung misst die Empfehlungen ueber
+          alle Maerkte — unter einem Markt-Filter waere die Zahl nicht
+          die der angezeigten Karten. */}
+      {markt === '' && <BewaehrungsZeile bewaehrung={bewaehrung} />}
       <p style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.75em' }}>
         Abgeleitet aus gemessenen Mustern im eigenen Bestand — kein Wirkungsbeweis.
         Alle Zahlen und die Methodik stehen im Tab „Zahlen & Methode“.
@@ -695,6 +756,7 @@ export default function PatternsBlock() {
   const [alleZahlen, setAlleZahlen] = useState(false);
   const [tab, setTab] = useState('empfehlungen');
   const [markt, setMarkt] = useState('');
+  const [bewaehrung, setBewaehrung] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -710,6 +772,17 @@ export default function PatternsBlock() {
       });
     return () => { cancelled = true; };
   }, []);
+
+  // Bewaehrung ist markt-unabhaengig und laedt einmal. Ein Fehler
+  // laesst die Zeile still weg — die Muster stehen auch ohne Quote.
+  useEffect(() => {
+    if (!aktiv) return undefined;
+    let cancelled = false;
+    endpoints.insightPatternBewaehrung()
+      .then((d) => { if (!cancelled) setBewaehrung(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [aktiv]);
 
   // Eigener Effekt statt Kette am health-Aufruf: der Markt-Filter laedt
   // neu, ohne health erneut zu fragen. Beim Wechsel bleiben die alten
@@ -816,7 +889,7 @@ export default function PatternsBlock() {
         </div>
       )}
       {!fehler && daten !== null && tab === 'empfehlungen' && (
-        <EmpfehlungsAnsicht dimensions={dimensionen} markt={markt} />
+        <EmpfehlungsAnsicht dimensions={dimensionen} markt={markt} bewaehrung={bewaehrung} />
       )}
 
       {fehler && (
@@ -863,6 +936,21 @@ export default function PatternsBlock() {
           Datenbasis: {daten.posts_with_baseline} Posts mit Kanal-Baseline
           {' '}({daten.channels_covered} Kanäle, Fenster {daten.window_days} Tage).
         </p>
+      )}
+      {!fehler && daten !== null && tab === 'zahlen' && (bewaehrung?.wochen || []).length > 0 && (
+        <div style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.8em' }}>
+          <p style={{ margin: '0 0 0.25rem' }}>
+            Bewährung je Woche (Empfehlungen, die laut Snapshot auch in der
+            Folgewoche galten):
+          </p>
+          <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+            {bewaehrung.wochen.map((w) => (
+              <li key={w.week}>
+                {kwLabel(w.week)}: {w.bestaetigt} von {w.empfohlen} in {kwLabel(w.folgewoche)} bestätigt
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {!fehler && daten !== null && tab === 'zahlen' && (daten.notes || []).length > 0 && (
         <ul style={{ color: '#b9c7bd', margin: '0.5rem 0 0', paddingLeft: '1.2rem', fontSize: '0.8em' }}>

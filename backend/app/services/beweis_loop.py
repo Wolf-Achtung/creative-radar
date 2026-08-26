@@ -143,6 +143,12 @@ def compute_beweis_loop(
         karten = facetten_werte_je_post(session, wir_posts)
         zellen: list[dict] = []
         for empfehlung in snapshot.cells:
+            # Seit dem 26.08.2026 stehen auch under-Zellen im Snapshot
+            # (fuer den Bestaendigkeits-Ausweis). Empfehlung bleibt
+            # ausschliesslich over; Eintraege ohne verdict-Feld sind
+            # Altformat und per Konstruktion over.
+            if empfehlung.get("breakout_verdict", "over") != "over":
+                continue
             dimension = empfehlung.get("dimension")
             wert = empfehlung.get("value")
             if not dimension or wert is None:
