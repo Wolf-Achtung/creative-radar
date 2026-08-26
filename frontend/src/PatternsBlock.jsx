@@ -311,7 +311,10 @@ function BeispielZeile({ eintrag }) {
   );
 }
 
-function ZellenTabelle({ name, cells, ohneTitel = false }) {
+function ZellenTabelle({ name, cells, ohneTitel = false, markt = '' }) {
+  // Der Aufrufer remountet die Tabelle bei Markt-Wechsel (key traegt
+  // den Markt) — der Beispiel-Cache kann also nie Posts aus einem
+  // anderen Markt-Filter zeigen.
   const [offen, setOffen] = useState(null);
   const [beispiele, setBeispiele] = useState({});
   const brauchbar = cells.filter((c) => c.breakout_verdict !== 'insufficient');
@@ -329,7 +332,7 @@ function ZellenTabelle({ name, cells, ohneTitel = false }) {
     setOffen(wert);
     if (!beispiele[wert]) {
       setBeispiele((b) => ({ ...b, [wert]: { status: 'laden' } }));
-      endpoints.insightPatternExamples({ dimension: name, value: wert })
+      endpoints.insightPatternExamples({ dimension: name, value: wert, market: markt || undefined })
         .then((daten) => {
           setBeispiele((b) => ({ ...b, [wert]: { status: 'ok', daten } }));
         })
@@ -432,7 +435,7 @@ export function hatBefund(cells) {
   );
 }
 
-function EingeklappteDimension({ name, cells }) {
+function EingeklappteDimension({ name, cells, markt = '' }) {
   const [offen, setOffen] = useState(false);
   const brauchbar = cells.filter((c) => c.breakout_verdict !== 'insufficient');
   const duenn = cells.length - brauchbar.length;
@@ -451,7 +454,7 @@ function EingeklappteDimension({ name, cells }) {
         {' '}— {brauchbar.length} Ausprägungen, alle unauffällig
         {duenn > 0 && ` · ${duenn} unter der Stichproben-Schwelle`}
       </button>
-      {offen && <ZellenTabelle name={name} cells={cells} ohneTitel />}
+      {offen && <ZellenTabelle name={name} cells={cells} ohneTitel markt={markt} />}
     </div>
   );
 }
@@ -569,15 +572,15 @@ function ReferenzThumb({ assetId }) {
   );
 }
 
-function ReferenzPosts({ dimension, value }) {
+function ReferenzPosts({ dimension, value, markt = '' }) {
   const [refs, setRefs] = useState(null);
   useEffect(() => {
     let cancelled = false;
-    endpoints.insightPatternExamples({ dimension, value, limit: 3 })
+    endpoints.insightPatternExamples({ dimension, value, limit: 3, market: markt || undefined })
       .then((d) => { if (!cancelled) setRefs(d.examples || []); })
       .catch(() => { if (!cancelled) setRefs([]); });
     return () => { cancelled = true; };
-  }, [dimension, value]);
+  }, [dimension, value, markt]);
   if (refs === null) {
     return <p style={{ margin: '0.5rem 0 0', fontSize: '0.8em', color: '#6b6b6b' }}>Lade Referenz-Posts …</p>;
   }
@@ -601,7 +604,7 @@ function ReferenzPosts({ dimension, value }) {
   );
 }
 
-function EmpfehlungsKarte({ dim, cell }) {
+function EmpfehlungsKarte({ dim, cell, markt = '' }) {
   const farbe = QUOTE_COLOR_ON_CARD[cell.breakout_verdict];
   const { titel, satz, tipp } = werkstattEmpfehlung(dim, cell);
   // Volle Breite statt Kachel-Wand (Wolfs Lesbarkeits-Feedback
@@ -627,13 +630,17 @@ function EmpfehlungsKarte({ dim, cell }) {
       )}
       <p style={{ margin: '0.35rem 0 0', fontSize: '0.75em', color: '#6b6b6b' }}>
         Basis: {cell.sample_size} Posts von {cell.channel_count} Kanälen.
+        {/* Markt-Ausweis (26.08.): sagt, welche Maerkte den Befund
+            tragen — z. B. "Gilt vor allem in US — für DE zu wenig
+            Daten." Kommt fertig formuliert aus dem Backend. */}
+        {cell.market_note && ` ${cell.market_note}`}
       </p>
-      <ReferenzPosts dimension={dim} value={cell.value} />
+      <ReferenzPosts dimension={dim} value={cell.value} markt={markt} />
     </div>
   );
 }
 
-function EmpfehlungsAnsicht({ dimensions }) {
+function EmpfehlungsAnsicht({ dimensions, markt = '' }) {
   const befunde = staerksteBefunde(dimensions);
   if (befunde.length === 0) {
     return (
@@ -653,7 +660,7 @@ function EmpfehlungsAnsicht({ dimensions }) {
       </h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
         {eintraege.map(({ dim, cell }) => (
-          <EmpfehlungsKarte key={`${dim}:${cell.value}`} dim={dim} cell={cell} />
+          <EmpfehlungsKarte key={`${dim}:${cell.value}:${markt}`} dim={dim} cell={cell} markt={markt} />
         ))}
       </div>
     </div>
@@ -670,25 +677,49 @@ function EmpfehlungsAnsicht({ dimensions }) {
   );
 }
 
+// Markt-Filter (26.08.): Standard bleibt bewusst "Alle Märkte" — die
+// Einzelmarkt-Stichproben sind oft zu dünn für belastbare Befunde, und
+// die Erwartungsquote rechnet die Markt-Mischung seit der Markt-
+// Korrektur ohnehin heraus. Der Filter ist für den gezielten Blick.
+const MARKT_OPTIONEN = [
+  ['', 'Alle Märkte'],
+  ['DE', 'Nur DE'],
+  ['US', 'Nur US'],
+  ['UK', 'Nur UK'],
+];
+
 export default function PatternsBlock() {
   const [aktiv, setAktiv] = useState(false);
   const [daten, setDaten] = useState(null);
   const [fehler, setFehler] = useState(false);
   const [alleZahlen, setAlleZahlen] = useState(false);
   const [tab, setTab] = useState('empfehlungen');
+  const [markt, setMarkt] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     endpoints.health()
       .then((health) => {
         if (cancelled) return;
-        if (health?.features?.trailer_intelligence) {
-          setAktiv(true);
-          return endpoints.insightPatterns({ windowDays: 90 }).then((data) => {
-            if (!cancelled) setDaten(data);
-          });
-        }
-        return undefined;
+        if (health?.features?.trailer_intelligence) setAktiv(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load /api/health', err);
+        setFehler(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Eigener Effekt statt Kette am health-Aufruf: der Markt-Filter laedt
+  // neu, ohne health erneut zu fragen. Beim Wechsel bleiben die alten
+  // Karten stehen, bis die neuen Daten da sind (kein Flackern).
+  useEffect(() => {
+    if (!aktiv) return undefined;
+    let cancelled = false;
+    endpoints.insightPatterns({ windowDays: 90, market: markt || undefined })
+      .then((data) => {
+        if (!cancelled) setDaten(data);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -696,7 +727,7 @@ export default function PatternsBlock() {
         setFehler(true);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [aktiv, markt]);
 
   // Flag aus (oder health nicht lesbar): kein Rahmen, kein Platzhalter —
   // Produktion sieht von Stufe 1 nichts.
@@ -723,7 +754,7 @@ export default function PatternsBlock() {
         an seinem <strong>eigenen Kanal-Schnitt</strong> gemessen, damit große und kleine
         Kanäle vergleichbar sind. Die Breakout-Quote sagt, wie oft ein Merkmal Ausreißer
         (mindestens 2x Kanal-Schnitt) produziert — verglichen mit der Quote, die seine
-        Plattform-Mischung erwarten ließe.
+        Plattform- und Markt-Mischung erwarten ließe.
       </p>
       <details style={{ margin: '0 0 1rem' }}>
         <summary style={{ color: '#b9c7bd', fontSize: '0.85em', cursor: 'pointer' }}>
@@ -733,9 +764,11 @@ export default function PatternsBlock() {
           <p style={{ margin: '0 0 0.5rem' }}>
             <strong>Breakout-Quote:</strong> Anteil der Posts eines Merkmals, die mindestens
             das Doppelte des üblichen Schnitts ihres eigenen Kanals erreicht haben.
-            <strong> erwartet:</strong> die Quote, die allein aus der Plattform-Mischung
-            dieser Posts zu erwarten wäre — YouTube produziert generell mehr Ausreißer
-            als TikTok, der Vergleich rechnet das heraus.
+            <strong> erwartet:</strong> die Quote, die allein aus der Plattform- und
+            Markt-Mischung dieser Posts zu erwarten wäre — YouTube produziert generell
+            mehr Ausreißer als TikTok, und die Märkte DE, US und UK haben verschiedene
+            Grundquoten; der Vergleich rechnet beides heraus. Wo ein Befund nicht alle
+            Märkte trägt, steht das als Satz an der Karte.
           </p>
           <p style={{ margin: '0 0 0.5rem' }}>
             <strong>Balken:</strong> die Füllung ist die gemessene Quote, der Strich die
@@ -750,7 +783,7 @@ export default function PatternsBlock() {
         </div>
       </details>
       {!fehler && daten !== null && (
-        <div style={{ display: 'flex', gap: '1.25rem', margin: '0 0 1rem', borderBottom: '1px solid rgba(255,255,255,0.25)' }}>
+        <div style={{ display: 'flex', gap: '1.25rem', margin: '0 0 1rem', borderBottom: '1px solid rgba(255,255,255,0.25)', alignItems: 'baseline' }}>
           {[['empfehlungen', 'Empfehlungen'], ['zahlen', 'Zahlen & Methode']].map(([id, label]) => (
             <button
               key={id}
@@ -768,10 +801,22 @@ export default function PatternsBlock() {
               {label}
             </button>
           ))}
+          <label style={{ marginLeft: 'auto', color: '#b9c7bd', fontSize: '0.85em' }}>
+            Markt:{' '}
+            <select
+              value={markt}
+              onChange={(e) => setMarkt(e.target.value)}
+              style={{ fontSize: '1em', padding: '0.1rem 0.25rem', borderRadius: '6px' }}
+            >
+              {MARKT_OPTIONEN.map(([wert, label]) => (
+                <option key={wert || 'alle'} value={wert}>{label}</option>
+              ))}
+            </select>
+          </label>
         </div>
       )}
       {!fehler && daten !== null && tab === 'empfehlungen' && (
-        <EmpfehlungsAnsicht dimensions={dimensionen} />
+        <EmpfehlungsAnsicht dimensions={dimensionen} markt={markt} />
       )}
 
       {fehler && (
@@ -808,10 +853,10 @@ export default function PatternsBlock() {
         </p>
       )}
       {!fehler && tab === 'zahlen' && (alleZahlen ? sichtbare : mitBefund).map((name) => (
-        <ZellenTabelle key={name} name={name} cells={dimensionen[name]} />
+        <ZellenTabelle key={`${name}:${markt}`} name={name} cells={dimensionen[name]} markt={markt} />
       ))}
       {!fehler && tab === 'zahlen' && !alleZahlen && ohneBefund.map((name) => (
-        <EingeklappteDimension key={name} name={name} cells={dimensionen[name]} />
+        <EingeklappteDimension key={`${name}:${markt}`} name={name} cells={dimensionen[name]} markt={markt} />
       ))}
       {!fehler && daten !== null && tab === 'zahlen' && (
         <p style={{ color: '#b9c7bd', margin: '0.5rem 0 0', fontSize: '0.8em' }}>

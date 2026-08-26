@@ -743,14 +743,29 @@ def test_thin_platform_falls_back_to_the_corpus_rate(session: Session):
 
 
 def test_expected_breakout_rate_helper(session: Session):
-    rates = {"instagram": 0.4, "tiktok": 0.1}
-    assert tp._expected_breakout_rate([], rates, 0.25) == pytest.approx(0.25)
-    assert tp._expected_breakout_rate(["instagram"] * 3, rates, 0.25) == pytest.approx(0.4)
-    # Gewichtung nach Besetzung, nicht nach Plattform-Zahl.
-    mix = ["instagram"] * 3 + ["tiktok"] * 1
-    assert tp._expected_breakout_rate(mix, rates, 0.25) == pytest.approx(0.325)
-    # Unbekannte Plattform faellt auf die Korpus-Quote zurueck.
-    assert tp._expected_breakout_rate(["youtube"], rates, 0.25) == pytest.approx(0.25)
+    """Rueckfall-Kette der Referenzquote: (Plattform, Markt)-Stratum →
+    Plattform → Korpus (Markt-Korrektur 26.08.2026)."""
+    platform_rates = {"instagram": 0.4, "tiktok": 0.1}
+    stratum_rates = {("instagram", "US"): 0.5, ("tiktok", "DE"): 0.05}
+
+    assert tp._expected_breakout_rate([], stratum_rates, platform_rates, 0.25) == pytest.approx(0.25)
+    # Stratum vorhanden → Stratum-Quote, nicht die Plattform-Quote.
+    assert tp._expected_breakout_rate(
+        [("instagram", "US")] * 3, stratum_rates, platform_rates, 0.25
+    ) == pytest.approx(0.5)
+    # Stratum zu duenn (fehlt in der Karte) → Plattform-Quote.
+    assert tp._expected_breakout_rate(
+        [("instagram", "DE")], stratum_rates, platform_rates, 0.25
+    ) == pytest.approx(0.4)
+    # Gewichtung nach Besetzung, nicht nach Straten-Zahl.
+    mix = [("instagram", "US")] * 2 + [("tiktok", "DE")] * 2
+    assert tp._expected_breakout_rate(mix, stratum_rates, platform_rates, 0.25) == pytest.approx(
+        (2 * 0.5 + 2 * 0.05) / 4
+    )
+    # Unbekannte Plattform ohne Stratum faellt auf die Korpus-Quote zurueck.
+    assert tp._expected_breakout_rate(
+        [("youtube", "UK")], stratum_rates, platform_rates, 0.25
+    ) == pytest.approx(0.25)
 
 
 # ---------- Formatklassen: Langform und Kurzform trennen -----------------

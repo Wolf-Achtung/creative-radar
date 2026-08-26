@@ -508,6 +508,17 @@ def public_breakouts(
 def trailer_patterns_public(
     request: Request,
     window_days: int = Query(90, ge=7, le=365),
+    market: Optional[str] = Query(
+        None,
+        min_length=2,
+        max_length=10,
+        description=(
+            "Auf einen Markt eingrenzen (z. B. 'DE'). Ohne Angabe laufen "
+            "alle Maerkte zusammen — dann prueft die Erwartungsquote je "
+            "Zelle die Markt-Mischung mit (Markt-Korrektur 26.08.2026) "
+            "und belastbare Zellen tragen einen market_note-Satz."
+        ),
+    ),
     session: Session = Depends(get_session),
 ) -> dict:
     """Trailer-Intelligence Stufe 1 fuer eingeloggte Nutzer: derselbe
@@ -532,15 +543,22 @@ def trailer_patterns_public(
                 "FEATURE_TRAILER_INTELLIGENCE_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
             ),
         )
-    log_usage(request_user_email(request), "patterns_view", {"window_days": window_days})
+    log_usage(
+        request_user_email(request),
+        "patterns_view",
+        {"window_days": window_days, "market": market},
+    )
     # Vorwochen-Vergleich (Aufwertung C): dieselbe Rechnung mit um 7 Tage
     # verschobenem Fenster — deterministisch, keine Persistenz. Der
     # Admin-Endpoint bleibt bei der nackten Einzelrechnung.
     now = datetime.now(timezone.utc)
-    current = compute_trailer_patterns(session, window_days=window_days, now=now)
+    current = compute_trailer_patterns(
+        session, window_days=window_days, market=market, now=now
+    )
     previous = compute_trailer_patterns(
         session,
         window_days=window_days,
+        market=market,
         now=now - timedelta(days=TREND_WINDOW_SHIFT_DAYS),
     )
     return apply_weekly_trend(current, previous)
@@ -553,6 +571,16 @@ def trailer_pattern_examples(
     value: str = Query(..., min_length=1, max_length=200),
     window_days: int = Query(90, ge=7, le=365),
     limit: int = Query(5, ge=1, le=10),
+    market: Optional[str] = Query(
+        None,
+        min_length=2,
+        max_length=10,
+        description=(
+            "Muss zum market-Filter der Muster-Anfrage passen — sonst "
+            "zeigen die Beispiele Posts, die in der gefilterten Zelle "
+            "gar nicht mitgezaehlt wurden."
+        ),
+    ),
     session: Session = Depends(get_session),
 ) -> dict:
     """Die staerksten Beispiel-Posts einer Muster-Zelle (Aufwertung B,
@@ -573,7 +601,7 @@ def trailer_pattern_examples(
                 "FEATURE_TRAILER_INTELLIGENCE_ENABLED muss in Railway-ENV auf 'true' gesetzt sein."
             ),
         )
-    ctx = build_lift_context(session, window_days=window_days)
+    ctx = build_lift_context(session, window_days=window_days, market=market)
     try:
         members = posts_for_cell(session, ctx, dimension, value)
     except ValueError as exc:
