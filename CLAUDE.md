@@ -273,7 +273,8 @@ ab, NICHT das Überspringen der Staging-Erprobung.
    Infrastruktur ohne UI-/Verhaltensänderung (z. B. der
    Empfehlungs-Snapshot-Cron). Im Zweifel: flaggen.
 
-Flag-Inventar (Stand 25.08.2026 abends, nach Roadmap 1–4; Wächter
+Flag-Inventar (Stand 26.08.2026, nach Roadmap 1–4 + Post-Check +
+Wochen-Plan; Wächter
 `test_wartung_2026_08_23_flags.py` hält health-Parität und
 Default-aus). Der Wächter **entdeckt die Flags seit dem 25.08. selbst**
 per Introspektion über `feature_flags` — die Vorversion trug eine
@@ -298,6 +299,14 @@ nicht mehr die Prüfgrundlage:
 | `FEATURE_RELEASE_COUNTDOWN_ENABLED` | Release-Countdown je Wir-Projekt im Monitoring (#444) | zu setzen | aus bis Freigabe |
 | `FEATURE_BEWEIS_LOOP_ENABLED` | Beweis-Loop: Empfehlungen gegen die Folgewoche (#445) | zu setzen | aus bis Freigabe |
 | `FEATURE_PROJEKT_EXPORT_ENABLED` | Projekt-One-Pager als teilbare HTML-Datei (#446) | zu setzen | aus bis Freigabe |
+| `FEATURE_POST_CHECK_ENABLED` | Post-Check: Entwurf gegen die aktuellen Befunde (#450) | zu setzen | aus bis Freigabe |
+| `FEATURE_WOCHEN_PLAN_ENABLED` | Wochen-Plan je Wir-Projekt im Monitoring (#451) | zu setzen | aus bis Freigabe |
+
+Die Text-Bausteine (pattern-briefing) leben seit #454 nur noch im
+Admin (Monitoring → „Text-Bausteine generieren" → „Letztes Ergebnis").
+Der öffentliche `GET /api/insights/pattern-briefing` bleibt als
+geflaggte API ohne UI-Leser bestehen — dokumentiert im Docstring des
+Wächters `test_frontend_client_zeigt_auf_den_pattern_briefing_endpoint`.
 
 ## Katalog-Zuordnung — vier Befunde vom 25.08.2026
 
