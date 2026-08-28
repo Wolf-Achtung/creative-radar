@@ -38,16 +38,24 @@ export default function BreakoutsBlock() {
 
   return (
     <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '12px' }}>
+      {/* Titel-Trennung (Wolf 26.08.): "Breakouts — was gerade
+          explodiert" stand direkt neben "Was gerade funktioniert — und
+          was nicht" und las sich wie dieselbe Aussage. Der Unterschied
+          ist EINZELFALL gegen MUSTER: hier stehen konkrete Posts zum
+          Anschauen, dort Merkmale ueber viele Posts hinweg. Beide
+          Ueberschriften tragen das jetzt im Wortlaut (Waechter:
+          Sektionstitel.test.js). */}
       <p style={{ color: '#ffa294', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>
-        Ausreisser der letzten 30 Tage
+        Einzelne Posts · letzte 30 Tage
       </p>
       <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>
-        Breakouts — was gerade explodiert<SectionHelpHint sectionKey="landingBreakouts" />
+        Einzelne Posts, die herausstechen<SectionHelpHint sectionKey="landingBreakouts" />
       </h2>
       <SectionHelpPanel sectionKey="landingBreakouts" onDark />
       <p style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
         Posts, die <strong>mindestens doppelt so stark</strong> laufen wie der übliche Schnitt ihres
-        Kanals — Klick öffnet das Original auf der Plattform.
+        Kanals. Einzelfälle zum Anschauen, noch keine Regel — Klick öffnet das Original auf der
+        Plattform.
       </p>
 
       {entries === null && (
