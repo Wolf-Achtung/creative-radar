@@ -186,10 +186,10 @@ export const SECTION_HELP = {
   },
   landingBreakouts: {
     de: {
-      title: 'Breakouts — was gerade explodiert',
-      short: 'Posts, die mindestens 2x so stark laufen wie der Schnitt ihres Kanals — über alle Studios.',
+      title: 'Einzelne Posts, die herausstechen',
+      short: 'Einzelne Posts, die mindestens 2x so stark laufen wie der Schnitt ihres Kanals — über alle Studios.',
       long:
-        'Jeder Kanal hat einen typischen Durchschnitt an Interaktionen (Likes, Kommentare, Shares). Ein Breakout ist ein Post, der diesen eigenen Kanal-Schnitt um mindestens das Doppelte übertrifft — also nicht einfach „viele Views hat" (große Kanäle haben immer viele), sondern für seinen Kanal ungewöhnlich stark läuft. Das „Vielfache" bezieht sich auf diese Interaktionen; die Aufrufe-Spalte ist Zusatzinfo und zeigt „—", wenn die Plattform für ein Post-Format keine Aufruf-Zahl ausweist (z. B. Bildposts). Die Liste sammelt Ausreisser der letzten 30 Tage über alle beobachteten Studios und Märkte, sortiert nach Auffälligkeit (Stärke des Ausschlags, jüngere Posts zuerst). Nutzbar als schnellster Einstieg: Was funktioniert gerade außergewöhnlich gut — und lohnt einen Blick ins Original? Bitte beachten: Ein Breakout sagt, DASS etwas heraussticht, nicht warum — die Einordnung liefert der Wochenbrief des jeweiligen Studios.',
+        'Jeder Kanal hat einen typischen Durchschnitt an Interaktionen (Likes, Kommentare, Shares). Ein Breakout ist ein Post, der diesen eigenen Kanal-Schnitt um mindestens das Doppelte übertrifft — also nicht einfach „viele Views hat" (große Kanäle haben immer viele), sondern für seinen Kanal ungewöhnlich stark läuft. Das „Vielfache" bezieht sich auf diese Interaktionen; die Aufrufe-Spalte ist Zusatzinfo und zeigt „—", wenn die Plattform für ein Post-Format keine Aufruf-Zahl ausweist (z. B. Bildposts). Die Liste sammelt Ausreisser der letzten 30 Tage über alle beobachteten Studios und Märkte, sortiert nach Auffälligkeit (Stärke des Ausschlags, jüngere Posts zuerst). Nutzbar als schnellster Einstieg: Welcher einzelne Post sticht gerade heraus — und lohnt einen Blick ins Original? Bitte beachten: Diese Liste zeigt Einzelfälle, keine Regel. Sie sagt, DASS ein Post heraussticht, nicht warum — die Einordnung liefert der Wochenbrief des jeweiligen Studios, das wiederkehrende Muster die Sektion „Was gerade funktioniert — und was nicht".',
     },
     en: {
       title: 'Breakouts (posts beating their channel average)',

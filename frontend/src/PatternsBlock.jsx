@@ -816,14 +816,18 @@ export default function PatternsBlock() {
 
   return (
     <section style={{ background: '#1f4d4d', padding: '1.5rem 2rem 2rem 2rem', marginBottom: '1.5rem', borderRadius: '12px' }}>
+      {/* Titel-Trennung (Wolf 26.08.): Gegenstueck zur Breakouts-
+          Sektion darueber — dort einzelne Posts, hier Merkmale ueber
+          viele Posts. "Trailer-Intelligence" war zudem genau der
+          Analysten-Jargon, den der Klartext-Sweep (#449) abgeloest hat. */}
       <p style={{ color: '#ffa294', fontSize: '0.75em', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', fontWeight: 600 }}>
-        Trailer-Intelligence · letzte 90 Tage
+        Muster aus 90 Tagen
       </p>
       <h2 style={{ color: 'white', marginTop: 0, marginBottom: '0.75rem' }}>
         Was gerade funktioniert — und was nicht
       </h2>
       <p style={{ color: '#c8d6cc', margin: '0 0 1rem', fontSize: '0.9em' }}>
-        Welche Merkmale gehen mit überdurchschnittlicher Reichweite einher? Jeder Post wird
+        Keine einzelnen Posts, sondern Merkmale, die über viele Posts hinweg tragen. Jeder Post wird
         an seinem <strong>eigenen Kanal-Schnitt</strong> gemessen, damit große und kleine
         Kanäle vergleichbar sind. Die Breakout-Quote sagt, wie oft ein Merkmal Ausreißer
         (mindestens 2x Kanal-Schnitt) produziert — verglichen mit der Quote, die seine
