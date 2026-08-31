@@ -257,16 +257,34 @@ describe('formatKatalogNachladen', () => {
     expect(text).toContain('KI-Pruefung');
   });
 
-  it('trennt Katalog-Mehrdeutigkeit von TMDb-Unklarheit', () => {
-    // Zwei verschiedene Ursachen mit zwei verschiedenen Reaktionen:
-    // "zwei gleichnamige Titel liegen schon da" gegen "TMDb kennt den
-    // Namen nicht eindeutig". Eine gemeinsame Zeile fuehrte zur
-    // falschen Reaktion.
+  it('trennt Katalog-Mehrdeutigkeit von den beiden TMDb-Faellen', () => {
+    // Drei verschiedene Ursachen mit drei verschiedenen Reaktionen:
+    // "zwei gleichnamige Titel liegen schon da", "TMDb kennt das Werk
+    // gar nicht" (Handarbeit) und "TMDb kennt es mehrfach" (nur noch
+    // auswaehlen). Der alte Sammel-Zaehler tmdb_unklar warf die letzten
+    // beiden zusammen — an "10 nicht eindeutig" war nicht abzulesen,
+    // ob die zehn automatisierbar sind (Wolfs Lauf vom 31.08.2026).
     const text = formatKatalogNachladen({
-      ...basis, katalog_mehrdeutig: 3, tmdb_unklar: 1,
+      ...basis, katalog_mehrdeutig: 3,
+      tmdb_ohne_treffer: 2, tmdb_ohne_treffer_namen: ['Noga'],
+      tmdb_mehrdeutig: 1, tmdb_mehrdeutig_namen: ['The Fox'],
     });
     expect(text).toContain('3 mit gleichnamigem Titel im Katalog');
-    expect(text).toContain('1 bei TMDb nicht eindeutig');
+    expect(text).toContain('2 ohne aktuellen TMDb-Treffer (Handarbeit): Noga');
+    expect(text).toContain('1 mehrfach bei TMDb — Auswahl in „Treffer prüfen": The Fox');
+  });
+
+  it('nennt bei jedem liegen gelassenen Fall die Namen', () => {
+    const text = formatKatalogNachladen({
+      ...basis, nicht_belegt: 2, nicht_belegt_namen: ['Wolves', 'Salz und Wasser'],
+    });
+    expect(text).toContain('2 ohne Text-Beleg: Wolves, Salz und Wasser');
+  });
+
+  it('liest das Altformat mit Sammel-Zaehler weiter', () => {
+    // Ein Cron-Summary von vor der Aufteilung traegt noch tmdb_unklar.
+    const text = formatKatalogNachladen({ ...basis, tmdb_unklar: 4 });
+    expect(text).toContain('4 bei TMDb nicht eindeutig');
   });
 
   it('schweigt ueber Zaehler, die auf null stehen', () => {

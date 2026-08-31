@@ -212,6 +212,70 @@ describe('CandidateDecisionCard', () => {
     expect(onDismiss).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
   });
 
+  it('TMDb-Auswahl: nachschlagen zeigt die Treffer, Klick legt an und ordnet zu', async () => {
+    // 31.08.2026: das Katalog-Nachladen laesst Namen liegen, die TMDb
+    // MEHRFACH kennt (10 von 13 Restfaellen an dem Tag). Die Karte legt
+    // sie einem Menschen zur Auswahl vor — ein Klick statt Recherche.
+    const onTmdbAuswahl = vi.fn().mockResolvedValue([
+      { tmdb_id: 1, name: 'The Fox', jahr: '2026', medium: 'film' },
+      { tmdb_id: 9, name: 'The Fox', jahr: '2025', medium: 'serie' },
+    ]);
+    const onTmdbAnlegen = vi.fn();
+    render(
+      <CandidateDecisionCard
+        asset={basisAsset}
+        titles={[]}
+        busy={false}
+        openCandidate={{ ...kandidat, llm_note: "KI: bewirbt 'The Fox' (nicht im Katalog)" }}
+        candidateMatchedTitle={null}
+        katalogNachladenAktiv
+        onTmdbAuswahl={onTmdbAuswahl}
+        onTmdbAnlegen={onTmdbAnlegen}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bei TMDb nachschlagen' }));
+    expect(onTmdbAuswahl).toHaveBeenCalledWith('The Fox');
+    fireEvent.click(await screen.findByRole('button', { name: '„The Fox“ (2025, Serie) anlegen + zuordnen' }));
+    expect(onTmdbAnlegen).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a1' }),
+      expect.objectContaining({ id: 'c1' }),
+      expect.objectContaining({ tmdb_id: 9, medium: 'serie' })
+    );
+  });
+
+  it('TMDb-Auswahl ist ohne Feature-Flag unsichtbar', () => {
+    // Arbeitsregel 23.08.2026: Sichtbarkeit ausschliesslich ueber
+    // /api/health -> features.
+    render(
+      <CandidateDecisionCard
+        asset={basisAsset}
+        titles={[]}
+        busy={false}
+        openCandidate={kandidat}
+        candidateMatchedTitle={null}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Bei TMDb nachschlagen' })).toBeNull();
+  });
+
+  it('TMDb-Auswahl ohne Treffer sagt das, statt leer zu bleiben', async () => {
+    const onTmdbAuswahl = vi.fn().mockResolvedValue([]);
+    render(
+      <CandidateDecisionCard
+        asset={basisAsset}
+        titles={[]}
+        busy={false}
+        openCandidate={kandidat}
+        candidateMatchedTitle={null}
+        katalogNachladenAktiv
+        onTmdbAuswahl={onTmdbAuswahl}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Bei TMDb nachschlagen' }));
+    expect(await screen.findByText(/TMDb kennt keinen aktuellen Eintrag/)).toBeTruthy();
+  });
+
   it('die Bildflaeche verlinkt immer auf den Original-Post', () => {
     render(
       <CandidateDecisionCard

@@ -29,6 +29,9 @@ export function ReviewPanel({
   onConfirmCandidate = () => {},
   onDismissCandidate = () => {},
   onCreateTitleFromCandidate = () => {},
+  katalogNachladenAktiv = false,
+  onTmdbAuswahl = null,
+  onTmdbAnlegen = () => {},
   assetMode = 'candidates',
   assetsHasMore = false,
   onSwitchAssetMode = () => {},
@@ -115,6 +118,9 @@ export function ReviewPanel({
               onConfirmCandidate={onConfirmCandidate}
               onDismissCandidate={onDismissCandidate}
               onCreateTitleFromCandidate={onCreateTitleFromCandidate}
+              katalogNachladenAktiv={katalogNachladenAktiv}
+              onTmdbAuswahl={onTmdbAuswahl}
+              onTmdbAnlegen={onTmdbAnlegen}
               onReview={onReview}
             />
           );

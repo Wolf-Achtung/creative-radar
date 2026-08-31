@@ -89,11 +89,25 @@ class NachladeSummary:
     zugeordnet: int = 0
     schon_vorhanden: int = 0
     nicht_belegt: int = 0
-    tmdb_unklar: int = 0
+    # Bis 31.08.2026 war das EIN Zaehler ``tmdb_unklar`` — er warf zwei
+    # voellig verschiedene Faelle zusammen: TMDb kennt den Namen GAR
+    # NICHT (nichts zu holen, echte Handarbeit) und TMDb kennt ihn
+    # MEHRFACH (ein Mensch muesste nur auswaehlen). Wolfs Lauf vom
+    # selben Tag stand bei "10 nicht eindeutig", und niemand konnte
+    # sagen, ob die zehn automatisierbar sind oder nicht.
+    tmdb_ohne_treffer: int = 0
+    tmdb_mehrdeutig: int = 0
     katalog_mehrdeutig: int = 0
     fehler: int = 0
     offen_danach: int = 0
     angelegte_titel: list[str] = field(default_factory=list)
+    # Die Namen der liegen gelassenen Faelle. Ohne sie sagt die Meldung
+    # nur "10 bleiben liegen" — und wer wissen will WELCHE, muss die
+    # Queue von Hand mit der Zaehlung abgleichen.
+    nicht_belegt_namen: list[str] = field(default_factory=list)
+    tmdb_ohne_treffer_namen: list[str] = field(default_factory=list)
+    tmdb_mehrdeutig_namen: list[str] = field(default_factory=list)
+    katalog_mehrdeutig_namen: list[str] = field(default_factory=list)
     vorschau: bool = True
 
     def to_dict(self) -> dict:
@@ -103,11 +117,16 @@ class NachladeSummary:
             "zugeordnet": self.zugeordnet,
             "schon_vorhanden": self.schon_vorhanden,
             "nicht_belegt": self.nicht_belegt,
-            "tmdb_unklar": self.tmdb_unklar,
+            "tmdb_ohne_treffer": self.tmdb_ohne_treffer,
+            "tmdb_mehrdeutig": self.tmdb_mehrdeutig,
             "katalog_mehrdeutig": self.katalog_mehrdeutig,
             "fehler": self.fehler,
             "offen_danach": self.offen_danach,
             "angelegte_titel": self.angelegte_titel[:20],
+            "nicht_belegt_namen": self.nicht_belegt_namen[:10],
+            "tmdb_ohne_treffer_namen": self.tmdb_ohne_treffer_namen[:10],
+            "tmdb_mehrdeutig_namen": self.tmdb_mehrdeutig_namen[:10],
+            "katalog_mehrdeutig_namen": self.katalog_mehrdeutig_namen[:10],
             # Ohne dieses Feld kann das Frontend eine Vorschau nicht von
             # einem echten Lauf unterscheiden — dieselben Zahlen, zwei
             # voellig verschiedene Bedeutungen.
@@ -181,6 +200,7 @@ async def lade_fehlende_titel_nach(
         volltext = f"{post.caption if post else ''} {asset.ocr_text or ''}"
         if not _im_text_belegt(name, volltext):
             summary.nicht_belegt += 1
+            summary.nicht_belegt_namen.append(name)
             continue
 
         # Waechter 3 (vorgezogen, spart die TMDb-Aufrufe): steht er
@@ -206,6 +226,7 @@ async def lade_fehlende_titel_nach(
             vorhanden = lookup[schluessel]
             if vorhanden is None:
                 summary.katalog_mehrdeutig += 1
+                summary.katalog_mehrdeutig_namen.append(name)
                 logger.info(
                     "katalog-nachladen mehrdeutig name=%s asset=%s", name, asset.id
                 )
@@ -235,8 +256,18 @@ async def lade_fehlende_titel_nach(
             summary.fehler += 1
             continue
 
-        if len(passende) != 1:
-            summary.tmdb_unklar += 1
+        # Kein aktueller Treffer und mehrere Treffer sind verschiedene
+        # Befunde: das eine heisst "TMDb kennt das Werk nicht (oder nur
+        # einen alten Namensvetter)", das andere "ein Mensch muss
+        # zwischen echten Kandidaten waehlen" — dafuer gibt es seit
+        # heute die TMDb-Auswahl in der Pruef-Queue.
+        if not passende:
+            summary.tmdb_ohne_treffer += 1
+            summary.tmdb_ohne_treffer_namen.append(name)
+            continue
+        if len(passende) > 1:
+            summary.tmdb_mehrdeutig += 1
+            summary.tmdb_mehrdeutig_namen.append(name)
             continue
 
         normalized = (
@@ -298,3 +329,135 @@ def _zuordnen(
     )[:300]
     session.add(candidate)
     resolve_open_candidates_for_asset(session, asset.id, commit=False)
+
+
+# Hoechstens so viele Auswahl-Eintraege je Name. Mehr als eine Handvoll
+# echter, aktueller Namensvettern gibt es praktisch nie — und eine
+# laengere Liste waere in der Queue-Karte keine Entscheidung mehr,
+# sondern wieder Recherche.
+_AUSWAHL_MAX = 6
+
+
+async def tmdb_auswahl_fuer_name(
+    name: str, *, client: TMDbClient | None = None
+) -> list[dict]:
+    """Alle exakten, aktuellen TMDb-Treffer zu einem Namen — Film UND
+    Serie, ausdruecklich auch mehrdeutige.
+
+    Das ist die menschliche Haelfte von Waechter 2: ``lade_fehlende_
+    titel_nach`` verlangt GENAU EINEN Treffer und laesst mehrdeutige
+    Namen liegen (am 31.08.2026: zehn von dreizehn Restfaellen). Diese
+    Funktion legt einem Menschen genau diese Kandidaten zur Auswahl vor;
+    dieselben Filter (exakter Name, juenger als ~2 Jahre) gelten weiter.
+    """
+    client = client or TMDbClient()
+    aeltestes = datetime.now(timezone.utc).date() - timedelta(
+        days=_MANUAL_ENRICH_MAX_AGE_DAYS
+    )
+    auswahl: list[dict] = []
+    filme = await client.search_movies(name)
+    for treffer in _exakte_aktuelle_treffer(
+        [name], filme, is_series=False, aeltestes=aeltestes
+    ):
+        auswahl.append(
+            {
+                "tmdb_id": treffer.get("id"),
+                "name": treffer.get("title") or treffer.get("original_title"),
+                "original_name": treffer.get("original_title"),
+                "jahr": (treffer.get("release_date") or "")[:4] or None,
+                "medium": "film",
+            }
+        )
+    serien = await client.search_series(name)
+    for treffer in _exakte_aktuelle_treffer(
+        [name], serien, is_series=True, aeltestes=aeltestes
+    ):
+        auswahl.append(
+            {
+                "tmdb_id": treffer.get("id"),
+                "name": treffer.get("name") or treffer.get("original_name"),
+                "original_name": treffer.get("original_name"),
+                "jahr": (treffer.get("first_air_date") or "")[:4] or None,
+                "medium": "serie",
+            }
+        )
+    return auswahl[:_AUSWAHL_MAX]
+
+
+async def titel_aus_tmdb_anlegen(
+    session: Session,
+    *,
+    asset_id,
+    candidate_id,
+    tmdb_id: int,
+    medium: str,
+    name: str,
+    client: TMDbClient | None = None,
+) -> dict:
+    """Legt den von einem Menschen AUSGEWAEHLTEN TMDb-Treffer an und
+    ordnet ihn zu — ein Klick statt Anlegen + Suchen + Zuordnen.
+
+    Die Eindeutigkeits-Sperre von Waechter 2 gilt hier bewusst nicht:
+    die Auswahl selbst IST die menschliche Entscheidung, die der
+    automatische Pfad einfordert. Ein Titel mit derselben ``tmdb_id``
+    wird nie doppelt angelegt, sondern wiederverwendet — Namensgleich-
+    heit im Katalog dagegen ist ein Zustand, kein Fehler (#437): zwei
+    echte Werke gleichen Namens duerfen nebeneinander stehen.
+    """
+    asset = session.get(Asset, asset_id)
+    candidate = session.get(TitleCandidate, candidate_id)
+    if asset is None or candidate is None:
+        raise LookupError("Asset oder Kandidat existiert nicht (mehr).")
+
+    vorhanden = session.exec(
+        select(Title).where(Title.tmdb_id == tmdb_id, Title.active == True)  # noqa: E712
+    ).first()
+    if vorhanden is not None:
+        _zuordnen(session, asset, candidate, vorhanden)
+        session.commit()
+        return {
+            "title_id": str(vorhanden.id),
+            "titel": vorhanden.title_original,
+            "angelegt": False,
+        }
+
+    client = client or TMDbClient()
+    ist_serie = medium == "serie"
+    results = await (
+        client.search_series(name) if ist_serie else client.search_movies(name)
+    )
+    raw = next((r for r in results if r.get("id") == tmdb_id), None)
+    if raw is None:
+        raise LookupError(
+            f"TMDb kennt zu '{name}' keinen Eintrag mit der ID {tmdb_id} "
+            "mehr — Auswahl neu laden."
+        )
+    normalized = (
+        client.normalize_tmdb_series(raw)
+        if ist_serie
+        else client.normalize_tmdb_movie(raw)
+    )
+    titel = Title(
+        title_original=normalized.get("title_original") or name,
+        title_local=normalized.get("title_local"),
+        tmdb_id=normalized.get("tmdb_id"),
+        content_type="Series" if ist_serie else "Movie",
+        genres=list(normalized.get("genres") or []),
+        source="TMDb",
+        active=True,
+    )
+    session.add(titel)
+    session.flush()
+    session.refresh(titel)
+    _ensure_alias_keywords(session, titel, normalized.get("aliases"))
+    _zuordnen(session, asset, candidate, titel)
+    session.commit()
+    logger.info(
+        "tmdb-auswahl angelegt titel=%s tmdb_id=%s asset=%s",
+        titel.title_original, titel.tmdb_id, asset.id,
+    )
+    return {
+        "title_id": str(titel.id),
+        "titel": titel.title_original,
+        "angelegt": True,
+    }

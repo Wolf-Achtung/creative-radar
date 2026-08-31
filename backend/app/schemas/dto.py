@@ -69,6 +69,17 @@ class TitleCreate(BaseModel):
     keywords: list[str] = []
 
 
+class TmdbAnlegen(BaseModel):
+    """Ein von Hand ausgewaehlter TMDb-Treffer aus der Pruef-Queue:
+    anlegen + zuordnen in einem Schritt (Katalog-Nachladen, 31.08.2026)."""
+
+    asset_id: UUID
+    candidate_id: UUID
+    tmdb_id: int
+    medium: str  # "film" | "serie"
+    name: str
+
+
 class KeywordCreate(BaseModel):
     keyword: str
     keyword_type: str = "keyword"
