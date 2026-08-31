@@ -253,6 +253,70 @@ def test_leerlauf_persistiert_ohne_llm_call(session, monkeypatch):
     assert row.model == "none"
 
 
+def test_genre_belege_hoechstens_zwei_je_titel(session):
+    """Wolf-Freigabe 31.08.2026: im ersten Zutaten-Lauf stammten alle
+    fuenf SciFi-Belege aus der Spider-Man-Kampagne — der Genre-Baustein
+    war faktisch ein Kampagnen-Befund. Auf der Genre-Ebene gehen
+    hoechstens ``MAX_EXAMPLES_PER_TITLE_IN_GENRE`` Beleg-Plaetze an
+    denselben Titel; die freigewordenen an andere Kampagnen des Genres.
+    Im Titel-Modus gilt der Deckel NICHT — dort IST die Zelle die
+    Kampagne."""
+    # Grundrauschen: 3 Kanaele à 3 Posts, je Post ein eigener Titel.
+    kanaele = []
+    for _ in range(3):
+        ch = _channel(session)
+        kanaele.append(ch)
+        for _ in range(3):
+            p = _post(session, ch, likes=10)
+            _titel_mit_asset(session, p, genres=["SciFi"])
+    # Die DREI staerksten Posts des Genres gehoeren alle EINEM Titel …
+    dominant = Title(title_original="Spider-Man: Brand New Day", genres=["SciFi"])
+    session.add(dominant)
+    session.commit()
+    session.refresh(dominant)
+    for ch, likes in ((kanaele[0], 300), (kanaele[0], 290), (kanaele[1], 280)):
+        p = _post(session, ch, likes=likes, caption="Brand New Day Push")
+        session.add(Asset(post_id=p.id, title_id=dominant.id))
+        session.commit()
+    # … danach kommen zwei andere Kampagnen.
+    for ch, likes, name in (
+        (kanaele[1], 200, "Andere Kampagne A"),
+        (kanaele[2], 190, "Andere Kampagne B"),
+    ):
+        andere = Title(title_original=name, genres=["SciFi"])
+        session.add(andere)
+        session.commit()
+        session.refresh(andere)
+        p = _post(session, ch, likes=likes, caption=f"{name} Post")
+        session.add(Asset(post_id=p.id, title_id=andere.id))
+        session.commit()
+
+    evidence = pb.build_pattern_evidence(session, window_days=30, now=NOW)
+    zelle = next(c for c in evidence.patterns if c.value == "SciFi")
+
+    dominant_belege = [
+        ex for ex in zelle.examples if "Brand New Day" in ex.caption
+    ]
+    assert len(zelle.examples) == pb.EXAMPLES_PER_PATTERN
+    assert len(dominant_belege) == pb.MAX_EXAMPLES_PER_TITLE_IN_GENRE, (
+        "Rein lift-sortiert waeren die Top-3-Belege alle aus derselben "
+        "Kampagne — der Deckel muss den dritten Platz freigeben."
+    )
+    assert any("Andere Kampagne A" in ex.caption for ex in zelle.examples)
+    assert any("Andere Kampagne B" in ex.caption for ex in zelle.examples)
+
+    # Gegenprobe Titel-Modus: eine Kampagne mit 8 eigenen Posts behaelt
+    # mehr als MAX_EXAMPLES_PER_TITLE_IN_GENRE Belege.
+    _seed_titel(session, "Grosse Kampagne")
+    title_evidence = pb.build_pattern_evidence(
+        session, mode=pb.BRIEFING_MODE_TITLE, window_days=30, now=NOW
+    )
+    zelle_t = next(
+        c for c in title_evidence.patterns if c.value == "Grosse Kampagne"
+    )
+    assert len(zelle_t.examples) > pb.MAX_EXAMPLES_PER_TITLE_IN_GENRE
+
+
 # ---------------------------------------------------------------------
 # 3 — Citation-Pflicht: unbelegte Bausteine fliegen raus
 # ---------------------------------------------------------------------

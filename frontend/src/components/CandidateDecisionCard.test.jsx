@@ -97,8 +97,11 @@ describe('CandidateDecisionCard', () => {
     );
 
     // Der Name taucht doppelt auf (primaerer Button + Live-Suche-Treffer,
-    // weil „trigger" auch ueber den Lokaltitel matcht) — beide zeigen beide Namen.
+    // weil „trigger" auch ueber den Lokaltitel matcht) — BEIDE muessen beide
+    // Namen zeigen, keiner darf auf den blossen Originaltitel zurueckfallen.
     const buttons = screen.getAllByRole('button', { name: '„Trigger (트리거)“ zuordnen' });
+    expect(buttons).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: '„트리거“ zuordnen' })).toBeNull();
     fireEvent.click(buttons[0]);
     expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1' }), expect.objectContaining({ id: 'c1' }), titel);
   });

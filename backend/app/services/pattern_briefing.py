@@ -121,6 +121,18 @@ EXAMPLES_PER_PATTERN = 5
 # lernen, nicht Hashtag-Waende am Caption-Ende zitieren.
 MAX_CAPTION_CHARS = 240
 
+# Beleg-Diversitaet auf der GENRE-Ebene (Wolf-Freigabe 31.08.2026):
+# hoechstens so viele Beispiel-Posts je Titel. Ohne den Deckel bestand
+# der erste Zutaten-Lauf den Praxis-Test nur halb — alle fuenf Belege
+# des SciFi-Bausteins stammten aus der Spider-Man-Kampagne, weil die
+# Auswahl rein lift-sortiert ist und eine heisse Kampagne das Genre
+# dominiert. Das Genre-Versprechen ("so funktioniert SciFi") war
+# faktisch ein Kampagnen-Befund. Gilt NUR fuer mode="genre": im
+# Titel-Modus IST die Zelle die Kampagne, ein Deckel waere dort Unsinn.
+# Posts ohne Titel-Zuordnung bleiben ungedeckelt — sie sind nicht
+# nachweislich dieselbe Kampagne.
+MAX_EXAMPLES_PER_TITLE_IN_GENRE = 2
+
 PATTERN_BRIEFING_MAX_TOKENS = 8000
 
 
@@ -225,12 +237,34 @@ def build_pattern_evidence(
     )
     usable_cells = usable_cells[:max_patterns]
 
+    # Titel je Post fuer den Diversitaets-Deckel der Genre-Ebene (s.
+    # MAX_EXAMPLES_PER_TITLE_IN_GENRE). Im Titel-Modus ist die Karte
+    # ohnehin da (value_by_post IST das Titel-Mapping).
+    titel_by_post: dict = (
+        _title_name_by_post(session, ctx.usable)
+        if mode == BRIEFING_MODE_GENRE and ctx.usable
+        else {}
+    )
+
     patterns: list[PatternEvidenceCell] = []
     for cell in usable_cells:
         cell_posts = [
             p for p in ctx.usable if value_by_post.get(p.id) == cell.value
         ]
         cell_posts.sort(key=lambda p: ctx.lift_by_post[p.id], reverse=True)
+        if mode == BRIEFING_MODE_GENRE:
+            ausgewaehlt: list = []
+            je_titel: dict[str, int] = {}
+            for p in cell_posts:
+                titel_name = titel_by_post.get(p.id)
+                if titel_name is not None:
+                    if je_titel.get(titel_name, 0) >= MAX_EXAMPLES_PER_TITLE_IN_GENRE:
+                        continue
+                    je_titel[titel_name] = je_titel.get(titel_name, 0) + 1
+                ausgewaehlt.append(p)
+                if len(ausgewaehlt) >= examples_per_pattern:
+                    break
+            cell_posts = ausgewaehlt
         examples = [
             PatternExamplePost(
                 post_url=p.post_url,
