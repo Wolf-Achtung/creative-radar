@@ -20,6 +20,7 @@ function renderPanel({
   onKatalogAnwenden = () => {},
   katalogVorschau = null,
   busy = false,
+  onVorschlaegeAufraeumen = () => {},
 } = {}) {
   return render(
     <SourcesPanel
@@ -43,6 +44,7 @@ function renderPanel({
       onRematchAssets={() => {}}
       onCandidateAutopilot={() => {}}
       onCandidateLlmAssist={() => {}}
+      onVorschlaegeAufraeumen={onVorschlaegeAufraeumen}
       onToggleChannelOwn={() => {}}
       channels={[]}
       titles={[]}
@@ -130,5 +132,37 @@ describe('SourcesPanel Katalog-Nachladen', () => {
     expect(
       screen.getByRole('button', { name: '3 Titel anlegen, 20 Treffer zuordnen' }).disabled,
     ).toBe(true);
+  });
+});
+
+
+// Aufgeraeumt am 31.08.2026 (Wolfs Befund: „viel zu viele Buttons").
+describe('SourcesPanel Aufraeumen-Knopf', () => {
+  it('EIN sichtbarer Pipeline-Knopf, die Einzelschritte im Aufklapper', () => {
+    const onVorschlaegeAufraeumen = vi.fn();
+    renderPanel({ onVorschlaegeAufraeumen });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vorschläge aufräumen (Autopilot → KI → TMDb)' }));
+    expect(onVorschlaegeAufraeumen).toHaveBeenCalledTimes(1);
+
+    // Die frueheren Buttons existieren weiter — aber hinter einem
+    // <details>-Aufklapper, nicht mehr als sechsfache Knopfreihe.
+    const aufklapper = screen.getByText('Einzelne Schritte — für Diagnose und Sonderfälle').closest('details');
+    expect(aufklapper).not.toBeNull();
+    for (const name of [
+      'Titelquellen aktualisieren',
+      'Bestehende Treffer neu zuordnen',
+      'Offene Vorschläge automatisch bestätigen',
+      'Rest-Vorschläge mit KI prüfen',
+      'Fehlende Titel prüfen (Vorschau)',
+    ]) {
+      const knopf = screen.getByRole('button', { name });
+      expect(aufklapper.contains(knopf)).toBe(true);
+    }
+  });
+
+  it('der Aufraeumen-Knopf braucht kein Nachladen-Flag — die Pipeline meldet den Skip selbst', () => {
+    renderPanel({ features: {} });
+    expect(screen.getByRole('button', { name: 'Vorschläge aufräumen (Autopilot → KI → TMDb)' })).toBeTruthy();
   });
 });

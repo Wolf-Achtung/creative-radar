@@ -314,6 +314,58 @@ export function formatKatalogNachladen(r) {
 }
 
 
+// Autopilot-Meldung — bis 31.08.2026 ein Inline-String in AdminApp und
+// damit ungetestet (dieselbe Falle wie einst bei formatKatalogNachladen).
+export function formatAutopilot(r) {
+  if (r?.error) return `Autopilot fehlgeschlagen: ${r.error}`;
+  return (
+    `Autopilot: ${r.auto_assigned} Vorschläge automatisch bestätigt, `
+    + `${r.resolved_already_assigned} bereits zugeordnete geschlossen, `
+    + `${r.ignored_stale} alte schwache Vorschläge aussortiert. `
+    + `Offen bleiben: ${r.skipped_no_exact_match} ohne Exakt-Treffer, `
+    + `${r.skipped_low_confidence} unter der Sicherheits-Schwelle, `
+    + `${r.skipped_ambiguous} mehrdeutig.`
+  );
+}
+
+export function formatKiPruefung(r) {
+  if (r?.error) return `KI-Prüfung fehlgeschlagen: ${r.error}`;
+  if (r.skipped === 'anthropic_not_configured') {
+    return 'KI-Prüfung übersprungen: kein Anthropic-API-Key in dieser Umgebung.';
+  }
+  const rest = r.offen_danach
+    ? ` Noch ${r.offen_danach} ungeprüft — für die nächste Runde einfach erneut klicken.`
+    : ' Alle Rest-Vorschläge sind jetzt KI-geprüft — was übrig ist, ist echte Handarbeit (mit KI-Hinweis in „Treffer prüfen").';
+  // Der korrigierte Vorschlag ist der Hauptnutzen bei Posts, deren
+  // Titel der Katalog nicht kennt (24.08.2026) — ohne ihn liest sich
+  // "0 sicher zugeordnet" wie ein Totalausfall, obwohl die Karten
+  // jetzt den richtigen Knopf tragen.
+  const korrigiert = r.vorschlag_korrigiert
+    ? ` ${r.vorschlag_korrigiert} Vorschläge auf den beworbenen Titel korrigiert.`
+    : '';
+  return (
+    `KI-Prüfung: ${r.geprueft} neu geprüft, ${r.zugeordnet} sicher zugeordnet, `
+    + `${r.unsicher} zur Hand-Prüfung markiert.${korrigiert}${rest}`
+  );
+}
+
+// Der Aufräum-Knopf (31.08.2026, Wolfs Befund „viel zu viele Buttons"):
+// EIN Klick laesst die Kandidaten-Pipeline in Cron-Reihenfolge laufen —
+// diese Meldung ist der Gesamtbericht der drei Schritte.
+export function formatVorschlaegeAufraeumen(r) {
+  const teile = [formatAutopilot(r.autopilot || {}), formatKiPruefung(r.ki || {})];
+  const nachladen = r.nachladen || {};
+  if (nachladen.error) {
+    teile.push(`Katalog-Nachladen fehlgeschlagen: ${nachladen.error}`);
+  } else if (nachladen.skipped) {
+    teile.push('Katalog-Nachladen übersprungen (Feature-Flag aus).');
+  } else {
+    teile.push(formatKatalogNachladen(nachladen));
+  }
+  return teile.join('\n');
+}
+
+
 // Beschriftung des Anwenden-Knopfes beim Katalog-Nachladen.
 //
 // Wolfs Lauf vom 25.08.2026: "0 Titel wuerden angelegt, 18 Treffer

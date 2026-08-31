@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { endpoints, download } from './api/client';
-import { formatKatalogNachladen, normalizeHandle } from './format';
+import { formatAutopilot, formatKatalogNachladen, formatKiPruefung, formatVorschlaegeAufraeumen, normalizeHandle } from './format';
 import { neuesterLauf, warteAufTitelSyncEnde } from './titelSyncWarten';
 import { ASSET_PAGE_SIZE } from './constants';
 import { MonitoringPanel } from './panels/MonitoringPanel';
@@ -408,14 +408,7 @@ export function AdminApp({ onLogout }) {
     await run(async () => {
       const result = await endpoints.candidatesAutopilot();
       await load();
-      setMessage(
-        `Autopilot: ${result.auto_assigned} Vorschläge automatisch bestätigt, `
-        + `${result.resolved_already_assigned} bereits zugeordnete geschlossen, `
-        + `${result.ignored_stale} alte schwache Vorschläge aussortiert. `
-        + `Offen bleiben: ${result.skipped_no_exact_match} ohne Exakt-Treffer, `
-        + `${result.skipped_low_confidence} unter der Sicherheits-Schwelle, `
-        + `${result.skipped_ambiguous} mehrdeutig.`
-      );
+      setMessage(formatAutopilot(result));
     });
   }
 
@@ -426,24 +419,19 @@ export function AdminApp({ onLogout }) {
     await run(async () => {
       const r = await endpoints.candidatesLlmAssist();
       await load();
-      if (r.skipped === 'anthropic_not_configured') {
-        setMessage('KI-Prüfung übersprungen: kein Anthropic-API-Key in dieser Umgebung.');
-        return;
-      }
-      const rest = r.offen_danach
-        ? ` Noch ${r.offen_danach} ungeprüft — für die nächste Runde einfach erneut klicken.`
-        : ' Alle Rest-Vorschläge sind jetzt KI-geprüft — was übrig ist, ist echte Handarbeit (mit KI-Hinweis in „Treffer prüfen").';
-      // Der korrigierte Vorschlag ist der Hauptnutzen bei Posts, deren
-      // Titel der Katalog nicht kennt (24.08.2026) — ohne ihn liest sich
-      // "0 sicher zugeordnet" wie ein Totalausfall, obwohl die Karten
-      // jetzt den richtigen Knopf tragen.
-      const korrigiert = r.vorschlag_korrigiert
-        ? ` ${r.vorschlag_korrigiert} Vorschläge auf den beworbenen Titel korrigiert.`
-        : '';
-      setMessage(
-        `KI-Prüfung: ${r.geprueft} neu geprüft, ${r.zugeordnet} sicher zugeordnet, `
-        + `${r.unsicher} zur Hand-Prüfung markiert.${korrigiert}${rest}`
-      );
+      setMessage(formatKiPruefung(r));
+    });
+  }
+
+  // Aufraeum-Knopf (31.08.2026, Wolfs Befund "viel zu viele Buttons"):
+  // EIN Klick laesst die Kandidaten-Pipeline server-seitig in Cron-
+  // Reihenfolge laufen (Autopilot -> KI-Pruefung -> Katalog-Nachladen
+  // scharf). Die Einzel-Buttons bleiben im Aufklapper fuer Diagnose.
+  async function vorschlaegeAufraeumen() {
+    await run(async () => {
+      const r = await endpoints.candidatesAufraeumen();
+      await load();
+      setMessage(formatVorschlaegeAufraeumen(r));
     });
   }
 
@@ -740,6 +728,7 @@ export function AdminApp({ onLogout }) {
           whitelistStats={whitelistStats}
           titleCandidates={titleCandidates}
           onSyncTitleSources={syncTitleSources}
+          onVorschlaegeAufraeumen={vorschlaegeAufraeumen}
           onRematchAssets={rematchAssets}
           onCandidateAutopilot={runCandidateAutopilot}
           onCandidateLlmAssist={runCandidateLlmAssist}

@@ -364,7 +364,7 @@ input, select, textarea { border: 1px solid #ddd4c6; border-radius: 10px; paddin
 
 .error, .success, .info { border-radius: 12px; padding: 12px; margin: 10px 0; }
 .error { background: #fbdedc; color: #7b1d18; }
-.success { background: #deefdf; color: #1d5e2d; }
+.success { background: #deefdf; color: #1d5e2d; white-space: pre-line; } /* pre-line: der Aufraeum-Knopf meldet drei Schritte in drei Zeilen */
 .info { background: #e5ebf9; color: #1f3f73; }
 
 .footer-status { display: flex; justify-content: space-between; gap: 10px; align-items: center; color: #6f675b; font-size: 13px; margin-top: 20px; }

@@ -541,3 +541,44 @@ async def post_tmdb_anlegen(
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/candidates/aufraeumen")
+async def run_candidates_aufraeumen(session: Session = Depends(get_session)):
+    """Die Kandidaten-Pipeline in EINEM Klick (Wolfs Befund 31.08.2026:
+    zu viele Buttons, deren Reihenfolge man kennen muss — der Queue-Tag
+    brauchte neun Klicks fuer das, was fachlich EIN Ablauf ist).
+
+    Feste Reihenfolge, identisch zum Montags-Cron: Autopilot (exakte
+    Treffer bestaetigen) → KI-Pruefung (Rest-Vorschlaege lesen) →
+    Katalog-Nachladen scharf (frisch markierte Luecken aus TMDb
+    schliessen). Jeder Schritt ist derselbe Code wie sein Einzel-Button
+    und wie seine Cron-Stage; ein Fehler in einem Schritt faellt als
+    ``error`` in die Antwort statt die uebrigen zu verhindern.
+
+    Das Nachladen respektiert sein Feature-Flag: ohne Flag wird es als
+    ``skipped`` gemeldet — die beiden anderen Schritte laufen trotzdem,
+    denn sie sind lange freigegeben. Kein eigenes Flag: der Endpoint
+    verkettet nur Bestehendes.
+    """
+    ergebnis: dict = {}
+    try:
+        ergebnis["autopilot"] = run_candidate_autopilot(session).to_dict()
+    except Exception as exc:  # noqa: BLE001 — ein Schritt reisst nicht den Rest
+        logger.exception("aufraeumen: autopilot fehlgeschlagen")
+        ergebnis["autopilot"] = {"error": str(exc)[:300]}
+    try:
+        ergebnis["ki"] = run_candidate_llm_assist(session).to_dict()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("aufraeumen: ki-pruefung fehlgeschlagen")
+        ergebnis["ki"] = {"error": str(exc)[:300]}
+    if is_katalog_nachladen_enabled():
+        try:
+            nachladen = await lade_fehlende_titel_nach(session, anwenden=True)
+            ergebnis["nachladen"] = nachladen.to_dict()
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("aufraeumen: katalog-nachladen fehlgeschlagen")
+            ergebnis["nachladen"] = {"error": str(exc)[:300]}
+    else:
+        ergebnis["nachladen"] = {"skipped": True, "reason": "feature_flag_disabled"}
+    return ergebnis

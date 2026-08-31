@@ -14,8 +14,11 @@ import {
   formatLift,
   formatReleaseEinordnung,
   formatKatalogAnwendenLabel,
+  formatAutopilot,
   formatKatalogNachladen,
+  formatKiPruefung,
   formatMultiplier,
+  formatVorschlaegeAufraeumen,
   formatNumber,
   formatPairUpdated,
   formatPct1,
@@ -229,6 +232,56 @@ describe('formatUsdCents / formatPct1 / formatMultiplier', () => {
 // Funktion in AdminApp und war damit ungetestet: eine Mutation, die
 // den Mehrdeutigkeits-Zaehler aus der Zeile entfernte, ueberlebte
 // unbemerkt. Seitdem liegt sie hier.
+// Aufraeum-Knopf (31.08.2026): drei Schritte, ein Bericht. Die beiden
+// Einzel-Bausteine lagen vorher als Inline-Strings in AdminApp und
+// waren ungetestet.
+describe('formatAutopilot / formatKiPruefung / formatVorschlaegeAufraeumen', () => {
+  const autopilot = {
+    auto_assigned: 3, resolved_already_assigned: 1, ignored_stale: 2,
+    skipped_no_exact_match: 4, skipped_low_confidence: 0, skipped_ambiguous: 1,
+  };
+  const ki = { geprueft: 5, zugeordnet: 2, unsicher: 3, vorschlag_korrigiert: 1, offen_danach: 0 };
+
+  it('Autopilot-Meldung nennt Bestaetigte und Liegengebliebene', () => {
+    const text = formatAutopilot(autopilot);
+    expect(text).toContain('3 Vorschläge automatisch bestätigt');
+    expect(text).toContain('4 ohne Exakt-Treffer');
+  });
+
+  it('KI-Meldung: Skip ohne Key wird erklaert, sonst Zahlen + Rest', () => {
+    expect(formatKiPruefung({ skipped: 'anthropic_not_configured' }))
+      .toContain('kein Anthropic-API-Key');
+    const text = formatKiPruefung({ ...ki, offen_danach: 7 });
+    expect(text).toContain('5 neu geprüft');
+    expect(text).toContain('Noch 7 ungeprüft');
+  });
+
+  it('Gesamtbericht traegt alle drei Schritte in Zeilen', () => {
+    const text = formatVorschlaegeAufraeumen({
+      autopilot,
+      ki,
+      nachladen: {
+        geprueft: 20, angelegt: 2, zugeordnet: 19, angelegte_titel: ['Lanterns'],
+        vorschau: false,
+      },
+    });
+    expect(text).toContain('Autopilot: 3');
+    expect(text).toContain('KI-Prüfung: 5');
+    expect(text).toContain('Katalog-Nachladen: 20 geprueft');
+    expect(text.split('\n')).toHaveLength(3);
+  });
+
+  it('uebersprungenes Nachladen und Schritt-Fehler werden benannt', () => {
+    const text = formatVorschlaegeAufraeumen({
+      autopilot: { error: 'db weg' },
+      ki,
+      nachladen: { skipped: true, reason: 'feature_flag_disabled' },
+    });
+    expect(text).toContain('Autopilot fehlgeschlagen: db weg');
+    expect(text).toContain('Katalog-Nachladen übersprungen');
+  });
+});
+
 describe('formatKatalogNachladen', () => {
   const basis = {
     geprueft: 20, angelegt: 2, zugeordnet: 19, angelegte_titel: ['Lanterns'],
