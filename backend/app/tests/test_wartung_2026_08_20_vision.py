@@ -399,8 +399,16 @@ def test_beide_vision_stages_bekommen_denselben_zeitpunkt(
 
 
 def test_budget_null_schaltet_die_zeitgrenze_ab(client_with_auth, db, monkeypatch):
-    """Der dokumentierte Rueckfallweg muss bis in die Stages durchschlagen."""
+    """Der dokumentierte Rueckfallweg muss bis in die Stages durchschlagen.
+
+    Seit dem Datenblock-Deckel (31.08.2026) braucht "wirklich keine
+    Zeitgrenze" BEIDE Hebel auf 0: ``VISION_STAGE_TIMEOUT_SECONDS=0``
+    nimmt nur das stage-eigene Budget raus — das gemeinsame Datenfenster
+    (``CRON_DATA_STAGES_TIMEOUT_SECONDS``) kappt sonst weiter, denn ein
+    unbegrenzter Vision-Lauf wuerde genau die Produkt-Garantie aushebeln,
+    fuer die der Deckel existiert."""
     _seed_ig_channel(db, handle="netflixde")
+    monkeypatch.setenv("CRON_DATA_STAGES_TIMEOUT_SECONDS", "0")
     gefangen, run_id = _cron_lauf_mit_gefangenen_stages(
         client_with_auth, monkeypatch, budget_env="0"
     )

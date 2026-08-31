@@ -120,6 +120,7 @@ Nicht über `Settings`, sondern direkt per `os.environ` gelesen — deshalb
 von der ersten Prüfung nicht erfasst:
 
 `CRON_RUN_TIMEOUT_MINUTES`, `CRON_TOTAL_RUN_TIMEOUT_SECONDS`,
+`CRON_DATA_STAGES_TIMEOUT_SECONDS`,
 `CRON_POST_ANALYSIS_STAGE_TIMEOUT_SECONDS`, `TITLE_SYNC_STAGE_TIMEOUT_SECONDS`,
 `REMATCH_STAGE_TIMEOUT_SECONDS`, `VISION_STAGE_TIMEOUT_SECONDS`,
 `ENABLE_TITLE_SYNC_IN_CRON`,
@@ -491,7 +492,11 @@ beide Vision-Stages teilen sich *einen* `time.monotonic()`-Zeitpunkt
 (nicht je einen, sonst wäre die Summe doppelt so groß), geprüft **vor**
 jedem Asset. Was nicht mehr hineinpasst, erscheint als `skipped_budget`
 im Cron-Summary statt still zu verschwinden. `0` stellt das alte
-Verhalten „nur Stückzahl" ohne Code-Deploy wieder her.
+Verhalten „nur Stückzahl" ohne Code-Deploy wieder her. Seit dem
+Datenblock-Deckel (31.08.2026, `CRON_DATA_STAGES_TIMEOUT_SECONDS`,
+Default 9000 s ueber Scrape+Vision+Post-Analyse+Titel-Sync+Rematch)
+gilt das nur noch, wenn BEIDE Hebel auf 0 stehen — sonst kappt das
+gemeinsame Fenster weiter.
 
 800 · $0,0027 ≈ **$2,20 pro Lauf** gegen einen OpenAI-Monatsdeckel von
 $50. Der Altbestand von ~3.200 `pending` braucht damit rund vier Wochen.

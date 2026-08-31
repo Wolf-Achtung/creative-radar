@@ -138,6 +138,72 @@ _VISION_COST_USD_PER_CALL = 0.0027
 _VISION_STAGE_BUDGET_DEFAULT_SECONDS = 1800
 
 
+def _cron_data_stages_timeout_seconds() -> int:
+    """Geteiltes Zeitbudget fuer den DATENBLOCK des Cron-Laufs
+    (31.08.2026). Anlass: der Lauf vom selben Morgen brauchte 224 von
+    240 erlaubten Minuten — 16 Minuten Luft. Und die Reihenfolge im
+    Cron ist Daten zuerst, Produkt zuletzt: reisst der Gesamtdeckel,
+    fallen genau die sechs LLM-Schlussstufen samt Playbook-Mail weg,
+    waehrend die Datenarbeit fertig committet danebensteht.
+
+    Dieser Deckel dreht das um: Scrape, Vision, Post-Analyse,
+    Titel-Sync und Rematch teilen sich EIN Zeitfenster (Default 9000s
+    = 150 Min). Was nicht hineinpasst, wird uebersprungen und erscheint
+    als ``skipped``/``data_budget_exceeded`` im Summary — naechste
+    Woche ist es dran. Die Produktstufen sind damit strukturell
+    garantiert. ``0`` schaltet den Waechter ab (altes Verhalten).
+
+    Bewusst NICHT unter dem Deckel: der Evidence-Backfill (die
+    Instagram-CDN-Links der frischen Posts verfallen nach 24-48h —
+    was er heute nicht sichert, ist weg) und die schnellen
+    Kandidaten-Stufen (Autopilot/KI-Pruefung/Nachladen, Sekunden bis
+    wenige Minuten, speisen direkt die Montags-Queue)."""
+    raw = os.environ.get("CRON_DATA_STAGES_TIMEOUT_SECONDS", "9000")
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 9000
+
+
+class _DatenBudget:
+    """Ein ``time.monotonic()``-Startpunkt, gegen den jede Daten-Stage
+    vor ihrem Start prueft — dasselbe Muster wie der geteilte
+    Vision-Zeitpunkt vom 20.08.2026 (ein Punkt, nicht je Stage einer,
+    sonst waere die Summe ein Vielfaches des Gedachten)."""
+
+    def __init__(self, budget_seconds: int, start: float | None = None):
+        self.budget_seconds = budget_seconds
+        self.start = time.monotonic() if start is None else start
+
+    @property
+    def aktiv(self) -> bool:
+        return self.budget_seconds > 0
+
+    def rest_seconds(self) -> float:
+        if not self.aktiv:
+            return float("inf")
+        return self.budget_seconds - (time.monotonic() - self.start)
+
+    def erschoepft(self) -> bool:
+        return self.aktiv and self.rest_seconds() <= 0
+
+    def kappe(self, stage_seconds: float) -> float:
+        """Stage-eigenes Budget auf die Restzeit kappen (min. 1s):
+        eine Stage, die noch startet, soll den Rest nutzen duerfen,
+        aber nie ueber das gemeinsame Fenster hinauslaufen."""
+        if not self.aktiv:
+            return stage_seconds
+        return max(1.0, min(stage_seconds, self.rest_seconds()))
+
+    def skip_summary(self) -> dict:
+        return {
+            "skipped": True,
+            "reason": "data_budget_exceeded",
+            "budget_seconds": self.budget_seconds,
+            "elapsed_seconds": round(time.monotonic() - self.start, 1),
+        }
+
+
 def _vision_stage_budget_seconds() -> int:
     raw = os.environ.get(
         "VISION_STAGE_TIMEOUT_SECONDS", str(_VISION_STAGE_BUDGET_DEFAULT_SECONDS)
@@ -890,7 +956,9 @@ def _run_recommendation_snapshot_stage(session: Session) -> dict:
         return {"error": str(exc)[:500]}
 
 
-async def _run_title_sync_after_scrape(session: Session) -> dict:
+async def _run_title_sync_after_scrape(
+    session: Session, max_seconds: float | None = None
+) -> dict:
     """Pull the TMDb title catalogue (movies + TV series) as a cron stage,
     BEFORE the rematch step so freshly synced titles are available to match
     against in the same run. Mirrors the brief-gen contract: per-stage
@@ -922,6 +990,10 @@ async def _run_title_sync_after_scrape(session: Session) -> dict:
         logger.info("title_sync.skipped reason=env_disabled")
         return {"enabled": False}
     timeout_s = _title_sync_stage_timeout_seconds()
+    # Datenblock-Deckel (31.08.2026): die Stage darf ihr eigenes Budget
+    # behalten, aber nie ueber die gemeinsame Restzeit hinauslaufen.
+    if max_seconds is not None:
+        timeout_s = max(1.0, min(timeout_s, max_seconds))
     started = time.monotonic()
     try:
         result = await asyncio.wait_for(sync_titles_from_tmdb(session), timeout=timeout_s)
@@ -954,7 +1026,9 @@ def _rematch_stage_timeout_seconds() -> int:
         return 1800
 
 
-async def _run_rematch_after_sync(session: Session) -> dict:
+async def _run_rematch_after_sync(
+    session: Session, max_seconds: float | None = None
+) -> dict:
     """Sprint 10e — auto re-match unassigned assets after every cron sync.
 
     New TMDb-title rows arrive continuously between cron runs (Sprint 10a's
@@ -993,6 +1067,11 @@ async def _run_rematch_after_sync(session: Session) -> dict:
     noch, wenn ein EINZELNER Asset-Durchlauf >120s haengt).
     """
     timeout_s = _rematch_stage_timeout_seconds()
+    # Datenblock-Deckel: gleiche Kappung wie beim Titel-Sync — das
+    # weiche Budget unten (timeout - 120s) rechnet dann automatisch
+    # mit der gekappten Zahl.
+    if max_seconds is not None:
+        timeout_s = max(1.0, min(timeout_s, max_seconds))
     # 120s Marge: genug fuer den letzten Batch-Commit + Rueckkehr, bevor der
     # harte Backstop feuert. ``max(1, …)`` haelt Mini-Timeouts (Tests) sinnvoll.
     soft_budget_s = max(1.0, timeout_s - 120.0)
@@ -2056,7 +2135,13 @@ async def _run_cron_sync_background_impl(
                 else datetime.now(timezone.utc) - timedelta(days=1)
             )
 
+            # Datenblock-Deckel (31.08.2026): EIN Startpunkt vor dem
+            # Scrape — auch dessen Laufzeit zaehlt ins gemeinsame
+            # Fenster. Details im Docstring von
+            # ``_cron_data_stages_timeout_seconds``.
+            daten_budget = _DatenBudget(_cron_data_stages_timeout_seconds())
             summary, created_asset_ids = await _execute_platform_sync(session, run_index)
+            summary["data_stages_budget_seconds"] = daten_budget.budget_seconds
             # Audit: Lauf-Modus ins summary_json, damit GET /runs den manuellen
             # Force-Lauf vom wöchentlichen Cron unterscheidbar macht.
             summary["run_mode"] = {"target_week": target_week, "force": force}
@@ -2066,11 +2151,21 @@ async def _run_cron_sync_background_impl(
             # jede Stage es einzeln ausschoepfen und die Summe waere
             # doppelt so gross wie gedacht.
             vision_budget = _vision_stage_budget_seconds()
+            # Datenblock-Deckel: das Vision-Fenster darf nie ueber die
+            # gemeinsame Restzeit hinauslaufen. ``vision_budget == 0``
+            # (bewusst "nur Stueckzahl") wird dabei zum Restfenster —
+            # unbegrenzt bleibt es nur, wenn auch der Deckel aus ist.
+            if daten_budget.aktiv:
+                vision_budget = int(daten_budget.kappe(
+                    vision_budget if vision_budget > 0 else daten_budget.budget_seconds
+                ))
             vision_deadline = (
                 time.monotonic() + vision_budget if vision_budget > 0 else None
             )
             summary["vision_budget_seconds"] = vision_budget
-            if created_asset_ids:
+            if created_asset_ids and daten_budget.erschoepft():
+                summary["vision"] = daten_budget.skip_summary()
+            elif created_asset_ids:
                 # to_thread: die synchronen Langläufer-Stages (Vision/Backlog/
                 # Rematch/Briefs/Roundups) laufen blockierende I/O (OpenAI/
                 # Anthropic). Direkt im async-Loop aufgerufen würden sie den
@@ -2094,7 +2189,9 @@ async def _run_cron_sync_background_impl(
             # nachziehen. created_asset_ids-Selektion/Cap oben bleibt
             # unberührt; backlog_cap=0 deaktiviert den Pfad.
             backlog_cap = settings.cron_vision_backlog_max_assets_per_run
-            if backlog_cap > 0:
+            if backlog_cap > 0 and daten_budget.erschoepft():
+                summary["vision_backlog"] = daten_budget.skip_summary()
+            elif backlog_cap > 0:
                 summary["vision_backlog"] = await asyncio.to_thread(
                     functools.partial(
                         _run_vision_backlog,
@@ -2111,7 +2208,9 @@ async def _run_cron_sync_background_impl(
             # (12%). Gleiches to_thread-/Stage-Guard-Muster wie die
             # Vision-Stages darueber; Cap + text-only bremsen die Kosten.
             post_analysis_cap = settings.cron_post_analysis_max_posts_per_run
-            if post_analysis_cap > 0:
+            if post_analysis_cap > 0 and daten_budget.erschoepft():
+                summary["post_analysis"] = daten_budget.skip_summary()
+            elif post_analysis_cap > 0:
                 try:
                     summary["post_analysis"] = await asyncio.to_thread(
                         _run_post_analysis_backlog,
@@ -2121,7 +2220,9 @@ async def _run_cron_sync_background_impl(
                         # Zeitbudget statt nur Post-Cap — siehe Docstring
                         # von ``_run_post_analysis_backlog``. Ohne das hat
                         # diese Stage am 10.08. den ganzen Lauf gerissen.
-                        budget_seconds=_post_analysis_stage_timeout_seconds(),
+                        budget_seconds=daten_budget.kappe(
+                            _post_analysis_stage_timeout_seconds()
+                        ),
                     )
                 except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster rematch
                     logger.exception("post-analysis stage failed")
@@ -2132,8 +2233,18 @@ async def _run_cron_sync_background_impl(
             # Title-Katalog-Sync (Movies + TV) VOR dem Rematch, damit frisch
             # gezogene Titel im selben Lauf gematcht werden. Hinter
             # ENABLE_TITLE_SYNC_IN_CRON (Default true); eigener try/except.
-            summary["title_sync"] = await _run_title_sync_after_scrape(session)
-            summary["rematch"] = await _run_rematch_after_sync(session)
+            if daten_budget.erschoepft():
+                summary["title_sync"] = daten_budget.skip_summary()
+            else:
+                summary["title_sync"] = await _run_title_sync_after_scrape(
+                    session, max_seconds=daten_budget.rest_seconds()
+                )
+            if daten_budget.erschoepft():
+                summary["rematch"] = daten_budget.skip_summary()
+            else:
+                summary["rematch"] = await _run_rematch_after_sync(
+                    session, max_seconds=daten_budget.rest_seconds()
+                )
             # Sprint Review-Automatisierung 2026-07-20 — Kandidaten-Autopilot
             # direkt NACH dem Rematch (frische Titel sind dann in der
             # Whitelist): bestaetigt Exakt-Treffer-Vorschlaege automatisch
