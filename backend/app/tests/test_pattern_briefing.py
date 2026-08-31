@@ -262,10 +262,13 @@ def _baustein(cited: list[str], muster: str = "Romance auf TikTok") -> dict:
     return {
         "muster": muster,
         "begruendung": "25,0 % Breakout-Quote bei erwarteten 25,0 %.",
-        "hooks_de": ["Noch 3 Tage."],
-        "hooks_en": ["3 days left."],
-        "captions_de": ["[TITEL] — ab Donnerstag im Kino."],
-        "captions_en": ["[TITLE] — in theaters Thursday."],
+        "zutaten": [{
+            "element": "Countdown zum Start",
+            "so_gehts": "Zahl der Tage vorn, kurz halten.",
+            "beleg": "Noch 3 Tage",
+        }],
+        "beispiele_de": ["[TITEL] — noch 3 Tage bis [DATUM]."],
+        "beispiele_en": ["[TITLE] — 3 days until [DATUM]."],
         "hashtags": ["kino"],
         "cited_post_ids": cited,
     }
@@ -771,6 +774,30 @@ def test_system_prompt_verbietet_kopierte_kalenderdaten():
     System-Prompt stehen, sonst kehrt der Fehler zurueck."""
     assert "[DATUM]" in pb.PATTERN_BRIEFING_SYSTEM_PROMPT
     assert "KEINEN konkreten Termin" in pb.PATTERN_BRIEFING_SYSTEM_PROMPT
+
+
+def test_prompt_verlangt_zutaten_mit_woertlichem_beleg(session):
+    """Zutaten-Umbau (31.08.2026, Wolfs Feedback zum KW-35-Playbook):
+    die fertigen Hooks/Captions klangen gekuenstelt. Der Auftrag ist
+    jetzt: Elemente benennen, mit WOERTLICHEM Studio-Zitat als Beweis —
+    und die Beispiel-Zeilen muessen wie Studio-Marketing klingen, nicht
+    wie Werbetexter-Poesie. Beide Haelften muessen im Prompt stehen,
+    sonst kehrt der alte Output zurueck."""
+    assert "ZUTATEN" in pb.PATTERN_BRIEFING_SYSTEM_PROMPT
+    assert "WÖRTLICHES Fragment" in pb.PATTERN_BRIEFING_SYSTEM_PROMPT
+    assert "zitiere sie, statt sie nachzubauen" in pb.PATTERN_BRIEFING_SYSTEM_PROMPT
+    assert "kurz, druckvoll, direkt" in pb.PATTERN_BRIEFING_SYSTEM_PROMPT
+    _seed_genre(session, "Romance")
+    evidence = pb.build_pattern_evidence(
+        session, mode=pb.BRIEFING_MODE_GENRE, window_days=30, now=NOW
+    )
+    prompt = pb._build_user_prompt(evidence)
+    # Das Output-Schema verlangt die neue Form — nicht mehr die alten
+    # Hook-/Caption-Listen.
+    assert '"zutaten"' in prompt
+    assert '"beispiele_de"' in prompt
+    assert '"hooks_de"' not in prompt
+    assert '"captions_de"' not in prompt
 
 
 def test_genre_prompt_behaelt_den_platzhalter(session):

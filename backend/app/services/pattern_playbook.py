@@ -375,8 +375,22 @@ def render_playbook(playbook: dict) -> tuple[str, str, str]:
         teile += ["", label, ""]
         for baustein in bausteine:
             teile.append(f"* {baustein.get('muster', '?')}")
-            for hook in (baustein.get("hooks_de") or [])[:3]:
-                teile.append(f"    Hook: {hook}")
+            # Zutaten-Format (31.08.2026): welche Elemente in den Text
+            # gehoeren, mit woertlichem Studio-Zitat als Beweis — statt
+            # fertiger Hooks, die gekuenstelt klangen.
+            for zutat in (baustein.get("zutaten") or [])[:5]:
+                zeile = f"    Zutat: {zutat.get('element', '?')}"
+                if zutat.get("so_gehts"):
+                    zeile += f" — {zutat['so_gehts']}"
+                teile.append(zeile)
+                if zutat.get("beleg"):
+                    teile.append(f'      Original: "{zutat["beleg"]}"')
+            for beispiel in (baustein.get("beispiele_de") or [])[:2]:
+                teile.append(f"    Beispiel: {beispiel}")
+            if not baustein.get("zutaten"):
+                # Altformat-Row (vor dem Zutaten-Umbau): Hooks weiterzeigen.
+                for hook in (baustein.get("hooks_de") or [])[:3]:
+                    teile.append(f"    Hook: {hook}")
             for url in (baustein.get("cited_post_ids") or [])[:3]:
                 teile.append(f"    Beleg: {url}")
             teile.append("")
@@ -441,15 +455,35 @@ def _render_html(playbook: dict, kw: str, machen: list, vorsicht: list) -> str:
             continue
         inner = ""
         for baustein in bausteine:
-            hooks = "".join(
-                f'<li style="margin:0 0 2px;">{_esc(hook)}</li>'
-                for hook in (baustein.get("hooks_de") or [])[:3]
-            )
+            # Zutaten-Format (31.08.2026): Elemente mit Studio-Zitat als
+            # Beweis, dazu Beispiel-Zeilen — statt fertiger Hooks.
+            zeilen = ""
+            for zutat in (baustein.get("zutaten") or [])[:5]:
+                zeile = f'<strong>{_esc(zutat.get("element", "?"))}</strong>'
+                if zutat.get("so_gehts"):
+                    zeile += f' — {_esc(zutat["so_gehts"])}'
+                if zutat.get("beleg"):
+                    zeile += (
+                        f'<br /><span style="color:#6b6b6b;">'
+                        f'Original: &bdquo;{_esc(zutat["beleg"])}&ldquo;</span>'
+                    )
+                zeilen += f'<li style="margin:0 0 4px;">{zeile}</li>'
+            for beispiel in (baustein.get("beispiele_de") or [])[:2]:
+                zeilen += (
+                    f'<li style="margin:0 0 2px;">'
+                    f'<em>Beispiel:</em> {_esc(beispiel)}</li>'
+                )
+            if not baustein.get("zutaten"):
+                # Altformat-Row (vor dem Zutaten-Umbau): Hooks weiterzeigen.
+                zeilen += "".join(
+                    f'<li style="margin:0 0 2px;">{_esc(hook)}</li>'
+                    for hook in (baustein.get("hooks_de") or [])[:3]
+                )
             inner += (
                 f'<p style="margin:8px 0 2px;font-weight:700;font-size:13px;'
                 f'color:#1c1c1a;">{_esc(baustein.get("muster", "?"))}</p>'
                 f'<ul style="margin:0;padding-left:18px;font-size:13px;'
-                f'color:#4a4a44;">{hooks}</ul>'
+                f'color:#4a4a44;">{zeilen}</ul>'
             )
         bloecke.append(
             f'<p style="margin:14px 0 0;font-weight:700;font-size:13px;'

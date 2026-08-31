@@ -80,6 +80,36 @@ describe('BriefingSection', () => {
     await screen.findByText(/kein LLM-Aufruf, keine Kosten/);
   });
 
+  it('zeigt Zutaten-Bausteine mit Studio-Zitat und Beispielen (Format 31.08.)', async () => {
+    endpoints.adminPatternBriefingLatest.mockResolvedValue({
+      mode: 'genre', iso_year: 2026, iso_week: 36, model: 'claude-x',
+      llm_output: {
+        bausteine: [{
+          muster: 'Science Fiction auf Instagram',
+          begruendung: 'Liegt 1,4-mal öfter weit über dem Kanal-Schnitt.',
+          zutaten: [{
+            element: 'Countdown zum Start',
+            so_gehts: 'Zahl der Tage vorn, kurz halten.',
+            beleg: 'one week until forever',
+          }],
+          beispiele_de: ['[TITEL] — noch 3 Tage.'],
+          beispiele_en: ['[TITLE] — 3 days to go.'],
+          hashtags: ['scifi'],
+          cited_post_ids: ['https://x.test/p/9'],
+        }],
+        data_caveats: [],
+      },
+    });
+    render(<BriefingSection />);
+    fireEvent.click(screen.getByText('Letztes Ergebnis: Genre'));
+    await screen.findByText('Science Fiction auf Instagram');
+    expect(screen.getByText('Diese Elemente gehören in den Text')).toBeTruthy();
+    expect(screen.getByText('Countdown zum Start')).toBeTruthy();
+    expect(screen.getByText(/one week until forever/)).toBeTruthy();
+    expect(screen.getByText('Beispiele (DE)')).toBeTruthy();
+    expect(screen.getByText('[TITEL] — noch 3 Tage.')).toBeTruthy();
+  });
+
   it('zeigt das Ergebnis nach der Generierung direkt an', async () => {
     endpoints.adminPatternBriefingGenerate.mockResolvedValue({
       mode: 'genre', iso_year: 2026, iso_week: 34, model: 'claude-x',

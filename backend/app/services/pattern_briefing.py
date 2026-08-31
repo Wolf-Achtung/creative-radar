@@ -131,17 +131,25 @@ PATTERN_BRIEFING_MAX_TOKENS = 8000
 # vorbei). Bewusst OHNE BRIEF_VOICE: das hier ist kein Bericht, sondern Arbeitsmaterial
 # (Hooks/Captions zum direkten Verwenden); die Berichts-Verbotslisten
 # wuerden genau die Sprache verbieten, die Social-Captions brauchen.
+# Umbau 31.08.2026 (Wolfs Feedback zum KW-35-Playbook): die fertigen
+# Hooks/Captions klangen gekuenstelt und trafen die Blockbuster-Sprache
+# nicht. Neuer Auftrag: ZUTATEN benennen — welche Elemente die starken
+# Captions gemeinsam haben, mit woertlichen Studio-Zitaten als Beleg —
+# plus wenige Beispiel-Zeilen als Illustration. Die Studios schreiben
+# die beste Blockbuster-Sprache selbst; das Modell soll sie zeigen,
+# nicht nachbauen.
 PATTERN_BRIEFING_SYSTEM_PROMPT = """Du bist Creative-Stratege für Kino-Marketing auf Social Media (DE/US/UK). Du bekommst gemessene Reichweiten-Muster aus dem eigenen Kanalbestand und die Original-Captions der stärksten Posts je Muster.
 
-Deine Aufgabe: je Muster konkrete, sofort verwendbare Text-Bausteine — Hooks, Captions, Hashtags — auf Deutsch und Englisch.
+Deine Aufgabe: je Muster die ZUTATEN herausarbeiten — welche Text-Elemente die starken Captions dieses Musters gemeinsam haben (z. B. Countdown, direkte Anrede, Star-Name vorn, eine Zahl, ein Insider) — jede Zutat mit einem wörtlichen Fragment aus einer Beleg-Caption als Beweis. Dazu je Sprache wenige kurze Beispiel-Zeilen, die zeigen, wie die Zutaten zusammen klingen.
 
 Regeln:
 1. Jede Aussage über Wirkung stützt sich auf die mitgelieferten Zahlen. Erfinde keine Statistik und runde keine auf.
 2. Jede Empfehlung nennt in cited_post_ids die Beispiel-Posts (ihre URLs, wortwörtlich), aus denen sie abgeleitet ist. Ohne Beleg keine Empfehlung.
-3. Schreibe Hooks, wie sie in den belegten Captions tatsächlich klingen — übernimm die Mechanik (Frage, Zitat, Countdown, Kontrast), nie den Wortlaut. Keine Spoiler, keine erfundenen Filmtitel, keine Superlative ohne Beleg.
-4. Deutsch ist nicht übersetztes Englisch: DE-Hooks folgen deutscher Social-Sprache, EN-Hooks englischer.
-5. Wenn ein Muster zu dünn belegt ist, sag das in data_caveats statt zu liefern.
-6. Kalenderdaten: Die Beispiel-Posts liegen in der Vergangenheit — ihre Start- und Kinodaten sind abgelaufen. Übernimm KEINEN konkreten Termin aus den Captions; schreibe [DATUM] als Platzhalter, wo ein Datum hingehört."""
+3. Der Beleg jeder Zutat ist ein WÖRTLICHES Fragment aus einer der Beleg-Captions oben (kurz, max. ~10 Wörter) — die Studios schreiben die beste Blockbuster-Sprache selbst; zitiere sie, statt sie nachzubauen.
+4. Beispiel-Zeilen klingen wie die Beleg-Captions: Studio-Marketing, kurz, druckvoll, direkt. Keine gestelzten Metaphern, keine Poesie, kein Werbetexter-Pathos. Im Zweifel näher am Beleg als an der eigenen Idee. Keine Spoiler, keine erfundenen Filmtitel, keine Superlative ohne Beleg.
+5. Deutsch ist nicht übersetztes Englisch: DE-Zeilen folgen deutscher Social-Sprache, EN-Zeilen englischer.
+6. Wenn ein Muster zu dünn belegt ist, sag das in data_caveats statt zu liefern.
+7. Kalenderdaten: Die Beispiel-Posts liegen in der Vergangenheit — ihre Start- und Kinodaten sind abgelaufen. Übernimm KEINEN konkreten Termin in die Beispiel-Zeilen; schreibe [DATUM] als Platzhalter, wo ein Datum hingehört. (In Zutaten-Belegen darf das Original-Datum stehen — sie sind Zitate.)"""
 
 
 def build_pattern_evidence(
@@ -356,21 +364,24 @@ def _build_user_prompt(evidence: PatternBriefingEvidence) -> str:
     # die Caption, ein Platzhalter waere dort ein Fehler.
     if ist_titel:
         muster_beispiel = "Kurzname des Musters, z. B. 'Wicked auf TikTok'"
-        captions_de_regel = (
-            "2 vollstaendige Caption-Vorlagen auf Deutsch — nutze den "
-            "ECHTEN Titel aus dem Muster-Block, keinen Platzhalter"
+        beispiele_de_regel = (
+            "2 kurze Beispiel-Zeilen auf Deutsch, die die Zutaten anwenden "
+            "— nutze den ECHTEN Titel aus dem Muster-Block, keinen Platzhalter"
         )
-        captions_en_regel = (
-            "2 full caption templates in English — use the ACTUAL title "
-            "from the pattern block, no placeholder"
+        beispiele_en_regel = (
+            "2 short example lines in English applying the Zutaten — use "
+            "the ACTUAL title from the pattern block, no placeholder"
         )
     else:
         muster_beispiel = "Kurzname des Musters, z. B. 'Romance auf TikTok'"
-        captions_de_regel = (
-            "2 vollstaendige Caption-Vorlagen auf Deutsch, mit "
-            "[TITEL]-Platzhalter statt erfundener Filmtitel"
+        beispiele_de_regel = (
+            "2 kurze Beispiel-Zeilen auf Deutsch, die die Zutaten anwenden, "
+            "mit [TITEL]-Platzhalter statt erfundener Filmtitel"
         )
-        captions_en_regel = "2 full caption templates in English, [TITLE] placeholder"
+        beispiele_en_regel = (
+            "2 short example lines in English applying the Zutaten, "
+            "[TITLE] placeholder"
+        )
     schema = f"""
 
 OUTPUT — AUSSCHLIESSLICH ein JSON-Objekt nach folgendem Schema. Kein
@@ -381,18 +392,23 @@ Vorspann, kein Markdown-Codefence, keine Erklaerung — nur das JSON:
     {{
       "muster": "{muster_beispiel}",
       "begruendung": "2-3 Saetze mit den mitgelieferten Zahlen: warum dieses Muster, was ist der Befund. Nur Zahlen aus den Muster-Bloecken oben, wortgetreu.",
-      "hooks_de": ["3 Eroeffnungszeilen auf Deutsch, je max. 1 Satz — Mechanik aus den Beispiel-Captions, nie deren Wortlaut"],
-      "hooks_en": ["3 opening lines in English — same mechanics, native English social voice"],
-      "captions_de": ["{captions_de_regel}"],
-      "captions_en": ["{captions_en_regel}"],
+      "zutaten": [
+        {{
+          "element": "kurzer Name des Elements, z. B. 'Countdown zum Start'",
+          "so_gehts": "1 Satz: woran man das Element in den starken Captions erkennt und wie man es einsetzt",
+          "beleg": "woertliches Fragment aus einer Beleg-Caption oben (max. ~10 Woerter), ohne Anfuehrungszeichen drumherum"
+        }}
+      ],
+      "beispiele_de": ["{beispiele_de_regel}"],
+      "beispiele_en": ["{beispiele_en_regel}"],
       "hashtags": ["bis zu 10 Hashtag-Vorschlaege ohne #-Praefix, gemischt DE/EN, nur thematisch zum Muster passende"],
       "cited_post_ids": ["URLs der Beispiel-Posts aus diesem Muster-Block, wortwoertlich aus den URL:-Zeilen"]
     }}
   ],
-  "data_caveats": ["Was den Brief relativiert: duenne Muster, die du deshalb NICHT beliefert hast (Regel 5), niedrige Abdeckung, Plattform-Schieflagen"]
+  "data_caveats": ["Was den Brief relativiert: duenne Muster, die du deshalb NICHT beliefert hast (Regel 6), niedrige Abdeckung, Plattform-Schieflagen"]
 }}
 
-Antworte ausschliesslich mit dem JSON-Objekt, ohne Markdown-Codefences."""
+3 bis 5 Zutaten je Baustein. Antworte ausschliesslich mit dem JSON-Objekt, ohne Markdown-Codefences."""
     return header + "\n" + blocks + schema
 
 

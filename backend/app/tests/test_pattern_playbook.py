@@ -133,7 +133,37 @@ def test_render_vorsicht_gruppe_und_fallback():
     assert "bleiben öfter unter dem Kanal-Schnitt" in text
 
 
-def test_render_bausteine_mit_hooks_und_belegen():
+def test_render_bausteine_mit_zutaten_und_belegen():
+    """Zutaten-Format (31.08.2026): die Mail sagt, welche Elemente in den
+    Text gehoeren — mit woertlichem Studio-Zitat als Beweis — statt
+    fertige Hooks zu liefern (Wolfs Befund: die klangen gekuenstelt)."""
+    pb = _playbook_minimal(bausteine={
+        "genre": [{
+            "muster": "Romance auf TikTok",
+            "zutaten": [{
+                "element": "Countdown zum Start",
+                "so_gehts": "Zahl der Tage vorn, kurz halten.",
+                "beleg": "one week until forever",
+            }],
+            "beispiele_de": ["[TITEL] — noch 3 Tage."],
+            "cited_post_ids": ["https://x.test/p/1"],
+        }],
+    })
+    _, text, html = pp.render_playbook(pb)
+    assert "TEXT-BAUSTEINE (GENRE-MUSTER)" in text
+    assert "Romance auf TikTok" in text
+    assert "Zutat: Countdown zum Start — Zahl der Tage vorn, kurz halten." in text
+    assert 'Original: "one week until forever"' in text
+    assert "Beispiel: [TITEL] — noch 3 Tage." in text
+    assert "Beleg: https://x.test/p/1" in text
+    # HTML-Variante traegt dieselben Zutaten.
+    assert "Countdown zum Start" in html
+    assert "one week until forever" in html
+
+
+def test_render_altformat_bausteine_zeigen_weiter_hooks():
+    """Persistierte Rows aus der Zeit vor dem Zutaten-Umbau tragen noch
+    hooks_de — die Mail darf sie nicht leer rendern."""
     pb = _playbook_minimal(bausteine={
         "genre": [{
             "muster": "Romance auf TikTok",
@@ -142,8 +172,6 @@ def test_render_bausteine_mit_hooks_und_belegen():
         }],
     })
     _, text, _ = pp.render_playbook(pb)
-    assert "TEXT-BAUSTEINE (GENRE-MUSTER)" in text
-    assert "Romance auf TikTok" in text
     assert "Hook: Hook eins" in text
     assert "Beleg: https://x.test/p/1" in text
 
