@@ -355,6 +355,65 @@ def test_endpoint_503_bei_abgeschaltetem_flag(session, monkeypatch):
 # tritt an seine Stelle.
 
 
+def test_cron_stage_laeuft_scharf_und_ist_doppelt_gegated(session, monkeypatch):
+    """Cron-Stage (31.08.2026, Wolfs Auftrag: nicht jede Woche 40-50
+    Titel von Hand): direkt nach der KI-Pruefung laeuft das Nachladen
+    mit ``anwenden=True`` — kein Vorschau-Rollback im Cron. Zwei Gates:
+    Feature-Flag UND Settings-Not-Aus; ein Fehler kippt den Lauf nicht."""
+    import inspect
+
+    from app.api import cron as cron_module
+    from app.config import settings
+
+    aufrufe: list[dict] = []
+
+    async def _stub(session_, **kwargs):
+        aufrufe.append(kwargs)
+        return kn.NachladeSummary(vorschau=not kwargs.get("anwenden", False))
+
+    monkeypatch.setattr(cron_module, "lade_fehlende_titel_nach", _stub)
+
+    # Gate 1: Feature-Flag aus → Stage skippt ohne Aufruf.
+    monkeypatch.delenv("FEATURE_KATALOG_NACHLADEN_ENABLED", raising=False)
+    ergebnis = asyncio.run(cron_module._run_katalog_nachladen_stage(session))
+    assert ergebnis == {"skipped": True, "reason": "feature_flag_disabled"}
+    assert aufrufe == []
+
+    # Gate 2: Settings-Not-Aus → Stage skippt ohne Aufruf.
+    monkeypatch.setenv("FEATURE_KATALOG_NACHLADEN_ENABLED", "true")
+    monkeypatch.setattr(settings, "katalog_nachladen_in_cron", False, raising=False)
+    ergebnis = asyncio.run(cron_module._run_katalog_nachladen_stage(session))
+    assert ergebnis == {"skipped": True, "reason": "disabled"}
+    assert aufrufe == []
+
+    # Beide Gates offen: echter Lauf mit anwenden=True und Cron-Deckel.
+    monkeypatch.setattr(settings, "katalog_nachladen_in_cron", True, raising=False)
+    monkeypatch.setattr(settings, "katalog_nachladen_cron_max", 7, raising=False)
+    ergebnis = asyncio.run(cron_module._run_katalog_nachladen_stage(session))
+    assert ergebnis["vorschau"] is False, (
+        "Im Cron darf KEINE Vorschau laufen — sie wuerde jede Woche "
+        "dieselben Titel finden und nichts festschreiben."
+    )
+    assert aufrufe == [{"anwenden": True, "max_kandidaten": 7}]
+
+    # Fehler-Guard: eine Exception wird gemeldet, kippt aber nichts.
+    async def _explodiert(session_, **kwargs):
+        raise RuntimeError("tmdb weg")
+
+    monkeypatch.setattr(cron_module, "lade_fehlende_titel_nach", _explodiert)
+    ergebnis = asyncio.run(cron_module._run_katalog_nachladen_stage(session))
+    assert "tmdb weg" in ergebnis["error"]
+
+    # Verdrahtungs-Waechter (Muster Empfehlungs-Snapshot): die Stage
+    # steht im Hintergrund-Lauf, und zwar NACH der KI-Pruefung — deren
+    # frische Marker sollen im selben Lauf aufgeloest werden.
+    quelle = inspect.getsource(cron_module._run_cron_sync_background_impl)
+    anker = 'summary["katalog_nachladen"] = await _run_katalog_nachladen_stage(session)'
+    assert anker in quelle, "Die Nachladen-Stage ist nicht im Hintergrund-Lauf verdrahtet."
+    assert quelle.index("candidate_llm_assist_stage") < quelle.index(anker)
+    assert quelle.index(anker) < quelle.index("recommendation_snapshot_stage")
+
+
 def test_vorschau_schreibt_nichts_meldet_aber_dasselbe(session):
     """Der Kern: gleiche Zahlen, kein Schreiben. Waeren es zwei
     getrennte Codepfade, wuerde die Vorschau irgendwann luegen — sie

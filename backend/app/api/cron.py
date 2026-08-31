@@ -64,6 +64,7 @@ from app.services.cron_channel_selection import compute_run_index, select_channe
 from app.core.feature_flags import (
     is_cutter_weekly_enabled,
     is_designer_weekly_enabled,
+    is_katalog_nachladen_enabled,
     is_segment_roundups_enabled,
     is_trailer_intelligence_enabled,
 )
@@ -76,6 +77,7 @@ from app.services.segment_roundup import (
 )
 from app.services.candidate_autopilot import run_candidate_autopilot
 from app.services.candidate_llm_assist import run_candidate_llm_assist
+from app.services.katalog_nachladen import lade_fehlende_titel_nach
 from app.services.recommendation_snapshot import persist_recommendation_snapshot
 from app.services.asset_screenshot_persistence import backfill_missing_evidence
 from app.services.title_rematch import rematch_unassigned_assets
@@ -829,6 +831,40 @@ async def _run_candidate_llm_assist_stage(session: Session) -> dict:
         return ergebnis.to_dict()
     except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster Autopilot
         logger.exception("candidate-llm-assist stage failed")
+        return {"error": str(exc)[:500]}
+
+
+async def _run_katalog_nachladen_stage(session: Session) -> dict:
+    """Katalog-Nachladen als Cron-Stage (31.08.2026).
+
+    Wolfs Befund: jede Woche blieben 40-50 Kandidaten in der Hand-Queue,
+    obwohl die KI-Pruefung fuer viele davon laengst wusste, welches Werk
+    der Post bewirbt — es stand nur nicht im Katalog. Der Service dafuer
+    existiert seit #429/#432 (drei Waechter: Text-Beleg, eindeutiger
+    TMDb-Treffer, Mehrdeutigkeits-Sperre) und lief bisher nur per
+    Admin-Klick. Diese Stage laesst ihn direkt NACH der KI-Pruefung mit
+    ``anwenden=True`` laufen — die frisch gesetzten Marker werden im
+    selben Lauf aufgeloest, die Montags-Queue kommt entsprechend kleiner
+    bei Wolf an.
+
+    Doppeltes Gate: das Feature-Flag (aus = Feature ist abgeschaltet,
+    auch der Admin-Button waere 503) UND der Settings-Not-Aus
+    ``katalog_nachladen_in_cron``. Best-effort: ein Fehler hier kippt
+    den Lauf nicht.
+    """
+    if not is_katalog_nachladen_enabled():
+        return {"skipped": True, "reason": "feature_flag_disabled"}
+    if not settings.katalog_nachladen_in_cron:
+        return {"skipped": True, "reason": "disabled"}
+    try:
+        ergebnis = await lade_fehlende_titel_nach(
+            session,
+            anwenden=True,
+            max_kandidaten=settings.katalog_nachladen_cron_max,
+        )
+        return ergebnis.to_dict()
+    except Exception as exc:  # noqa: BLE001 — Stage-Guard, Muster Autopilot
+        logger.exception("katalog-nachladen stage failed")
         return {"error": str(exc)[:500]}
 
 
@@ -2121,6 +2157,11 @@ async def _run_cron_sync_background_impl(
             # fehlt im Katalog: X" steht schon dran, statt erst nach
             # manuellen Klicks). Best-effort wie der Autopilot.
             summary["candidate_llm_assist"] = await _run_candidate_llm_assist_stage(session)
+            # Katalog-Nachladen (31.08.2026) — direkt NACH der KI-Pruefung,
+            # damit deren frische "(nicht im Katalog)"-Marker im selben
+            # Lauf aufgeloest werden. Was hier eindeutig belegbar ist,
+            # erreicht die Hand-Queue gar nicht mehr.
+            summary["katalog_nachladen"] = await _run_katalog_nachladen_stage(session)
             # Empfehlungs-Snapshot (22.08.2026) — NACH Rematch/Autopilot,
             # damit die Zellen auf den frisch zugeordneten Daten der Woche
             # rechnen. Friert die MACHEN-Empfehlungen mit Zeitstempel ein;
