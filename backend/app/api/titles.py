@@ -405,9 +405,27 @@ def whitelist_stats(session: Session = Depends(get_session)):
     active_titles = len(session.exec(select(Title).where(Title.active == True)).all())  # noqa: E712
     latest_run = session.exec(select(TitleSyncRun).order_by(TitleSyncRun.created_at.desc())).first()
     open_candidates = len(session.exec(select(TitleCandidate).where(TitleCandidate.status == CandidateStatus.OPEN)).all())
-    new_titles_this_week = 0
-    if latest_run:
-        new_titles_this_week = latest_run.upserted_count
+    # Wolfs Befund 31.08.2026: die Kachel meldete "Neue Titel diese
+    # Woche: 37.978" bei 19.464 aktiven Titeln — mehr "neue" als
+    # ueberhaupt vorhanden. Sie las ``latest_run.upserted_count``, und
+    # der zaehlt jeden Upsert des letzten Sync-Laufs, Insert UND Update.
+    # Der Sync zieht woechentlich die vollen Slates aller Studios und
+    # Streamer; fast alle Zeilen existieren bereits, und ein Titel wird
+    # je Markt-Achse erneut angefasst. Beide Woerter im Label waren
+    # falsch: nicht "neu" (ueberwiegend Aktualisierungen) und nicht
+    # "diese Woche" (der letzte Lauf, wann immer der war). Sichtbar
+    # wurde es daran, dass die Zahl ueber einen ganzen Tag unveraendert
+    # stand, waehrend 29 echte Titel dazukamen.
+    #
+    # Jetzt die Frage, die das Label stellt: Titel-Zeilen, die in den
+    # letzten sieben Tagen ANGELEGT wurden. Zaehlt beide Quellen —
+    # Sync und Katalog-Nachladen bzw. Hand-Anlage aus der Queue.
+    woche_zurueck = datetime.now(timezone.utc) - timedelta(days=7)
+    new_titles_this_week = len(
+        session.exec(
+            select(Title).where(Title.created_at >= woche_zurueck)
+        ).all()
+    )
     return {
         "active_titles": active_titles,
         "last_sync": latest_run.created_at if latest_run else None,
