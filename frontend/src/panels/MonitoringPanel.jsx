@@ -640,7 +640,7 @@ export function BriefingSection() {
   })();
 
   return (
-    <Section title="Text-Bausteine generieren" kicker="Hooks & Captions aus den Mustern — Review-Lauf">
+    <Section title="Text-Bausteine generieren" kicker="Zutaten & Beispiele aus den Mustern — Review-Lauf">
       <p style={{ margin: '0 0 0.5rem' }}>
         Erstellt die Text-Bausteine dieser Woche neu. Jeder Lauf kostet etwa
         5–20 Cent (Anthropic-Monatsdeckel greift); ohne belastbares Muster

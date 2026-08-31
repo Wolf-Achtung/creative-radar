@@ -800,6 +800,22 @@ def test_prompt_verlangt_zutaten_mit_woertlichem_beleg(session):
     assert '"captions_de"' not in prompt
 
 
+def test_prompt_schreibt_deutsch_mit_echten_umlauten(session):
+    """Wolfs Review des ersten Zutaten-Laufs (31.08.2026): die
+    Begruendungen zeigten "Kanaelen" und "gegenueber" — das Modell
+    spiegelte die ASCII-Umschrift der Prompt-Bausteine in den
+    sichtbaren Text. Die Prompt-Strings sind Modell-Input, keine
+    Code-Kommentare: sie tragen echte Umlaute, und der System-Prompt
+    verlangt sie ausdruecklich."""
+    assert 'nie "ae/oe/ue"' in pb.PATTERN_BRIEFING_SYSTEM_PROMPT
+    _seed_genre(session, "Romance")
+    evidence = pb.build_pattern_evidence(session, window_days=30, now=NOW)
+    prompt = pb._build_user_prompt(evidence)
+    assert "Kanälen" in prompt
+    assert "Kanaelen" not in prompt
+    assert "üblichen" in prompt
+
+
 def test_genre_prompt_behaelt_den_platzhalter(session):
     _seed_genre(session, "Romance")
 
