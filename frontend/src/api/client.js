@@ -141,6 +141,9 @@ export const endpoints = {
   // mit eindeutigem Exakt-Treffer in der Whitelist, schließt Karteileichen.
   candidatesAutopilot: () => api('/api/titles/candidates/autopilot', { method: 'POST' }),
   candidatesLlmAssist: () => api('/api/titles/candidates/llm-assist', { method: 'POST' }),
+  // Aufraeum-Knopf (31.08.2026): die Kandidaten-Pipeline in einem
+  // Aufruf — Autopilot, KI-Pruefung, Katalog-Nachladen scharf.
+  candidatesAufraeumen: () => api('/api/titles/candidates/aufraeumen', { method: 'POST' }),
   // Katalog-Nachladen (25.08.2026): legt Titel an, die ein Post
   // nachweislich bewirbt und die der Katalog nicht kennt. POST, und
   // hinter dem Bearer-Token — deshalb ist der Knopf der einzige Weg

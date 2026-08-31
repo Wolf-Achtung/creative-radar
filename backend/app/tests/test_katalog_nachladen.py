@@ -676,3 +676,132 @@ def test_tmdb_auswahl_endpoint_503_bei_abgeschaltetem_flag(session, monkeypatch)
     assert auswahl.status_code == 503
     assert anlegen.status_code == 503
     assert "FEATURE_KATALOG_NACHLADEN_ENABLED" in auswahl.json()["detail"]
+
+
+# --- Aufraeum-Endpoint (31.08.2026) -----------------------------------
+#
+# Wolfs Befund: zu viele Admin-Buttons, deren Reihenfolge man kennen
+# muss. Der Endpoint verkettet die drei Kandidaten-Schritte in fester
+# Cron-Reihenfolge; die Tests nageln Reihenfolge, Scharf-Modus,
+# Flag-Respekt und Fehler-Kapselung fest.
+
+
+def _aufraeumen_aufrufen(session):
+    from httpx import ASGITransport, AsyncClient
+
+    from app.database import get_session
+    from app.main import app
+
+    app.dependency_overrides[get_session] = lambda: session
+
+    async def _post():
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post("/api/titles/candidates/aufraeumen")
+
+    try:
+        return asyncio.run(_post())
+    finally:
+        app.dependency_overrides.clear()
+
+
+class _DictSummary:
+    def __init__(self, daten):
+        self._daten = daten
+
+    def to_dict(self):
+        return self._daten
+
+
+def test_aufraeumen_laeuft_in_cron_reihenfolge_und_scharf(session, monkeypatch):
+    from app.api import titles as titles_module
+
+    reihenfolge: list[str] = []
+
+    monkeypatch.setenv("FEATURE_KATALOG_NACHLADEN_ENABLED", "true")
+    monkeypatch.setattr(
+        titles_module, "run_candidate_autopilot",
+        lambda s: reihenfolge.append("autopilot") or _DictSummary({"auto_assigned": 3}),
+    )
+    monkeypatch.setattr(
+        titles_module, "run_candidate_llm_assist",
+        lambda s: reihenfolge.append("ki") or _DictSummary({"geprueft": 5}),
+    )
+
+    async def _nachladen(s, **kwargs):
+        reihenfolge.append("nachladen")
+        assert kwargs.get("anwenden") is True, (
+            "Der Aufraeum-Knopf muss SCHARF nachladen — eine Vorschau "
+            "wuerde dieselben Titel jede Runde finden und nichts tun."
+        )
+        return kn.NachladeSummary(vorschau=False)
+
+    monkeypatch.setattr(titles_module, "lade_fehlende_titel_nach", _nachladen)
+
+    antwort = _aufraeumen_aufrufen(session)
+
+    assert antwort.status_code == 200
+    assert reihenfolge == ["autopilot", "ki", "nachladen"], (
+        "Feste Cron-Reihenfolge: erst exakte Treffer, dann KI-Urteil, "
+        "dann die frisch markierten Luecken schliessen."
+    )
+    daten = antwort.json()
+    assert daten["autopilot"] == {"auto_assigned": 3}
+    assert daten["ki"] == {"geprueft": 5}
+    assert daten["nachladen"]["vorschau"] is False
+
+
+def test_aufraeumen_respektiert_das_nachladen_flag(session, monkeypatch):
+    """Ohne Flag laufen die beiden freigegebenen Schritte trotzdem —
+    nur das Nachladen wird als skipped gemeldet, nicht mit 503
+    verweigert (die 503 gehoert dem direkten Nachladen-Endpoint)."""
+    from app.api import titles as titles_module
+
+    monkeypatch.delenv("FEATURE_KATALOG_NACHLADEN_ENABLED", raising=False)
+    monkeypatch.setattr(
+        titles_module, "run_candidate_autopilot", lambda s: _DictSummary({"auto_assigned": 0})
+    )
+    monkeypatch.setattr(
+        titles_module, "run_candidate_llm_assist", lambda s: _DictSummary({"geprueft": 0})
+    )
+    nachgeladen: list[int] = []
+
+    async def _nachladen(s, **kwargs):
+        nachgeladen.append(1)
+        return kn.NachladeSummary()
+
+    monkeypatch.setattr(titles_module, "lade_fehlende_titel_nach", _nachladen)
+
+    antwort = _aufraeumen_aufrufen(session)
+
+    assert antwort.status_code == 200
+    assert antwort.json()["nachladen"] == {
+        "skipped": True, "reason": "feature_flag_disabled",
+    }
+    assert nachgeladen == []
+
+
+def test_aufraeumen_ein_kaputter_schritt_kippt_die_anderen_nicht(session, monkeypatch):
+    from app.api import titles as titles_module
+
+    monkeypatch.setenv("FEATURE_KATALOG_NACHLADEN_ENABLED", "true")
+
+    def _explodiert(s):
+        raise RuntimeError("autopilot kaputt")
+
+    monkeypatch.setattr(titles_module, "run_candidate_autopilot", _explodiert)
+    monkeypatch.setattr(
+        titles_module, "run_candidate_llm_assist", lambda s: _DictSummary({"geprueft": 2})
+    )
+
+    async def _nachladen(s, **kwargs):
+        return kn.NachladeSummary(vorschau=False)
+
+    monkeypatch.setattr(titles_module, "lade_fehlende_titel_nach", _nachladen)
+
+    antwort = _aufraeumen_aufrufen(session)
+
+    daten = antwort.json()
+    assert "autopilot kaputt" in daten["autopilot"]["error"]
+    assert daten["ki"] == {"geprueft": 2}, "Die KI-Pruefung laeuft trotzdem."
+    assert daten["nachladen"]["vorschau"] is False

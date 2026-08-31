@@ -21,6 +21,7 @@ export function SourcesPanel({
   onRematchAssets,
   onCandidateAutopilot,
   onCandidateLlmAssist,
+  onVorschlaegeAufraeumen = () => {},
   onKatalogVorschau = () => {},
   onKatalogAnwenden = () => {},
   katalogVorschau = null,
@@ -113,50 +114,71 @@ export function SourcesPanel({
           <span className="pill">Neue Titel diese Woche: {whitelistStats?.new_titles_this_week ?? '—'}</span>
           <span className="pill">Offene Titelkandidaten: {whitelistStats?.open_title_candidates ?? titleCandidates.length}</span>
         </div>
+        {/* Aufgeräumt am 31.08.2026 (Wolfs Befund: „viel zu viele
+            Buttons, wir brauchen Klarheit"). Die sechs Buttons hier
+            waren fachlich EIN Ablauf in fester Reihenfolge, den man
+            kennen musste — der Queue-Tag brauchte neun Klicks. Jetzt
+            traegt die Sektion EINEN Knopf, der die Kandidaten-Pipeline
+            server-seitig in Cron-Reihenfolge laufen laesst; die
+            Einzelschritte bleiben im Aufklapper fuer Diagnose und
+            Sonderfaelle (z. B. Nachladen-Vorschau ansehen). */}
         <div className="section-actions">
-          <button className="primary" onClick={onSyncTitleSources} disabled={busy}>Titelquellen aktualisieren</button>
-          <button className="secondary" onClick={onRematchAssets} disabled={busy}>Bestehende Treffer neu zuordnen</button>
-          {/* Kandidaten-Autopilot (2026-07-20): bestätigt offene Titel-
-              Vorschläge mit eindeutigem Exakt-Treffer automatisch und
-              schließt alte schwache Vorschläge — läuft auch wöchentlich
-              im Cron; der Button ist für den Backlog-Abbau on demand. */}
-          <button className="secondary" onClick={onCandidateAutopilot} disabled={busy}>Offene Vorschläge automatisch bestätigen</button>
-          {/* Kandidaten-LLM-Assist (21.08.2026): der Rest OHNE Exakt-
-              Treffer („beware" statt „Beware Boiúna") — KI liest die
-              Caption und ordnet nur sichere Fälle zu, 12 je Klick. */}
-          <button className="secondary" onClick={onCandidateLlmAssist} disabled={busy}>Rest-Vorschläge mit KI prüfen</button>
-          {/* Katalog-Nachladen (25.08.2026): der Schritt NACH der KI-
-              Prüfung. Sie endet regelmäßig mit „bewirbt X (nicht im
-              Katalog)" — dieser Knopf legt genau diese Titel an, wenn
-              der Post sie wörtlich nennt und TMDb sie eindeutig kennt.
-              Feature-Flag-Gate (Arbeitsregel 23.08.2026): erscheint nur,
-              wo /api/health -> features es anbietet — Staging zuerst. */}
-          {features.katalog_nachladen && (
-            <>
-              <button className="secondary" onClick={onKatalogVorschau} disabled={busy}>Fehlende Titel prüfen (Vorschau)</button>
-              {/* Erst sehen, dann übernehmen. Gesperrt, bis eine
-                  Vorschau vorliegt, die auch wirklich etwas zu tun
-                  hätte — ein Klick ins Leere soll nicht wie eine
-                  Entscheidung aussehen.
-
-                  Die Bedingung hängt an ``zugeordnet``, nicht an
-                  ``angelegt``: Wolfs Lauf vom 25.08.2026 meldete "0
-                  Titel würden angelegt, 18 Treffer zugeordnet" und war
-                  damit gesperrt, obwohl 18 Assets auf ihre Zuordnung
-                  warteten. ``zugeordnet`` zählt beide Wege. */}
-              <button
-                className="secondary"
-                onClick={onKatalogAnwenden}
-                disabled={busy || !katalogVorschau || !katalogVorschau.zugeordnet}
-                title={katalogVorschau
-                  ? undefined
-                  : 'Erst die Vorschau ansehen — sie zeigt, was passieren würde.'}
-              >
-                {formatKatalogAnwendenLabel(katalogVorschau)}
-              </button>
-            </>
-          )}
+          <button className="primary" onClick={onVorschlaegeAufraeumen} disabled={busy}>
+            Vorschläge aufräumen (Autopilot → KI → TMDb)
+          </button>
         </div>
+        <details className="einzelschritte">
+          <summary>Einzelne Schritte — für Diagnose und Sonderfälle</summary>
+          <p className="muted small">
+            Alles hier läuft auch im Montags-Cron und steckt im Aufräumen-Knopf.
+            Einzeln klicken lohnt nur, wenn ein Schritt allein laufen soll —
+            etwa die Nachladen-Vorschau vor dem Übernehmen.
+          </p>
+          <div className="section-actions">
+            <button className="secondary" onClick={onSyncTitleSources} disabled={busy}>Titelquellen aktualisieren</button>
+            <button className="secondary" onClick={onRematchAssets} disabled={busy}>Bestehende Treffer neu zuordnen</button>
+            {/* Kandidaten-Autopilot (2026-07-20): bestätigt offene Titel-
+                Vorschläge mit eindeutigem Exakt-Treffer automatisch und
+                schließt alte schwache Vorschläge — läuft auch wöchentlich
+                im Cron; der Button ist für den Backlog-Abbau on demand. */}
+            <button className="secondary" onClick={onCandidateAutopilot} disabled={busy}>Offene Vorschläge automatisch bestätigen</button>
+            {/* Kandidaten-LLM-Assist (21.08.2026): der Rest OHNE Exakt-
+                Treffer („beware" statt „Beware Boiúna") — KI liest die
+                Caption und ordnet nur sichere Fälle zu, 12 je Klick. */}
+            <button className="secondary" onClick={onCandidateLlmAssist} disabled={busy}>Rest-Vorschläge mit KI prüfen</button>
+            {/* Katalog-Nachladen (25.08.2026): der Schritt NACH der KI-
+                Prüfung. Sie endet regelmäßig mit „bewirbt X (nicht im
+                Katalog)" — dieser Knopf legt genau diese Titel an, wenn
+                der Post sie wörtlich nennt und TMDb sie eindeutig kennt.
+                Feature-Flag-Gate (Arbeitsregel 23.08.2026): erscheint nur,
+                wo /api/health -> features es anbietet — Staging zuerst. */}
+            {features.katalog_nachladen && (
+              <>
+                <button className="secondary" onClick={onKatalogVorschau} disabled={busy}>Fehlende Titel prüfen (Vorschau)</button>
+                {/* Erst sehen, dann übernehmen. Gesperrt, bis eine
+                    Vorschau vorliegt, die auch wirklich etwas zu tun
+                    hätte — ein Klick ins Leere soll nicht wie eine
+                    Entscheidung aussehen.
+
+                    Die Bedingung hängt an ``zugeordnet``, nicht an
+                    ``angelegt``: Wolfs Lauf vom 25.08.2026 meldete "0
+                    Titel würden angelegt, 18 Treffer zugeordnet" und war
+                    damit gesperrt, obwohl 18 Assets auf ihre Zuordnung
+                    warteten. ``zugeordnet`` zählt beide Wege. */}
+                <button
+                  className="secondary"
+                  onClick={onKatalogAnwenden}
+                  disabled={busy || !katalogVorschau || !katalogVorschau.zugeordnet}
+                  title={katalogVorschau
+                    ? undefined
+                    : 'Erst die Vorschau ansehen — sie zeigt, was passieren würde.'}
+                >
+                  {formatKatalogAnwendenLabel(katalogVorschau)}
+                </button>
+              </>
+            )}
+          </div>
+        </details>
       </Section>
       {/* Wir-Projekte (22.08.2026): Trailerhaus betreut keine kompletten
           Kunden-Kanäle, sondern liefert pro Filmprojekt — die Wir-Einheit
