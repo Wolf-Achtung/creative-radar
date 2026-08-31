@@ -394,6 +394,13 @@ class Asset(SQLModel, table=True):
     kinetic_type: Optional[str] = None
     kinetic_text: Optional[str] = None
     de_us_match_key: Optional[str] = None
+    # Rematch-Merker (31.08.2026): wann der woechentliche Rematch dieses
+    # Asset zuletzt geprueft hat. Ohne den Stempel lud der Cron jede
+    # Woche ALLE titellosen Assets neueste-zuerst und kam nie ueber den
+    # Kopf der Liste hinaus — dieselben ~1.200 wurden woechentlich neu
+    # geprueft, der Rest (2.639 am 31.08.) nie erreicht. Sortiert wird
+    # jetzt "nie geprueft zuerst, dann am laengsten nicht geprueft".
+    last_rematch_at: Optional[datetime] = Field(default=None, index=True)
     visual_confidence_score: Optional[float] = None
     visual_evidence_url: Optional[str] = None
     visual_crop_title_url: Optional[str] = None

@@ -483,3 +483,106 @@ def test_setup_zeit_zaehlt_den_index_aufbau_mit():
         "Die Setup-Messung muss VOR der Schleife stehen und ab ``started`` "
         "rechnen, sonst zaehlt sie den Bundle-/Index-Aufbau nicht mit."
     )
+
+
+# --- Rematch-Merker (31.08.2026) --------------------------------------
+#
+# Vorher lud jeder Lauf ALLE titellosen Assets neueste-zuerst und brach
+# nach dem Zeitbudget ab: die vorderen ~1.200 wurden jede Woche neu
+# geprueft, die hinteren 2.639 nie erreicht. Der Stempel macht daraus
+# eine Rotation — nie geprueft zuerst, danach am laengsten nicht
+# geprueft, und jeder Check rueckt das Asset ans Ende.
+
+
+def _titelloses_asset(session, channel, *, slug, created_at=None, last_rematch_at=None):
+    from datetime import datetime, timezone
+
+    post = Post(
+        channel_id=channel.id,
+        post_url=f"https://example.com/{slug}",
+        caption="Unknown preview teaser",
+    )
+    session.add(post)
+    session.commit()
+    session.refresh(post)
+    asset = Asset(post_id=post.id, title_id=None, ai_summary_de="Kein Titel")
+    if created_at is not None:
+        asset.created_at = created_at
+    if last_rematch_at is not None:
+        asset.last_rematch_at = last_rematch_at
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+    return asset
+
+
+def test_rematch_stempelt_jedes_gepruefte_asset():
+    with _session() as session:
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(channel)
+        session.commit()
+        session.refresh(channel)
+        asset = _titelloses_asset(session, channel, slug="stempel")
+
+        rematch_unassigned_assets(session)
+
+        refreshed = session.get(Asset, asset.id)
+        assert refreshed.last_rematch_at is not None, (
+            "Auch ein erfolgloser Check zaehlt als geprueft — sonst "
+            "steht derselbe hoffnungslose Fall naechste Woche wieder vorn."
+        )
+
+
+def test_rematch_rotation_nie_gepruefte_zuerst_dann_die_aeltesten():
+    from datetime import datetime, timedelta, timezone
+
+    basis = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    with _session() as session:
+        channel = Channel(name="Test", platform="instagram", url="https://example.com")
+        session.add(channel)
+        session.commit()
+        session.refresh(channel)
+
+        # Letzte Woche geprueft — muss ans Ende.
+        vorwoche = _titelloses_asset(
+            session, channel, slug="vorwoche",
+            created_at=basis + timedelta(days=20),
+            last_rematch_at=basis + timedelta(days=24),
+        )
+        # Vor drei Wochen geprueft — kommt vor der Vorwoche dran.
+        alt_geprueft = _titelloses_asset(
+            session, channel, slug="alt-geprueft",
+            created_at=basis + timedelta(days=1),
+            last_rematch_at=basis + timedelta(days=10),
+        )
+        # Nie geprueft: neuestes zuerst (frische Kampagnen speisen die
+        # Montags-Queue), aeltere nie-gepruefte danach.
+        nie_alt = _titelloses_asset(
+            session, channel, slug="nie-alt", created_at=basis,
+        )
+        nie_neu = _titelloses_asset(
+            session, channel, slug="nie-neu",
+            created_at=basis + timedelta(days=25),
+        )
+
+        # Deckel 2: nur die beiden NIE gepr. passen in dieses Fenster.
+        summary = rematch_unassigned_assets(session, time_budget_seconds=None)
+        assert summary.checked == 4
+
+        stempel = {
+            a_id: session.get(Asset, a_id).last_rematch_at
+            for a_id in [vorwoche.id, alt_geprueft.id, nie_alt.id, nie_neu.id]
+        }
+        # Reihenfolge ueber die Stempel-Zeitpunkte belegen: nie-neu vor
+        # nie-alt vor alt-geprueft vor vorwoche.
+        assert stempel[nie_neu.id] <= stempel[nie_alt.id] <= stempel[alt_geprueft.id] <= stempel[vorwoche.id]
+
+
+def test_rematch_rotation_wird_in_der_query_sortiert():
+    """Quelltext-Waechter: die Rotation haengt an der ORDER-BY-Klausel —
+    ``nulls_first`` fuer die Nie-Gepruefte-Gruppe, dann Alter des
+    Stempels. Ein ``order_by(created_at.desc())`` allein waere der alte
+    fest stehende Kopf."""
+    quelle = inspect.getsource(rematch_unassigned_assets)
+    assert "last_rematch_at.asc().nulls_first()" in quelle
+    assert "created_at.desc()" in quelle

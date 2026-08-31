@@ -6,7 +6,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.models.entities import Asset, Post, TitleCandidate, CandidateStatus
+from app.models.entities import Asset, Post, TitleCandidate, CandidateStatus, utc_now
 from app.services.match_key import slugify_match_key
 from app.services.title_candidates import create_candidate_from_asset, resolve_open_candidates_for_asset
 from app.services.whitelist_matcher import (
@@ -98,10 +98,25 @@ def rematch_unassigned_assets(
     landen in der Summary, der Rest ist beim naechsten Lauf dran (Assets
     werden newest-first verarbeitet — die aktuelle Woche zuerst).
     ``None`` = unbegrenzt (manueller Pfad ``POST /api/titles/rematch-assets``
-    bleibt unveraendert)."""
+    bleibt unveraendert).
+
+    Rotation statt fester Kopf (31.08.2026): vorher lud jeder Lauf ALLE
+    titellosen Assets neueste-zuerst — die vorderen ~1.200 wurden jede
+    Woche neu geprueft, die hinteren 2.639 nie erreicht. Jetzt kommen
+    NIE gepruefte zuerst (darunter neueste zuerst — frische Kampagnen
+    speisen die Montags-Queue), danach die am laengsten nicht
+    geprueften; jeder angefasste Kandidat bekommt ``last_rematch_at``
+    und rueckt ans Ende. Der Backlog laeuft so in wenigen Wochen einmal
+    komplett durch statt gar nicht.
+    """
     started = time.monotonic()
     assets = session.exec(
-        select(Asset).where(Asset.title_id == None).order_by(Asset.created_at.desc())  # noqa: E711
+        select(Asset)
+        .where(Asset.title_id == None)  # noqa: E711
+        .order_by(
+            Asset.last_rematch_at.asc().nulls_first(),
+            Asset.created_at.desc(),
+        )
     ).all()
     summary = RematchSummary()
 
@@ -146,6 +161,12 @@ def rematch_unassigned_assets(
             summary.remaining = len(assets) - index
             break
         summary.checked += 1
+        # Rotations-Stempel: auch ein erfolgloser Check zaehlt als
+        # geprueft — sonst stuende derselbe hoffnungslose Fall naechste
+        # Woche wieder vorn. Commit laeuft ueber den Batch unten.
+        asset.last_rematch_at = utc_now()
+        session.add(asset)
+        pending_commit += 1
         post = posts_by_id.get(asset.post_id) if asset.post_id else None
         caption = post.caption if post else ""
         match_fields = _build_match_fields(asset, post)
