@@ -147,7 +147,7 @@ Regeln:
 2. Jede Empfehlung nennt in cited_post_ids die Beispiel-Posts (ihre URLs, wortwörtlich), aus denen sie abgeleitet ist. Ohne Beleg keine Empfehlung.
 3. Der Beleg jeder Zutat ist ein WÖRTLICHES Fragment aus einer der Beleg-Captions oben (kurz, max. ~10 Wörter) — die Studios schreiben die beste Blockbuster-Sprache selbst; zitiere sie, statt sie nachzubauen.
 4. Beispiel-Zeilen klingen wie die Beleg-Captions: Studio-Marketing, kurz, druckvoll, direkt. Keine gestelzten Metaphern, keine Poesie, kein Werbetexter-Pathos. Im Zweifel näher am Beleg als an der eigenen Idee. Keine Spoiler, keine erfundenen Filmtitel, keine Superlative ohne Beleg.
-5. Deutsch ist nicht übersetztes Englisch: DE-Zeilen folgen deutscher Social-Sprache, EN-Zeilen englischer.
+5. Deutsch ist nicht übersetztes Englisch: DE-Zeilen folgen deutscher Social-Sprache, EN-Zeilen englischer. Schreibe Deutsch mit echten Umlauten (ä/ö/ü/ß) — nie "ae/oe/ue".
 6. Wenn ein Muster zu dünn belegt ist, sag das in data_caveats statt zu liefern.
 7. Kalenderdaten: Die Beispiel-Posts liegen in der Vergangenheit — ihre Start- und Kinodaten sind abgelaufen. Übernimm KEINEN konkreten Termin in die Beispiel-Zeilen; schreibe [DATUM] als Platzhalter, wo ein Datum hingehört. (In Zutaten-Belegen darf das Original-Datum stehen — sie sind Zitate.)"""
 
@@ -323,7 +323,7 @@ def _format_pattern_block(
     z = f"z={cell.breakout_z}" if cell.breakout_z is not None else "z=–"
     header = (
         f"## Muster {idx}: {ebene} \"{cell.value}\" — Befund: {cell.breakout_verdict}\n"
-        f"Zahlen: {cell.sample_size} Posts von {cell.channel_count} Kanaelen, "
+        f"Zahlen: {cell.sample_size} Posts von {cell.channel_count} Kanälen, "
         f"Breakout-Quote {cell.breakout_rate * 100:.1f} % "
         f"(erwartet nach Plattform-Mischung {cell.expected_breakout_rate * 100:.1f} %, {z}), "
         f"Median-Lift {cell.median_lift}x. Plattform-Mix: {mix}."
@@ -348,9 +348,9 @@ def _build_user_prompt(evidence: PatternBriefingEvidence) -> str:
         f"({evidence.window_start.date().isoformat()} bis "
         f"{evidence.window_end.date().isoformat()}). "
         f"Datenbasis: {evidence.posts_with_baseline} Posts mit Kanal-Baseline "
-        f"aus {evidence.channels_covered} Kanaelen; {abdeckung_label} "
+        f"aus {evidence.channels_covered} Kanälen; {abdeckung_label} "
         f"{evidence.coverage * 100:.0f} %. "
-        f"Breakout = Post mit mindestens 2x der ueblichen Aktivierung "
+        f"Breakout = Post mit mindestens 2x der üblichen Aktivierung "
         f"seines eigenen Kanals; Basisquote "
         f"{evidence.baseline_breakout_rate * 100:.1f} %.\n"
     )

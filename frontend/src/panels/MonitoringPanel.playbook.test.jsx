@@ -80,6 +80,12 @@ describe('BriefingSection', () => {
     await screen.findByText(/kein LLM-Aufruf, keine Kosten/);
   });
 
+  it('die Sektion nennt sich nach dem Zutaten-Format, nicht mehr nach Hooks', () => {
+    render(<BriefingSection />);
+    expect(screen.getByText(/Zutaten & Beispiele aus den Mustern/)).toBeTruthy();
+    expect(screen.queryByText(/Hooks & Captions/)).toBeNull();
+  });
+
   it('zeigt Zutaten-Bausteine mit Studio-Zitat und Beispielen (Format 31.08.)', async () => {
     endpoints.adminPatternBriefingLatest.mockResolvedValue({
       mode: 'genre', iso_year: 2026, iso_week: 36, model: 'claude-x',
