@@ -59,12 +59,19 @@ export function CandidateDecisionCard({
   onConfirmCandidate = () => {},
   onDismissCandidate = () => {},
   onCreateTitleFromCandidate = () => {},
+  katalogNachladenAktiv = false,
+  onTmdbAuswahl = null,
+  onTmdbAnlegen = () => {},
   onReview = () => {},
 }) {
   const vorschlag = openCandidate?.suggested_title || '';
   const vorbefuellt = extractTitleFromNote(openCandidate?.llm_note) || vorschlag;
   const [neuerTitel, setNeuerTitel] = useState(vorbefuellt);
   const [umzugScharf, setUmzugScharf] = useState(false);
+  // TMDb-Auswahl: null = noch nicht abgefragt, [] = nichts gefunden.
+  const [tmdbTreffer, setTmdbTreffer] = useState(null);
+  const [tmdbLaedt, setTmdbLaedt] = useState(false);
+  const [tmdbFehler, setTmdbFehler] = useState('');
   // Kandidat gewechselt (nach Resolve laedt die Liste neu) → Eingabe und
   // Umzugs-Schutz zuruecksetzen. Anpassung waehrend des Renders, gleiches
   // Muster wie ImagePreview (kein Effect noetig).
@@ -73,6 +80,22 @@ export function CandidateDecisionCard({
     setVorigerKandidat(openCandidate?.id);
     setNeuerTitel(vorbefuellt);
     setUmzugScharf(false);
+    setTmdbTreffer(null);
+    setTmdbFehler('');
+  }
+
+  async function tmdbNachschlagen() {
+    if (!onTmdbAuswahl) return;
+    setTmdbLaedt(true);
+    setTmdbFehler('');
+    try {
+      setTmdbTreffer(await onTmdbAuswahl(neuerTitel.trim()));
+    } catch (e) {
+      setTmdbTreffer(null);
+      setTmdbFehler(`TMDb-Abfrage fehlgeschlagen: ${e?.message || e}`);
+    } finally {
+      setTmdbLaedt(false);
+    }
   }
 
   const bereitsZugeordnet = Boolean(asset.title_id);
@@ -126,6 +149,46 @@ export function CandidateDecisionCard({
           Verwerfen
         </button>
       </div>
+      {/* TMDb-Auswahl (31.08.2026): das Katalog-Nachladen laesst Namen
+          liegen, die TMDb MEHRFACH kennt — die Waechter verlangen
+          Eindeutigkeit. Hier legt die Karte einem Menschen genau diese
+          Kandidaten zur Auswahl vor: ein Klick legt an (bzw. nutzt die
+          vorhandene tmdb_id) und ordnet zu. Sichtbar nur mit Feature-
+          Flag (health → features.katalog_nachladen). */}
+      {katalogNachladenAktiv && (
+        <div className="decision-tmdb">
+          <button
+            type="button"
+            className="secondary ghost"
+            disabled={busy || tmdbLaedt || neuerTitel.trim().length < 2}
+            onClick={tmdbNachschlagen}
+          >
+            {tmdbLaedt ? 'TMDb wird gefragt …' : 'Bei TMDb nachschlagen'}
+          </button>
+          {tmdbFehler && <p className="muted small">{tmdbFehler}</p>}
+          {tmdbTreffer && tmdbTreffer.length === 0 && (
+            <p className="muted small">
+              TMDb kennt keinen aktuellen Eintrag mit genau diesem Namen —
+              wenn der Titel stimmt, oben von Hand anlegen.
+            </p>
+          )}
+          {tmdbTreffer && tmdbTreffer.length > 0 && (
+            <div className="decision-search-treffer">
+              {tmdbTreffer.map((wahl) => (
+                <button
+                  key={`${wahl.medium}-${wahl.tmdb_id}`}
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => onTmdbAnlegen(asset, openCandidate, wahl)}
+                >
+                  {`„${wahl.name}“ (${[wahl.jahr, wahl.medium === 'serie' ? 'Serie' : 'Film'].filter(Boolean).join(', ')}) anlegen + zuordnen`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 

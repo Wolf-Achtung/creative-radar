@@ -256,11 +256,42 @@ export function formatKatalogNachladen(r) {
   const namen = (r.angelegte_titel || []).length
     ? ` Titel: ${r.angelegte_titel.join(', ')}.`
     : '';
+  // Seit 31.08.2026 nennt jede Kategorie ihre Namen (Backend liefert
+  // sie gedeckelt mit): "10 bleiben liegen" ohne das WELCHE hiess
+  // vorher, die Queue von Hand mit der Zaehlung abzugleichen.
+  const mitNamen = (anzahl, text, namen) => {
+    const liste = (namen || []).length ? `: ${namen.join(', ')}` : '';
+    return `${anzahl} ${text}${liste}`;
+  };
   const offen = [];
-  if (r.nicht_belegt) offen.push(`${r.nicht_belegt} ohne Text-Beleg`);
+  if (r.nicht_belegt) {
+    offen.push(mitNamen(r.nicht_belegt, 'ohne Text-Beleg', r.nicht_belegt_namen));
+  }
+  // Der alte Sammel-Zaehler warf "TMDb kennt es nicht" und "TMDb kennt
+  // es mehrfach" zusammen — das eine ist echte Handarbeit, das andere
+  // nur eine Auswahl (dafuer gibt es die TMDb-Auswahl in der Queue).
+  if (r.tmdb_ohne_treffer) {
+    offen.push(mitNamen(
+      r.tmdb_ohne_treffer,
+      'ohne aktuellen TMDb-Treffer (Handarbeit)',
+      r.tmdb_ohne_treffer_namen
+    ));
+  }
+  if (r.tmdb_mehrdeutig) {
+    offen.push(mitNamen(
+      r.tmdb_mehrdeutig,
+      'mehrfach bei TMDb — Auswahl in „Treffer prüfen"',
+      r.tmdb_mehrdeutig_namen
+    ));
+  }
+  // Altformat vor der Aufteilung (z. B. ein Cron-Summary von vorher).
   if (r.tmdb_unklar) offen.push(`${r.tmdb_unklar} bei TMDb nicht eindeutig`);
   if (r.katalog_mehrdeutig) {
-    offen.push(`${r.katalog_mehrdeutig} mit gleichnamigem Titel im Katalog`);
+    offen.push(mitNamen(
+      r.katalog_mehrdeutig,
+      'mit gleichnamigem Titel im Katalog',
+      r.katalog_mehrdeutig_namen
+    ));
   }
   if (r.fehler) offen.push(`${r.fehler} mit TMDb-Fehler`);
   const liegengelassen = offen.length

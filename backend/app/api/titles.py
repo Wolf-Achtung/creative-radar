@@ -16,6 +16,7 @@ from app.schemas.dto import (
     TitleCreate,
     TitlePatch,
     TitleSyncRequest,
+    TmdbAnlegen,
 )
 from app.admin_session import require_admin_session
 from app.core.feature_flags import (
@@ -28,7 +29,11 @@ from app.services.candidate_autopilot import (
     run_candidate_autopilot,
 )
 from app.services.candidate_llm_assist import run_candidate_llm_assist
-from app.services.katalog_nachladen import lade_fehlende_titel_nach
+from app.services.katalog_nachladen import (
+    lade_fehlende_titel_nach,
+    titel_aus_tmdb_anlegen,
+    tmdb_auswahl_fuer_name,
+)
 from app.services.seeds import seed_titles
 from app.services.title_candidates import create_candidate_from_asset
 from app.services.title_rematch import rematch_unassigned_assets
@@ -484,3 +489,55 @@ async def run_katalog_nachladen(
         )
     summary = await lade_fehlende_titel_nach(session, anwenden=anwenden)
     return summary.to_dict()
+
+
+def _katalog_nachladen_oder_503() -> None:
+    """Beide Auswahl-Endpoints gehoeren fachlich zum Katalog-Nachladen
+    und teilen dessen Flag — Muster Trailer Intelligence: 503 nennt die
+    Env-Var, damit die Meldung zugleich die Anleitung ist."""
+    if not is_katalog_nachladen_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Katalog-Nachladen ist nicht aktiv. Env-Var: "
+                "FEATURE_KATALOG_NACHLADEN_ENABLED"
+            ),
+        )
+
+
+@router.get("/tmdb-auswahl")
+async def get_tmdb_auswahl(name: str):
+    """Exakte, aktuelle TMDb-Treffer zu einem Namen — auch mehrdeutige.
+
+    Die menschliche Haelfte von Waechter 2 des Nachladens: der
+    automatische Pfad verlangt GENAU EINEN Treffer und laesst
+    mehrdeutige Namen liegen (31.08.2026: zehn von dreizehn
+    Restfaellen). Dieser Endpoint legt die Kandidaten der Pruef-Queue
+    zur Auswahl vor; ``POST /titles/tmdb-anlegen`` setzt die Wahl um.
+    """
+    _katalog_nachladen_oder_503()
+    name = (name or "").strip()
+    if len(name) < 2:
+        raise HTTPException(status_code=422, detail="Name zu kurz.")
+    return {"treffer": await tmdb_auswahl_fuer_name(name)}
+
+
+@router.post("/tmdb-anlegen")
+async def post_tmdb_anlegen(
+    payload: TmdbAnlegen, session: Session = Depends(get_session)
+):
+    """Setzt eine TMDb-Auswahl um: Titel anlegen (oder per ``tmdb_id``
+    wiederverwenden), Asset zuordnen, Kandidat schliessen — ein Klick.
+    Details und Schutzregeln in ``titel_aus_tmdb_anlegen``."""
+    _katalog_nachladen_oder_503()
+    try:
+        return await titel_aus_tmdb_anlegen(
+            session,
+            asset_id=payload.asset_id,
+            candidate_id=payload.candidate_id,
+            tmdb_id=payload.tmdb_id,
+            medium=payload.medium,
+            name=payload.name,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))

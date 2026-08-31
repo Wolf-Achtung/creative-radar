@@ -191,7 +191,13 @@ def test_mehrdeutiger_tmdb_treffer_legt_nichts_an(session):
     session.refresh(asset)
     assert session.exec(select(Title)).all() == []
     assert asset.title_id is None
-    assert summary.tmdb_unklar == 1
+    # Seit 31.08.2026 getrennt gezaehlt: mehrdeutig heisst "ein Mensch
+    # muss nur auswaehlen" — dafuer gibt es die TMDb-Auswahl in der
+    # Queue. Die Meldung nennt den Namen, sonst weiss niemand, WELCHER
+    # Fall zur Auswahl ansteht.
+    assert summary.tmdb_mehrdeutig == 1
+    assert summary.tmdb_mehrdeutig_namen == ["The Fox"]
+    assert summary.tmdb_ohne_treffer == 0
 
 
 def test_veralteter_tmdb_treffer_zaehlt_nicht(session):
@@ -208,7 +214,12 @@ def test_veralteter_tmdb_treffer_zaehlt_nicht(session):
 
     session.refresh(asset)
     assert session.exec(select(Title)).all() == []
-    assert summary.tmdb_unklar == 1
+    # Ein 1974er Namensvetter faellt durchs Aktualitaets-Fenster — fuer
+    # den Zaehler ist das "TMDb kennt das beworbene Werk nicht", NICHT
+    # "mehrdeutig": hier gibt es nichts auszuwaehlen, das ist Handarbeit.
+    assert summary.tmdb_ohne_treffer == 1
+    assert summary.tmdb_ohne_treffer_namen == ["The Fox"]
+    assert summary.tmdb_mehrdeutig == 0
 
 
 def test_bereits_vorhandener_titel_wird_nur_zugeordnet(session):
@@ -536,3 +547,132 @@ def test_zweiter_lauf_legt_den_frisch_angelegten_titel_nicht_erneut_an(session):
     assert zweit.angelegt == 0, "Der Titel steht bereits im Katalog."
     assert zweit.schon_vorhanden == 1
     assert len(session.exec(select(Title)).all()) == 1
+
+
+# --- TMDb-Auswahl (31.08.2026) ----------------------------------------
+#
+# Wolfs Lauf an diesem Tag: 10 von 13 Restfaellen "bei TMDb nicht
+# eindeutig". Der automatische Pfad laesst sie zu Recht liegen — aber
+# ein Mensch muesste nur AUSWAEHLEN. Die Auswahl-Funktionen sind die
+# menschliche Haelfte von Waechter 2: gleiche Filter (exakter Name,
+# aktuelles Datum), nur ohne die Eindeutigkeits-Sperre.
+
+
+def test_tmdb_auswahl_liefert_alle_exakten_aktuellen_treffer():
+    client = _FakeTMDb(
+        filme=[
+            {"id": 1, "title": "The Fox", "release_date": AKTUELL},
+            {"id": 2, "title": "The Fox", "release_date": AKTUELL},
+            {"id": 3, "title": "The Fox", "release_date": VERALTET},
+            {"id": 4, "title": "Fox and Friends", "release_date": AKTUELL},
+        ],
+        serien=[{"id": 9, "name": "The Fox", "first_air_date": AKTUELL}],
+    )
+
+    auswahl = asyncio.run(kn.tmdb_auswahl_fuer_name("The Fox", client=client))
+
+    assert [w["tmdb_id"] for w in auswahl] == [1, 2, 9], (
+        "Beide aktuellen Filme UND die Serie — der Namensvetter von "
+        "damals und der unpassende Name bleiben draussen."
+    )
+    assert auswahl[0]["medium"] == "film"
+    assert auswahl[2]["medium"] == "serie"
+    assert auswahl[0]["jahr"] == AKTUELL[:4]
+
+
+def test_tmdb_anlegen_legt_an_ordnet_zu_und_schliesst(session):
+    asset, cand = _luecke(
+        session, name="The Fox", caption="Official teaser poster for The Fox",
+    )
+    client = _FakeTMDb(filme=[
+        {"id": 1, "title": "The Fox", "release_date": AKTUELL},
+        {"id": 2, "title": "The Fox", "release_date": AKTUELL},
+    ])
+
+    ergebnis = asyncio.run(kn.titel_aus_tmdb_anlegen(
+        session, asset_id=asset.id, candidate_id=cand.id,
+        tmdb_id=2, medium="film", name="The Fox", client=client,
+    ))
+
+    session.refresh(asset)
+    session.refresh(cand)
+    titel = session.exec(select(Title)).all()
+    assert len(titel) == 1
+    assert titel[0].tmdb_id == 2, "Es zaehlt die AUSWAHL, nicht der erste Treffer."
+    assert titel[0].source == "TMDb"
+    assert asset.title_id == titel[0].id
+    assert cand.status == CandidateStatus.RESOLVED
+    assert ergebnis["angelegt"] is True
+
+
+def test_tmdb_anlegen_verwendet_vorhandene_tmdb_zeile_wieder(session):
+    """Dieselbe tmdb_id darf nie zweimal im Katalog stehen — sonst
+    entsteht genau die Doubletten-Lage, die #435 aufgeraeumt hat."""
+    vorhanden = Title(title_original="The Fox", tmdb_id=2, active=True)
+    session.add(vorhanden)
+    session.commit()
+    session.refresh(vorhanden)
+    asset, cand = _luecke(
+        session, name="The Fox", caption="Official teaser poster for The Fox",
+    )
+    client = _FakeTMDb()
+
+    ergebnis = asyncio.run(kn.titel_aus_tmdb_anlegen(
+        session, asset_id=asset.id, candidate_id=cand.id,
+        tmdb_id=2, medium="film", name="The Fox", client=client,
+    ))
+
+    session.refresh(asset)
+    assert ergebnis["angelegt"] is False
+    assert asset.title_id == vorhanden.id
+    assert len(session.exec(select(Title)).all()) == 1
+    assert client.gesucht == [], "Bekannte tmdb_id -> kein TMDb-Aufruf."
+
+
+def test_tmdb_anlegen_unbekannte_id_wirft(session):
+    """Zwischen Auswahl-Anzeige und Klick kann sich TMDb geaendert
+    haben — dann lieber ein sichtbarer Fehler als ein falscher Titel."""
+    asset, cand = _luecke(
+        session, name="The Fox", caption="Official teaser poster for The Fox",
+    )
+    client = _FakeTMDb(filme=[
+        {"id": 1, "title": "The Fox", "release_date": AKTUELL},
+    ])
+
+    with pytest.raises(LookupError):
+        asyncio.run(kn.titel_aus_tmdb_anlegen(
+            session, asset_id=asset.id, candidate_id=cand.id,
+            tmdb_id=999, medium="film", name="The Fox", client=client,
+        ))
+    assert session.exec(select(Title)).all() == []
+
+
+def test_tmdb_auswahl_endpoint_503_bei_abgeschaltetem_flag(session, monkeypatch):
+    """Beide Auswahl-Endpoints teilen das Nachladen-Flag — derselbe
+    Schreib-Pfad, dieselbe Sperre."""
+    from httpx import ASGITransport, AsyncClient
+
+    from app.database import get_session
+    from app.main import app
+
+    monkeypatch.delenv("FEATURE_KATALOG_NACHLADEN_ENABLED", raising=False)
+    app.dependency_overrides[get_session] = lambda: session
+
+    async def _abfragen():
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            auswahl = await client.get("/api/titles/tmdb-auswahl", params={"name": "The Fox"})
+            anlegen = await client.post("/api/titles/tmdb-anlegen", json={
+                "asset_id": str(uuid4()), "candidate_id": str(uuid4()),
+                "tmdb_id": 1, "medium": "film", "name": "The Fox",
+            })
+            return auswahl, anlegen
+
+    try:
+        auswahl, anlegen = asyncio.run(_abfragen())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert auswahl.status_code == 503
+    assert anlegen.status_code == 503
+    assert "FEATURE_KATALOG_NACHLADEN_ENABLED" in auswahl.json()["detail"]

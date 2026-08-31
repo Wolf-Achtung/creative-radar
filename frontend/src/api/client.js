@@ -149,6 +149,13 @@ export const endpoints = {
     `/api/titles/katalog-nachladen?anwenden=${anwenden ? 'true' : 'false'}`,
     { method: 'POST' },
   ),
+  // TMDb-Auswahl (31.08.2026): die menschliche Haelfte des Nachladens.
+  // Der automatische Pfad laesst mehrdeutige Namen liegen — hier holt
+  // die Queue-Karte alle exakten aktuellen Treffer zur Auswahl, und
+  // tmdbAnlegen setzt den angeklickten in einem Schritt um (anlegen
+  // bzw. per tmdb_id wiederverwenden, zuordnen, Kandidat schliessen).
+  titlesTmdbAuswahl: (name) => api(`/api/titles/tmdb-auswahl?name=${encodeURIComponent(name)}`),
+  titlesTmdbAnlegen: (payload) => api('/api/titles/tmdb-anlegen', { method: 'POST', body: JSON.stringify(payload) }),
   updateChannel: (channelId, payload) => api(`/api/channels/${channelId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   updateTitle: (titleId, payload) => api(`/api/titles/${titleId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   titleSyncRuns: () => api('/api/titles/sync/runs'),

@@ -322,6 +322,36 @@ export function AdminApp({ onLogout }) {
     });
   }
 
+  // TMDb-Auswahl (31.08.2026): das Katalog-Nachladen laesst mehrdeutige
+  // Namen bewusst liegen — zehn von dreizehn Restfaellen an diesem Tag.
+  // Die Queue-Karte holt sich hier die exakten aktuellen TMDb-Treffer
+  // und setzt den angeklickten in EINEM Server-Schritt um (anlegen bzw.
+  // per tmdb_id wiederverwenden, zuordnen, Kandidat schliessen) — kein
+  // dreistufiger Client-Tanz, der auf halber Strecke liegen bleiben kann.
+  async function tmdbAuswahlFuerName(name) {
+    const daten = await endpoints.titlesTmdbAuswahl(name);
+    return daten?.treffer || [];
+  }
+
+  async function createTitleFromTmdb(asset, candidate, wahl) {
+    if (!asset || !candidate || !wahl?.tmdb_id) return;
+    await run(async () => {
+      const ergebnis = await endpoints.titlesTmdbAnlegen({
+        asset_id: asset.id,
+        candidate_id: candidate.id,
+        tmdb_id: wahl.tmdb_id,
+        medium: wahl.medium,
+        name: wahl.name,
+      });
+      await load();
+      setMessage(
+        ergebnis.angelegt
+          ? `„${ergebnis.titel}" aus TMDb angelegt und zugeordnet, Vorschlag geschlossen.`
+          : `„${ergebnis.titel}" stand schon im Katalog — zugeordnet, Vorschlag geschlossen.`
+      );
+    });
+  }
+
   // Candidate-Review VERWERFEN: nur den Candidate auf ``ignored`` setzen.
   // Das Asset bleibt unassigned — die normale Zuordnung bleibt moeglich.
   async function dismissCandidate(candidate) {
@@ -686,6 +716,9 @@ export function AdminApp({ onLogout }) {
           onConfirmCandidate={confirmCandidate}
           onDismissCandidate={dismissCandidate}
           onCreateTitleFromCandidate={createTitleFromCandidate}
+          katalogNachladenAktiv={Boolean(health?.features?.katalog_nachladen)}
+          onTmdbAuswahl={tmdbAuswahlFuerName}
+          onTmdbAnlegen={createTitleFromTmdb}
           assetMode={assetMode}
           assetsHasMore={assetsHasMore}
           onSwitchAssetMode={switchAssetMode}
