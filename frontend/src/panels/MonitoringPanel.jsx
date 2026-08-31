@@ -522,7 +522,30 @@ function BriefingAnzeige({ anzeige }) {
           {b.begruendung && (
             <p className="muted small" style={{ margin: '0 0 0.5rem' }}>{b.begruendung}</p>
           )}
+          {/* Zutaten-Format (31.08.): welche Elemente in den Text
+              gehoeren, mit woertlichem Studio-Zitat als Beweis — statt
+              fertiger Hooks (Wolfs Befund: die klangen gekuenstelt).
+              Alt-Rows tragen noch hooks_de/captions_de und rendern
+              ueber die Fallback-Liste darunter. */}
+          {Array.isArray(b.zutaten) && b.zutaten.length > 0 && (
+            <div style={{ marginBottom: '0.5rem' }}>
+              <p className="small" style={{ margin: '0 0 0.15rem', fontWeight: 600 }}>Diese Elemente gehören in den Text</p>
+              <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+                {b.zutaten.map((z, j) => (
+                  <li key={j} className="small" style={{ marginBottom: '0.25rem' }}>
+                    <strong>{z.element}</strong>
+                    {z.so_gehts ? ` — ${z.so_gehts}` : ''}
+                    {z.beleg && (
+                      <span className="muted"> · Original: „{z.beleg}“</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {[
+            ['Beispiele (DE)', b.beispiele_de],
+            ['Beispiele (EN)', b.beispiele_en],
             ['Hooks (DE)', b.hooks_de],
             ['Hooks (EN)', b.hooks_en],
             ['Captions (DE)', b.captions_de],

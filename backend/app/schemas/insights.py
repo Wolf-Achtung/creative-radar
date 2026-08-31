@@ -1645,20 +1645,43 @@ class PatternBriefingEvidence(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class PatternZutat(BaseModel):
+    """Ein Element, das die starken Captions eines Musters gemeinsam
+    haben — mit woertlichem Beleg-Fragment aus einer Original-Caption.
+
+    Der Beleg ist bewusst ein Zitat: die Studios schreiben die beste
+    Blockbuster-Sprache selbst, und ein echtes Fragment schlaegt jede
+    nachgebaute Zeile (Wolfs Befund 31.08.2026: die generierten
+    Voll-Captions waren "zu gekuenstelt")."""
+    model_config = ConfigDict(extra="ignore")
+
+    element: str
+    so_gehts: str
+    beleg: str
+
+
 class PatternTextBaustein(BaseModel):
     """Ein Text-Baustein zu EINEM freigegebenen Muster: Begruendung mit
-    den mitgelieferten Zahlen, sofort verwendbare Hooks und Captions
-    DE/EN, Hashtags — und die Belege. DE ist nicht uebersetztes EN
-    (Prompt-Regel 4); die Citation-Pflicht (Regel 2) prueft der Code,
-    nicht das Modell."""
+    den mitgelieferten Zahlen, die Zutaten-Liste (welche Elemente die
+    starken Captions gemeinsam haben, je mit woertlichem Beleg), wenige
+    Beispiel-Zeilen DE/EN als Illustration, Hashtags — und die Belege.
+
+    Umbau 31.08.2026 (Wolfs Feedback zum KW-35-Playbook): vorher
+    lieferte der Baustein fertige Hooks und Captions — die klangen
+    gekuenstelt und trafen die Blockbuster-Sprache nicht. Jetzt sagt er
+    dem Nutzer, WELCHE Elemente in den Text gehoeren (mit echten
+    Studio-Zitaten als Beweis); die Beispiel-Zeilen sind Illustration,
+    nicht das Produkt. DE ist nicht uebersetztes EN (Prompt-Regel); die
+    Citation-Pflicht prueft der Code, nicht das Modell. Persistierte
+    Rows aus der Zeit davor tragen stattdessen hooks_de/captions_de —
+    die Renderer (Mail, Admin-Panel) lesen beide Formen."""
     model_config = ConfigDict(extra="ignore")
 
     muster: str
     begruendung: str
-    hooks_de: list[str] = Field(min_length=1, max_length=5)
-    hooks_en: list[str] = Field(min_length=1, max_length=5)
-    captions_de: list[str] = Field(min_length=1, max_length=3)
-    captions_en: list[str] = Field(min_length=1, max_length=3)
+    zutaten: list[PatternZutat] = Field(min_length=1, max_length=5)
+    beispiele_de: list[str] = Field(min_length=1, max_length=3)
+    beispiele_en: list[str] = Field(min_length=1, max_length=3)
     hashtags: list[str] = Field(default_factory=list, max_length=10)
     cited_post_ids: list[str] = Field(min_length=1)
 
