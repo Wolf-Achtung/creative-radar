@@ -459,6 +459,14 @@ class Settings(BaseSettings):
     # 60er-Batch kostet bei Haiku-Preisen um die 2 Cent.
     candidate_llm_assist_in_cron: bool = True
     candidate_llm_assist_cron_max: int = 60
+    # Katalog-Nachladen als Cron-Stage (31.08.2026): loest die
+    # "(nicht im Katalog)"-Faelle der KI-Pruefung direkt im Lauf auf,
+    # statt sie Wolf jede Woche von Hand anlegen zu lassen. Laeuft mit
+    # anwenden=True (echter Lauf, kein Vorschau-Rollback); zusaetzlich
+    # gegated durch FEATURE_KATALOG_NACHLADEN_ENABLED. Deckel je Lauf:
+    # jeder Kandidat kostet hoechstens zwei TMDb-Suchen.
+    katalog_nachladen_in_cron: bool = True
+    katalog_nachladen_cron_max: int = 50
 
     # Empfehlungs-Snapshots (22.08.2026): der Cron friert jede Woche die
     # MACHEN-Empfehlungen des Muster-Berichts ein — die Grundlage fuer

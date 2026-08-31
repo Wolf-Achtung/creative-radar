@@ -34,6 +34,22 @@ export function extractTitleFromNote(note) {
   return (treffer[1] || treffer[2] || treffer[3] || treffer[4] || '').trim();
 }
 
+
+// Wolfs Queue-Befund 31.08.2026: der Zuordnen-Button zeigte „트리거“ —
+// den Original-Titel der koreanischen Serie, deren LOKALTITEL
+// „Trigger“ den Vorschlag ueberhaupt erst gematcht hatte. Die Anzeige
+// bevorzugt den Lokaltitel und haelt das Original als Klammer-Zusatz,
+// damit die Zuordnung nachvollziehbar bleibt.
+export function titelAnzeigeName(title) {
+  if (!title) return '';
+  const original = title.title_original || '';
+  const lokal = (title.title_local || '').trim();
+  if (lokal && lokal.toLowerCase() !== original.trim().toLowerCase()) {
+    return `${lokal} (${original})`;
+  }
+  return original;
+}
+
 export function CandidateDecisionCard({
   asset,
   titles,
@@ -92,7 +108,7 @@ export function CandidateDecisionCard({
               disabled={busy}
               onClick={() => onConfirmCandidate(asset, openCandidate, title)}
             >
-              {bereitsZugeordnet ? `Stattdessen „${title.title_original}“ zuordnen` : `„${title.title_original}“ zuordnen`}
+              {bereitsZugeordnet ? `Stattdessen „${titelAnzeigeName(title)}“ zuordnen` : `„${titelAnzeigeName(title)}“ zuordnen`}
             </button>
           ))}
         </div>
@@ -164,7 +180,7 @@ export function CandidateDecisionCard({
                     disabled={busy}
                     onClick={() => onConfirmCandidate(asset, openCandidate, candidateMatchedTitle)}
                   >
-                    Wirklich zu „{candidateMatchedTitle.title_original}“ umziehen
+                    Wirklich zu „{titelAnzeigeName(candidateMatchedTitle)}“ umziehen
                   </button>
                 ) : (
                   <button
@@ -173,7 +189,7 @@ export function CandidateDecisionCard({
                     disabled={busy}
                     onClick={() => setUmzugScharf(true)}
                   >
-                    Stattdessen „{candidateMatchedTitle.title_original}“ zuordnen …
+                    Stattdessen „{titelAnzeigeName(candidateMatchedTitle)}“ zuordnen …
                   </button>
                 )
               )}
@@ -183,7 +199,7 @@ export function CandidateDecisionCard({
           </div>
         ) : candidateMatchedTitle ? (
           <div className="decision-verdict">
-            <p><strong>„{candidateMatchedTitle.title_original}“</strong> steht in der Titelliste — ein Klick ordnet zu.</p>
+            <p><strong>„{titelAnzeigeName(candidateMatchedTitle)}“</strong> steht in der Titelliste — ein Klick ordnet zu.</p>
             <div className="decision-actions">
               <button
                 type="button"
@@ -191,7 +207,7 @@ export function CandidateDecisionCard({
                 disabled={busy}
                 onClick={() => onConfirmCandidate(asset, openCandidate, candidateMatchedTitle)}
               >
-                „{candidateMatchedTitle.title_original}“ zuordnen
+                „{titelAnzeigeName(candidateMatchedTitle)}“ zuordnen
               </button>
               <button type="button" className="secondary ghost" disabled={busy} onClick={() => onDismissCandidate(openCandidate)}>
                 Verwerfen

@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { searchTitles } from '../format';
-import { CandidateDecisionCard, extractTitleFromNote } from './CandidateDecisionCard';
+import { CandidateDecisionCard, extractTitleFromNote, titelAnzeigeName } from './CandidateDecisionCard';
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -64,7 +64,45 @@ describe('searchTitles', () => {
   });
 });
 
+describe('titelAnzeigeName', () => {
+  // 31.08.2026 — Wolfs Queue-Befund: der Zuordnen-Button zeigte nur den
+  // Originaltitel (z. B. 트리거), obwohl der Match ueber den Lokaltitel
+  // („Trigger") zustande kam. Ohne den Lokaltitel wirkt der Vorschlag
+  // wie ein Fehlgriff und wird von Hand weggeklickt.
+  it('stellt den Lokaltitel voran, wenn er vom Original abweicht', () => {
+    expect(titelAnzeigeName({ title_original: '트리거', title_local: 'Trigger' })).toBe('Trigger (트리거)');
+  });
+
+  it('zeigt nur den Originaltitel, wenn Lokaltitel fehlt oder gleich ist', () => {
+    expect(titelAnzeigeName({ title_original: 'Daniel' })).toBe('Daniel');
+    expect(titelAnzeigeName({ title_original: 'Daniel', title_local: '  daniel ' })).toBe('Daniel');
+    expect(titelAnzeigeName({ title_original: 'Daniel', title_local: '' })).toBe('Daniel');
+    expect(titelAnzeigeName(null)).toBe('');
+  });
+});
+
 describe('CandidateDecisionCard', () => {
+  it('exakter Treffer mit abweichendem Lokaltitel: der Button zeigt beide Namen', () => {
+    const onConfirm = vi.fn();
+    const titel = { id: 't-kr', title_original: '트리거', title_local: 'Trigger' };
+    render(
+      <CandidateDecisionCard
+        asset={basisAsset}
+        titles={[titel]}
+        busy={false}
+        openCandidate={{ ...kandidat, suggested_title: 'trigger', llm_note: null }}
+        candidateMatchedTitle={titel}
+        onConfirmCandidate={onConfirm}
+      />
+    );
+
+    // Der Name taucht doppelt auf (primaerer Button + Live-Suche-Treffer,
+    // weil „trigger" auch ueber den Lokaltitel matcht) — beide zeigen beide Namen.
+    const buttons = screen.getAllByRole('button', { name: '„Trigger (트리거)“ zuordnen' });
+    fireEvent.click(buttons[0]);
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ id: 'a1' }), expect.objectContaining({ id: 'c1' }), titel);
+  });
+
   it('Live-Suche: Tippen zeigt Katalog-Treffer, Klick ordnet zu statt anzulegen', () => {
     const onConfirm = vi.fn();
     const onCreate = vi.fn();
